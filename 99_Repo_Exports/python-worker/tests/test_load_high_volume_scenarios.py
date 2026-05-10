@@ -8,7 +8,7 @@ import time
 import pytest
 
 from core.signal_outbox import OutboxSettings, SignalOutboxPublisher
-from services.signal_dispatcher import SignalDispatcher
+from services.dispatch.dispatcher_app import SignalDispatcher
 import contextlib
 from core.redis_keys import RedisStreams as RS
 

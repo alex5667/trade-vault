@@ -121,12 +121,12 @@ class TestQuotasAndRanking:
             "BTCUSDT": {"range": {"meanR": -0.01}},
             "ETHUSDT": {"range": {"meanR": -0.02}},
             "BNBUSDT": {"range": {"meanR": -0.03}},
-        },
+        }
         seg_range_sym = {
             "BTCUSDT": {"exec_p90": 0.85},  # Highest exec_p90
             "ETHUSDT": {"exec_p90": 0.80},  # Middle
             "BNBUSDT": {"exec_p90": 0.75},  # Lowest exec_p90 (best)
-        },
+        }
 
         result = apply_quotas_and_rank(
             action="RELAX",
@@ -150,7 +150,7 @@ class TestQuotasAndRanking:
             "BTCUSDT": {"trend": {"meanR": -0.01}},  # Best
             "ETHUSDT": {"trend": {"meanR": -0.02}},
             "BNBUSDT": {"trend": {"meanR": -0.03}},  # Worst
-        },
+        }
         seg_range_sym = {}
 
         result = apply_quotas_and_rank(
@@ -176,11 +176,11 @@ class TestQuotasAndRanking:
             "ETHUSDT": {"range": {"meanR": -0.02}},
             "BNBUSDT": {"trend": {"meanR": -0.01}},
             "SOLUSDT": {"trend": {"meanR": -0.02}},
-        },
+        }
         seg_range_sym = {
             "BTCUSDT": {"exec_p90": 0.75},
             "ETHUSDT": {"exec_p90": 0.80},
-        },
+        }
 
         result = apply_quotas_and_rank(
             action="RELAX",

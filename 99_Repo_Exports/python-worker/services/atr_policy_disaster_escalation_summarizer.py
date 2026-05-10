@@ -31,6 +31,7 @@ from typing import Any
 
 import redis
 from prometheus_client import Counter
+from core.redis_keys import RedisStreams as RS
 
 logger = logging.getLogger(__name__)
 
@@ -128,8 +129,8 @@ def build_summary(r: redis.Redis | None = None) -> dict[str, Any]:
     r = r or _rconn()
     lookback_ms = int((time.time() - _lookback_sec()) * 1000)
 
-    esc_events = _read_stream_since(r, "stream:atr_policy:escalations", lookback_ms, _max_events())
-    rb_events = _read_stream_since(r, "stream:atr_policy:rollback_results", lookback_ms, _max_events())
+    esc_events = _read_stream_since(r, RS.ATR_POLICY_ESCALATIONS, lookback_ms, _max_events())
+    rb_events = _read_stream_since(r, RS.ATR_POLICY_ROLLBACK, lookback_ms, _max_events())
 
     all_events = esc_events + rb_events
 

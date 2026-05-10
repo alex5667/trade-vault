@@ -2,7 +2,7 @@ import json
 
 from common.json_safe import to_json_safe
 from common.payload_fingerprint import fingerprint_tradeable_payload
-from services.signal_dispatcher import SignalDispatcher
+from services.dispatch.dispatcher_app import SignalDispatcher
 from tests.fake_redis import FakeRedis
 from core.redis_keys import RedisStreams as RS
 

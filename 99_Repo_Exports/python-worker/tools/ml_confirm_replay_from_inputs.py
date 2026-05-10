@@ -40,7 +40,7 @@ def main() -> None:
     # dummy redis (not used in replay path below)
     import redis
 
-    from services.ml_confirm_gate import MLConfirmGate  # type: ignore
+    from services.ml_confirm import MLConfirmGate  # type: ignore
     r = redis.Redis.from_url(os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0"), decode_responses=True)
     gate = MLConfirmGate(r=r, mode=str(args.mode), fail_policy=str(args.fail_policy),
                          champion_key=os.getenv("ML_CFG_CHAMPION_KEY", "cfg:ml_confirm:champion"),

@@ -184,7 +184,7 @@ def _notify_stream(text: str, severity: str = "crit", sid: str = None, source: s
         "source": source,
         "ts_ms": str(get_ny_time_millis()),
         "severity": severity,
-    },
+    }
     if sid:
         payload["sid"] = sid
     try:

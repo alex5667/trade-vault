@@ -3,6 +3,7 @@ import unittest
 from unittest.mock import MagicMock, call, patch
 
 from services.signal_quality_service import SignalQualityService
+from core.redis_keys import RedisStreams as RS
 
 
 class TestSignalQualityService(unittest.TestCase):
@@ -23,7 +24,7 @@ class TestSignalQualityService(unittest.TestCase):
         pipe = MagicMock()
         self.mock_redis.pipeline.return_value = pipe
 
-        result = self.service.process_closed_trade("trades:closed", "1-0", fields)
+        result = self.service.process_closed_trade(RS.TRADES_CLOSED, "1-0", fields)
         assert result is True
 
         # Verify pipeline
@@ -65,7 +66,7 @@ class TestSignalQualityService(unittest.TestCase):
         pipe = MagicMock()
         self.mock_redis.pipeline.return_value = pipe
 
-        result = self.service.process_closed_trade("trades:closed", "2-0", fields)
+        result = self.service.process_closed_trade(RS.TRADES_CLOSED, "2-0", fields)
         assert result is True
 
         calls = pipe.hincrby.call_args_list
@@ -77,6 +78,6 @@ class TestSignalQualityService(unittest.TestCase):
 
     def test_missing_data(self):
         fields = {"result": "WIN"} # Missing sid/symbol
-        result = self.service.process_closed_trade("trades:closed", "3-0", fields)
+        result = self.service.process_closed_trade(RS.TRADES_CLOSED, "3-0", fields)
         assert result is True # Ack invalid
         assert not self.mock_redis.pipeline.called

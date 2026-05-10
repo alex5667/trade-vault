@@ -38,10 +38,10 @@ class _FakeRedis:
 def _mk_sd():
     # import locally to match repo layout
     # Mock Redis connection before creating instance
-    import services.signal_dispatcher
-    from services.signal_dispatcher import SignalDispatcher
-    original_get_redis = services.signal_dispatcher.get_redis
-    services.signal_dispatcher.get_redis = lambda: _FakeRedis()
+    import services.dispatch.dispatcher_app
+    from services.dispatch.dispatcher_app import SignalDispatcher
+    original_get_redis = services.dispatch.dispatcher_app.get_redis
+    services.dispatch.dispatcher_app.get_redis = lambda: _FakeRedis()
 
     try:
         sd = SignalDispatcher()
@@ -58,7 +58,7 @@ def _mk_sd():
 
         return sd
     finally:
-        services.signal_dispatcher.get_redis = original_get_redis
+        services.dispatch.dispatcher_app.get_redis = original_get_redis
 
 
 def test_no_messages_continue_is_not_unconditional():

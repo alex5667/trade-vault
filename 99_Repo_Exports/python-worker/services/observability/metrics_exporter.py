@@ -8,6 +8,7 @@ import redis
 
 from utils.time_utils import get_ny_time_millis
 import contextlib
+from core.redis_keys import RedisStreams as RS
 
 
 def _now_ms() -> int:
@@ -66,8 +67,8 @@ def collect_metrics(r: redis.Redis) -> str:
     lines: list[str] = []
     symbols_set = os.getenv("MICROBAR_SYMBOLS_SET", "events:microbar_closed:symbols")
     tpl = os.getenv("MICROBAR_PER_SYMBOL_STREAM_TEMPLATE", "events:microbar_closed:{sym}")
-    legacy_key = os.getenv("MICROBAR_LEGACY_STREAM", "events:microbar_closed")
-    majors_key = os.getenv("MICROBAR_MAJORS_STREAM", "events:microbar_closed:majors")
+    legacy_key = os.getenv("MICROBAR_LEGACY_STREAM", RS.EVENTS_MICROBAR_CLOSED)
+    majors_key = os.getenv("MICROBAR_MAJORS_STREAM", RS.EVENTS_MICROBAR_MAJORS)
     max_syms = int(os.getenv("METRICS_MAX_SYMBOLS", "200"))
     tfs_map = _parse_tfs_map(os.getenv("METRICS_TFS_MAP", "1m:1,5m:2,15m:3,1h:4"))
 

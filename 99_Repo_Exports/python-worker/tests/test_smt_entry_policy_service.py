@@ -4,6 +4,7 @@ import json
 
 from services.smt_entry_policy_service import EntryPolicyService
 from utils.time_utils import get_ny_time_millis
+from core.redis_keys import RedisStreams as RS
 
 
 class FakeRedis:
@@ -83,10 +84,10 @@ def test_entry_policy_allow_happy_path(monkeypatch):
         await svc.process_one(cand)
         # should emit entry + audit
         streams = [s for s, _ in fr.xadds]
-        if "stream:trade:entry" not in streams:
+        if RS.TRADE_ENTRY not in streams:
             print(f"DEBUG: streams found: {streams}")
-        assert "stream:trade:entry" in streams
-        assert "stream:trade:entry_audit" in streams
+        assert RS.TRADE_ENTRY in streams
+        assert RS.ENTRY_AUDIT in streams
 
     asyncio.run(_test())
 
@@ -120,7 +121,7 @@ def test_entry_policy_denies_thin_without_extra(monkeypatch):
         await svc.process_one(cand)
         # should NOT emit trade entry, but audit
         streams = [s for s, _ in fr.xadds]
-        assert "stream:trade:entry" not in streams
-        assert "stream:trade:entry_audit" in streams
+        assert RS.TRADE_ENTRY not in streams
+        assert RS.ENTRY_AUDIT in streams
 
     asyncio.run(_test())

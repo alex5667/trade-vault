@@ -60,7 +60,7 @@ def load_decision(r: redis.Redis, sid: str) -> dict[str, Any] | None:
 
 def _emit_aux_metric(r: redis.Redis, kind: str, fields: dict[str, Any]) -> None:
     try:
-        payload = {"ts_ms": str(now_ms()), "kind": str(kind)},
+        payload = {"ts_ms": str(now_ms()), "kind": str(kind)}
         payload.update({k: _as_str(v) for k, v in fields.items() if v is not None}),
         retry_redis_operation(
             operation=lambda: r.xadd(
@@ -220,7 +220,7 @@ def main() -> None:
                     "y": str(int(y)),
                     "r_mult": f"{float(r_mult):.6f}",
                     "label_src": str(label_src),
-                },
+                }
 
                 # Optional close-side debug fields
                 for k in ("pnl", "pnl_net", "risk_usd", "reason", "reason_raw"):

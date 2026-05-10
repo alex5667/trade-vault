@@ -10,7 +10,7 @@ from utils.time_utils import get_ny_time_millis
 import contextlib
 from core.redis_keys import RedisStreams as RS
 
-STREAM = os.getenv("BURST_AUDIT_STREAM", "stream:of:burst_audit")
+STREAM = os.getenv("BURST_AUDIT_STREAM", RS.BURST_AUDIT)
 OUT_KEY_JSON = os.getenv("BURST_REPORT_KEY_JSON", "reports:burst:last")
 OUT_KEY_MD = os.getenv("BURST_REPORT_KEY_MD", "reports:burst:last_md")
 LOOKBACK_MS = int(os.getenv("BURST_REPORT_LOOKBACK_MS", "1200000"))  # 20 min

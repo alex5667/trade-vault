@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import os
 import time
@@ -19,7 +20,6 @@ from orderflow_services.rollback_state_machine_v1 import (
     apply_event,
 )
 from utils.time_utils import get_ny_time_millis
-import contextlib
 
 SM_UP = Gauge("ml_rollback_state_machine_up", "Rollback state machine liveness")
 SM_LAST_RUN_TS = Gauge("ml_rollback_state_machine_last_run_ts_seconds", "Last state machine loop time")
@@ -64,14 +64,10 @@ def _event_from_verify(payload: dict[str, Any]) -> str:
     return EVENT_VERIFY_INCONCLUSIVE
 
 
-async def _persist_pg(database_url: str, payload: dict[str, Any]) -> None:
-    import asyncpg  # type: ignore
-
-    conn = await asyncpg.connect(database_url)
-    try:
+async def _persist_pg(pool: Any, payload: dict[str, Any]) -> None:
+    async with pool.acquire() as conn:
         await conn.execute(
             """
-
             INSERT INTO llm_rollback_state_history (
                 recommendation_id, ts_ms, prev_state, event, next_state, reason_codes_json
             ) VALUES ($1, $2, $3, $4, $5, $6::jsonb)
@@ -84,22 +80,20 @@ async def _persist_pg(database_url: str, payload: dict[str, Any]) -> None:
             json.dumps(payload.get("reason_codes", [])),
         )
         await conn.execute(
-            """,
+            """
             UPDATE llm_recommendations
                SET rollback_state = $2
-             WHERE recommendation_id = $1,
+             WHERE recommendation_id = $1
             """,
             payload["recommendation_id"],
             payload["next_state"],
         )
-    finally:
-        await conn.close()
 
 
 async def _transition(
     r: Any,
     *,
-    database_url: str,
+    pool: Any,
     audit_stream: str,
     state_stream: str,
     state_prefix: str,
@@ -164,9 +158,9 @@ async def _transition(
     )
     SM_TRANSITIONS.labels(event=tr.event, state=tr.next_state).inc()
 
-    if database_url:
+    if pool:
         await _persist_pg(
-            database_url,
+            pool,
             {
                 "recommendation_id": recommendation_id,
                 "ts_ms": ts_ms,
@@ -187,7 +181,7 @@ async def main() -> None:
     try:
         import redis.asyncio as redis  # type: ignore
     except Exception as exc:  # pragma: no cover
-        raise SystemExit(f"redis.asyncio is required: {exc}")
+        raise SystemExit(f"redis.asyncio is required: {exc}") from exc
 
     port = int(os.getenv("ML_ROLLBACK_STATE_MACHINE_METRICS_PORT", "9863"))
     start_http_server(port)
@@ -209,6 +203,14 @@ async def main() -> None:
     await helper.ensure_groups([request_stream, result_stream, verify_stream], start_id="0")
 
     pel_state = {request_stream: "0-0", result_stream: "0-0", verify_stream: "0-0"}
+
+    pool = None
+    if database_url:
+        try:
+            import asyncpg  # type: ignore
+            pool = await asyncpg.create_pool(database_url, min_size=1, max_size=5)
+        except Exception as exc:
+            print(f"Failed to create DB pool: {exc}")
 
     while True:
         SM_UP.set(1)
@@ -261,7 +263,7 @@ async def main() -> None:
                         event = _event_from_verify(payload)
                     await _transition(
                         r,
-                        database_url=database_url,
+                        pool=pool,
                         audit_stream=audit_stream,
                         state_stream=state_stream,
                         state_prefix=state_prefix,

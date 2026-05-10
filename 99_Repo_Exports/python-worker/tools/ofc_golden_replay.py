@@ -21,6 +21,7 @@ import sys
 from types import SimpleNamespace
 from typing import Any
 import contextlib
+from core.of_confirm_engine import OFConfirmEngine
 
 
 def _pctl(values: list[float], p: float) -> float:
@@ -229,7 +230,8 @@ def _compare_dict(a: dict[str, Any], b: dict[str, Any]) -> list[str]:
 
 def main() -> None:
     ap = argparse.ArgumentParser(description="Deterministic golden replay for OFC_CAPTURE NDJSON")
-    ap.add_argument("--capture-path", required=True, help="path to OFC_CAPTURE ndjson")
+    ap.add_argument("--capture-path", required=False, help="path to OFC_CAPTURE ndjson")
+
     ap.add_argument("--max-lines", type=int, default=0, help="max lines to process (0 = all)")
     ap.add_argument("--emit-mismatches", type=int, default=20, help="how many mismatch examples to print in report")
     ap.add_argument("--fail-on-mismatch", action="store_true", help="exit code 2 on mismatch")
@@ -247,12 +249,8 @@ def main() -> None:
     if cwd not in sys.path:
         sys.path.insert(0, cwd)
 
-    try:
-        from core.of_confirm_engine import OFConfirmEngine
-    except Exception as exc:
-        raise SystemExit(f"import_failed core.of_confirm_engine: {exc}")
-
     engine = OFConfirmEngine()
+
     out_f = open(args.write_golden, "w", encoding="utf-8") if args.write_golden else None
 
     n = 0
@@ -369,6 +367,9 @@ def main() -> None:
         "mismatches": mismatches,
     }
     print(json.dumps(report, ensure_ascii=False, indent=2))
+    if n == 0:
+        raise SystemExit("no_rows_in_capture")
+
 
     if args.fail_on_mismatch and n_mismatch > 0:
         raise SystemExit(2)

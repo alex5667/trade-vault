@@ -47,6 +47,8 @@ from handlers.crypto_orderflow.utils.entry_policy_gate import EntryPolicyGate
 
 # NEW: Quality gates (regime/session/liquidity + consistency + data-quality)
 from handlers.crypto_orderflow.utils.pre_publish_gates import ConsistencyGate, HardDataQualityGate, RegimeSessionGate
+from services.orderflow.book_sanity_gate import BookSanityGate
+from services.orderflow.stream_integrity_gate import StreamIntegrityGate
 from handlers.crypto_orderflow.utils.quality_gates import (
     DataQualityGate,
     RegimeSessionLiquidityGate,
@@ -165,6 +167,8 @@ class CryptoOrderFlowInitMixin:
         # Pre-publish quality gates (strong quality uplift + churn reduction)
         # ----------------------------------------------------------------------
         self._hard_quality_gate = HardDataQualityGate.from_env()
+        self._book_sanity_gate = BookSanityGate.from_env()
+        self._stream_integrity_gate = StreamIntegrityGate.from_env()
         self._regime_session_gate = RegimeSessionGate.from_env()
         self._consistency_gate = ConsistencyGate.from_env()
         # --------------------------------------------------------------------
@@ -338,7 +342,10 @@ class CryptoOrderFlowInitMixin:
             cost_gate=self._cost_edge_gate,
             consistency_gate=self._consistency_gate,
             regime_liquidity_gate=self._regime_liquidity_gate,
-            smt_gate=getattr(self, "_smt_leader_gate", None)
+            smt_gate=getattr(self, "_smt_leader_gate", None),
+            dq_gate=self._hard_quality_gate,
+            book_sanity_gate=self._book_sanity_gate,
+            stream_integrity_gate=self._stream_integrity_gate,
         )
 
         # 6. Orchestrator

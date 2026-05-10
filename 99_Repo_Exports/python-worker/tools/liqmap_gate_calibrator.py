@@ -97,7 +97,7 @@ def query_decisions_from_stream(
     r: redis.Redis,
     hours: float,
     symbol_filter: str | None = None,
-    stream: str = "decisions:final",
+    stream: str = RS.DECISIONS_FINAL,
     batch: int = 2000,
 ) -> dict[str, dict[str, Any]]:
     """
@@ -170,7 +170,7 @@ def query_decisions_from_stream(
                 "symbol":      symbol,
                 "direction":   (rec.get("direction") or "").upper(),
                 "ts_ms":       _safe_int(rec.get("ts_ms"), 0),
-            },
+            }
 
     logger.info(f"Decisions with active liqmap gate found: {len(decisions)}")
     return decisions
@@ -221,7 +221,7 @@ def _load_trades(hours: float) -> dict[str, dict[str, Any]]:
                             "r_mult":    _safe_float(t.get("r_mult"), 0.0),
                             "symbol":    (t.get("symbol") or "").upper(),
                             "direction": str(t.get("direction") or t.get("side") or "").upper(),
-                        },
+                        }
                 except Exception:
                     pass
     finally:
@@ -287,7 +287,7 @@ def compute_stats(
             "veto_r_sum":  round(sum(s["veto_r"]), 3),
             "pass_count":  s["pass_count"],
             "pass_r_mean": round(_mean(s["pass_r"]), 3),
-        },
+        }
 
     return {
         "total_decisions": len(decisions),
@@ -355,14 +355,14 @@ def create_and_send_proposal(
             "pass_r_mean":  stats["pass_r_mean"],
             "reasons":      stats["veto_reasons"],
         },
-    },
+    }
 
     bundle = {
         "id":         bundle_id,
         "created_ms": get_ny_time_millis(),
         "ops":        ops,
         "meta":       meta,
-    },
+    }
 
     r.set(f"recs:bundle:{bundle_id}", json.dumps(bundle))
     r.set(f"recs:status:{bundle_id}", "PENDING", ex=86400)
@@ -441,7 +441,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--stream", type=str,
-        default=os.getenv("DECISIONS_FINAL_STREAM", "decisions:final"),
+        default=os.getenv("DECISIONS_FINAL_STREAM", RS.DECISIONS_FINAL),
         help="Redis stream name (default: decisions:final)",
     )
     args = parser.parse_args()

@@ -5,6 +5,7 @@ from unittest.mock import MagicMock
 from orderflow.base_handler_legacy import BaseOrderFlowHandler
 from signal_exec.models import ExecutionPlan, Side
 from signal_exec.repository import SignalRepository
+from core.redis_keys import RedisStreams as RS
 
 
 def _make_plan() -> ExecutionPlan:
@@ -68,7 +69,7 @@ def test_entry_candidate_published():
     redis_mock.xadd.assert_called_once()
     call_args = redis_mock.xadd.call_args
     stream_name = call_args[0][0]
-    assert stream_name == "stream:trade:entry_candidate"
+    assert stream_name == RS.ENTRY_CANDIDATE
 
     payload = json.loads(call_args[0][1]["payload"])
     assert payload["schema_version"] == 1

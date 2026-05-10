@@ -21,6 +21,7 @@ from stream_consumer import StreamConsumer
 from .funding_handler import FundingDataHandler
 from .pairs_handler import PairsDataHandler
 from .ticker_handler import TickerDataHandler
+from core.redis_keys import RedisStreams as RS
 
 
 class BinanceDataHandler:
@@ -249,9 +250,9 @@ class BinanceStreamConsumer(StreamConsumer):
             # sys.stdout.flush()
 
             # Обработка в зависимости от типа стрима
-            if stream_name == 'stream:ticker-24h':
+            if stream_name == RS.TICKER_24H:
                 self.ticker_handler.handle_ticker_stream_data(message_data)
-            elif stream_name == 'stream:funding-rates':
+            elif stream_name == RS.FUNDING_RATES:
                 self.funding_handler.handle_funding_stream_data(message_data)
             elif stream_name == RS.WS_NEW_PAIRS_STREAM:
                 self.pairs_handler.handle_new_pairs_data(message_data)

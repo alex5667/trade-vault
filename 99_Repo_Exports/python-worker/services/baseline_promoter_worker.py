@@ -35,7 +35,7 @@ logger = setup_logger("BaselinePromoterWorker")
 
 
 REDIS_URL = os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
-BOT_CALLBACKS_STREAM = os.getenv("BOT_CALLBACKS_STREAM", "bot:callbacks")
+BOT_CALLBACKS_STREAM = os.getenv("BOT_CALLBACKS_STREAM", RS.BOT_CALLBACKS)
 GROUP = os.getenv("BASELINE_CALLBACKS_GROUP", "baseline-callbacks")
 CONSUMER = os.getenv("BASELINE_CALLBACKS_CONSUMER", "baseline-promoter-1")
 NOTIFY_TELEGRAM_STREAM = os.getenv("NOTIFY_TELEGRAM_STREAM", RS.NOTIFY_TELEGRAM)

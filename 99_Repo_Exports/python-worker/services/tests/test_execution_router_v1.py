@@ -16,6 +16,7 @@ import json
 import os
 import sys
 from pathlib import Path
+from core.redis_keys import RedisStreams as RS
 
 ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
@@ -107,7 +108,7 @@ class TestRouterPassthrough:
         payload = json.dumps({"action": "open", "sid": "s1", "symbol": "BTCUSDT", "side": "LONG"})
         result = router.route_one(payload)
         assert result["status"] == "passthrough"
-        assert r.lists.get("orders:queue:binance") == [payload]
+        assert r.lists.get(RS.ORDERS_QUEUE_BINANCE) == [payload]
 
     def test_passthrough_for_close_action(self):
         r = FakeRedis()
@@ -160,7 +161,7 @@ class TestScaleInRedirect:
         assert result["owner_sid"] == "owner-1"
 
         # Check that a resize payload was pushed to exec queue
-        queue = r.lists.get("orders:queue:binance", [])
+        queue = r.lists.get(RS.ORDERS_QUEUE_BINANCE, [])
         assert len(queue) == 1
         resize = json.loads(queue[0])
         assert resize["action"] == "resize"
@@ -239,7 +240,7 @@ class TestScaleInTpSchema:
         result = router.route_one(payload)
         assert result["status"] == "scale_in"
 
-        resize = json.loads(r.lists["orders:queue:binance"][0])
+        resize = json.loads(r.lists[RS.ORDERS_QUEUE_BINANCE][0])
         assert "tp_qtys_requested_json" in resize
         tp_qtys = json.loads(resize["tp_qtys_requested_json"])
         assert len(tp_qtys) == 3

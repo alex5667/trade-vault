@@ -89,7 +89,7 @@ class TestReadMetricsWindow:
     def test_read_metrics_empty(self):
         r = fakeredis.FakeRedis(decode_responses=True)
         r.xrevrange = MagicMock(return_value=[])
-        rows = read_metrics_window(r, "metrics:of_gate", now_ms() - 3600000, max_scan=1000)
+        rows = read_metrics_window(r, RS.OF_GATE_METRICS, now_ms() - 3600000, max_scan=1000)
         assert rows == []
 
     def test_read_metrics_with_data(self):
@@ -101,7 +101,7 @@ class TestReadMetricsWindow:
             (f"{ts}-1", {"ts_ms": str(ts - 2000), "ok": "0", "latency_us": "8000"}),
         ]
         r.xrevrange = MagicMock(side_effect=[mock_data, []])
-        rows = read_metrics_window(r, "metrics:of_gate", ts - 5000, max_scan=1000)
+        rows = read_metrics_window(r, RS.OF_GATE_METRICS, ts - 5000, max_scan=1000)
         assert len(rows) == 2
         assert rows[0]["_ts_ms"] == ts - 2000
         assert rows[1]["_ts_ms"] == ts - 1000
@@ -297,7 +297,7 @@ class TestMain:
 
     @patch.dict(os.environ, {
         "REDIS_URL": "redis://localhost:6379/0",
-        "OF_GATE_METRICS_STREAM": "metrics:of_gate",
+        "OF_GATE_METRICS_STREAM": RS.OF_GATE_METRICS,
         "META_HARDSTOP_WINDOW_MIN": "30",
         "META_HARDSTOP_STREAK_N": "3",
         "META_CLAMP_CAP_TREND": "0.10",
@@ -319,7 +319,7 @@ class TestMain:
 
     @patch.dict(os.environ, {
         "REDIS_URL": "redis://localhost:6379/0",
-        "OF_GATE_METRICS_STREAM": "metrics:of_gate",
+        "OF_GATE_METRICS_STREAM": RS.OF_GATE_METRICS,
         "META_HARDSTOP_WINDOW_MIN": "30",
         "META_HARDSTOP_STREAK_N": "3",
         "META_CLAMP_CAP_TREND": "0.10",
@@ -344,7 +344,7 @@ class TestMain:
 
     @patch.dict(os.environ, {
         "REDIS_URL": "redis://localhost:6379/0",
-        "OF_GATE_METRICS_STREAM": "metrics:of_gate",
+        "OF_GATE_METRICS_STREAM": RS.OF_GATE_METRICS,
         "META_HARDSTOP_WINDOW_MIN": "30",
         "META_HARDSTOP_STREAK_N": "2",  # Lower threshold for testing
         "META_HARDSTOP_MIN_N": "200",

@@ -2,7 +2,7 @@ from unittest.mock import MagicMock
 
 import redis
 
-from services.ml_confirm_gate import MLConfirmGate
+from services.ml_confirm import MLConfirmGate
 
 
 class MockRedis:

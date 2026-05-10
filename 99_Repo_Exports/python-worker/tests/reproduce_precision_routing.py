@@ -2,6 +2,7 @@
 import json
 import os
 import sys
+from core.redis_keys import RedisStreams as RS
 
 # Add current directory to path so we can import orders_router
 # [AUTOGRAVITY CLEANUP] sys.path.append("/home/alex/front/trade/scanner_infra/python-worker/services")
@@ -99,7 +100,7 @@ def test_pepe_routing():
     route_open(mock_redis, parts)
 
     # Check Result
-    queue = mock_redis.lists.get("orders:queue", [])
+    queue = mock_redis.lists.get(RS.ORDERS_QUEUE, [])
     if not queue:
         print("FAIL: No order in queue")
         return

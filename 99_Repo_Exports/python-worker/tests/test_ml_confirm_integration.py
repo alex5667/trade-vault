@@ -12,8 +12,9 @@ import tempfile
 from unittest.mock import Mock, patch
 
 from core.champion_cfg_validator import validate_champion_cfg
-from services.ml_confirm_gate import MLConfirmGate
+from services.ml_confirm import MLConfirmGate
 from services.observability.ml_confirm_sre_poller import MLConfirmSREPoller
+from core.redis_keys import RedisStreams as RS
 
 
 class TestMLConfirmRedisRestore:
@@ -127,7 +128,7 @@ class TestTBLabelsHealth:
 
         poller = MLConfirmSREPoller(
             r=mock_r,
-            labels_stream="labels:tb",
+            labels_stream=RS.TB_LABELS,
             poll_interval_sec=60,
         )
 
@@ -147,7 +148,7 @@ class TestTBLabelsHealth:
 
         poller = MLConfirmSREPoller(
             r=mock_r,
-            labels_stream="labels:tb",
+            labels_stream=RS.TB_LABELS,
             poll_interval_sec=60,
         )
 

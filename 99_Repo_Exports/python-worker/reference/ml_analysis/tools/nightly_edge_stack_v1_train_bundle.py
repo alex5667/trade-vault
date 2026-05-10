@@ -364,7 +364,7 @@ def main(argv: list | None = None) -> int:
         "promote_applied": 1 if promoted else 0,
         "promote_reason": promote_reason,
         "updated_ts_ms": now_ms(),
-    },
+    }
     # Pin hashes from dataset/train reports for Prometheus alerts
     fr = rep.get("feature_registry") if isinstance(rep, dict) else None,
     if isinstance(fr, dict):

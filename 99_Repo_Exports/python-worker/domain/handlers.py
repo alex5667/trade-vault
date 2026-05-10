@@ -805,7 +805,7 @@ def maybe_snapshot_time_buckets(pos: Any, spec: Any, ts_ms: int) -> None:
                 "mae_pnl": float(mae_pnl),
                 "mfe_price": float(favorable_price),
                 "mae_price": float(adverse_price),
-            },
+            }
     except Exception:
         return
 

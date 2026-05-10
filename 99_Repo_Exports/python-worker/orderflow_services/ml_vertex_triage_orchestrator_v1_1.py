@@ -12,6 +12,7 @@ from orderflow_services.llm_recommendation_guard_v1 import guard_recommendations
 from orderflow_services.providers.vertex_genai_provider_v1_1 import VertexGenAIProviderV1_1
 from utils.time_utils import get_ny_time_millis
 import contextlib
+from core.redis_keys import RedisStreams as RS
 
 try:
     import redis
@@ -71,7 +72,7 @@ def main() -> None:
     r = redis.Redis.from_url(redis_url, decode_responses=True)
     provider = VertexGenAIProviderV1_1(redis_url=redis_url)
     in_stream = os.getenv("ML_ANALYSIS_REQUESTS_COMPACT_STREAM", "stream:ml:analysis_requests_compact")
-    out_results = os.getenv("ML_ANALYSIS_RESULTS_STREAM", "stream:ml:analysis_results")
+    out_results = os.getenv("ML_ANALYSIS_RESULTS_STREAM", RS.ML_ANALYSIS_RESULTS)
     out_recos = os.getenv("ML_RECOMMENDATION_PROPOSALS_STREAM", "stream:ml:recommendation_proposals")
     dlq = os.getenv("ML_ANALYSIS_DLQ_STREAM", "stream:ml:analysis_dlq")
     group = os.getenv("ML_VERTEX_TRIAGE_GROUP", "cg:ml_vertex_triage_v1_1")

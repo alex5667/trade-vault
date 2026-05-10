@@ -30,7 +30,7 @@ class SignalBus:
 
         self.key_detected = "stream:signals:detected"
         self.key_plans = RS.SIGNAL_PLANS
-        self.key_exec_events = "stream:signals:exec_events"
+        self.key_exec_events = RS.SIGNAL_EXEC_EVENTS
         self.key_performance = "stream:signals:performance"
 
     # --- publishing signals ---

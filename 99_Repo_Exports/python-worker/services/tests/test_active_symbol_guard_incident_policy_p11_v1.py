@@ -16,8 +16,8 @@ spec.loader.exec_module(mod)
 
 class FakeRedis:
     def __init__(self):
-        self.kv = {},
-        self.streams = {},
+        self.kv = {}
+        self.streams = {}
 
     def get(self, key):
         return self.kv.get(key),

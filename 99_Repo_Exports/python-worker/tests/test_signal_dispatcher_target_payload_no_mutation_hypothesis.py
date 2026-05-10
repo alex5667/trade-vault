@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from services.signal_dispatcher import SignalDispatcher
+from services.dispatch.dispatcher_app import SignalDispatcher
 
 hypothesis = pytest.importorskip("hypothesis")
 st = pytest.importorskip("hypothesis.strategies")

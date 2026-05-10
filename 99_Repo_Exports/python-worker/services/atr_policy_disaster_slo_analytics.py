@@ -26,6 +26,7 @@ import time
 from typing import Any
 
 import redis
+from core.redis_keys import RedisStreams as RS
 
 try:
     from core.redis_client import get_atr_redis
@@ -158,7 +159,7 @@ def _collect_verify_ok_fail(r: redis.Redis) -> dict[str, int]:
     seen_cohorts_ok: set = set()
     seen_cohorts_fail: set = set()
     try:
-        entries = r.xrevrange("stream:atr_policy:verify_results", count=200)
+        entries = r.xrevrange(RS.ATR_POLICY_VERIFY, count=200)
         for _, fields in entries:
             cohort_key = (
                 fields.get("source", "") + "|" + fields.get("symbol", "") + "|" +
@@ -204,9 +205,9 @@ def collect_once() -> dict[str, Any]:
         ("last_good_coverage", lambda: _collect_last_good_coverage(r)),
         ("verify_ok_fail", lambda: _collect_verify_ok_fail(r)),
         ("stream_lens", lambda: {
-            "rollback_stream_len": _stream_len(r, "stream:atr_policy:rollback_results"),
-            "verify_stream_len": _stream_len(r, "stream:atr_policy:verify_results"),
-            "escalation_stream_len": _stream_len(r, "stream:atr_policy:escalations"),
+            "rollback_stream_len": _stream_len(r, RS.ATR_POLICY_ROLLBACK),
+            "verify_stream_len": _stream_len(r, RS.ATR_POLICY_VERIFY),
+            "escalation_stream_len": _stream_len(r, RS.ATR_POLICY_ESCALATIONS),
         }),
         ("callback_silence_pending", lambda: {
             "callback_silence_pending": _collect_callback_silence_pending(r)

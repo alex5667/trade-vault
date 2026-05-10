@@ -30,11 +30,12 @@ import redis
 from prometheus_client import Counter
 
 from services.atr_policy_state_store import get_conn, transition_snapshot
+from core.redis_keys import RedisStreams as RS
 
 logger = logging.getLogger(__name__)
 
 STREAM_MIRROR = "stream:atr_policy:mirror_results"
-STREAM_ESC = "stream:atr_policy:escalations"
+STREAM_ESC = RS.ATR_POLICY_ESCALATIONS
 
 # ── Prometheus ────────────────────────────────────────────────────────────────
 

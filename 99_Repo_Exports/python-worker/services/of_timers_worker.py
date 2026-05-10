@@ -189,7 +189,7 @@ def _notify_stream(text: str, severity: str = "crit", sid: str = None, source: s
         "source": source,
         "ts_ms": str(get_ny_time_millis()),
         "severity": severity,
-    },
+    }
     if sid:
         payload["sid"] = sid
     try:
@@ -2837,7 +2837,7 @@ def run_tick_time_lag_report() -> bool:
     """Run tick time lag report (Every 2h)."""
     args = [
         "--n", os.getenv("TICK_TIME_LAG_REPORT_N", "50000"),
-        "--stream-key", os.getenv("TICK_TIME_STREAM_KEY", "metrics:tick_time")
+        "--stream-key", os.getenv("TICK_TIME_STREAM_KEY", RS.TICK_TIME)
     ]
     return run_tool("tools.tick_time_lag_report", args, timeout=600)
 
@@ -2846,7 +2846,7 @@ def run_tick_time_autotune() -> bool:
     """Run tick time autotune (Every 4h)."""
     args = [
         "--redis", os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0"),
-        "--stream", os.getenv("TICK_TIME_STREAM_KEY", "metrics:tick_time"),
+        "--stream", os.getenv("TICK_TIME_STREAM_KEY", RS.TICK_TIME),
         "--count", os.getenv("TICK_TIME_AUTOTUNE_COUNT", "50000")
     ]
     return run_tool("tools.tick_time_autotune", args, timeout=600)
@@ -2932,7 +2932,7 @@ def run_edge_stack_v1_dataset_build_fallback() -> bool:
     args = [
         "--redis_url", os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0"),
         "--signal_stream", os.getenv("ML_REPLAY_STREAM", RS.OF_INPUTS),
-        "--closed_stream", os.getenv("TRADES_CLOSED_STREAM", "trades:closed"),
+        "--closed_stream", os.getenv("TRADES_CLOSED_STREAM", RS.TRADES_CLOSED),
         "--archive_dir", os.getenv("ARCHIVE_DIR", "/var/lib/trade/of_inputs_archive"),
         "--signals_count", os.getenv("SIGNALS_COUNT", "200000"),
         "--closes_count", os.getenv("CLOSES_COUNT", "200000"),

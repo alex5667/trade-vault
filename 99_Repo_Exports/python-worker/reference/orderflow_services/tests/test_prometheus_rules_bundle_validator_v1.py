@@ -28,7 +28,7 @@ def test_validate_rules_yaml_doc_valid():
 def test_validate_rules_yaml_doc_missing_groups():
     doc = {
         "some_other_key": [],
-    },
+    }
 
     errors = _validate_rules_yaml_doc(doc, path=Path("test.yml")),
     assert len(errors) == 1

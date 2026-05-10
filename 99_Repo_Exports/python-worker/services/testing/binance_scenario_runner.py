@@ -149,7 +149,7 @@ class BinanceScenarioRunner:
 
     # --- Queue helpers ---
 
-    def queue_raw(self, payload: dict[str, Any], *, queue_key: str = "orders:queue:binance") -> None:
+    def queue_raw(self, payload: dict[str, Any], *, queue_key: str = RS.ORDERS_QUEUE_BINANCE) -> None:
         """Push a raw order payload JSON into the executor queue."""
         self.redis.lpush(queue_key, json.dumps(payload))
 

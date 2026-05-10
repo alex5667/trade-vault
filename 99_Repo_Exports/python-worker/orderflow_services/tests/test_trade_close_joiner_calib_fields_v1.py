@@ -66,12 +66,12 @@ from core.redis_keys import RedisStreams as RS
 def _build_kwargs(**overrides):
     defaults = dict(
         decision_prefix="decision:",
-        trades_closed_stream="trades:closed",
+        trades_closed_stream=RS.TRADES_CLOSED,
         trades_closed_maxlen=100000,
-        close_wait_stream="trades:close_wait",
+        close_wait_stream=RS.TRADES_CLOSE_WAIT,
         close_wait_maxlen=100000,
         dedup_ttl_sec=86400,
-        ml_replay_stream="ml_replay_inputs_v1",
+        ml_replay_stream=RS.ML_REPLAY_INPUTS,
         ml_replay_maxlen=100000,
         write_ml_replay=False,
         of_inputs_stream=RS.OF_INPUTS,
@@ -126,7 +126,7 @@ async def test_calib_fields_from_close_payload():
     assert reason == "ok"
 
     # Find the trades:closed write
-    tc = [c for c in _xadd_calls if c["stream"] == "trades:closed"]
+    tc = [c for c in _xadd_calls if c["stream"] == RS.TRADES_CLOSED]
     assert len(tc) == 1
 
     payload = json.loads(tc[0]["fields"]["payload"])
@@ -181,7 +181,7 @@ async def test_calib_fields_from_signal_payload_nested():
     ok, reason = await _handle_close(r, close, **_build_kwargs())
     assert ok is True
 
-    tc = [c for c in _xadd_calls if c["stream"] == "trades:closed"]
+    tc = [c for c in _xadd_calls if c["stream"] == RS.TRADES_CLOSED]
     assert len(tc) == 1
 
     payload = json.loads(tc[0]["fields"]["payload"])
@@ -223,7 +223,7 @@ async def test_no_calib_fields_when_absent():
     ok, _ = await _handle_close(r, close, **_build_kwargs())
     assert ok is True
 
-    tc = [c for c in _xadd_calls if c["stream"] == "trades:closed"]
+    tc = [c for c in _xadd_calls if c["stream"] == RS.TRADES_CLOSED]
     payload = json.loads(tc[0]["fields"]["payload"])
 
     # None of the calib fields should be present

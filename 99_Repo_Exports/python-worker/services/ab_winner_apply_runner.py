@@ -10,6 +10,7 @@ import redis.asyncio as aioredis
 from services.ab_winner_apply_lib import apply_sid_if_ready
 from services.orderflow.auto_apply_guard import get_block_state
 from utils.time_utils import get_ny_time_millis
+from core.redis_keys import RedisStreams as RS
 
 try:
     from prometheus_client import Counter, Gauge, start_http_server
@@ -32,7 +33,7 @@ class ABWinnerApplyRunner:
         self.approvals_prefix = os.getenv("AB_WINNER_APPROVALS_PREFIX", "cfg:suggestions:entry_policy:approvals")
         self.applied_prefix = os.getenv("AB_WINNER_APPLIED_PREFIX", "cfg:suggestions:entry_policy:applied")
 
-        self.audit_stream = os.getenv("CFG_APPLY_AUDIT_STREAM", "stream:trade:entry_audit")
+        self.audit_stream = os.getenv("CFG_APPLY_AUDIT_STREAM", RS.ENTRY_AUDIT)
 
         self.interval_sec = float(os.getenv("AB_APPLY_RUNNER_INTERVAL_SEC", "10"))
         self.scan_count = int(os.getenv("AB_APPLY_RUNNER_SCAN_COUNT", "200"))
@@ -46,7 +47,7 @@ class ABWinnerApplyRunner:
         self._scan_cursor = 0
 
         # Optional: ops/alerts stream
-        self.ops_alert_stream = os.getenv("OPS_ALERT_STREAM", "stream:ops:alerts")
+        self.ops_alert_stream = os.getenv("OPS_ALERT_STREAM", RS.OPS_ALERTS)
         self.alert_on_locked = bool(int(os.getenv("AB_APPLY_ALERT_ON_LOCKED", "1")))
         self.lock_alert_gap_sec = int(os.getenv("AB_APPLY_LOCK_ALERT_GAP_SEC", "600"))  # 10m
         self._last_lock_alert_ts_ms: dict[str, int] = {}

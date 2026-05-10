@@ -68,7 +68,7 @@ async def main():
     print(f"Set counter to {trigger_count - 1}. Publishing trade to stream to hit threshold {trigger_count}...")
 
     # Add to stream
-    await r.xadd("trades:closed", trade_data)
+    await r.xadd(RS.TRADES_CLOSED, trade_data)
 
     print(f"Published fake trade {order_id}. Polling notify stream...")
 

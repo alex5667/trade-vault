@@ -89,7 +89,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     ap.add_argument("--redis_url", default=os.getenv("REDIS_URL", "redis://localhost:6379/0"))
     ap.add_argument("--signal_stream", default=os.getenv("SIGNAL_STREAM", RS.OF_INPUTS))
-    ap.add_argument("--closed_stream", default=os.getenv("CLOSED_STREAM", "trades:closed"))
+    ap.add_argument("--closed_stream", default=os.getenv("CLOSED_STREAM", RS.TRADES_CLOSED))
 
     ap.add_argument("--signals_count", type=int, default=int(os.getenv("SIGNALS_COUNT", "200000")))
     ap.add_argument("--closes_count", type=int, default=int(os.getenv("CLOSES_COUNT", "200000")))

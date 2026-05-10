@@ -2,6 +2,7 @@ from __future__ import annotations
 
 #!/usr/bin/env python3
 from utils.time_utils import get_ny_time_millis
+from core.redis_keys import RedisStreams as RS
 
 """Phase-0 ML runtime telemetry rollup worker.
 
@@ -47,7 +48,7 @@ except Exception:  # pragma: no cover
 
 LATENCY_BOUNDS_MS: list[float] = [0.25, 0.5, 1.0, 2.0, 5.0, 10.0, 20.0, 50.0, 100.0, 250.0, 500.0, 1000.0]
 
-STREAM = os.getenv("ML_CONFIRM_METRICS_STREAM", "metrics:ml_confirm")
+STREAM = os.getenv("ML_CONFIRM_METRICS_STREAM", RS.ML_CONFIRM_METRICS)
 GROUP = os.getenv("ML_HEALTH_GROUP", "cg:ml_health_rollup_v1")
 CONSUMER = os.getenv("ML_HEALTH_CONSUMER", os.getenv("HOSTNAME", "ml-health-rollup-v1"))
 OUT_STREAM = os.getenv("ML_HEALTH_OUT_STREAM", "stream:ml:health_snapshot")

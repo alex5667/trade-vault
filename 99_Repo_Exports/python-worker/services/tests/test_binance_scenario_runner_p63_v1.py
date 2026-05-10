@@ -72,16 +72,16 @@ def _configure_env(
         # Redis / stream keys
         "REDIS_URL": "redis://mock/0",
         "EXEC_STREAM": RS.ORDERS_EXEC,
-        "ORDERS_QUEUE_BINANCE": "orders:queue:binance",
-        "ORDERS_QUEUE_BINANCE_PROCESSING": "orders:queue:binance:processing",
-        "ORDERS_QUEUE_BINANCE_DLQ": "orders:queue:binance:dlq",
+        "ORDERS_QUEUE_BINANCE": RS.ORDERS_QUEUE_BINANCE,
+        "ORDERS_QUEUE_BINANCE_PROCESSING": RS.ORDERS_QUEUE_BINANCE_PROCESSING,
+        "ORDERS_QUEUE_BINANCE_DLQ": RS.ORDERS_QUEUE_BINANCE_DLQ,
         "USER_STREAM_STREAM": "orders:user_stream",
         "USER_STREAM_CACHE_PREFIX": "orders:user_stream:",
         # Execution policy
         "EXEC_POLICY_DEFAULT": "MAKER_FIRST" if maker else "SAFETY_FIRST",
         "EXEC_POLICY_MAKER_ALLOWED_SYMBOLS": "BTCUSDT" if maker else "DO_NOT_USE",
         "EXEC_FORCE_SAFETY_FIRST": "0" if maker else "1",
-    },
+    }
     for k, v in values.items():
         monkeypatch.setenv(k, v)
 
@@ -122,7 +122,7 @@ def test_scripted_timeline_partial_restart_trigger_delayed_fill(monkeypatch):
             "type": "MARKET",
             "sl": 95,
             "tp_levels": [101],
-        },
+        }
 
         # Script the entry order to return PARTIAL_FILLED on first query
         mock.state.set_plain_order_script(
@@ -202,7 +202,7 @@ def test_degraded_rest_with_live_user_stream_bridge_reconciles_without_query(mon
             "type": "MARKET",
             "sl": 95,
             "tp_levels": [110],
-        },
+        }
 
         entry_cid = _make_cid(sid, "entry")
         # POST returns 503 unknown but order IS created (simulates Binance fire-and-error)
@@ -234,7 +234,7 @@ def test_degraded_rest_with_live_user_stream_bridge_reconciles_without_query(mon
         assert len(post_order_reqs) == 1
 
         # DLQ must be empty
-        assert runner.redis.lrange("orders:queue:binance:dlq", 0, -1) == []
+        assert runner.redis.lrange(RS.ORDERS_QUEUE_BINANCE_DLQ, 0, -1) == []
 
         # State key must exist and be in a protected FSM state
         state_raw = runner.redis.get(f"orders:state:{sid}")
@@ -295,7 +295,7 @@ def test_burst_with_worker_reconnect_smoke_pack(monkeypatch):
         assert first_events > 0, "first batch should have WS events from fills"
         assert second_events > 0, "second batch (after reconnect) should have WS events"
 
-        assert runner.redis.lrange("orders:queue:binance:dlq", 0, -1) == [], "DLQ must be empty"
+        assert runner.redis.lrange(RS.ORDERS_QUEUE_BINANCE_DLQ, 0, -1) == [], "DLQ must be empty"
 
         exec_open = [ev for ev in runner.exec_events() if ev.get("action") == "open"]
         assert len(exec_open) >= 12, f"expected ≥12 open events, got {len(exec_open)}"

@@ -20,6 +20,7 @@ from services.observability.metrics_registry import (
     ml_confirm_errors_total,
     ml_missing_critical_total,
 )
+from core.redis_keys import RedisStreams as RS
 
 # tb_labels_xlen is defined locally (NOT imported from metrics_registry)
 # to ensure it is ONLY exported by the ml-confirm-sre-poller job.
@@ -30,7 +31,7 @@ log = logging.getLogger("ml_confirm_sre_poller")
 
 
 CFG_KEY = os.getenv("ML_CONFIRM_CHAMPION_KEY", "cfg:ml_confirm:champion")
-LABELS_STREAM = os.getenv("TB_LABELS_STREAM", "labels:tb")
+LABELS_STREAM = os.getenv("TB_LABELS_STREAM", RS.TB_LABELS)
 POLL_INTERVAL_SEC = float(os.getenv("ML_CONFIRM_SRE_POLL_INTERVAL_SEC", "5"))
 DEFAULT_KIND = os.getenv("ML_CONFIRM_KIND_DEFAULT", "util_mh_v1")
 

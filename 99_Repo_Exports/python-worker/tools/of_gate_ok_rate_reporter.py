@@ -302,7 +302,7 @@ def _notify(r: redis.Redis, stream: str, text: str) -> None:
 def main():
     parser = argparse.ArgumentParser(description="Hourly OK Rate Telegram Reporter")
     parser.add_argument("--redis-url", default=os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0"))
-    parser.add_argument("--metrics-stream", default=os.getenv("OF_GATE_METRICS_STREAM", "metrics:of_gate"))
+    parser.add_argument("--metrics-stream", default=os.getenv("OF_GATE_METRICS_STREAM", RS.OF_GATE_METRICS))
     parser.add_argument("--notify-stream", default=os.getenv("NOTIFY_TELEGRAM_STREAM", RS.NOTIFY_TELEGRAM))
     parser.add_argument("--window-hours", type=float, default=float(os.getenv("OK_RATE_REPORT_WINDOW_HOURS", "1.0")))
     parser.add_argument("--interval-sec", type=int, default=int(os.getenv("OK_RATE_REPORT_INTERVAL_SEC", "3600")))

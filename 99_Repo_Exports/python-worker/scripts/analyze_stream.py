@@ -1,9 +1,10 @@
 
 import redis
+from core.redis_keys import RedisStreams as RS
 
 r = redis.Redis(host='localhost', port=6379, db=0)
 try:
-    stream_name = 'metrics:of_gate'
+    stream_name = RS.OF_GATE_METRICS
     entries = r.xrange(stream_name, count=1000)
 
     if not entries:

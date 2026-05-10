@@ -102,8 +102,8 @@ def main() -> None:
     redis_url = os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
     r = redis.Redis.from_url(redis_url, decode_responses=True)
 
-    src_stream = os.getenv("TRADES_CLOSED_STREAM", "trades:closed")
-    out_stream = os.getenv("ML_OUTCOME_METRICS_STREAM", "metrics:ml_outcome")
+    src_stream = os.getenv("TRADES_CLOSED_STREAM", RS.TRADES_CLOSED)
+    out_stream = os.getenv("ML_OUTCOME_METRICS_STREAM", RS.ML_OUTCOME_METRICS)
 
     group = os.getenv("ML_OUTCOME_GROUP", "ml_outcome")
     consumer = os.getenv("ML_OUTCOME_CONSUMER", f"c-{os.getpid()}")
@@ -217,7 +217,7 @@ def main() -> None:
                     "y": str(int(y)),
                     "r_mult": f"{float(r_mult):.6f}",
                     "label_src": str(label_src),
-                },
+                }
 
                 # Optional close-side debug fields
                 for k in ("pnl", "pnl_net", "risk_usd", "reason", "reason_raw"):

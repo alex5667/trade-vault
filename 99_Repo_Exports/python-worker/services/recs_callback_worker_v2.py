@@ -354,7 +354,7 @@ def main() -> None:
     ttl = int(os.getenv("RECS_TTL_SEC", "86400") or 86400)
     secret = os.getenv("RECS_HMAC_SECRET", "CHANGE_ME")
 
-    stream = os.getenv("BOT_CALLBACKS_STREAM", "bot:callbacks")
+    stream = os.getenv("BOT_CALLBACKS_STREAM", RS.BOT_CALLBACKS)
     group = os.getenv("BOT_CALLBACKS_GROUP", "recs-callback-worker-v2")
     consumer = os.getenv("BOT_CALLBACKS_CONSUMER", "c1")
 

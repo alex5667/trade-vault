@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+from core.redis_keys import RedisStreams as RS
 
 """
 redis_lag_monitor.py — мониторинг Consumer Lag по всем Redis Streams тиков.
@@ -202,7 +203,7 @@ def print_table(infos: list[StreamInfo], warn_lag: int, warn_pending: int, warn_
     has_warn = False
 
     for si in infos:
-        sym = si.name.replace("stream:tick_", "")
+        sym = si.name.replace(RS.TB_TICK_PREFIX, "")
         if si.error:
             print(f"  {_color(si.name, RED):<35} {_color('ERROR: ' + si.error, RED)}")
             continue

@@ -14,6 +14,7 @@ from services.archivers.stream_archiver import (
 _MIG_PATH = os.path.join(
     os.path.dirname(__file__), "..", "orderflow_services", "of_gate_history_migration_v1.py"
 )
+from core.redis_keys import RedisStreams as RS
 _mig_spec = importlib.util.spec_from_file_location("_of_gate_mig", _MIG_PATH)
 _mig = importlib.util.module_from_spec(_mig_spec)
 _mig_spec.loader.exec_module(_mig)
@@ -135,7 +136,7 @@ class TestOfGateRow:
 
 class TestOfGateQuarantineRow:
 
-    SOURCE = "quarantined:metrics:of_gate"
+    SOURCE = RS.OF_GATE_METRICS_QUARANTINE
 
     def test_basic_fields(self):
         archiver = _make_archiver()
@@ -222,8 +223,8 @@ class TestStreamArchiverP3Config:
 
     def test_of_gate_streams(self):
         archiver = _make_archiver()
-        assert archiver.of_gate_stream == "metrics:of_gate"
-        assert archiver.of_gate_q_stream == "quarantined:metrics:of_gate"
+        assert archiver.of_gate_stream == RS.OF_GATE_METRICS
+        assert archiver.of_gate_q_stream == RS.OF_GATE_METRICS_QUARANTINE
 
     def test_of_gate_consumer_defaults(self):
         archiver = _make_archiver()
@@ -278,7 +279,7 @@ class TestPgWriterInserts:
 
     def test_insert_of_gate_metrics_quarantine_returns_count(self):
         pg = PgWriter(PgCfg(dsn="postgresql://fake"))
-        rows = [("id1", 1700000000, object(), "quarantined:metrics:of_gate",
+        rows = [("id1", 1700000000, object(), RS.OF_GATE_METRICS_QUARANTINE,
                  "BTCUSDT", "na", 4, 0, 0, "ts_future", None, "{}")]
         with patch.object(pg, "_conn") as mock_conn:
             ctx = MagicMock()

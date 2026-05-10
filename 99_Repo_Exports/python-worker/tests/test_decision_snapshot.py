@@ -1,6 +1,7 @@
 """Tests for decision_snapshot (A2): build + publish contract."""
 import unittest
 from types import SimpleNamespace
+from core.redis_keys import RedisStreams as RS
 
 
 class DummyStreamSink:
@@ -52,12 +53,12 @@ class TestDecisionSnapshot(unittest.IsolatedAsyncioTestCase):
         await publish_decision_snapshot(
             publisher=pub,
             snapshot=snap,
-            stream='events:decision_snapshot',
+            stream=RS.DECISION_SNAPSHOT,
             maxlen=1000,
             symbol='BTCUSDT',
         )
         self.assertEqual(len(pub.calls), 1)
-        self.assertEqual(pub.calls[0][0], 'events:decision_snapshot')
+        self.assertEqual(pub.calls[0][0], RS.DECISION_SNAPSHOT)
         self.assertEqual(pub.calls[0][2], 'BTCUSDT')
 
     async def test_publish_fail_open(self):

@@ -222,7 +222,7 @@ def _xadd_event(r: Any, *, sym: str, bucket: str, meta: dict) -> None:
             "sym": str(sym),
             "bucket": str(bucket),
             "meta": json.dumps(meta, separators=(",", ":"))[:3500],
-        },
+        }
         r.xadd(stream, fields, maxlen=50000)
     except Exception:
         return
@@ -302,7 +302,7 @@ def main() -> int:
                     "resid_p95_bps": p95,
                     "resid_p99_bps": p99,
                     "edge_neg_share": neg,
-                },
+                }
                 pipe = r.pipeline(transaction=False)
                 pipe.set(block_key, "1")
                 pipe.set(meta_key, json.dumps(meta, separators=(",", ":")))

@@ -21,7 +21,7 @@ from typing import Any
 SECRET_KEY_RE = re.compile(
     r"(api[_-]?key|secret|token|password|passphrase|authorization|cookie)",
     re.IGNORECASE,
-),
+)
 
 MAX_STRING_CHARS = 2048
 MAX_LIST_ITEMS = 50
@@ -1057,7 +1057,7 @@ def build_deepseek_request(
         subtype=subtype,
         source_service=source_service,
         payload=payload,
-    ),
+    )
     spec = PROMPT_REGISTRY[routed]
     profile = MODEL_PROFILE_REGISTRY[spec.profile]
     user_prompt = render_user_prompt(routed, source_service, payload)

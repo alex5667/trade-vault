@@ -18,6 +18,7 @@ from services.ab_winner_approval import (
 )
 from utils.time_utils import get_ny_time_millis
 import contextlib
+from core.redis_keys import RedisStreams as RS
 
 
 def _now_ms() -> int:
@@ -95,7 +96,7 @@ async def main() -> int:
         return 6
 
     # Best-effort audit
-    audit_stream = os.getenv("CFG_APPLY_AUDIT_STREAM", "stream:trade:entry_audit")
+    audit_stream = os.getenv("CFG_APPLY_AUDIT_STREAM", RS.ENTRY_AUDIT)
     try:
         payload = {
             "ts_ms": _now_ms(),

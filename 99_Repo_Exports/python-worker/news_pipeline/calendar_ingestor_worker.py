@@ -10,6 +10,7 @@ from typing import Any
 import redis
 
 from utils.time_utils import get_ny_time_millis
+from core.redis_keys import RedisStreams as RS
 
 log = logging.getLogger("calendar_ingestor")
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
@@ -38,7 +39,7 @@ REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 LEADER_KEY = os.getenv("CALENDAR_INGESTOR_LEADER_KEY", "calendar:ingestor:leader")
 LEADER_TTL_SEC = float(os.getenv("CALENDAR_INGESTOR_LEADER_TTL_SEC", "8"))
 
-STREAM = os.getenv("CALENDAR_EVENTS_STREAM", "calendar:events")
+STREAM = os.getenv("CALENDAR_EVENTS_STREAM", RS.CALENDAR_EVENTS)
 DLQ = os.getenv("CALENDAR_INGESTOR_DLQ", "calendar:events:dlq")
 
 POLL_SEC = float(os.getenv("FMP_CALENDAR_POLL_SEC", "60"))

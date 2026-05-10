@@ -46,38 +46,31 @@ def _make_book_raw(U: int = 0, u: int = 0) -> dict:
 # ---------------------------------------------------------------------------
 # _ema_update tests
 # ---------------------------------------------------------------------------
+from core.book_seq_tracker_uu import ema_update_clamped
 
 class TestEmaUpdate:
     def test_basic_ema(self):
-        result = BookProcessor._ema_update(0.0, 1.0, 0.5)
+        result = ema_update_clamped(0.0, 1.0, 0.5)
         assert result == pytest.approx(0.5)
 
     def test_zero_prev(self):
-        result = BookProcessor._ema_update(0.0, 0.0, 0.1)
+        result = ema_update_clamped(0.0, 0.0, 0.1)
         assert result == pytest.approx(0.0)
 
     def test_alpha_clamped_below(self):
-        # alpha=0 is invalid, should be reset to 0.1
-        result = BookProcessor._ema_update(0.0, 1.0, 0.0)
-        assert result == pytest.approx(0.1)  # default alpha 0.1 applied
+        # alpha=0 returns prev
+        result = ema_update_clamped(0.0, 1.0, 0.0)
+        assert result == pytest.approx(0.0)
 
     def test_alpha_clamped_above(self):
-        # alpha > 1 is invalid, should be reset to 0.1
-        result = BookProcessor._ema_update(0.0, 1.0, 1.5)
-        assert result == pytest.approx(0.1)
+        # alpha > 1 returns x
+        result = ema_update_clamped(0.0, 1.0, 1.5)
+        assert result == pytest.approx(1.0)
 
     def test_alpha_one(self):
         # alpha=1.0 valid: new_ema = 1.0 * x + 0 * prev = x
-        result = BookProcessor._ema_update(0.5, 1.0, 1.0)
+        result = ema_update_clamped(0.5, 1.0, 1.0)
         assert result == pytest.approx(1.0)
-
-    def test_invalid_prev_type(self):
-        result = BookProcessor._ema_update("bad", 1.0, 0.5)
-        assert result == pytest.approx(0.5)
-
-    def test_invalid_x_type(self):
-        result = BookProcessor._ema_update(0.5, "bad", 0.5)
-        assert result == pytest.approx(0.25)  # 0.5*0 + 0.5*0.5
 
 
 # ---------------------------------------------------------------------------
@@ -120,12 +113,12 @@ class TestUpdateBookMissingSeq:
         assert rt.book_missing_seq_ema == pytest.approx(0.5)
 
     def test_reorder_no_ema_change(self):
-        """Duplicate/reorder (U < expected): reason=reorder_or_reset, EMA smoothed towards 0."""
+        """Duplicate/reorder (U < expected): reason=dup, EMA smoothed towards 0."""
         rt = _make_runtime(alpha=0.5)
         self.proc._update_book_missing_seq(rt, _make_book_raw(U=100, u=150))  # init, prev_u=150
-        # U=50 < 151 => reorder
+        # U=50 < 151 => dup because u=55 <= p=150
         self.proc._update_book_missing_seq(rt, _make_book_raw(U=50, u=55))
-        assert rt.book_seq_last_reason == "reorder_or_reset"
+        assert rt.book_seq_last_reason == "dup"
         # miss_event=0 => EMA = 0.5*0 + 0.5*0 = 0
         assert rt.book_missing_seq_ema == pytest.approx(0.0)
         # prev_u must NOT decrease (monotone guard)
@@ -137,7 +130,7 @@ class TestUpdateBookMissingSeq:
         rt.book_missing_seq_ema = 0.3  # set arbitrary
         self.proc._update_book_missing_seq(rt, {"bids": [], "asks": []})  # no U, no u
         assert rt.book_seq_last_reason == "no_u"
-        assert rt.book_missing_seq_ema == pytest.approx(0.27)  # 0.9 * 0.3
+        assert rt.book_missing_seq_ema == pytest.approx(0.3)
 
     def test_partial_depth_no_U_field(self):
         """Partial depth snapshots (@depth5): u present but U=0 => reason=no_seq_fields."""

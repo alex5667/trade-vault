@@ -199,8 +199,8 @@ def _collect_analytics(
     max_scan: int,
     min_r_target: float = 0.0,
 ) -> dict[str, float]:
-    decisions_stream = os.getenv("DECISIONS_FINAL_STREAM", "decisions:final")
-    trades_stream = os.getenv("ML_OUTCOME_STREAM", "trades:closed")
+    decisions_stream = os.getenv("DECISIONS_FINAL_STREAM", RS.DECISIONS_FINAL)
+    trades_stream = os.getenv("ML_OUTCOME_STREAM", RS.TRADES_CLOSED)
 
     since_ms = _now_ms() - int(hours * 3600 * 1000)
     logger.info(f"Reading {decisions_stream} since {hours}h ago | max_scan={max_scan}")

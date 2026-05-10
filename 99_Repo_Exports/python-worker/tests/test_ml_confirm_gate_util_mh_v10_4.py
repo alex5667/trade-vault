@@ -14,7 +14,7 @@ Tests:
 import numpy as np
 import pytest
 
-from services.ml_confirm_gate import MLConfirmGate, _scenario_norm
+from services.ml_confirm import MLConfirmGate, _scenario_norm
 
 
 class DummyUtilMH:

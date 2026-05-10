@@ -4,6 +4,7 @@ Verifies that I/O operations happen outside self._lock.
 """
 
 import types
+from tests.trade_monitor_test_utils import create_mock_trade_monitor
 
 
 def test_on_tick_structure_basic():
@@ -14,27 +15,10 @@ def test_on_tick_structure_basic():
     from services.trade_monitor import TradeMonitorService
 
     # Build minimal service
-    svc = TradeMonitorService.__new__(TradeMonitorService)
+    svc = create_mock_trade_monitor()
 
     # Add required attributes
-    svc._lock = type('MockLock', (), {'_is_owned': lambda: False, '__enter__': lambda self: None, '__exit__': lambda self, *a: None})()
-    svc._lock_is_owned = lambda: False
-    svc._use_symbol_locks = False
-    svc._symbol_locks_guard = type('MockLock', (), {})()
-    svc._symbol_locks = {}
-    svc._get_symbol_lock = lambda self, symbol: type('MockLock', (), {'__enter__': lambda: None, '__exit__': lambda *a: None})()
-    svc._update_last_price = lambda tick: None
-    svc._housekeep_expired_positions = lambda ts_ms: None
-    svc._run_io_tasks = lambda tasks: None
     svc._get_spec = lambda symbol: type('Spec', (), {})()
-    svc.open_positions = {}
-    svc.pos_by_sid = {}
-    svc.open_by_symbol = {}
-    svc._last_price_by_symbol = {}
-    svc.tp_ratios = (0.3, 0.35, 0.35)
-    svc.fill_policy = "level"
-    svc._index_remove = lambda pos: None
-    svc.regime_guard = None
     svc.repo = type('Repo', (), {})()
 
     # Mock tick building
@@ -57,11 +41,7 @@ def test_per_symbol_locks_enabled():
     """
     from services.trade_monitor import TradeMonitorService
 
-    svc = TradeMonitorService.__new__(TradeMonitorService)
-    svc._lock = type('MockLock', (), {})()
-    svc._use_symbol_locks = True
-    svc._symbol_locks_guard = type('MockLock', (), {'__enter__': lambda self: None, '__exit__': lambda self, *a: None})()
-    svc._symbol_locks = {}
+    svc = create_mock_trade_monitor()
 
     lock1 = svc._get_symbol_lock("BTCUSDT")
     lock2 = svc._get_symbol_lock("ETHUSDT")
@@ -82,13 +62,9 @@ def test_per_symbol_locks_disabled():
     """
     from services.trade_monitor import TradeMonitorService
 
-    svc = TradeMonitorService.__new__(TradeMonitorService)
-    svc._lock = type('MockLock', (), {})()
-    svc._use_symbol_locks = False
-    svc._symbol_locks_guard = type('MockLock', (), {})()
-    svc._symbol_locks = {}
-    svc._get_symbol_lock = lambda symbol: type('MockLock', (), {})()
+    svc = create_mock_trade_monitor()
 
     # Should not create locks when disabled
-    lock = svc._get_symbol_lock("BTCUSDT")
-    assert "BTCUSDT" not in svc._symbol_locks
+    ctx = svc._symbol_ctx("BTCUSDT")
+    import contextlib
+    assert isinstance(ctx, contextlib.nullcontext)

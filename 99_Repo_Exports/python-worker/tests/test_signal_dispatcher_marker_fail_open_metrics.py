@@ -16,7 +16,7 @@ class _RedisBoom:
 
 
 def test_done_marker_set_fail_open_increments_metric():
-    from services.signal_dispatcher import SignalDispatcher
+    from services.dispatch.dispatcher_app import SignalDispatcher
 
     sd = SignalDispatcher.__new__(SignalDispatcher)  # bypass heavy __init__
     sd.redis = _RedisBoom()

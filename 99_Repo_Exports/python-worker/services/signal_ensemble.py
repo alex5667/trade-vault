@@ -257,7 +257,7 @@ def build_microstructure_vote(
         "obi_avg": obi_avg,
         "book_churn": book_churn,
         "cl_conf": cl_conf,
-    },
+    }
 
     return SignalVote(
         source="microstructure",
@@ -403,7 +403,7 @@ class SignalEnsemble:
                 "weighted_confidence": round(sig.confidence * w, 4),
                 "veto": sig.veto,
                 "meta": sig.meta,
-            },
+            }
             active_votes[source] = vote_details[source]
 
         # --- Veto check ---

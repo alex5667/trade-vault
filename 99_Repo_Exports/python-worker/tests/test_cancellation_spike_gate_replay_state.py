@@ -42,7 +42,7 @@ def test_export_import_state_preserves_veto_behavior():
     st1 = g1.export_state(symbol=sym)
 
     g2 = CancellationSpikeGate(params=params)
-    g2.import_state(symbol=sym, state=st0, replace=True)
+    g2.import_state(state=st0, replace=True)
     d2 = _check(g2, sym=sym, direction="LONG", bid=40.0, ask=10.0, bucket_id=100)
     assert d2.allow == d1.allow
     assert d2.reason == d1.reason

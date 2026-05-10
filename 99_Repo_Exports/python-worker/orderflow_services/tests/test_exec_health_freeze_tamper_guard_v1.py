@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from orderflow_services.exec_health_freeze_tamper_guard_v1 import Guard, should_refreeze
 from utils.time_utils import get_ny_time_millis
+from core.redis_keys import RedisStreams as RS
 
 
 class FakeRedis:
@@ -59,9 +60,9 @@ def _guard() -> Guard:
     g.control_key = 'cfg:orderflow:exec_health:freeze_control:v1'
     g.state_key = 'metrics:exec_health:slo:autoguard:state'
     g.freeze_key = 'cfg:orderflow:exec_health:auto_freeze:v1'
-    g.event_stream = 'ops:exec_health:freeze_events:v1'
+    g.event_stream = RS.EXEC_HEALTH_FREEZE_EVENTS
     g.request_stream = 'ops:exec_health:freeze_requests:v1'
-    g.notify_stream = 'notify:telegram'
+    g.notify_stream = RS.NOTIFY_TELEGRAM
     g.guard_state_key = 'metrics:exec_health:freeze_tamper_guard:last'
     g.interval_s = 10
     g.cooldown_s = 300
@@ -92,7 +93,7 @@ def test_guard_refreezes_on_direct_hash_edit_without_request_log() -> None:
     assert control['control_source'] == 'autoguard'
     assert control['manual_ack_required'] == '1'
     # В стриме событий должен быть tamper_refreeze_latch
-    assert any(k == 'ops:exec_health:freeze_events:v1' and payload['kind'] == 'tamper_refreeze_latch'
+    assert any(k == RS.EXEC_HEALTH_FREEZE_EVENTS and payload['kind'] == 'tamper_refreeze_latch'
                for k, _, payload in g.r.stream)
 
 

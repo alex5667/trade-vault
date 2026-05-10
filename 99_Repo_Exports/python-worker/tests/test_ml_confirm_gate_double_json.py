@@ -14,7 +14,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from services.ml_confirm_gate import MLConfirmGate, _safe_loads, _safe_loads_ex
+from services.ml_confirm import MLConfirmGate, _safe_loads, _safe_loads_ex
 
 
 def test_safe_loads_double_encoded_json():

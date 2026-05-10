@@ -6,6 +6,7 @@ import socket
 import time
 from dataclasses import dataclass
 from typing import Any
+from core.redis_keys import RedisStreams as RS
 
 try:
     import redis.asyncio as aioredis  # type: ignore
@@ -201,7 +202,7 @@ class Cfg:
         host = socket.gethostname()
         return Cfg(
             redis_url=_env("REDIS_URL", "redis://redis-worker-1:6379/0"),
-            stream=_env("DECISION_SNAPSHOT_STREAM", "events:decision_snapshot"),
+            stream=_env("DECISION_SNAPSHOT_STREAM", RS.DECISION_SNAPSHOT),
             group=_env("DECISION_SNAPSHOT_CG", "tca_persistence_cg"),
             consumer=_env("DECISION_SNAPSHOT_CONSUMER", f"{host}:{os.getpid()}"),
             block_ms=_env_int("DECISION_SNAPSHOT_BLOCK_MS", 5000),

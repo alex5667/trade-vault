@@ -14,9 +14,10 @@ from core.redis_stream_consumer import AsyncRedisStreamHelper
 from orderflow_services.llm_recommendation_guard_v1 import guard_recommendations
 from orderflow_services.providers.vertex_genai_provider_v1 import VertexGenAIProviderV1, VertexProviderError
 from utils.time_utils import get_ny_time_millis
+from core.redis_keys import RedisStreams as RS
 
 REQUESTS_STREAM = os.getenv("ML_ANALYSIS_REQUESTS_STREAM", "stream:ml:analysis_requests")
-RESULTS_STREAM = os.getenv("ML_ANALYSIS_RESULTS_STREAM", "stream:ml:analysis_results")
+RESULTS_STREAM = os.getenv("ML_ANALYSIS_RESULTS_STREAM", RS.ML_ANALYSIS_RESULTS)
 PROPOSALS_STREAM = os.getenv("ML_RECOMMENDATION_PROPOSALS_STREAM", "stream:ml:recommendation_proposals")
 DLQ_STREAM = os.getenv("ML_ANALYSIS_DLQ_STREAM", "stream:ml:analysis_dlq")
 GROUP = os.getenv("ML_VERTEX_TRIAGE_GROUP", "cg:ml_vertex_triage_v1")

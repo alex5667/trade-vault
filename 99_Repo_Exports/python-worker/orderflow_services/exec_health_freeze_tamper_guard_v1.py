@@ -88,7 +88,7 @@ class Guard:
         self.control_key = os.getenv('EXEC_HEALTH_FREEZE_CONTROL_KEY', 'cfg:orderflow:exec_health:freeze_control:v1')
         self.state_key = os.getenv('EXEC_HEALTH_SLO_AUTOGUARD_STATE_KEY', 'metrics:exec_health:slo:autoguard:state')
         self.freeze_key = os.getenv('EXEC_HEALTH_AUTO_FREEZE_KEY', 'cfg:orderflow:exec_health:auto_freeze:v1')
-        self.event_stream = os.getenv('EXEC_HEALTH_FREEZE_EVENT_STREAM', 'ops:exec_health:freeze_events:v1')
+        self.event_stream = os.getenv('EXEC_HEALTH_FREEZE_EVENT_STREAM', RS.EXEC_HEALTH_FREEZE_EVENTS)
         self.request_stream = os.getenv('EXEC_HEALTH_FREEZE_REQUEST_STREAM', DEFAULT_REQUEST_STREAM)
         self.notify_stream = os.getenv('EXEC_HEALTH_AUTOGUARD_NOTIFY_STREAM', RS.NOTIFY_TELEGRAM)
         self.guard_state_key = os.getenv('EXEC_HEALTH_TAMPER_GUARD_STATE_KEY', 'metrics:exec_health:freeze_tamper_guard:last')

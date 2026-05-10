@@ -24,6 +24,7 @@ from .models import NewsAnalysisCompact
 from .redis_streams import ensure_group, xack, xreadgroup_block
 from .utils import now_ms, safe_float, safe_int
 import contextlib
+from core.redis_keys import RedisStreams as RS
 
 try:
     from common.metrics2 import NoopMetrics
@@ -84,7 +85,7 @@ def _read_prev_grade_change_ts(prev: dict[str, Any], *, prev_ts_ms: int) -> int:
     gts = safe_int(prev.get("grade_change_ts_ms"), 0)
     if gts > 0:
         return gts
-    return int(prev_ts_ms or 0)
+    return prev_ts_ms or 0
 
 
 def _apply_grade_cooldown(
@@ -106,9 +107,9 @@ def _apply_grade_cooldown(
         prev_g = int(prev_grade_id)
         new_g = int(new_grade_id)
         if new_g == prev_g:
-            return prev_g, int(prev_change_ts_ms or now_ts_ms), False
+            return prev_g, (prev_change_ts_ms or now_ts_ms), False
 
-        dt_ms = int(now_ts_ms) - int(prev_change_ts_ms or 0)
+        dt_ms = now_ts_ms - (prev_change_ts_ms or 0)
         if dt_ms < 0:
             dt_ms = 0
 
@@ -121,11 +122,11 @@ def _apply_grade_cooldown(
         # new_g < prev_g
         need_ms = max(0, int(cooldown_down_sec)) * 1000
         if need_ms > 0 and dt_ms < need_ms:
-            return prev_g, int(prev_change_ts_ms or now_ts_ms), True
-        return new_g, int(now_ts_ms), False
+            return prev_g, (prev_change_ts_ms or now_ts_ms), True
+        return new_g, now_ts_ms, False
     except Exception:
         # fail-open: accept new grade
-        return int(new_grade_id), int(now_ts_ms), False
+        return new_grade_id, now_ts_ms, False
 
 
 def _read_int(v: Any, default: int = 0) -> int:
@@ -193,7 +194,7 @@ def _read_prev_grade_change_ts(prev: dict[str, Any], *, prev_ts_ms: int) -> int:
     gts = safe_int(prev.get("grade_change_ts_ms"), 0)
     if gts > 0:
         return gts
-    return int(prev_ts_ms or 0)
+    return prev_ts_ms or 0
 
 
 def _apply_grade_cooldown(
@@ -227,10 +228,10 @@ def _apply_grade_cooldown(
         # ng < pg
         need = max(0, int(cooldown_down_sec)) * 1000
         if need > 0 and dt_ms < need:
-            return pg, int(prev_change_ts_ms or now_ts_ms), True
-        return ng, int(now_ts_ms), False
+            return ng, (prev_change_ts_ms or now_ts_ms), True
+        return ng, now_ts_ms, False
     except Exception:
-        return int(new_grade_id), int(now_ts_ms), False
+        return new_grade_id, now_ts_ms, False
 
 
 def _read_prev_grade_change_ts(prev: dict[str, Any], prev_ts_ms: int) -> int:
@@ -239,7 +240,7 @@ def _read_prev_grade_change_ts(prev: dict[str, Any], prev_ts_ms: int) -> int:
     if t <= 0:
         # fallback aliases (if any older experiments existed)
         t = safe_int(prev.get("last_grade_change_ts_ms"), 0)
-    return int(t if t > 0 else prev_ts_ms)
+    return t if t > 0 else prev_ts_ms
 
 
 def _apply_grade_cooldown(
@@ -275,24 +276,24 @@ def _apply_grade_cooldown(
 
     if ng == pg:
         # no change; keep the prior change timestamp intact
-        return pg, int(prev_change_ts_ms or 0), False
+        return pg, (prev_change_ts_ms or 0), False
 
     # If we have no timestamp, we allow update immediately (first write / corrupted state).
     if prev_change_ts_ms <= 0:
-        return ng, int(now_ts_ms), False
+        return ng, now_ts_ms, False
 
     dt_sec = max(0.0, (now_ts_ms - prev_change_ts_ms) / 1000.0)
     if ng > pg:
         if dt_sec >= float(max(0, cooldown_up_sec)):
-            return ng, int(now_ts_ms), False
+            return ng, now_ts_ms, False
         # frozen: change blocked by cooldown
-        return pg, int(prev_change_ts_ms), True
+        return pg, prev_change_ts_ms, True
 
     # ng < pg
     if dt_sec >= float(max(0, cooldown_down_sec)):
-        return ng, int(now_ts_ms), False
+        return ng, now_ts_ms, False
     # frozen: change blocked by cooldown
-    return pg, int(prev_change_ts_ms), True
+    return pg, prev_change_ts_ms, True
 
 
 def _safe_preview_fields(fields: dict[str, Any], *, limit: int = 2048) -> str:
@@ -494,7 +495,7 @@ class NewsFeatureStoreService:
                 self._m_inc("news_feature_store_dlq_dropped_total", 1, tags=None)
                 return
             stream = str(getattr(config, "NEWS_FEATURE_DLQ_STREAM", getattr(config, "NEWS_ANALYSIS_DLQ", "news:analysis:dlq")))
-            maxlen = int(getattr(config, "NEWS_DLQ_MAXLEN", 200000))
+            maxlen = int(getattr(config, "NEWS_DLQ_MAXLEN", 2000))
             now = now_ms()
             cat = get_redis_error_category(err)
             try:
@@ -515,7 +516,7 @@ class NewsFeatureStoreService:
                 stream,
                 {
                     "ts_ms": str(int(now)),
-                    "src_stream": str(getattr(config, "NEWS_ANALYSIS_STREAM", "news:analysis")),
+                    "src_stream": str(getattr(config, "NEWS_ANALYSIS_STREAM", RS.NEWS_ANALYSIS)),
                     "src_msg_id": str(src_msg_id),
                     "consumer": str(self.consumer),
                     "uid": str(uid),
@@ -557,7 +558,7 @@ class NewsFeatureStoreService:
                 stream,
                 {
                     "ts_ms": str(int(now)),
-                    "src_stream": str(getattr(config, "NEWS_ANALYSIS_STREAM", "news:analysis")),
+                    "src_stream": str(getattr(config, "NEWS_ANALYSIS_STREAM", RS.NEWS_ANALYSIS)),
                     "src_msg_id": str(src_msg_id),
                     "consumer": str(self.consumer),
                     "uid": (uid or ""),
@@ -622,7 +623,7 @@ class NewsFeatureStoreService:
                 return
 
             dlq_stream = str(getattr(config, "NEWS_FEATURE_DLQ_STREAM", "news:analysis:dlq"))
-            maxlen = int(getattr(config, "NEWS_DLQ_MAXLEN", 200000))
+            maxlen = int(getattr(config, "NEWS_DLQ_MAXLEN", 2000))
             cat = str(category) if category else get_redis_error_category(err)
             payload = sanitize_for_dlq(fields if isinstance(fields, dict) else {"_raw": str(fields)})
             payload_json = truncate_message(safe_json_dumps(payload), 16_384)
@@ -677,7 +678,7 @@ class NewsFeatureStoreService:
             pipe.hgetall(key)
         prev_list = pipe.execute()
 
-        cur_now = int(now if now is not None else now_ms())
+        cur_now = now if now is not None else now_ms()
 
         pipe = self.r.pipeline()
         for idx, (_name, key) in enumerate(targets):
@@ -704,36 +705,36 @@ class NewsFeatureStoreService:
                     confidence=float(getattr(a, "confidence", 0.0) or 0.0),
                 )
             else:
-                cand_grade = int(local_grade_in)
+                cand_grade = local_grade_in
 
             # ---- IMPORTANT FIX #2:
             # apply cooldown first => effective grade_id,
             # then compute horizon using *effective* grade (keeps semantics consistent).
             eff_grade_id, grade_change_ts_ms, frozen = _apply_grade_cooldown(
-                prev_grade_id=int(prev_grade),
-                prev_change_ts_ms=int(prev_grade_change_ts),
-                new_grade_id=int(cand_grade),
-                now_ts_ms=int(cur_now),
+                prev_grade_id=prev_grade,
+                prev_change_ts_ms=prev_grade_change_ts,
+                new_grade_id=cand_grade,
+                now_ts_ms=cur_now,
                 cooldown_up_sec=int(getattr(config, "NEWS_GRADE_COOLDOWN_UP_SEC", 900)),
                 cooldown_down_sec=int(getattr(config, "NEWS_GRADE_COOLDOWN_DOWN_SEC", 300)),
             )
 
             if local_horizon_in is None:
-                if int(eff_grade_id) <= 0:
+                if eff_grade_id <= 0:
                     eff_horizon = 0
                 else:
                     base_h = compute_horizon_sec(
-                        primary_tag_id=int(a.primary_tag_id or 0),
-                        tags_mask=int(a.tags_mask or 0),
+                        primary_tag_id=(a.primary_tag_id or 0),
+                        tags_mask=(a.tags_mask or 0),
                     )
                     eff_horizon = compute_horizon_sec_with_grade(
-                        base_horizon_sec=int(base_h),
-                        grade_id=int(eff_grade_id),
+                        base_horizon_sec=base_h,
+                        grade_id=eff_grade_id,
                     )
                     if eff_horizon < 0:
                         eff_horizon = 0
             else:
-                eff_horizon = int(local_horizon_in)
+                eff_horizon = local_horizon_in
 
             # Store minimal compact state (strings for Redis HASH)
             mapping = {
@@ -744,20 +745,20 @@ class NewsFeatureStoreService:
                 "risk_ema": f"{float(risk_ewma):.6f}",
                 "surprise_ema": f"{float(sur_ewma):.6f}",
 
-                "news_grade_id": str(int(eff_grade_id)),
-                "horizon_sec": str(int(eff_horizon)),
-                "grade_change_ts_ms": str(int(grade_change_ts_ms or cur_now)),
+                "news_grade_id": str(eff_grade_id),
+                "horizon_sec": str(eff_horizon),
+                "grade_change_ts_ms": str(grade_change_ts_ms or cur_now),
                 "grade_frozen": "1" if frozen else "0",
 
-                "tags_mask": str(int(a.tags_mask)),
-                "primary_tag_id": str(int(a.primary_tag_id)),
+                "tags_mask": str(a.tags_mask),
+                "primary_tag_id": str(a.primary_tag_id),
                 "confidence": f"{float(getattr(a, 'confidence', 0.0) or 0.0):.6f}",
 
                 # canonical timestamp for EWMA dt
-                "ts_ms": str(int(cur_now)),
+                "ts_ms": str(cur_now),
                 # legacy alias
-                "asof_ts_ms": str(int(cur_now)),
-            },
+                "asof_ts_ms": str(cur_now),
+            }
 
             pipe.hset(key, mapping=mapping)
             pipe.expire(key, int(config.NEWS_AGG_TTL_SEC))

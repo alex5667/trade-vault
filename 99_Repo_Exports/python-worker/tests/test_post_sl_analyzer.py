@@ -4,6 +4,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from services.post_sl_analyzer import PostSlAnalyzer, TrackState
+from core.redis_keys import RedisStreams as RS
 
 
 @pytest.fixture
@@ -49,7 +50,7 @@ def test_long_tp1_hit(analyzer):
     # Check redis call
     args = analyzer.redis.xadd.call_args[0]
     stream, fields = args[0], args[1]
-    assert stream == "trades:post_sl"
+    assert stream == RS.TRADES_POST_SL
     assert fields["post_sl_tp1_hit"] == 1
     assert fields["post_sl_end_reason"] == "tp1_hit"
     assert fields["post_sl_tp1_time_ms"] == 120000

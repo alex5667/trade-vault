@@ -247,7 +247,7 @@ def export_ndjson(
         r = redis.from_url(url, decode_responses=True)
 
     # Default stream: trades:closed (or TRADES_CLOSED_STREAM env, fallback to events:trades for backward compat)
-    stream_name = stream or os.getenv("TRADES_CLOSED_STREAM") or os.getenv("TRADE_EVENTS_STREAM", "trades:closed")
+    stream_name = stream or os.getenv("TRADES_CLOSED_STREAM") or os.getenv("TRADE_EVENTS_STREAM", RS.TRADES_CLOSED)
 
     if since_ts_ms is None:
         if since_hours is not None:
@@ -351,7 +351,7 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--since-hours", type=float, default=168.0)
     ap.add_argument("--out", type=str, required=True)
-    ap.add_argument("--stream", type=str, default=os.getenv("TRADES_CLOSED_STREAM") or os.getenv("TRADE_EVENTS_STREAM", "trades:closed"))
+    ap.add_argument("--stream", type=str, default=os.getenv("TRADES_CLOSED_STREAM") or os.getenv("TRADE_EVENTS_STREAM", RS.TRADES_CLOSED))
     ap.add_argument("--redis-url", type=str, default=os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0"))
     ap.add_argument("--max-scan", type=int, default=500_000)
     ap.add_argument("--pg-dsn", type=str, default=os.getenv("ANALYTICS_DB_DSN", ""))

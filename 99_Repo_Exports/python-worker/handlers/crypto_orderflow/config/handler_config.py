@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import os
 from typing import Any
 
@@ -8,6 +9,24 @@ from common.dq_flags import append_dq_flag
 from common.math_safe import safe_float
 from common.runtime_snapshot import RuntimeSnapshot
 from handlers.crypto_orderflow.utils.risk_cfg_resolver import RiskCfgResolver
+
+_logger = logging.getLogger(__name__)
+
+
+def _get_sync_redis() -> Any:
+    """
+    Lazy singleton for sync Redis client.
+    RiskCfgResolver needs sync .get() / .hget(); the handler only has async redis.
+    """
+    if not hasattr(_get_sync_redis, "_client"):
+        try:
+            import redis
+            url = os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
+            _get_sync_redis._client = redis.from_url(url, decode_responses=True)
+        except Exception as e:
+            _logger.warning("Failed to create sync Redis for RiskCfgResolver: %s", e)
+            _get_sync_redis._client = None
+    return _get_sync_redis._client
 
 
 class CryptoOrderFlowConfigManager:
@@ -21,7 +40,9 @@ class CryptoOrderFlowConfigManager:
         self._symbol = symbol
         self._config = config
         self._runtime: RuntimeSnapshot | None = None
-        self._risk_resolver = RiskCfgResolver()
+        # FIX: use sync Redis client (RiskCfgResolver calls .get()/.hget() synchronously).
+        # handler.redis is async (aioredis.Redis), which returns coroutines instead of values.
+        self._risk_resolver = RiskCfgResolver(redis_client=_get_sync_redis())
 
     @property
     def symbol(self) -> str:

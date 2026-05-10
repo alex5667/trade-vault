@@ -132,7 +132,7 @@ def _cooldown_ok(r: redis.Redis, key: str, cooldown_ms: int) -> bool:
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--redis-url", default=os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0"))
-    ap.add_argument("--stream", default=os.getenv("TRADES_CLOSED_STREAM", "trades:closed"))
+    ap.add_argument("--stream", default=os.getenv("TRADES_CLOSED_STREAM", RS.TRADES_CLOSED))
     ap.add_argument("--since-min", type=int, default=180)
     ap.add_argument("--max-scan", type=int, default=300000)
     ap.add_argument("--p50-min", type=float, default=float(os.getenv("META_DRIFT_PEDGE_P50_MIN", "0.20")))

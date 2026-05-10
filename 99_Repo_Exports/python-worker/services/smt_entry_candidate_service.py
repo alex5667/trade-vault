@@ -14,6 +14,7 @@ from services.entry_policy_overrides_v1 import EntryPolicyOverridesV1
 from services.smt_entry_abc_config import ABCPolicyLoader, ArmPolicy
 from utils.time_utils import get_ny_time_millis
 import contextlib
+from core.redis_keys import RedisStreams as RS
 
 
 def _now_ms() -> int:
@@ -240,8 +241,8 @@ class SmtEntryCandidateService:
             in_stream=os.getenv("SMT_SETUP_STREAM", "stream:signals"),
             in_group=os.getenv("SMT_SETUP_GROUP", "smt_entry"),
             in_consumer=os.getenv("SMT_SETUP_CONSUMER", f"smt_entry:{os.getpid()}"),
-            out_candidate=os.getenv("SMT_ENTRY_STREAM", "stream:trade:entry_candidate"),
-            out_audit=os.getenv("SMT_ENTRY_AUDIT_STREAM", "stream:trade:entry_audit"),
+            out_candidate=os.getenv("SMT_ENTRY_STREAM", RS.ENTRY_CANDIDATE),
+            out_audit=os.getenv("SMT_ENTRY_AUDIT_STREAM", RS.ENTRY_AUDIT),
         )
         self.maxlen = int(os.getenv("SMT_ENTRY_MAXLEN", "20000"))
         self.snap_prefix = os.getenv("SMT_SNAP_PREFIX", "smt:snap:")

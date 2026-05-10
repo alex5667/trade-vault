@@ -5,7 +5,7 @@ from unittest.mock import Mock
 import pytest
 import redis
 
-from services.ml_confirm_gate import MLConfirmGate
+from services.ml_confirm import MLConfirmGate
 
 
 class DummyUtilMH:

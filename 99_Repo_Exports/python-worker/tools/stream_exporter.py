@@ -407,7 +407,7 @@ async def main() -> None:
     interval = env_int("STREAM_EXPORT_INTERVAL_SEC", 300)
     keep_days = env_int("STREAM_EXPORT_KEEP_DAYS", 90)
 
-    entry_stream = env("TRADE_ENTRY_AUDIT_STREAM", "stream:trade:entry_audit")
+    entry_stream = env("TRADE_ENTRY_AUDIT_STREAM", RS.ENTRY_AUDIT)
     events_stream = env("TRADE_EVENTS_STREAM", RS.EVENTS_TRADES)
 
     print(f"✅ Stream Exporter starting | out_dir={out_dir} interval={interval}s keep_days={keep_days}")

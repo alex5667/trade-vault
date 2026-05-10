@@ -7,6 +7,7 @@ from services.orderflow.exec_health_freeze_control import (
     parse_exec_health_freeze_control,
     verify_dual_control_commit_signature,
 )
+from core.redis_keys import RedisStreams as RS
 
 
 class FakeRedis:
@@ -53,7 +54,7 @@ def _ctl():
     c.control_key = 'cfg:orderflow:exec_health:freeze_control:v1'
     c.state_key = 'metrics:exec_health:slo:autoguard:state'
     c.freeze_key = 'cfg:orderflow:exec_health:auto_freeze:v1'
-    c.event_stream = 'ops:exec_health:freeze_events:v1'
+    c.event_stream = RS.EXEC_HEALTH_FREEZE_EVENTS
     c.r = FakeRedis()
     return c
 

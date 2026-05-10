@@ -42,7 +42,7 @@ def main():
     print("1️⃣ Проверка trades:closed stream")
     print("-" * 80)
 
-    entries = r.xrevrange("trades:closed", max="+", min="-", count=10000) or []
+    entries = r.xrevrange(RS.TRADES_CLOSED, max="+", min="-", count=10000) or []
     print(f"Всего записей в stream: {len(entries)}")
 
     trades_by_symbol: dict[str, list[dict]] = defaultdict(list)
@@ -120,7 +120,7 @@ def main():
     signal_streams = [
         "signals:cryptoorderflow",
         RS.CRYPTO_RAW,
-        "signals:unified",
+        RS.SIGNALS_UNIFIED,
     ]
 
     for stream_name in signal_streams:

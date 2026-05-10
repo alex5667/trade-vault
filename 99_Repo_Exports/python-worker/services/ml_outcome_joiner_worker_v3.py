@@ -108,7 +108,7 @@ def main() -> None:
     r = get_redis(retry_attempts=20, retry_delay=2.0)
 
     trade_stream = os.getenv("TRADE_EVENTS_STREAM", RS.EVENTS_TRADES)
-    out_stream = os.getenv("ML_OUTCOME_METRICS_STREAM", "metrics:ml_outcome")
+    out_stream = os.getenv("ML_OUTCOME_METRICS_STREAM", RS.ML_OUTCOME_METRICS)
 
     group = os.getenv("ML_OUTCOME_GROUP", "ml-outcome-joiner-v3")
     consumer = os.getenv("ML_OUTCOME_CONSUMER", "c1")

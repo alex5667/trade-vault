@@ -126,12 +126,17 @@ TM_SIGNAL_GUARD_STALE_BYPASS = Counter(
     "Signals allowed through because the active guard exceeded stale timeout",
     ["symbol"],
 )
-# Simulated slippage applied to paper entry prices
 TM_SIMULATED_SLIPPAGE_BPS = Histogram(
     "tm_simulated_slippage_bps",
     "Simulated slippage applied to paper trade entry prices (bps)",
     ["symbol"],
     buckets=[0, 1, 2, 4, 6, 8, 10, 15, 20],
+)
+EXEC_SLIPPAGE_BPS = Histogram(
+    "trading_exec_slippage_bps",
+    "Execution slippage in basis points",
+    ["symbol"],
+    buckets=[0, 1, 2, 4, 6, 8, 10, 15, 20, 30, 50]
 )
 # Возраст тика при обработке (задержка ingestion → Python)
 TM_TICK_AGE_MS = Histogram(
@@ -309,11 +314,11 @@ def _ev_tp1_hit_external(
         symbol=pos.symbol,
         tf=pos.tf,
         direction=pos.direction,
-        ts_ms=int(ts_ms),
+        ts_ms=ts_ms,
         payload={
-            "tp_level": int(tp_level),
-            "fill_price": float(fill_price),
-            "closed_qty": float(closed_qty),
+            "tp_level": tp_level,
+            "fill_price": fill_price,
+            "closed_qty": closed_qty,
             "pnl_part_gross": 0.0,
             "external": True,
         },
@@ -443,11 +448,11 @@ def parse_open_position_hash(
             # Profile aliasing:
             # - old/open records: trail_profile
             # - some writers/readers: trailing_profile
-            pos.trail_profile = str(h.get("trail_profile") or h.get("trailing_profile") or "")
+            pos.trail_profile = (h.get("trail_profile") or h.get("trailing_profile") or "")
 
             pos.trailing_min_lock_r = float(h.get("trailing_min_lock_r") or 0.0)
             pos.min_lock_price = float(h.get("min_lock_price") or 0.0)
-            pos.baseline_mode = str(h.get("baseline_mode") or pos.baseline_mode)
+            pos.baseline_mode = (h.get("baseline_mode") or pos.baseline_mode)
             pos.baseline_horizon_ms = to_int_ms(h.get("baseline_horizon_ms"), pos.baseline_horizon_ms)
             pos.baseline_sl = float(h.get("baseline_sl") or pos.baseline_sl or pos.sl)
             pos.baseline_tp1 = float(h.get("baseline_tp1") or pos.baseline_tp1 or (pos.tp_levels[0] if pos.tp_levels else 0.0))
@@ -1508,7 +1513,7 @@ class TradeMonitorService:
             key = self._dedup_key(kind, event_id)
             # SET NX EX - атомарная операция: устанавливает ключ только если его нет
             result = self.redis.set(key, "1", nx=True, ex=self.external_event_dedup_ttl)
-            return bool(result)
+            return result
         except Exception as e:
             # Если Redis недоступен, лучше обработать событие, чем молча пропустить
             logger.warning(f"⚠️ Dedup check failed (Redis error): {e}")
@@ -1647,7 +1652,7 @@ class TradeMonitorService:
                 "health_pending_len": (h.get("pending_len", "0")),
                 "health_window_sec": (h.get("window_sec", "0")),
                 "health_ts": (h.get("ts", "0")),
-            },
+            }
             return out
         except Exception:
             return {}
@@ -1806,7 +1811,7 @@ class TradeMonitorService:
             "health_pending_len": (raw.get("pending_len", "0")),
             "health_snapshot_ts": (raw.get("ts", "0")),
             "health_window_sec": (raw.get("window_sec", "0")),
-        },
+        }
         self._health_cache[sym] = (now_ms, snap)
         return snap
 
@@ -1850,7 +1855,7 @@ class TradeMonitorService:
             "health_pending_len": (raw.get("pending_len", "0")),
             "health_snapshot_ts": (raw.get("ts", "0")),
             "health_window_sec": (raw.get("window_sec", "0")),
-        },
+        }
         self._health_cache[sym] = (now_ms, snap)
         return snap
 
@@ -2206,7 +2211,7 @@ class TradeMonitorService:
                 val = getattr(spec, attr)
                 # Если атрибут существует, используем его значение (даже если False)
                 if isinstance(val, bool) or isinstance(val, (int, float)):
-                    return bool(val)
+                    return val
                 elif isinstance(val, str) and val.strip():
                     # Пустая строка считается как "не задано"
                     return val.lower() in ("1", "true", "yes", "on")
@@ -2343,7 +2348,7 @@ class TradeMonitorService:
                         "pnl_net": float(raw.get("pnl_net", raw.get("pnl", raw.get("realized_pnl", 0))) or 0),
                         "qty": float(raw.get("qty", raw.get("lot", raw.get("quantity", 0))) or 0),
                         "close_reason": raw.get("close_reason", raw.get("reason", event_type)),
-                    },
+                    }
         except Exception as e:
             logger.warning("⚠️ Failed to read demo stream: %s", e)
             return
@@ -2569,7 +2574,7 @@ class TradeMonitorService:
         # --- Strict DTO Versioning (schema_version: 1) ---
         # Any signal without correct schema_version is considered legacy or malformed and must be rejected.
         if sig.schema_version != 1:
-            symbol_up = str(sig.symbol or "UNKNOWN").upper()
+            symbol_up = (sig.symbol or "UNKNOWN").upper()
             logger.warning("🚫 Signal REJECTED: version mismatch (expected schema_version: 1, got %d) symbol=%s sid=%s",
                            sig.schema_version, symbol_up, sig.sid)
             with contextlib.suppress(Exception):
@@ -2605,7 +2610,7 @@ class TradeMonitorService:
         # Any signal without correct schema_version is considered legacy or malformed and must be rejected.
         # [FIXED] schema_version is parsed cleanly in _normalize_signal
         if sig.schema_version != 1:
-            symbol_up = str(sig.symbol or "UNKNOWN").upper()
+            symbol_up = (sig.symbol or "UNKNOWN").upper()
             logger.warning("🚫 Signal REJECTED: version mismatch (expected schema_version: 1, got %d) symbol=%s sid=%s",
                            sig.schema_version, symbol_up, sig.sid)
             with contextlib.suppress(Exception):
@@ -2613,7 +2618,7 @@ class TradeMonitorService:
             return None
 
         # Check if it's a real entry from policy vs a raw signal
-        is_policy_entry = (str(sig.source or "").lower() == "smt_entry_policy")
+        is_policy_entry = ((sig.source or "").lower() == "smt_entry_policy")
         sig_conf = float(sig.payload.get("confidence") or sig.payload.get("conf") or 0.0)
 
         # Use global confidence threshold (single source of truth)
@@ -2628,7 +2633,7 @@ class TradeMonitorService:
 
         # ── Single-active-position guard (global — applies to paper trades too) ──
         if self._tm_check_single_active_guard(sig):
-            symbol_up = str(sig.symbol or "").upper()
+            symbol_up = (sig.symbol or "").upper()
             logger.warning(
                 "⏭️ [GUARD] Signal blocked by single_active_position_per_symbol: "
                 "symbol=%s sid=%s is_virtual=%s",
@@ -2662,7 +2667,7 @@ class TradeMonitorService:
                         sig.tp_levels = [tp + delta for tp in sig.tp_levels]
                     with contextlib.suppress(Exception):
                         TM_SIMULATED_SLIPPAGE_BPS.labels(
-                            symbol=str(sig.symbol or "").upper()
+                            symbol=(sig.symbol or "").upper()
                         ).observe(self._simulated_slippage_bps)
             except Exception:
                 pass
@@ -2676,21 +2681,21 @@ class TradeMonitorService:
                 # No upgrade logic - everything stays virtual
                 logger.debug("⏭️ Duplicate signal ignored (sid=%s already open)", sig.sid)
                 with contextlib.suppress(Exception):
-                    TM_SIGNAL_DUPLICATE.labels(symbol=str(sig.symbol or "").upper(), reason="already_open").inc()
+                    TM_SIGNAL_DUPLICATE.labels(symbol=(sig.symbol or "").upper(), reason="already_open").inc()
                 return pos_id
 
             # ✅ Глобальный sid-dedup для lossless reprocessing
             if sig.sid and not self._sid_claim(sig.sid, ttl_sec=30):
                 logger.debug("⏭️ Duplicate signal ignored (sid=%s already processed globally)", sig.sid)
                 with contextlib.suppress(Exception):
-                    TM_SIGNAL_DUPLICATE.labels(symbol=str(sig.symbol or "").upper(), reason="processed_globally").inc()
+                    TM_SIGNAL_DUPLICATE.labels(symbol=(sig.symbol or "").upper(), reason="processed_globally").inc()
                 return None
 
             # ✅ Per-symbol guard: 1 symbol = 1 open position (in-memory)
             # When EXEC_SINGLE_ACTIVE_POSITION_PER_SYMBOL=1, block if symbol
             # already has open position(s) in the in-memory index.
             if self.exec_single_active_position_per_symbol:
-                sym_up = str(sig.symbol or "").upper()
+                sym_up = (sig.symbol or "").upper()
                 existing = self.open_by_symbol.get(sym_up)
                 if existing:
                     existing_pid = next(iter(existing), "?")
@@ -2712,7 +2717,7 @@ class TradeMonitorService:
             stamp_position_from_signal_payload(pos, sig.payload, source="signal_open")
 
             # Inherit is_virtual from payload or determine via shadow mode
-            is_v = bool(int(sig.payload.get("is_virtual", 0) or 0))
+            is_v = int(sig.payload.get("is_virtual", 0) or 0) > 0
             v_status = str(sig.payload.get("validation_status") or "").lower()
             g_mode = str(sig.payload.get("of_gate_mode") or sig.payload.get("gate_mode") or "").upper()
 
@@ -2774,7 +2779,7 @@ class TradeMonitorService:
 
                 # Conditional trailing logic
                 v = payload.get("trail_after_tp1", True)
-                pos.trail_after_tp1 = bool(v)
+                pos.trail_after_tp1 = (v != 0)
                 rr = payload.get("trail_after_tp1_reason", "")
                 if rr:
                     pos.trail_after_tp1_reason = str(rr)[:256]
@@ -2909,7 +2914,7 @@ class TradeMonitorService:
                 # Record jitter latency metric
                 try:
                     rel_lat = self._max_tick_ts_ms - sig.entry_ts_ms
-                    TM_JITTER_RELEASE_LATENCY_MS.labels(symbol=str(sig.symbol or "").upper()).observe(rel_lat)
+                    TM_JITTER_RELEASE_LATENCY_MS.labels(symbol=(sig.symbol or "").upper()).observe(rel_lat)
                 except Exception:
                     pass
 
@@ -4803,9 +4808,9 @@ class TradeMonitorService:
             # Update TP flags and close
             try:
                 pos.tp_hits = max(int(getattr(pos, "tp_hits", 0) or 0), int(tp_level))
-                pos.tp1_hit = bool(getattr(pos, "tp1_hit", False) or tp_level >= 1)
-                pos.tp2_hit = bool(getattr(pos, "tp2_hit", False) or tp_level >= 2)
-                pos.tp3_hit = bool(getattr(pos, "tp3_hit", False) or tp_level >= 3)
+                pos.tp1_hit = (getattr(pos, "tp1_hit", False) or tp_level >= 1)
+                pos.tp2_hit = (getattr(pos, "tp2_hit", False) or tp_level >= 2)
+                pos.tp3_hit = (getattr(pos, "tp3_hit", False) or tp_level >= 3)
                 pos.tp_before_sl = int(getattr(pos, "tp_hits", 0) or 0)
                 pos.closed = True
                 pos.exit_ts_ms = int(ts_ms)
@@ -5201,7 +5206,7 @@ class TradeMonitorService:
                     "ab_arm": (ab_arm or ""),
                     "ab_group": (ab_group or ""),
                     "regime": (rg or "na"),
-                },
+                }
 
                 # === AB attribution + entry context (flattened into event payload) ===
                 try:

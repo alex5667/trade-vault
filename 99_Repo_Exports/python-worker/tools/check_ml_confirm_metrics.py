@@ -23,6 +23,7 @@ import os
 import redis
 
 from tools.redis_window import _merge_payload_fields
+from core.redis_keys import RedisStreams as RS
 
 
 def main() -> None:
@@ -51,7 +52,7 @@ def main() -> None:
     )
     ap.add_argument(
         "--stream",
-        default=os.getenv("ML_CONFIRM_METRICS_STREAM", "metrics:ml_confirm"),
+        default=os.getenv("ML_CONFIRM_METRICS_STREAM", RS.ML_CONFIRM_METRICS),
         help="Metrics stream name (default: ML_CONFIRM_METRICS_STREAM env or metrics:ml_confirm)",
     )
     ap.add_argument(

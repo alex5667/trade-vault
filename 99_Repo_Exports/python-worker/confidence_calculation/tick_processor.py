@@ -78,7 +78,7 @@ import contextlib
 from core.redis_keys import RedisStreams as RS
 
 # SRE metrics for gate decisions
-OF_GATE_METRICS_STREAM = os.getenv("OF_GATE_METRICS_STREAM", "metrics:of_gate")
+OF_GATE_METRICS_STREAM = os.getenv("OF_GATE_METRICS_STREAM", RS.OF_GATE_METRICS)
 OF_GATE_METRICS_ENABLE = os.getenv("OF_GATE_METRICS_ENABLE", "1").strip().lower() in ("1", "true", "yes", "on")
 OF_GATE_METRICS_SAMPLE = float(os.getenv("OF_GATE_METRICS_SAMPLE", "0.02") or 0.02)
 OF_GATE_METRICS_MAXLEN = int(os.getenv("OF_GATE_METRICS_MAXLEN", "10000") or 10000)
@@ -149,7 +149,7 @@ class TickProcessor:
             if s.strip()
         ]
 
-        self.of_gate_metrics_stream = os.getenv("OF_GATE_METRICS_STREAM", "metrics:of_gate") or "metrics:of_gate"
+        self.of_gate_metrics_stream = os.getenv("OF_GATE_METRICS_STREAM", RS.OF_GATE_METRICS) or RS.OF_GATE_METRICS
         self.of_gate_metrics_enable = os.getenv("OF_GATE_METRICS_ENABLE", "1").strip().lower() in ("1", "true", "yes", "on")
         self.of_gate_metrics_sample = float(os.getenv("OF_GATE_METRICS_SAMPLE", "0.02") or 0.02)
         self.of_gate_metrics_maxlen = int(os.getenv("OF_GATE_METRICS_MAXLEN", "10000") or 10000)
@@ -159,7 +159,7 @@ class TickProcessor:
         self.tick_time_age_clamp_ms = int(os.getenv("TICK_TIME_AGE_CLAMP_MS", "120000") or 120000)
 
         self.tick_time_stream_enable = os.getenv("TICK_TIME_STREAM_ENABLE", "0").strip().lower() in ("1", "true", "yes", "on")
-        self.tick_time_stream_key = os.getenv("TICK_TIME_STREAM_KEY", "metrics:tick_time") or "metrics:tick_time"
+        self.tick_time_stream_key = os.getenv("TICK_TIME_STREAM_KEY", RS.TICK_TIME) or RS.TICK_TIME
         self.tick_time_stream_sample = float(os.getenv("TICK_TIME_STREAM_SAMPLE", "0.01") or 0.01)
         self.tick_time_stream_maxlen = int(os.getenv("TICK_TIME_STREAM_MAXLEN", "200000") or 200000)
 
@@ -258,7 +258,7 @@ class TickProcessor:
                 # some extractors look for top-level confidence/score too
                 "confidence": float(indicators.get("confidence", 0.0) or 0.0),
                 "score": float(indicators.get("rule_score", indicators.get("score", 0.0)) or 0.0),
-            },
+            }
 
             f = extract_fields_best_effort(stub)
             bind = recommend_binding(
@@ -377,7 +377,7 @@ class TickProcessor:
                 "age_ms": str(int(meta.get("age_ms", 0) or 0)),
                 "back_ms": str(int(meta.get("back_ms", 0) or 0)),
                 "skew_ms": str(int(meta.get("skew_ms", 0) or 0)),
-            },
+            }
             await self.redis.xadd(
                 self.tick_time_stream_key,
                 fields,
@@ -617,7 +617,7 @@ class TickProcessor:
                     "policy_effective_mode": effective_regime,
                     "policy_hysteresis_debug": json.dumps(cb_debug),
                     "policy_changed": int(cb_debug.get("switched", False))
-                },
+                }
                 self._cb_cache_last_input = current_input
                 self._cb_cache_last_ts = now_ts
 
@@ -761,7 +761,7 @@ class TickProcessor:
                                 "book_health_ok": str(int(indicators.get("book_health_ok", 1) or 1)),
                                 "source_consistency_ok": str(int(indicators.get("source_consistency_ok", 1) or 1)),
                                 "missing_legs": "[]",
-                            },
+                            }
                             payload = enrich_schema_fields(payload)
                             async def _emit_ok_metrics(_payload: dict) -> None:
                                 try:
@@ -808,7 +808,7 @@ class TickProcessor:
                 "direction": direction,
                 "delta": float(delta_event.get("delta", 0.0)),
                 "delta_z": float(delta_event.get("z", 0.0))
-            },
+            }
             if absorption_feat: spike_out["absorption"] = absorption_feat
 
             now_ms = int(tick_ts)
@@ -1505,10 +1505,8 @@ class TickProcessor:
         except Exception:
             pass
 
-        # REAL vs VIRTUAL Logic
-        min_conf = float(os.getenv("CRYPTO_SIGNAL_MIN_CONF", runtime.config.get("min_confidence", 0.0)))
-        if min_conf > 0 and confidence < min_conf:
-             return None
+        # Delegation to SignalPipeline: tick_processor.py only annotates confidence.
+        # CONFIDENCE_GATE_OWNER = signal_pipeline
 
         # Virtual if it failed strict gates (ofc.ok == 0) but passed filters (reaches here)
         indicators["is_virtual"] = 1 if (ofc and getattr(ofc, "ok", 0) == 0) else 0
@@ -1528,7 +1526,7 @@ class TickProcessor:
             "signal_id": str(signal_id),
             "entry_tag": str(primary_reason),
             "is_virtual": bool(int(indicators.get("is_virtual", 0) or 0)),
-        },
+        }
 
         # Attach Pressure Snapshot to Payload
         # ...
@@ -1647,7 +1645,7 @@ class TickProcessor:
                         "cfg": cfg_safe,
                         "fp_eff_quote": _f(getattr(runtime.last_bar, "fp_eff_quote", 0.0) if runtime.last_bar else 0.0, 0.0),
                         "fp_quote_delta": _f(getattr(runtime.last_bar, "fp_quote_delta", 0.0) if runtime.last_bar else 0.0, 0.0),
-                    },
+                    }
 
                     if emit_v2:
                         ofi_kwargs["ofi"] = _f(indicators.get("ofi", 0.0), 0.0)
@@ -1774,7 +1772,7 @@ class TickProcessor:
                 "ETHUSDT": 4.0,
                 "BNBUSDT": 0.5,
                 "SOLUSDT": 0.3,
-            },
+            }
             atr_target = symbol_fallbacks.get(runtime.symbol, entry * 0.0003)
             indicators["atr_src"] = "fallback-symbol"
             indicators["atr_sanity_reason"] = "no_valid_atr_found"
@@ -2029,7 +2027,7 @@ class TickProcessor:
                 "meta_enforce_cov_bucket": bucket,
                 "meta_enforce_applied": applied,
                 "meta_enforce_bucket_type": bucket_type,
-            },
+            }
             if meta_schema_id is not None:
                 payload["meta_schema_id"] = meta_schema_id
             if meta_schema_ver is not None:
@@ -2066,7 +2064,7 @@ class TickProcessor:
                 "meta_model_feature_missing": str(mis),
                 "meta_enforce_bucket_type": str(bucket_type),
                 "payload": json.dumps(payload, ensure_ascii=False, separators=(",", ":")),
-            },
+            }
 
             safe_create_task(self.redis.xadd(
                 self.of_gate_metrics_stream,
@@ -2116,7 +2114,7 @@ class TickProcessor:
                 "confidence": float(confidence),
                 "score": float(getattr(ofc, "score", 0.0) or 0.0),
                 "evidence": ev,
-            },
+            }
 
             # Use shared extraction logic
             f = extract_fields_best_effort(stub)

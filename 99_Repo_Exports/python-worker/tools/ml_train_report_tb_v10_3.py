@@ -43,7 +43,7 @@ def main() -> None:
 
     inputs_stream = os.getenv("OF_INPUTS_STREAM", RS.OF_INPUTS)
     inputs_field = os.getenv("OF_INPUTS_FIELD", "payload")
-    tb_stream = os.getenv("TB_LABELS_STREAM", "labels:tb")
+    tb_stream = os.getenv("TB_LABELS_STREAM", RS.TB_LABELS)
     tb_field = os.getenv("TB_LABELS_FIELD", "payload")
 
     run_id = time.strftime("%Y%m%d_%H%M%S") + "_" + uuid.uuid4().hex[:6]

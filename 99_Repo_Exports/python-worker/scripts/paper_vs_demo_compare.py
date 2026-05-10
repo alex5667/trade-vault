@@ -32,7 +32,7 @@ except ImportError:
 
 # ── Config ──────────────────────────────────────────────────────────────────
 REDIS_URL = os.getenv("REDIS_URL", os.getenv("REPORTS_REDIS_URL", "redis://scanner-redis-worker-1:6379/0"))
-PAPER_STREAM = os.getenv("TRADES_CLOSED_STREAM_NAME", "trades:closed")
+PAPER_STREAM = os.getenv("TRADES_CLOSED_STREAM_NAME", RS.TRADES_CLOSED)
 DEMO_STREAM = os.getenv("EXEC_STREAM", RS.ORDERS_EXEC)
 
 

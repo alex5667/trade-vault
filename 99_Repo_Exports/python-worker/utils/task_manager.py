@@ -1,8 +1,9 @@
 import asyncio
 import logging
 import time
-from collections.abc import Coroutine
+from collections.abc import Coroutine, Awaitable
 import contextlib
+from typing import Any
 
 logger = logging.getLogger("task_manager")
 
@@ -55,7 +56,7 @@ class BackgroundTaskManager:
         except Exception:
             pass
 
-    def submit(self, coro: Coroutine, name: str | None = None) -> asyncio.Task | None:
+    def submit(self, coro: Coroutine | Awaitable | Any, name: str | None = None) -> asyncio.Task | None:
         """
         Submits a coroutine as a background task. 
         If the internal queue limit is reached, the task is dropped and NOT executed.
@@ -75,7 +76,8 @@ class BackgroundTaskManager:
                     task_drop_total.labels(name_prefix=name_prefix).inc()
                 except Exception:
                     pass
-            coro.close()
+            if hasattr(coro, "close"):
+                coro.close()
             return None
 
         # Schedule execution
@@ -91,7 +93,7 @@ class BackgroundTaskManager:
 # Singleton instance to be used across the worker
 background_tasks = BackgroundTaskManager(limit=10000)
 
-def safe_create_task(coro: Coroutine, name: str | None = None) -> asyncio.Task | None:
+def safe_create_task(coro: Coroutine | Awaitable | Any, name: str | None = None) -> asyncio.Task | None:
     """
     A drop-in replacement for asyncio.create_task for fire-and-forget operations.
     Bounds maximum concurrent tasks to avoid OOM issues.

@@ -24,6 +24,7 @@ import sys
 from pathlib import Path
 
 from utils.time_utils import get_ny_time_millis
+from core.redis_keys import RedisStreams as RS
 
 worker_mod_path = Path(__file__).parent.parent / 'execution_projection_worker.py'
 worker_spec = importlib.util.spec_from_file_location('execution_projection_worker_p122', worker_mod_path)
@@ -132,7 +133,7 @@ def _push_event(r: FakeRedis, sid: str, symbol: str = 'BTCUSDT',
                 fsm_state: str = 'ENTRY_ACKED', order_id: int = 100) -> None:
     """Push a minimal state_transition event into orders:exec."""
     now_ms = get_ny_time_millis()
-    r.xadd('orders:exec', {
+    r.xadd(RS.ORDERS_EXEC, {
         'sid': sid,
         'symbol': symbol,
         'event_type': 'state_transition',
@@ -147,7 +148,7 @@ def _push_event(r: FakeRedis, sid: str, symbol: str = 'BTCUSDT',
 def _mk_worker(r: FakeRedis, *, lease: LeaderLease | None = None) -> ExecutionProjectionWorker:
     return ExecutionProjectionWorker(
         r,
-        exec_stream='orders:exec',
+        exec_stream=RS.ORDERS_EXEC,
         state_key_prefix='orders:state:',
         state_ttl_sec=86400,
         cursor_key='orders:exec:projection:cursor',
@@ -311,7 +312,7 @@ def test_set_cursor_to_tip():
     tip = worker.set_cursor_to_tip()
 
     # cursor must match the last entry in the stream
-    last_id = r.streams['orders:exec'][-1][0]
+    last_id = r.streams[RS.ORDERS_EXEC][-1][0]
     assert tip == last_id
     assert r.get('orders:exec:projection:cursor') == last_id
 

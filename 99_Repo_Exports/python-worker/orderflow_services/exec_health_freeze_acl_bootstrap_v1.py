@@ -2,6 +2,7 @@ from __future__ import annotations
 
 #!/usr/bin/env python3
 from services.orderflow.exec_health_freeze_service_identity import render_service_identity_env_templates
+from core.redis_keys import RedisStreams as RS
 
 """P11: Bootstrap-сервис для генерации Redis ACL профилей и загрузки Function Libraries.
 
@@ -29,7 +30,7 @@ FREEZE_KEYS = [
     "cfg:orderflow:exec_health:auto_freeze:v1",
     "metrics:exec_health:slo:autoguard:state",
     "metrics:exec_health:freeze_tamper_guard:last",
-    "ops:exec_health:freeze_events:v1",
+    RS.EXEC_HEALTH_FREEZE_EVENTS,
     "ops:exec_health:freeze_requests:v1",
 ]
 

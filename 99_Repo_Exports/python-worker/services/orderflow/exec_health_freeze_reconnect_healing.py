@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from utils.time_utils import get_ny_time_millis
+from core.redis_keys import RedisStreams as RS
 
 """Reconnect self-healing for ExecHealth Redis service identity.
 
@@ -29,7 +30,7 @@ from services.orderflow.exec_health_freeze_service_identity import (
     verify_entry_against_expected,
 )
 
-DEFAULT_EVENT_STREAM = 'ops:exec_health:freeze_events:v1'
+DEFAULT_EVENT_STREAM = RS.EXEC_HEALTH_FREEZE_EVENTS
 HEAL_STATE_PREFIX_ENV = 'EXEC_HEALTH_FREEZE_CLIENT_HEAL_STATE_PREFIX'
 HEAL_CHECK_MS_ENV = 'EXEC_HEALTH_FREEZE_CLIENT_HEAL_CHECK_MS'
 HEAL_EVENT_STREAM_ENV = 'EXEC_HEALTH_FREEZE_EVENT_STREAM'

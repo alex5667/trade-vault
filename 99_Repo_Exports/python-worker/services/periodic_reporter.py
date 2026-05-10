@@ -336,7 +336,7 @@ class PeriodicReporter:
         # (B) STREAM path (fallback or primary if ZSET disabled)
         # ----------------------------------------------------------------------
         # SPECIAL CASE FOR "ALL" with ZSET enabled:
-        # Since "trades:closed" stream might be empty/deprecated, we must manually
+        # Since RS.TRADES_CLOSED stream might be empty/deprecated, we must manually
         # aggregate ZSETs from all active symbols if we want a reliable "ALL" report.
         # ----------------------------------------------------------------------
         if symbol == "ALL" and PERIODIC_REPORT_USE_ZSET and zset_enabled:
@@ -445,7 +445,7 @@ class PeriodicReporter:
         min_id = f"{cutoff_ms}-0"
         try:
             _stream_limit = trade_window_count if trade_window_count else max(RECENT_LIMIT, 50000)
-            entries = self.redis.xrevrange("trades:closed", max="+", min=min_id, count=_stream_limit) or []
+            entries = self.redis.xrevrange(RS.TRADES_CLOSED, max="+", min=min_id, count=_stream_limit) or []
         except Exception:
             entries = []
 
@@ -1126,7 +1126,7 @@ class PeriodicReporter:
         entries = []
         try:
             _stream_limit = max(RECENT_LIMIT, 50000)
-            entries = self.redis.xrevrange("trades:closed", max="+", min=min_id, count=_stream_limit) or []
+            entries = self.redis.xrevrange(RS.TRADES_CLOSED, max="+", min=min_id, count=_stream_limit) or []
             logger.debug(f"📊 trades:closed stream: найдено {len(entries)} записей (окно: {RECENT_WINDOW_SECONDS}s)")
         except Exception as e:
             logger.debug(f"⚠️ Ошибка чтения trades:closed: {e}")
@@ -2837,7 +2837,7 @@ class PeriodicReporter:
         # Собираем из trades:closed stream (как в основном отчете)
         entries = []
         try:
-            entries = self.redis.xrevrange("trades:closed", max="+", min=min_id, count=min(limit, RECENT_LIMIT)) or []
+            entries = self.redis.xrevrange(RS.TRADES_CLOSED, max="+", min=min_id, count=min(limit, RECENT_LIMIT)) or []
             logger.debug(f"📊 trailing analysis: найдено {len(entries)} записей из trades:closed")
         except Exception as e:
             logger.debug(f"⚠️ Ошибка чтения trades:closed для trailing analysis: {e}")
@@ -3357,7 +3357,7 @@ class PeriodicReporter:
             # 2) Пробуем из stream trades:closed
             if len(pairs) < 500:  # Если мало пар, дополняем из stream (Limit increased to 500)
                 try:
-                    entries = self.redis.xrevrange("trades:closed", max="+", count=2000) or []
+                    entries = self.redis.xrevrange(RS.TRADES_CLOSED, max="+", count=2000) or []
                     logger.debug(f"🔍 Проверяю trades:closed stream, найдено {len(entries)} записей")
 
                     for _, fields in entries:

@@ -35,7 +35,7 @@ def test_aread_derivatives_context_reads_snapshot_from_redis():
         "funding_extreme": 1,
         "basis_extreme": 1,
         "oi_accel": 1,
-    },
+    }
     r = FakeAsyncRedis({"ctx:deriv:BTCUSDT": json.dumps(payload)})
     snap = asyncio.run(aread_derivatives_context(r, symbol="BTCUSDT"))
     assert snap is not None

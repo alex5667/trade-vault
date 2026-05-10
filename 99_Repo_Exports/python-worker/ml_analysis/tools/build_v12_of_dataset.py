@@ -132,7 +132,7 @@ def build_dataset(
     *,
     redis_url: str,
     signal_stream: str = RS.OF_INPUTS,
-    outcome_stream: str = "trades:closed",
+    outcome_stream: str = RS.TRADES_CLOSED,
     signal_count: int = 500_000,
     outcome_count: int = 200_000,
     out_jsonl: str = "v12_of_train.jsonl",
@@ -341,7 +341,7 @@ def _parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Build v12_of training dataset from Redis streams")
     p.add_argument("--redis_url", default=os.getenv("REDIS_URL", "redis://localhost:6379/0"))
     p.add_argument("--signal_stream", default=RS.OF_INPUTS)
-    p.add_argument("--outcome_stream", default="trades:closed")
+    p.add_argument("--outcome_stream", default=RS.TRADES_CLOSED)
     p.add_argument("--signal_count", type=int, default=500_000)
     p.add_argument("--outcome_count", type=int, default=200_000)
     p.add_argument("--out_jsonl", default="v12_of_train.jsonl")

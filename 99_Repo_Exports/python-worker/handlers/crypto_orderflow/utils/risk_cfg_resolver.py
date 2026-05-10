@@ -65,7 +65,7 @@ class RiskCfgResolver:
 
         # STOP
         stop_mode = str(pick("STOP_MODE", "ATR")).upper()
-        stop_atr_mult = float(pick("STOP_ATR_MULT", 1.0))  # was 0.6
+        stop_atr_mult = float(pick("STOP_ATR_MULT", 1.2))  # aligned with instrument_config.py base
 
         # Override with calibrated value if available
         if calib_stop_atr_mult > 0.0:

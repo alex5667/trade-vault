@@ -607,6 +607,18 @@ trade_max_expected_slippage_bps_eff = _get_or_create_prom_gauge(
     "Effective max expected slippage limit (bps)",
     ["sym", "bucket"],
 )
+trade_slippage_decomp_coeff_bps = _get_or_create_prom_histogram(
+    "trade_slippage_decomp_coeff_bps",
+    "Slippage decomp coefficient (bps) used in expected slippage computation",
+    ["sym", "bucket"],
+    buckets=[0.0, 0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 20.0, 50.0, 100.0],
+)
+expected_slippage_decomp_bps_hist = _get_or_create_prom_histogram(
+    "expected_slippage_decomp_bps",
+    "Expected slippage (bps) from decomp model",
+    ["symbol", "scenario_v4"],
+    buckets=[0.0, 0.5, 1.0, 2.0, 5.0, 10.0, 20.0, 50.0, 100.0, 200.0],
+)
 
 fp_imb_confirm_total = _get_or_create_prom_counter(
     'fp_imb_confirm_total',
@@ -2285,4 +2297,26 @@ stream_field_missing_total = _get_or_create_prom_counter(
     "stream_field_missing_total",
     "Total critical fields missing from stream payloads",
     ["stream", "field"]
+)
+
+# --- Impact Proxy & Taker-Flow Stats (P92+) ---
+impact_proxy_hist = _get_or_create_prom_histogram(
+    "impact_proxy_hist",
+    "Impact proxy: abs(dn_usd) / depth_min_5_usd",
+    ["symbol"],
+    buckets=(0.01, 0.05, 0.1, 0.2, 0.5, 1.0, 2.0, 5.0, 10.0)
+)
+
+trade_impact_proxy = _get_or_create_prom_histogram(
+    "trade_impact_proxy",
+    "Impact proxy distribution on signals",
+    ["sym", "bucket"],
+    buckets=(0.01, 0.05, 0.1, 0.2, 0.5, 1.0, 2.0, 5.0, 10.0)
+)
+
+trade_taker_flow_imb_z_abs = _get_or_create_prom_histogram(
+    "trade_taker_flow_imb_z_abs",
+    "Absolute taker flow imbalance z-score distribution",
+    ["sym", "bucket"],
+    buckets=(0.0, 0.5, 1.0, 1.5, 2.0, 3.0, 4.0, 5.0)
 )

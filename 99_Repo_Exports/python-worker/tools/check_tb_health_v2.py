@@ -17,7 +17,7 @@ REDIS_URL = os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
 OF_INPUTS_STREAM = os.getenv("OF_INPUTS_STREAM", RS.OF_INPUTS)
 OF_INPUTS_GROUP = os.getenv("OF_INPUTS_GROUP", "tb-labeler")
 
-TB_LABELS_STREAM = os.getenv("TB_LABELS_STREAM", "labels:tb")
+TB_LABELS_STREAM = os.getenv("TB_LABELS_STREAM", RS.TB_LABELS)
 TB_LAST_TS_MS_KEY = os.getenv("TB_LAST_TS_MS_KEY", "tb:last_ts_ms")
 TB_LAST_LABEL_TS_MS_KEY = os.getenv("TB_LAST_LABEL_TS_MS_KEY", "tb:last_label_ts_ms")
 TB_LAST_ERR_TS_MS_KEY = os.getenv("TB_LAST_ERR_TS_MS_KEY", "tb:last_err_ts_ms")

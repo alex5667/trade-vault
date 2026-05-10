@@ -78,7 +78,7 @@ class ABSuggester:
         self.stream = os.getenv("AB_EVENTS_STREAM", RS.EVENTS_TRADES)
         self.group = os.getenv("AB_EVENTS_GROUP", "ab_suggester")
         self.consumer = os.getenv("AB_EVENTS_CONSUMER", f"ab_suggester:{os.getpid()}")
-        self.out_stream = os.getenv("AB_SUGGEST_STREAM", "stream:ab:suggestions")
+        self.out_stream = os.getenv("AB_SUGGEST_STREAM", RS.AB_SUGGESTIONS)
         self.key_prefix = os.getenv("AB_WINNER_KEY_PREFIX", "ab:winner:v1:")
         self.window_ms = int(os.getenv("AB_WINDOW_MS", str(6 * 60 * 60 * 1000)))  # 6h
         self.min_n = int(os.getenv("AB_MIN_N", "30"))

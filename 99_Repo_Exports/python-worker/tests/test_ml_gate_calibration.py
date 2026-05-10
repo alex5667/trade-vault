@@ -5,7 +5,7 @@ import pytest
 import redis
 
 from services.ml_calibration import PlattLogitCalibrator, clip_prob, logit, sigmoid
-from services.ml_confirm_gate import MLConfirmGate
+from services.ml_confirm import MLConfirmGate
 
 
 class DummyUtilMH:

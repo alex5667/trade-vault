@@ -44,7 +44,7 @@ class PreflightConfig:
     def __init__(self):
         self.redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 
-        self.source_stream = os.getenv("META_COV_SOURCE_STREAM", "metrics:of_gate")
+        self.source_stream = os.getenv("META_COV_SOURCE_STREAM", RS.OF_GATE_METRICS)
         self.trade_stream = os.getenv("TRADE_EVENTS_STREAM", RS.EVENTS_TRADES)
         self.dyn_cfg_key = os.getenv("DYN_CFG_KEY", "settings:dynamic_cfg")
 

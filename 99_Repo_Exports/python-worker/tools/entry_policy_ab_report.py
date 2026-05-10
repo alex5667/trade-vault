@@ -10,6 +10,7 @@ from typing import Any
 import redis.asyncio as aioredis
 
 from utils.time_utils import get_ny_time_millis
+from core.redis_keys import RedisStreams as RS
 
 
 def _now_ms() -> int:
@@ -43,7 +44,7 @@ def _s(x: Any, d: str = "") -> str:
 
 @dataclass
 class ABReportCfg:
-    audit_stream: str = "stream:trade:entry_audit"
+    audit_stream: str = RS.ENTRY_AUDIT
     out_dir: str = "/var/log/trade"
     lookback_sec: int = 24 * 3600
     limit: int = 5000
@@ -55,7 +56,7 @@ class ABReportCfg:
     @staticmethod
     def from_env() -> ABReportCfg:
         return ABReportCfg(
-            audit_stream=os.getenv("TRADE_ENTRY_AUDIT_STREAM", "stream:trade:entry_audit"),
+            audit_stream=os.getenv("TRADE_ENTRY_AUDIT_STREAM", RS.ENTRY_AUDIT),
             out_dir=os.getenv("EP_REPORT_DIR", "/var/log/trade"),
             lookback_sec=int(os.getenv("EP_AB_LOOKBACK_SEC", str(24 * 3600))),
             limit=int(os.getenv("EP_AB_AUDIT_LIMIT", "5000")),

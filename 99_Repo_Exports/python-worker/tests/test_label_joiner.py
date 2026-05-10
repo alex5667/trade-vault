@@ -55,8 +55,8 @@ class TestLabelJoinerService(unittest.TestCase):
         calls = self.mock_redis.xadd.call_args_list
 
         # Expect 2 calls: trades:closed and ml_replay_inputs_v1
-        trades_closed_call = [c for c in calls if c[0][0] == "trades:closed"]
-        ml_replay_call = [c for c in calls if c[0][0] == "ml_replay_inputs_v1"]
+        trades_closed_call = [c for c in calls if c[0][0] == RS.TRADES_CLOSED]
+        ml_replay_call = [c for c in calls if c[0][0] == RS.ML_REPLAY_INPUTS]
 
         assert len(trades_closed_call) == 1
         assert len(ml_replay_call) == 1
@@ -89,7 +89,7 @@ class TestLabelJoinerService(unittest.TestCase):
         result = self.service.process_trade_event(RS.EVENTS_TRADES, "2-0", fields)
         assert result is True
 
-        trades_closed_call = [c for c in self.mock_redis.xadd.call_args_list if c[0][0] == "trades:closed"]
+        trades_closed_call = [c for c in self.mock_redis.xadd.call_args_list if c[0][0] == RS.TRADES_CLOSED]
         args, _ = trades_closed_call[0]
         data = args[1]
         assert data["result"] == "LOSS"

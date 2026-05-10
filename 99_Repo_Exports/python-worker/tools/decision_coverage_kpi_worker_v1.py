@@ -15,6 +15,7 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
 )
+from core.redis_keys import RedisStreams as RS
 logger = logging.getLogger(__name__)
 
 class DecisionCoverageWorker:
@@ -22,7 +23,7 @@ class DecisionCoverageWorker:
         self.redis_url = os.getenv("REDIS_URL", "redis://redis:6379/0")
         self.r = redis.Redis.from_url(self.redis_url, decode_responses=True)
 
-        self.stream_key = os.getenv("DECISIONS_FINAL_STREAM", "decisions:final")
+        self.stream_key = os.getenv("DECISIONS_FINAL_STREAM", RS.DECISIONS_FINAL)
         self.out_key = os.getenv("DECISION_COVERAGE_OUT_HASH", "metrics:decision_coverage:24h")
         self.dyn_cfg_key = os.getenv("DYN_CFG_KEY", "settings:dynamic_cfg")
 

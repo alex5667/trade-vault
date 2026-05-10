@@ -45,7 +45,7 @@ class _FakeRedis:
 
 
 def _mk_dispatcher():
-    from services.signal_dispatcher import SignalDispatcher
+    from services.dispatch.dispatcher_app import SignalDispatcher
 
     # Patch __init__ to avoid Redis connection
     original_init = SignalDispatcher.__init__

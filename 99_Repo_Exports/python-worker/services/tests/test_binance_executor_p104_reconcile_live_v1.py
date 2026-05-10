@@ -2,6 +2,7 @@ import importlib.util
 import json
 import sys
 from pathlib import Path
+from core.redis_keys import RedisStreams as RS
 
 mod_path = Path(__file__).parent.parent / 'binance_executor.py'
 spec = importlib.util.spec_from_file_location('binance_executor_p104', mod_path)
@@ -46,7 +47,7 @@ class DummyClient:
 def _mk_exec():
     ex = mod.BinanceExecutor.__new__(mod.BinanceExecutor)
     ex.r = FakeRedis()
-    ex.exec_stream = 'orders:exec'
+    ex.exec_stream = RS.ORDERS_EXEC
     ex.user_stream_cache_prefix = 'orders:user_stream:'
     ex.user_stream_status_key = 'orders:user_stream:status'
     ex.user_stream_max_stale_ms = 45000

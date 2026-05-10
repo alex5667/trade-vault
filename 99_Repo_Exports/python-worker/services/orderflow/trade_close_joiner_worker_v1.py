@@ -307,10 +307,10 @@ async def _write_outputs(
     close_ev: dict[str, Any],
     label: dict[str, Any],
 ) -> None:
-    trades_stream = os.getenv("TRADES_CLOSED_STREAM", "trades:closed")
+    trades_stream = os.getenv("TRADES_CLOSED_STREAM", RS.TRADES_CLOSED)
     trades_maxlen = _env_int("TRADES_CLOSED_MAXLEN", str(STREAM_RETENTION[RS.TRADES_CLOSED]))
 
-    ml_stream = os.getenv("ML_REPLAY_INPUTS_STREAM", "ml_replay_inputs_v1")
+    ml_stream = os.getenv("ML_REPLAY_INPUTS_STREAM", RS.ML_REPLAY_INPUTS)
     ml_maxlen = _env_int("ML_REPLAY_INPUTS_MAXLEN", str(STREAM_RETENTION[RS.ML_REPLAY_INPUTS]))
 
     sid, symbol, close_ts_ms, r_mult, extra = extract_close_info(close_ev)
@@ -345,7 +345,7 @@ async def _write_outputs(
             "win_r_min": label.get("win_r_min"),
         },
         **extra,
-    },
+    }
 
     out_ml = {
         "version": 1,
@@ -365,7 +365,7 @@ async def _write_outputs(
             "bucket": bucket,
             "model_ver": model_ver,
         },
-    },
+    }
 
     payload_trades = json.dumps(out_trades, ensure_ascii=False, separators=(",", ":"), default=str)
     payload_ml = json.dumps(out_ml, ensure_ascii=False, separators=(",", ":"), default=str)
@@ -506,7 +506,7 @@ async def process_close_event(
         trade_close_joiner_missing_decision_total.labels(symbol=symbol, where="backfill" if from_backfill else "realtime").inc()
 
         if enq:
-            wait_stream = os.getenv("CLOSE_WAIT_STREAM", "trades:close_wait")
+            wait_stream = os.getenv("CLOSE_WAIT_STREAM", RS.TRADES_CLOSE_WAIT)
             wait_maxlen = _env_int("CLOSE_WAIT_MAXLEN", str(STREAM_RETENTION[RS.TRADES_CLOSE_WAIT]))
 
             payload = json.dumps(close_ev, ensure_ascii=False, separators=(",", ":"), default=str)
@@ -560,7 +560,7 @@ async def process_close_event(
 
 
 async def backfill_wait_stream(r: Any) -> None:
-    wait_stream = os.getenv("CLOSE_WAIT_STREAM", "trades:close_wait")
+    wait_stream = os.getenv("CLOSE_WAIT_STREAM", RS.TRADES_CLOSE_WAIT)
     scan = _env_int("CLOSE_WAIT_SCAN_COUNT", "500")
     max_age_hours = _env_float("CLOSE_WAIT_MAX_AGE_HOURS", "72")
     max_age_ms = int(max_age_hours * 3600 * 1000)
@@ -687,7 +687,7 @@ async def run() -> None:
                     except Exception as e:
                         log_silent_error(e, kind="joiner_loop_error", symbol="unknown", where="trade_close_joiner")
                         try:
-                            dlq_stream = os.getenv("TRADE_CLOSE_DLQ_STREAM", "dlq:events")
+                            dlq_stream = os.getenv("TRADE_CLOSE_DLQ_STREAM", RS.DLQ_EVENTS)
                             await r.xadd(
                                 dlq_stream,
                                 {

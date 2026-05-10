@@ -9,8 +9,8 @@ def test_parse_msg_decodes_bytes():
 
 
 def test_whitelist_contains_expected_actions():
-    assert "freeze_candidate" in m.ACTION_WHITELIST
-    assert "propose_threshold_canary" in m.ACTION_WHITELIST
+    assert "freeze_candidate" in m.ALLOWED_ACTIONS
+    assert "propose_threshold_canary" in m.ALLOWED_ACTIONS
 
 
 def test_env_stream_defaults():

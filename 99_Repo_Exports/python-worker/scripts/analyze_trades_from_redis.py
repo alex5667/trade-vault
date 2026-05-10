@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+from core.redis_keys import RedisStreams as RS
 
 """
 Быстрый анализ baseline vs managed + трейлинг по сделкам, прочитанным из Redis Stream.
@@ -300,7 +301,7 @@ def print_report(trades: list[Trade], metrics: dict[str, float], source: str, sy
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--redis-url", default=os.getenv("REDIS_URL", "redis://localhost:6379/0"))
-    parser.add_argument("--stream", default=os.getenv("TRADES_CLOSED_STREAM_NAME", "trades:closed"))
+    parser.add_argument("--stream", default=os.getenv("TRADES_CLOSED_STREAM_NAME", RS.TRADES_CLOSED))
     parser.add_argument("--source", required=True, help="Например, CryptoOrderFlow")
     parser.add_argument("--symbol", required=True, help="Например, ETHUSDT")
     parser.add_argument("--limit", type=int, default=1000, help="Сколько последних сделок читать")

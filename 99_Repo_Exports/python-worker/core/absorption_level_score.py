@@ -86,17 +86,17 @@ def compute_absorption_level_score(
     qd = _f(_get(bar, "fp_quote_delta", 0.0), 0.0)
     notional_ok = (qd >= min_qd) if min_qd > 0 else True
 
-    s1 = 1.0 if (abs(_f(delta_z)) >= z_th and notional_ok and (bool(weak_progress) or (eff > 0.0 and eff <= eff_th))) else 0.0
+    s1 = 1.0 if (abs(_f(delta_z)) >= z_th and notional_ok and (weak_progress or (eff > 0.0 and eff <= eff_th))) else 0.0
 
     # S2: ladder score
     ladder_norm = _f(cfg.get("abs_lvl_ladder_norm", 3.0), 3.0)
     s2 = _clamp01(float(ladder_len) / max(1.0, ladder_norm))
 
     # S3: iceberg
-    s3 = 1.0 if bool(iceberg_strict) else 0.0
+    s3 = 1.0 if iceberg_strict else 0.0
 
     # S4: reclaim
-    s4 = 1.0 if bool(reclaim_recent) else 0.0
+    s4 = 1.0 if reclaim_recent else 0.0
 
     # S5: poc_on_edge
     s5 = 1.0 if int(poc_on_edge) == 1 else 0.0
@@ -119,13 +119,13 @@ def compute_absorption_level_score(
     th = _f(cfg.get("abs_lvl_score_th", 0.60), 0.60)
 
     # IMPORTANT: absorption-on-level must have a directional bias and match trade direction
-    ok = bool(score >= th and dir_match)
+    ok = score >= th and dir_match
 
     return AbsLevel(
         ok=ok,
         score=float(score),
         bias=bias,
-        dir_match=bool(dir_match),
+        dir_match=dir_match,
         ladder_len=int(ladder_len),
         poc_on_edge=int(poc_on_edge),
         eff_delta=float(eff),

@@ -5,6 +5,7 @@ import sys
 from pathlib import Path
 
 from utils.time_utils import get_ny_time_millis
+from core.redis_keys import RedisStreams as RS
 
 
 def _now_ms() -> int:
@@ -32,9 +33,9 @@ def _run(cmd: list[str]) -> None:
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--redis_url", default=os.getenv("REDIS_URL", "redis://localhost:6379/0"))
-    ap.add_argument("--signal_stream", default=os.getenv("ML_REPLAY_STREAM", "ml_replay_inputs_v1"))
-    ap.add_argument("--closed_stream", default=os.getenv("TRADES_CLOSED_STREAM", "trades:closed"))
-    ap.add_argument("--tb_labels_stream", default=os.getenv("TB_LABELS_STREAM", "labels:tb"))
+    ap.add_argument("--signal_stream", default=os.getenv("ML_REPLAY_STREAM", RS.ML_REPLAY_INPUTS))
+    ap.add_argument("--closed_stream", default=os.getenv("TRADES_CLOSED_STREAM", RS.TRADES_CLOSED))
+    ap.add_argument("--tb_labels_stream", default=os.getenv("TB_LABELS_STREAM", RS.TB_LABELS))
     ap.add_argument("--label_source", choices=["closed", "tb_primary", "tb_util"], default=os.getenv("LABEL_SOURCE", "closed"))
     ap.add_argument("--tb_labels_count", type=int, default=200000)
 

@@ -32,7 +32,7 @@ def test_quarantine_writer_writes_jsonl():
     with tempfile.TemporaryDirectory() as td:
         p = os.path.join(td, "q.jsonl")
         q = QuarantineWriter(p)
-        q.write("close", "close_parse_none", stream="trades:closed", msg_id="1-0", data={"x": 1})
+        q.write("close", "close_parse_none", stream=RS.TRADES_CLOSED, msg_id="1-0", data={"x": 1})
         q.write("signal", "signal_parse_none", stream=RS.OF_INPUTS, msg_id="2-0", data={"y": 2})
         q.close()
 
@@ -41,7 +41,7 @@ def test_quarantine_writer_writes_jsonl():
         r0 = json.loads(lines[0])
         assert r0["kind"] == "close"
         assert r0["reason"] == "close_parse_none"
-        assert r0["stream"] == "trades:closed"
+        assert r0["stream"] == RS.TRADES_CLOSED
         assert r0["id"] == "1-0"
         assert r0["data"]["x"] == 1
 

@@ -11,7 +11,7 @@ def test_ml_gate_enforce_closed_policy(monkeypatch):
         original_import = __import__
 
         def mocked_import(name, *args, **kwargs):
-            if name == "services.ml_confirm_gate":
+            if name == "services.ml_confirm":
                 raise ImportError("mocked import error")
             return original_import(name, *args, **kwargs)
 
@@ -28,7 +28,7 @@ def test_ml_gate_enforce_open_policy(monkeypatch):
         original_import = __import__
 
         def mocked_import(name, *args, **kwargs):
-            if name == "services.ml_confirm_gate":
+            if name == "services.ml_confirm":
                 raise ImportError("mocked import error")
             return original_import(name, *args, **kwargs)
 

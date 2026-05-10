@@ -210,7 +210,7 @@ class NewsGate:
                 "cal_key": self.cal_key,
                 "cal_grade": grade,
                 "tminus_sec": float(tminus),
-                "event_ts_ms": int(event_ts_ms) if event_ts_ms > 0 else 0,
+                "event_ts_ms": event_ts_ms if event_ts_ms > 0 else 0,
                 "title": title,
                 "event_id": ev_id,
             }
@@ -250,13 +250,13 @@ class NewsGate:
             # News soft: requires features
             if news_risk is not None and news_grade_id is not None and confidence is not None:
                 # staleness by horizon (if provided)
-                if asof_ts_ms is not None and horizon_sec is not None and int(horizon_sec) > 0 and int(asof_ts_ms) > 0:
-                    if (now_ts_ms - int(asof_ts_ms)) > int(horizon_sec) * 1000:
+                if asof_ts_ms is not None and horizon_sec is not None and horizon_sec > 0 and asof_ts_ms > 0:
+                    if (now_ts_ms - asof_ts_ms) > horizon_sec * 1000:
                         dq["news_stale_over_horizon"] = True
                     else:
                         soft_reasons.append("soft_news")
                         rr = _clamp01(float(news_risk))
-                        g = int(news_grade_id)
+                        g = news_grade_id
                         if g >= 3:
                             gw = 1.0
                         elif g == 2:
@@ -275,7 +275,7 @@ class NewsGate:
                 else:
                     soft_reasons.append("soft_news")
                     rr = _clamp01(float(news_risk))
-                    g = int(news_grade_id)
+                    g = news_grade_id
                     gw = 1.0 if g >= 3 else 0.6 if g == 2 else 0.3 if g == 1 else 0.0
                     cw = max(0.2, min(1.0, float(confidence)))
                     impact = rr * gw * cw
@@ -309,7 +309,7 @@ class NewsGate:
                         elif profile == "soft":
                             rf_bps = min(rf_bps, 5000)
 
-        rf_bps = _clamp_int(int(rf_bps), 0, 10000)
+        rf_bps = _clamp_int(rf_bps, 0, 10000)
 
         return GateDecision(
             hard_block=False,

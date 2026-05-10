@@ -1,13 +1,54 @@
+import contextlib
 import logging
 import math
 from typing import Any
 
 import numpy as np
 
+from utils.time_utils import get_ny_time_millis
+from core.edge_stack_mh_v1 import EdgeStackMHModelV1
+from core.meta_model_lr import MetaModelLR
 from .dto import MLConfirmDecision
-from .feature_builder import build_feature_row
+from .feature_builder import build_feature_row, _bucket_from_scenario, _f
+from .model_loader import _DictPackModelView
 
 logger = logging.getLogger("ml_confirm_gate.decision")
+
+def _find_forbidden_feature_cols(
+    feature_cols: list[str],
+    *,
+    forbid_scenario_v4_onehot: bool,
+) -> list[str]:
+    """Return list of forbidden feature columns under strict schema rules."""
+    bad: list[str] = []
+    if forbid_scenario_v4_onehot:
+        for c in feature_cols:
+            if c.startswith("scenario_v4_"):
+                bad.append(c)
+    return bad
+
+def _get_floor(util_floors: dict[str, Any], bucket: str) -> float:
+    """
+    champion JSON (v10.4) -> util_floors:
+      {
+        "global": { "floor": ... },
+        "by_bucket": { "range": { "floor": ... }, ... },
+        "unc_k": 0.5
+      }
+    """
+    try:
+        bb = util_floors.get("by_bucket") or {}
+        if isinstance(bb, dict) and bucket in bb and isinstance(bb[bucket], dict):
+            return float(bb[bucket].get("floor", util_floors.get("global", {}).get("floor", 0.0)))
+        g = util_floors.get("global") or {}
+        if isinstance(g, dict):
+            return float(g.get("floor", 0.0))
+    except Exception:
+        pass
+    return 0.0
+
+def _now_ms() -> int:
+    return get_ny_time_millis()
 
 class DecisionPolicy:
     def __init__(self, gate):
@@ -18,19 +59,11 @@ class DecisionPolicy:
         # Delegate to pure function
         return build_feature_row(*args, **kwargs, forbid_scenario_v4_onehot=getattr(self.gate, "_forbid_scenario_v4_onehot", False))
 
-import logging
-import contextlib
-
-logger = logging.getLogger("ml_confirm_gate.decision")
-
-class DecisionPolicy:
-    def __init__(self, gate):
-        # We hold a reference to the main facade or its fields
-        self.gate = gate
-
-    def _build_feature_row(self, *args, **kwargs):
-        # Delegate to pure function
-        return build_feature_row(*args, **kwargs, forbid_scenario_v4_onehot=getattr(self.gate, "_forbid_scenario_v4_onehot", False))
+    def _fail_allow(self) -> bool:
+        """Centralized fail-open/fail-closed logic."""
+        if self.gate.mode == "ENFORCE" and self.gate.fail_policy == "CLOSED":
+            return False
+        return True
 
     def _decide_ml_scorer(
         self,
@@ -46,7 +79,7 @@ class DecisionPolicy:
     ) -> MLConfirmDecision:
         """Decision logic for simple GBDT/LGBM scorers (Scorer V3/V4)."""
         cfg = cfg if cfg is not None else self.gate._cfg
-        model = model if model is not None else self._model
+        model = model if model is not None else getattr(self.gate, "_model", None)
 
         mode = effective_mode if effective_mode else self.gate.mode
         dec = MLConfirmDecision(mode=mode, kind=(cfg.get("kind", "ml_scorer")), allow=True)
@@ -56,7 +89,7 @@ class DecisionPolicy:
         if model is None:
             dec.mode = "ERR"
             dec.allow = self._fail_allow()
-            dec.reason = self._model_load_error or "no_model_loaded"
+            dec.reason = getattr(self.gate, "_model_load_error", None) or "no_model_loaded"
             dec.error = dec.reason
             dec.status = "ERR_NO_MODEL"
             return dec
@@ -72,7 +105,7 @@ class DecisionPolicy:
         )
         dec.missing = missing
 
-        if missing and mode == "ENFORCE" and not self._abstain_on_missing:
+        if missing and mode == "ENFORCE" and not self.gate._abstain_on_missing:
             dec.allow = False
             dec.status = "MISSING_CRITICAL_BLOCK"
             dec.reason = f"missing_critical({','.join(missing)})"
@@ -95,17 +128,20 @@ class DecisionPolicy:
             dec.status = "ERR_PREDICT"
             return dec
 
-        dec.p_edge_raw = float(p_raw)
-        dec.p_edge = float(p_raw)
+        dec.p_edge_raw = p_raw
+        dec.p_edge = p_raw
         dec.p_min = float(cfg.get("p_min", 0.5) or 0.5)
-        dec.p_margin = float(dec.p_edge - dec.p_min)
-        dec.allow = bool(dec.p_edge >= dec.p_min)
+        if mode == "ENFORCE":
+            dec.p_min = max(dec.p_min, self.gate._p_min_hard_floor)
+        dec.p_margin = dec.p_edge - dec.p_min
+        dec.allow = dec.p_edge >= dec.p_min
         dec.status = "ALLOW" if dec.allow else "DENY"
         dec.reason = "ml_allow" if dec.allow else "ml_deny"
         return dec
 
     def _decide_util_mh(
         self,
+        dec: MLConfirmDecision,
         *,
         symbol: str,
         ts_ms: int,
@@ -115,12 +151,14 @@ class DecisionPolicy:
         effective_mode: str | None = None,
         cfg: dict[str, Any] | None = None,
         model: Any | None = None,
+        **kwargs
     ) -> MLConfirmDecision:
+        """Decision logic for simple GBDT/LGBM scorers (Scorer V3/V4)."""
         cfg = cfg if cfg is not None else self.gate._cfg
-        model = model if model is not None else self._model
+        model = model if model is not None else getattr(self.gate, "_model", None)
 
         mode = effective_mode if effective_mode else self.gate.mode
-        dec = MLConfirmDecision(mode=mode, kind="util_mh_v1", allow=True)
+        dec.kind = (cfg.get("kind", "util_mh_v1"))
         dec.model_run_id = (cfg.get("run_id", "") or "")
         dec.model_path = (cfg.get("model_path", "") or "")
 
@@ -128,7 +166,7 @@ class DecisionPolicy:
             dec.mode = "ERR"
             dec.allow = self._fail_allow()
             # Use detailed error reason if available, otherwise generic
-            error_reason = self._model_load_error or "no_model_loaded"
+            error_reason = getattr(self.gate, "_model_load_error", None) or "no_model_loaded"
             dec.reason = error_reason
             dec.error = error_reason
             dec.status = "ERR_NO_MODEL"
@@ -173,7 +211,7 @@ class DecisionPolicy:
 
         # ENFORCE: если критические фичи реально отсутствуют -> fail-closed (точнее и безопаснее)
         if missing and mode == "ENFORCE":
-            if self._abstain_on_missing:
+            if self.gate._abstain_on_missing:
                 # selective: do not hard-block, let rule gate decide
                 dec.allow = True
                 dec.abstain = True
@@ -184,11 +222,11 @@ class DecisionPolicy:
                 dec.status = "MISSING_CRITICAL_BLOCK"
                 dec.reason = f"missing_critical({','.join(missing)})"
             dec.p_edge = 0.0
-            dec.p_min = max(0.0, float(self.gate._p_min_hard_floor))
-            dec.p_margin = float(dec.p_edge - dec.p_min)
+            dec.p_min = max(0.0, self.gate._p_min_hard_floor)
+            dec.p_margin = dec.p_edge - dec.p_min
             dec.conf = self._conf_from_margin(dec.p_margin)
             dec.score = 0.0
-            dec.floor = float(dec.p_min)
+            dec.floor = dec.p_min
             return dec
 
         import numpy as np
@@ -263,7 +301,7 @@ class DecisionPolicy:
 
                 if sc > best_score:
                     best_score = sc
-                    best_h = int(h)
+                    best_h = h
                     scores_computed = True
             except (IndexError, KeyError, TypeError, ValueError) as e:
                 # Skip invalid predictions for this horizon, continue with others
@@ -280,7 +318,7 @@ class DecisionPolicy:
             dec.p_min = 0.0
             dec.p_margin = 0.0
             dec.conf = 0.0
-            dec.score = float(best_score) if scores_computed else 0.0
+            dec.score = best_score if scores_computed else 0.0
             dec.best_h_ms = best_h
             dec.util_pred = util_pred_out
             dec.unc = unc_out
@@ -289,10 +327,10 @@ class DecisionPolicy:
             dec.bucket = bucket
             floor = _get_floor(util_floors, bucket)
             try:
-                floor = max(float(floor), float(self.gate._p_min_hard_floor))
+                floor = max(floor, self.gate._p_min_hard_floor)
             except Exception:
-                floor = float(floor)
-            dec.floor = float(floor)
+                floor = floor
+            dec.floor = floor
             dec.allow = False  # No valid scores -> block
             return dec
 
@@ -300,18 +338,18 @@ class DecisionPolicy:
         floor = _get_floor(util_floors, bucket)
         # hard floor guardrail
         try:
-            floor = max(float(floor), float(self.gate._p_min_hard_floor))
+            floor = max(floor, self.gate._p_min_hard_floor)
         except Exception:
-            floor = float(floor)
+            floor = floor
 
         dec.bucket = bucket
         dec.best_h_ms = best_h
-        dec.score = float(best_score)
-        dec.floor = float(floor)
+        dec.score = best_score
+        dec.floor = floor
         dec.util_pred = util_pred_out
         dec.unc = unc_out
 
-        dec.allow = bool(best_score >= floor)
+        dec.allow = best_score >= floor
 
         # p_edge: convert utility score to probability before calibration
         # Utility scores can be negative/zero/positive, but calibrator expects [0,1]
@@ -345,7 +383,7 @@ class DecisionPolicy:
             # Typical range [-5, 5]: use base scaling
             scale_factor = base_scale
 
-        scaled_score = float(best_score) * scale_factor
+        scaled_score = best_score * scale_factor
         p_edge_from_score = _sigmoid(scaled_score)
 
         # Ensure minimum precision: if sigmoid produces a very small value, keep it for accuracy
@@ -356,31 +394,31 @@ class DecisionPolicy:
             p_edge_from_score = max(1e-6, _sigmoid(scaled_score * 1.1))
 
         # Store pre-calibration probability (not raw utility score)
-        dec.p_edge_raw = float(p_edge_from_score)  # pre-calibration probability
-        dec.p_edge_cal = float(p_edge_from_score)  # will be updated by calibrator if enabled
+        dec.p_edge_raw = p_edge_from_score  # pre-calibration probability
+        dec.p_edge_cal = p_edge_from_score  # will be updated by calibrator if enabled
         dec.calib_type = str(self.gate._calib_type or "none")
 
         calibrate = self.gate._cfg.get("calibrate_p_edge", None)
         if calibrate is None:
             calibrate = True if self.gate._calibrator is not None else False
-        calibrate = bool(calibrate)
+        calibrate = calibrate
 
         if calibrate and self.gate._calibrator is not None:
             # Now calibrate the probability (already in [0,1] range)
-            dec.p_edge_cal = float(self.gate._calibrator.apply_one(p_edge_from_score))
+            dec.p_edge_cal = self.gate._calibrator.apply_one(p_edge_from_score)
 
         # Map floor to probability space identically to p_edge
-        scaled_floor = float(floor) * scale_factor
+        scaled_floor = floor * scale_factor
         p_min_from_floor = _sigmoid(scaled_floor)
 
         p_min_cal = p_min_from_floor
         if calibrate and self.gate._calibrator is not None:
-            p_min_cal = float(self.gate._calibrator.apply_one(p_min_from_floor))
+            p_min_cal = self.gate._calibrator.apply_one(p_min_from_floor)
 
         # use calibrated p_edge for downstream thresholds/metrics
-        dec.p_edge = float(dec.p_edge_cal)
-        dec.p_min = float(p_min_cal)
-        dec.p_margin = float(dec.p_edge - dec.p_min)
+        dec.p_edge = dec.p_edge_cal
+        dec.p_min = p_min_cal
+        dec.p_margin = dec.p_edge - dec.p_min
         dec.conf = self._conf_from_margin(dec.p_margin)
         dec.status = "ALLOW" if dec.allow else "BLOCK"
         dec.reason = f"util_mh(score={best_score:.4f},floor={floor:.4f},h={best_h},bucket={bucket})"
@@ -389,6 +427,7 @@ class DecisionPolicy:
 
     def _decide_edge_stack_v1(
         self,
+        dec: MLConfirmDecision,
         *,
         symbol: str,
         ts_ms: int,
@@ -398,35 +437,21 @@ class DecisionPolicy:
         effective_mode: str | None = None,
         cfg: dict[str, Any] | None = None,
         model: Any | None = None,
+        **kwargs
     ) -> MLConfirmDecision:
-        """
-        Решение для edge_stack_v1: OOF stacking (LR + GBDT -> meta LR).
-        
-        Модель: dict-pack с ключами:
-          - schema_version: 1
-          - kind: "edge_stack_v1"
-          - feature_cols: List[str]
-          - lr: sklearn Pipeline (scaler + LR)
-          - gbdt: CatBoostClassifier или HistGradientBoostingClassifier
-          - meta: LogisticRegression
-        
-        Конфиг поддерживает:
-          - p_min: глобальный порог (0..1)
-          - p_min_by_bucket: {"trend": 0.55, "range": 0.60, "other": 0.50, "news": 0.65}
-          - hard_p_min_floor: минимальный порог (fail-safe guardrail)
-        """
+        """Решение для edge_stack_v1 (LR + GBDT + Meta-model)."""
         cfg = cfg if cfg is not None else self.gate._cfg
-        model = model if model is not None else self._model
+        model = model if model is not None else getattr(self.gate, "_model", None)
 
         mode = effective_mode if effective_mode else self.gate.mode
-        dec = MLConfirmDecision(mode=mode, kind="edge_stack_v1", allow=True)
+        dec.kind = "edge_stack_v1"
         dec.model_run_id = (cfg.get("run_id", "") or "")
         dec.model_path = (cfg.get("model_path", "") or "")
 
         if model is None:
             dec.mode = "ERR"
             dec.allow = self._fail_allow()
-            error_reason = self._model_load_error or "no_model_loaded"
+            error_reason = getattr(self.gate, "_model_load_error", None) or "no_model_loaded"
             dec.reason = error_reason
             dec.error = error_reason
             dec.status = "ERR_NO_MODEL"
@@ -499,7 +524,7 @@ class DecisionPolicy:
                 dec.conf = 0.0
                 dec.missing = ["__forbidden_feature_cols"]
                 with contextlib.suppress(Exception):
-                    self._metrics_errors_total.labels(
+                    self.gate._metrics_errors_total.labels(
                         kind="edge_stack_v1", reason="forbidden_feature_cols"
                     ).inc()
                 return dec
@@ -514,7 +539,7 @@ class DecisionPolicy:
 
         # ENFORCE: если критические фичи отсутствуют -> fail-closed
         if missing and mode == "ENFORCE":
-            if self._abstain_on_missing:
+            if self.gate._abstain_on_missing:
                 dec.allow = True
                 dec.abstain = True
                 dec.status = "ABSTAIN_MISSING_CRITICAL"
@@ -524,11 +549,11 @@ class DecisionPolicy:
                 dec.status = "MISSING_CRITICAL_BLOCK"
                 dec.reason = f"missing_critical({','.join(missing)})"
             dec.p_edge = 0.0
-            dec.p_min = max(0.0, float(self.gate._p_min_hard_floor))
-            dec.p_margin = float(dec.p_edge - dec.p_min)
+            dec.p_min = max(0.0, self.gate._p_min_hard_floor)
+            dec.p_margin = dec.p_edge - dec.p_min
             dec.conf = self._conf_from_margin(dec.p_margin)
             dec.score = 0.0
-            dec.floor = float(dec.p_min)
+            dec.floor = dec.p_min
             return dec
 
         X = np.array([x_row], dtype=np.float32)
@@ -615,23 +640,23 @@ class DecisionPolicy:
 
         # Калибровка (если включена)
         dec.p_edge_raw = float(np.clip(p_edge_raw, 0.0, 1.0))
-        dec.p_edge_cal = float(dec.p_edge_raw)
+        dec.p_edge_cal = dec.p_edge_raw
         dec.calib_type = str(self.gate._calib_type or "none")
 
         calibrate = self.gate._cfg.get("calibrate_p_edge", None)
         if calibrate is None:
             calibrate = True if self.gate._calibrator is not None else False
-        calibrate = bool(calibrate)
+        calibrate = calibrate
 
         if calibrate and self.gate._calibrator is not None:
             if meta_degenerate:
                 # Bypass calibrator if meta model is degenerate, since calibrator was tuned for meta model
-                dec.p_edge_cal = float(dec.p_edge_raw)
+                dec.p_edge_cal = dec.p_edge_raw
                 dec.calib_type = "bypassed_degenerate"
             else:
-                dec.p_edge_cal = float(self.gate._calibrator.apply_one(dec.p_edge_raw))
+                dec.p_edge_cal = self.gate._calibrator.apply_one(dec.p_edge_raw)
 
-        dec.p_edge = float(dec.p_edge_cal)
+        dec.p_edge = dec.p_edge_cal
 
         # Определение bucket и p_min
         bucket = _bucket_from_scenario(scenario)
@@ -651,18 +676,18 @@ class DecisionPolicy:
         # hard_p_min_floor как guardrail
         hard_p_min_floor = float(cfg.get("hard_p_min_floor", 0.0))
         with contextlib.suppress(Exception):
-            hard_p_min_floor = max(float(hard_p_min_floor), float(self.gate._p_min_hard_floor))
+            hard_p_min_floor = max(hard_p_min_floor, self.gate._p_min_hard_floor)
 
         p_min = max(p_min_cfg, hard_p_min_floor)
         p_min = max(0.0, min(1.0, p_min))  # clamp to [0, 1]
 
-        dec.p_min = float(p_min)
-        dec.floor = float(p_min)  # для совместимости
-        dec.p_margin = float(dec.p_edge - dec.p_min)
+        dec.p_min = p_min
+        dec.floor = p_min  # для совместимости
+        dec.p_margin = dec.p_edge - dec.p_min
         dec.conf = self._conf_from_margin(dec.p_margin)
 
         # Решение
-        dec.allow = bool(dec.p_edge >= dec.p_min)
+        dec.allow = dec.p_edge >= dec.p_min
         dec.status = "ALLOW" if dec.allow else "BLOCK"
         dec.reason = f"edge_stack_v1(p_edge={dec.p_edge:.4f},p_min={dec.p_min:.4f},bucket={bucket})"
 
@@ -670,6 +695,7 @@ class DecisionPolicy:
 
     def _decide_edge_stack_mh(
         self,
+        dec: MLConfirmDecision,
         *,
         symbol: str,
         ts_ms: int,
@@ -679,29 +705,24 @@ class DecisionPolicy:
         effective_mode: str | None = None,
         cfg: dict[str, Any] | None = None,
         model: Any | None = None,
+        **kwargs
     ) -> MLConfirmDecision:
         """
         Решение для edge_stack_mh_v1: multi-horizon stacking с uncertainty.
-        
-        Модель: EdgeStackMHModelV1
-          - p_lr[h], p_gbdt[h] -> p_meta[h] -> p_cal[h]
-          - unc[h] = |p_lr[h] - p_gbdt[h]|
-          - score[h] = p_cal[h] - unc_k * unc[h]
-          - best_h = argmax_h(score[h])
-          - allow if best_score >= edge_floors[bucket].floor
+        ...
         """
         cfg = cfg if cfg is not None else self.gate._cfg
-        model = model if model is not None else self._model
+        model = model if model is not None else getattr(self.gate, "_model", None)
 
         mode = effective_mode if effective_mode else self.gate.mode
-        dec = MLConfirmDecision(mode=mode, kind="edge_stack_mh_v1", allow=True)
+        dec.kind = "edge_stack_mh_v1"
         dec.model_run_id = (cfg.get("run_id", "") or "")
         dec.model_path = (cfg.get("model_path", "") or "")
 
         if model is None:
             dec.mode = "ERR"
             dec.allow = self._fail_allow()
-            error_reason = self._model_load_error or "no_model_loaded"
+            error_reason = getattr(self.gate, "_model_load_error", None) or "no_model_loaded"
             dec.reason = error_reason
             dec.error = error_reason
             dec.status = "ERR_NO_MODEL"
@@ -739,7 +760,7 @@ class DecisionPolicy:
 
         # ENFORCE: если критические фичи отсутствуют -> fail-closed
         if missing and mode == "ENFORCE":
-            if self._abstain_on_missing:
+            if self.gate._abstain_on_missing:
                 dec.allow = True
                 dec.abstain = True
                 dec.status = "ABSTAIN_MISSING_CRITICAL"
@@ -749,11 +770,11 @@ class DecisionPolicy:
                 dec.status = "MISSING_CRITICAL_BLOCK"
                 dec.reason = f"missing_critical({','.join(missing)})"
             dec.p_edge = 0.0
-            dec.p_min = max(0.0, float(self.gate._p_min_hard_floor))
-            dec.p_margin = float(dec.p_edge - dec.p_min)
+            dec.p_min = max(0.0, self.gate._p_min_hard_floor)
+            dec.p_margin = dec.p_edge - dec.p_min
             dec.conf = self._conf_from_margin(dec.p_margin)
             dec.score = 0.0
-            dec.floor = float(dec.p_min)
+            dec.floor = dec.p_min
             return dec
 
         X = np.array([x_row], dtype=np.float32)
@@ -807,7 +828,7 @@ class DecisionPolicy:
 
                 if sc > best_score:
                     best_score = sc
-                    best_h = int(h)
+                    best_h = h
                     best_p_cal = p_cal
                     best_unc = unc
             except (IndexError, KeyError, TypeError, ValueError):
@@ -827,10 +848,10 @@ class DecisionPolicy:
             dec.bucket = bucket
             floor = _get_floor(cfg.get("edge_floors", {}), bucket)
             try:
-                floor = max(float(floor), float(self.gate._p_min_hard_floor))
+                floor = max(floor, self.gate._p_min_hard_floor)
             except Exception:
-                floor = float(floor)
-            dec.floor = float(floor)
+                floor = floor
+            dec.floor = floor
             dec.allow = False
             return dec
 
@@ -840,37 +861,38 @@ class DecisionPolicy:
         edge_floors = cfg.get("edge_floors", {})
         floor = _get_floor(edge_floors, bucket)
         try:
-            floor = max(float(floor), float(self.gate._p_min_hard_floor))
+            floor = max(floor, self.gate._p_min_hard_floor)
         except Exception:
-            floor = float(floor)
+            floor = floor
 
         dec.best_h_ms = best_h
-        dec.score = float(best_score)
-        dec.floor = float(floor)
+        dec.score = best_score
+        dec.floor = floor
 
         # p_edge: используем p_cal лучшего горизонта
-        dec.p_edge_raw = float(best_p_cal)
-        dec.p_edge_cal = float(best_p_cal)
+        dec.p_edge_raw = best_p_cal
+        dec.p_edge_cal = best_p_cal
         dec.calib_type = "platt_logit"  # модель уже калибрована
 
         # use calibrated p_edge for downstream thresholds/metrics
-        dec.p_edge = float(dec.p_edge_cal)
-        dec.p_min = float(floor)
-        dec.p_margin = float(dec.p_edge - dec.p_min)
+        dec.p_edge = dec.p_edge_cal
+        dec.p_min = floor
+        dec.p_margin = dec.p_edge - dec.p_min
         dec.conf = self._conf_from_margin(dec.p_margin)
 
         # Решение: allow if best_score >= floor
-        dec.allow = bool(best_score >= floor)
+        dec.allow = best_score >= floor
         dec.status = "ALLOW" if dec.allow else "BLOCK"
         dec.reason = f"edge_stack_mh(score={best_score:.4f},floor={floor:.4f},h={best_h},bucket={bucket},unc={best_unc:.4f})"
 
         # Сохраняем uncertainty для метрик
-        dec.unc = {str(best_h): float(best_unc)}
+        dec.unc = {str(best_h): best_unc}
 
         return dec
 
     def _decide_meta_lr(
         self,
+        dec: MLConfirmDecision,
         *,
         symbol: str,
         ts_ms: int,
@@ -880,20 +902,21 @@ class DecisionPolicy:
         effective_mode: str | None = None,
         cfg: dict[str, Any] | None = None,
         model: Any | None = None,
+        **kwargs
     ) -> MLConfirmDecision:
         """Decision logic for simple MetaModelLR (logistic regression)."""
         cfg = cfg if cfg is not None else self.gate._cfg
-        model = model if model is not None else self._model
+        model = model if model is not None else getattr(self.gate, "_model", None)
 
         mode = effective_mode if effective_mode else self.gate.mode
-        dec = MLConfirmDecision(mode=mode, kind="meta_lr", allow=True)
+        dec.kind = "meta_lr"
         dec.model_run_id = (cfg.get("run_id", "") or "")
         dec.model_path = (cfg.get("model_path", "") or "")
 
         if model is None:
             dec.mode = "ERR"
             dec.allow = self._fail_allow()
-            error_reason = self._model_load_error or "no_model_loaded"
+            error_reason = getattr(self.gate, "_model_load_error", None) or "no_model_loaded"
             dec.reason = error_reason
             dec.error = error_reason
             dec.status = "ERR_NO_MODEL"
@@ -940,7 +963,7 @@ class DecisionPolicy:
 
         # ENFORCE missing check
         if missing and mode == "ENFORCE":
-            if self._abstain_on_missing:
+            if self.gate._abstain_on_missing:
                 dec.allow = True
                 dec.abstain = True
                 dec.status = "ABSTAIN_MISSING_CRITICAL"
@@ -950,11 +973,11 @@ class DecisionPolicy:
                 dec.status = "MISSING_CRITICAL_BLOCK"
                 dec.reason = f"missing_critical({','.join(missing)})"
             dec.p_edge = 0.0
-            dec.p_min = max(0.0, float(self.gate._p_min_hard_floor))
-            dec.p_margin = float(dec.p_edge - dec.p_min)
+            dec.p_min = max(0.0, self.gate._p_min_hard_floor)
+            dec.p_margin = dec.p_edge - dec.p_min
             dec.conf = self._conf_from_margin(dec.p_margin)
             dec.score = 0.0
-            dec.floor = float(dec.p_min)
+            dec.floor = dec.p_min
             return dec
 
         # Predict
@@ -995,18 +1018,18 @@ class DecisionPolicy:
             dec.status = "ERR_NON_FINITE"
             return dec
 
-        dec.p_edge_raw = float(p_edge_raw)
-        dec.p_edge_cal = float(p_edge_raw)
+        dec.p_edge_raw = p_edge_raw
+        dec.p_edge_cal = p_edge_raw
         dec.calib_type = str(self.gate._calib_type or "none")
 
         # Optional calibration
         calibrate = self.gate._cfg.get("calibrate_p_edge", None)
         if calibrate is None:
             calibrate = True if self.gate._calibrator is not None else False
-        if bool(calibrate) and self.gate._calibrator is not None:
-             dec.p_edge_cal = float(self.gate._calibrator.apply_one(dec.p_edge_raw))
+        if calibrate and self.gate._calibrator is not None:
+             dec.p_edge_cal = self.gate._calibrator.apply_one(dec.p_edge_raw)
 
-        dec.p_edge = float(dec.p_edge_cal)
+        dec.p_edge = dec.p_edge_cal
 
         # Determine p_min
         bucket = _bucket_from_scenario(scenario)
@@ -1024,14 +1047,14 @@ class DecisionPolicy:
 
         # guardrail
         with contextlib.suppress(Exception):
-            floor = max(float(floor), float(self.gate._p_min_hard_floor))
+            floor = max(floor, self.gate._p_min_hard_floor)
 
-        dec.p_min = float(floor)
-        dec.floor = float(floor)
-        dec.p_margin = float(dec.p_edge - dec.p_min)
+        dec.p_min = floor
+        dec.floor = floor
+        dec.p_margin = dec.p_edge - dec.p_min
         dec.conf = self._conf_from_margin(dec.p_margin)
 
-        dec.allow = bool(dec.p_edge >= dec.p_min)
+        dec.allow = dec.p_edge >= dec.p_min
         dec.status = "ALLOW" if dec.allow else "BLOCK"
         dec.reason = f"meta_lr(p={dec.p_edge:.4f},thr={dec.p_min:.4f},bucket={bucket})"
 
@@ -1041,12 +1064,12 @@ class DecisionPolicy:
     @staticmethod
     def _conf_from_margin(p_margin: float) -> float:
         try:
-            return float(1.0 - math.exp(-abs(float(p_margin))))
+            return 1.0 - math.exp(-abs(p_margin))
         except Exception:
             return 0.0
 
     def _apply_selective(self, dec: MLConfirmDecision, *, ok_rule: int) -> None:
-        if self.gate.mode != "ENFORCE" or int(ok_rule) != 1:
+        if self.gate.mode != "ENFORCE" or ok_rule != 1:
             if self.gate.mode == "SHADOW":
                 dec.status = dec.status or "SHADOW"
             return
@@ -1057,14 +1080,14 @@ class DecisionPolicy:
             return
         band = float(self.gate._abstain_band or 0.0)
         p_min = float(self.gate._cfg.get("p_min", 0.5)) if getattr(self.gate, "_cfg", None) else 0.5
-        if band > 0.0 and abs(float(dec.p_margin)) <= band:
+        if band > 0.0 and abs(dec.p_margin) <= band:
             dec.abstain = True
             dec.allow = True
             dec.status = "ABSTAIN_BAND"
             dec.reason = f"ml_abstain_band(margin={dec.p_margin:.6f},band={band:.6f})"
             return
         cmin = float(self.gate._conf_min or 0.0)
-        if cmin > 0.0 and float(dec.conf) < cmin:
+        if cmin > 0.0 and dec.conf < cmin:
             dec.abstain = True
             dec.allow = True
             dec.status = "ABSTAIN_LOWCONF"

@@ -5,6 +5,7 @@ import time
 import redis
 
 from utils.time_utils import get_ny_time_millis
+from core.redis_keys import RedisStreams as RS
 
 # Add project root to sys.path
 sys.path.append(os.getcwd())
@@ -52,7 +53,7 @@ def ml_manual_approve():
     sig = sign_bundle_id(bundle_id, secret)
 
     # 4. Push events
-    stream = os.getenv("BOT_CALLBACKS_STREAM", "bot:callbacks")
+    stream = os.getenv("BOT_CALLBACKS_STREAM", RS.BOT_CALLBACKS)
     who = {
         "timestamp": str(get_ny_time_millis()),
         "chat_id": os.getenv("TELEGRAM_CHAT_ID", "manual_approval"),

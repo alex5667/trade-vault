@@ -140,7 +140,7 @@ def _notify_redis_stream(r, stream: str, text: str) -> None:
 def main() -> int:
     ap = argparse.ArgumentParser(description="P76 contract smoke-check for metrics:of_gate")
     ap.add_argument("--redis-url", default=os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0"))
-    ap.add_argument("--stream", default=os.getenv("OF_GATE_METRICS_STREAM", "metrics:of_gate"))
+    ap.add_argument("--stream", default=os.getenv("OF_GATE_METRICS_STREAM", RS.OF_GATE_METRICS))
     ap.add_argument("--limit", type=int, default=int(os.getenv("OF_GATE_CONTRACT_CHECK_LIMIT", "2000")))
 
     ap.add_argument("--bad-max", type=float, default=float(os.getenv("OF_GATE_CONTRACT_BAD_MAX", "0.001")))

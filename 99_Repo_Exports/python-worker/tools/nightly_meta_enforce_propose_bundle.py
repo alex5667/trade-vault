@@ -60,7 +60,7 @@ def _read_metrics_window(r: redis.Redis, stream: str, since_ms: int, max_scan: i
     
     Args:
         r: Redis client
-        stream: Stream name (e.g. "metrics:of_gate")
+        stream: Stream name (e.g. RS.OF_GATE_METRICS)
         since_ms: Minimum timestamp (ms) to read from
         max_scan: Maximum messages to scan
         
@@ -193,7 +193,7 @@ def main() -> None:
         return
 
     # -------- gate 2: 24h health ----------
-    metrics_stream = os.getenv("OF_GATE_METRICS_STREAM", "metrics:of_gate")
+    metrics_stream = os.getenv("OF_GATE_METRICS_STREAM", RS.OF_GATE_METRICS)
     win_h = float(os.getenv("BASELINE_PROPOSE_HEALTH_WINDOW_HOURS", "24") or 24)
     min_n = int(os.getenv("BASELINE_PROPOSE_MIN_N", "200") or 200)
 

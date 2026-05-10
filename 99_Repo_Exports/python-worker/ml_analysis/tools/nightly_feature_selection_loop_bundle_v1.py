@@ -111,7 +111,7 @@ def main(argv: list | None = None) -> int:
 
     ap.add_argument("--out_dir", default=os.environ.get("FEATURE_SELECTION_LOOP_OUT_DIR", "/var/lib/trade/ml_models/feature_selection_loop_v1"))
     ap.add_argument("--signals_stream", default=os.environ.get("EDGE_STACK_SIGNALS_STREAM", RS.OF_INPUTS))
-    ap.add_argument("--closed_stream", default=os.environ.get("EDGE_STACK_CLOSED_STREAM", "trades:closed"))
+    ap.add_argument("--closed_stream", default=os.environ.get("EDGE_STACK_CLOSED_STREAM", RS.TRADES_CLOSED))
     ap.add_argument("--window_hours", type=int, default=int(os.environ.get("FEATURE_SELECTION_LOOP_WINDOW_HOURS", "168")))
     ap.add_argument("--signals_count", type=int, default=int(os.environ.get("FEATURE_SELECTION_LOOP_SIGNALS_COUNT", "250000")))
     ap.add_argument("--closes_count", type=int, default=int(os.environ.get("FEATURE_SELECTION_LOOP_CLOSES_COUNT", "250000")))

@@ -19,6 +19,7 @@ from typing import Any
 import redis
 
 from utils.time_utils import get_ny_time_millis
+from core.redis_keys import RedisStreams as RS
 
 
 def now_ms() -> int:
@@ -91,7 +92,7 @@ def read_stream_window(
 def main() -> None:
     ap = argparse.ArgumentParser(description="Диагностика латентности ML")
     ap.add_argument("--redis-url", default=os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0"))
-    ap.add_argument("--stream", default=os.getenv("ML_CONFIRM_METRICS_STREAM", "metrics:ml_confirm"))
+    ap.add_argument("--stream", default=os.getenv("ML_CONFIRM_METRICS_STREAM", RS.ML_CONFIRM_METRICS))
     ap.add_argument("--window-min", type=int, default=60, help="Окно анализа в минутах")
     ap.add_argument("--max-scan", type=int, default=200000, help="Максимум сообщений для сканирования")
     ap.add_argument("--top-n", type=int, default=20, help="Топ N символов для показа")

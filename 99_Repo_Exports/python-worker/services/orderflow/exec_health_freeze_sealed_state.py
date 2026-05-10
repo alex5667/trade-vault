@@ -103,7 +103,7 @@ def _s(x: Any, d: str = "") -> str:
 
 
 def _secret(explicit: str | None = None) -> str:
-    return str(explicit if explicit is not None else os.getenv(SEAL_SECRET_ENV, "") or "")
+    return (explicit if explicit is not None else os.getenv(SEAL_SECRET_ENV, "") or "")
 
 
 def seal_enforced() -> bool:
@@ -119,9 +119,9 @@ def allow_unsealed_bootstrap() -> bool:
 def _canonical_items(mapping: Mapping[str, Any]) -> Sequence[tuple[str, str]]:
     pairs = []
     for k, v in dict(mapping or {}).items():
-        if str(k) in _SEAL_META_FIELDS:
+        if k in _SEAL_META_FIELDS:
             continue
-        pairs.append((str(k), _s(v)))
+        pairs.append((k, _s(v)))
     pairs.sort(key=lambda kv: kv[0])
     return pairs
 
@@ -170,10 +170,10 @@ def prepare_sealed_mapping(
     out.update(
         {
             "seal_algorithm": "sha1_v1",
-            "seal_version": int(version),
+            "seal_version": version,
             "seal_prev_digest": _s(prev.get("seal_digest"), "") if prev_valid else "",
             "seal_entrypoint": (entrypoint or ""),
-            "sealed_at_ts_ms": int(now_ms or _now_ms()),
+            "sealed_at_ts_ms": (now_ms or _now_ms()),
             "seal_force_reason": (force_reason or ""),
         }
     )
@@ -184,7 +184,7 @@ def prepare_sealed_mapping(
 def _flat_pairs(mapping: Mapping[str, Any]) -> list[str]:
     flat: list[str] = []
     for k, v in dict(mapping).items():
-        flat.extend([str(k), _s(v)])
+        flat.extend([k, _s(v)])
     return flat
 
 
@@ -245,12 +245,12 @@ def sealed_set_sync(
     args = [
         _s(prev.get("seal_digest"), "") if (prev_valid and not prev_missing_seal) else "",
         _i(prev.get("seal_version"), 0) if (prev_valid and not prev_missing_seal) else 0,
-        int(ttl_s or 0),
+        (ttl_s or 0),
         len(sealed),
         *_flat_pairs(sealed),
     ]
     fn = FN_FORCE_SET if force else FN_SET
-    rc = int(_call_function(redis_client, fn, key, args))
+    rc = _call_function(redis_client, fn, key, args)
     return {"ok": rc == 1, "rc": rc, "mapping": sealed}
 
 
@@ -290,7 +290,7 @@ async def asealed_set(
     args = [
         _s(prev.get("seal_digest"), "") if (prev_valid and not prev_missing_seal) else "",
         _i(prev.get("seal_version"), 0) if (prev_valid and not prev_missing_seal) else 0,
-        int(ttl_s or 0),
+        (ttl_s or 0),
         len(sealed),
         *_flat_pairs(sealed),
     ]

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+from core.redis_keys import RedisStreams as RS
 
 """Проверка стримов ML Next Level v5: metrics:ml_confirm и metrics:ml_outcome.
 
@@ -106,7 +107,7 @@ def main() -> None:
     # metrics:ml_confirm (writer: gate v5)
     check_stream(
         r,
-        os.getenv("ML_CONFIRM_METRICS_STREAM", "metrics:ml_confirm"),
+        os.getenv("ML_CONFIRM_METRICS_STREAM", RS.ML_CONFIRM_METRICS),
         "ML Confirm Gate v5",
         required_fields=[
             "ts_ms",
@@ -146,7 +147,7 @@ def main() -> None:
     # metrics:ml_outcome (writer: outcome joiner v3)
     check_stream(
         r,
-        os.getenv("ML_OUTCOME_METRICS_STREAM", "metrics:ml_outcome"),
+        os.getenv("ML_OUTCOME_METRICS_STREAM", RS.ML_OUTCOME_METRICS),
         "ML Outcome Joiner v3",
         required_fields=[
             "ts_ms",

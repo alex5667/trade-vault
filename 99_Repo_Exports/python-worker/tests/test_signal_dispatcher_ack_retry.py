@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from unittest.mock import Mock
 
-from services.signal_dispatcher import SignalDispatcher
+from services.dispatch.dispatcher_app import SignalDispatcher
 
 
 def test_ack_retry_functionality():

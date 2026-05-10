@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+from core.redis_keys import RedisStreams as RS
 
 """Build confirm_train_v7 NDJSON dataset by joining decisions:final + trades:closed.
 
@@ -389,8 +390,8 @@ def _write_json_atomic(path: str, obj: dict[str, Any]) -> None:
 def build_confirm_train_v7(
     *,
     redis_url: str = "",
-    decisions_stream: str = "decisions:final",
-    closes_stream: str = "trades:closed",
+    decisions_stream: str = RS.DECISIONS_FINAL,
+    closes_stream: str = RS.TRADES_CLOSED,
     decisions_count: int = 200_000,
     closes_count: int = 200_000,
     decisions_archive_dir: str = "",
@@ -531,8 +532,8 @@ def build_confirm_train_v7(
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="Build confirm_train_v7 + outcomes NDJSON from Redis streams")
     ap.add_argument("--redis_url", default=os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0"))
-    ap.add_argument("--decisions_stream", default=os.getenv("DECISIONS_FINAL_STREAM", "decisions:final"))
-    ap.add_argument("--closes_stream", default=os.getenv("TRADES_CLOSED_STREAM", "trades:closed"))
+    ap.add_argument("--decisions_stream", default=os.getenv("DECISIONS_FINAL_STREAM", RS.DECISIONS_FINAL))
+    ap.add_argument("--closes_stream", default=os.getenv("TRADES_CLOSED_STREAM", RS.TRADES_CLOSED))
     ap.add_argument("--decisions_count", type=int, default=int(os.getenv("CONFIRM_V7_DECISIONS_COUNT", "200000")))
     ap.add_argument("--closes_count", type=int, default=int(os.getenv("CONFIRM_V7_CLOSES_COUNT", "200000")))
     ap.add_argument("--decisions_archive_dir", default=os.getenv("DECISIONS_ARCHIVE_DIR", "/var/lib/trade/archives/decisions"))

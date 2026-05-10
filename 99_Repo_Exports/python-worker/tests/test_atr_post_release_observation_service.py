@@ -28,7 +28,7 @@ def test_evaluate_post_release_checks(mock_get_conn):
     mock_cur = MagicMock()
     mock_conn.cursor.return_value.__enter__.return_value = mock_cur
 
-    mock_cur.fetchone.return_value = {"status": "OBSERVING"}
+    mock_cur.fetchone.return_value = {"status": "OBSERVING", "target_scope": "BTCUSDT"}
 
     mock_telemetry = {
         "execution": {"slippage_shift": True},
@@ -86,7 +86,8 @@ def test_decide_promotion_status_eligible(mock_get_conn):
         "change_id": "id1",
         "target_scope": "scope1",
         "status": "OBSERVING",
-        "observation_until": datetime.now(UTC) - timedelta(hours=1)
+        "observation_until": datetime.now(UTC) - timedelta(hours=1),
+        "started_at": datetime.now(UTC) - timedelta(hours=2)
     }
     mock_cur.fetchall.side_effect = [[], []] # no holds, no failed checks
 
@@ -107,6 +108,7 @@ def test_decide_promotion_status_hold(mock_get_conn):
     }
     mock_cur.fetchall.side_effect = [
         [{"severity": "critical", "hold_reason_code": "execution_slippage"}], # holds
+        [], # failed checks
     ]
 
     status = ATRPostReleaseObservationService.decide_promotion_status("obs_123")
@@ -126,6 +128,7 @@ def test_decide_promotion_status_rollback_required(mock_get_conn):
     }
     mock_cur.fetchall.side_effect = [
         [{"severity": "critical", "hold_reason_code": "protective_critical_drift"}], # holds
+        [], # failed checks
     ]
 
     status = ATRPostReleaseObservationService.decide_promotion_status("obs_123")

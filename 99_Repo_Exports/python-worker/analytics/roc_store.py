@@ -85,7 +85,7 @@ class ROCStore:
                 "strategy": strategy,
                 "symbol": symbol,
                 "num_points": len(points)
-            },
+            }
 
             # Сохраняем в key
             self.r.set(key, json.dumps(payload))

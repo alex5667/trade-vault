@@ -53,23 +53,23 @@ from typing import Any
 import contextlib
 
 try:
-    from services.execution_metrics import (
+    from .execution_metrics import (
         BINANCE_429_TOTAL,
         BINANCE_503_FAILURE_TOTAL,
         BINANCE_503_UNKNOWN_TOTAL,
         BINANCE_1008_TOTAL,
         BINANCE_API_ERRORS_TOTAL,
     )
-except Exception:  # pragma: no cover
+except (ImportError, ValueError):
     try:
-        from execution_metrics import (
+        from services.execution_metrics import (
             BINANCE_429_TOTAL,
             BINANCE_503_FAILURE_TOTAL,
             BINANCE_503_UNKNOWN_TOTAL,
             BINANCE_1008_TOTAL,
             BINANCE_API_ERRORS_TOTAL,
         )
-    except Exception:  # pragma: no cover
+    except ImportError:
         BINANCE_429_TOTAL = BINANCE_503_FAILURE_TOTAL = BINANCE_503_UNKNOWN_TOTAL = None  # type: ignore
         BINANCE_1008_TOTAL = BINANCE_API_ERRORS_TOTAL = None  # type: ignore
 
@@ -89,9 +89,9 @@ class BinanceHTTPError(RuntimeError):
     """Raised by BinanceFuturesREST (read-only client)."""
     def __init__(self, *, status: int, body: str, url: str):
         super().__init__(f"Binance HTTP {status}: {body[:400]}")
-        self.status = int(status)
-        self.body = str(body)
-        self.url = str(url)
+        self.status = status
+        self.body = body
+        self.url = url
 
 
 class BinanceAPIError(RuntimeError):
@@ -106,7 +106,7 @@ class BinanceAPIError(RuntimeError):
     """
     def __init__(self, status: int, payload: Any, message: str = ""):
         super().__init__(message or f"Binance API error status={status} payload={payload}")
-        self.status = int(status)
+        self.status = status
         self.payload = payload  # parsed dict or {"_raw": ...} fallback
 
 
@@ -332,7 +332,7 @@ class BinanceFuturesREST:
         p: dict[str, Any] = dict(params or {})
         if signed:
             p.setdefault("timestamp", _now_ms())
-            p.setdefault("recvWindow", int(self.recv_window_ms))
+            p.setdefault("recvWindow", self.recv_window_ms)
 
             # Binance expects signature over query-string (same key order).
             # Keep it deterministic by sorting keys.
@@ -370,8 +370,11 @@ class BinanceFuturesREST:
     def get_account(self) -> dict[str, Any]:
         return self._request(method="GET", path="/fapi/v2/account", signed=True)
 
-    def get_position_risk(self) -> Any:
-        return self._request(method="GET", path="/fapi/v2/positionRisk", signed=True)
+    def get_position_risk(self, *, symbol: str | None = None) -> Any:
+        params: dict[str, Any] = {}
+        if symbol:
+            params["symbol"] = symbol
+        return self._request(method="GET", path="/fapi/v2/positionRisk", params=params, signed=True)
 
     def get_open_orders(self, *, symbol: str | None = None) -> Any:
         params: dict[str, Any] = {}
@@ -457,7 +460,7 @@ class BinanceFuturesPublicREST:
                     )
                 if attempt < self._max_retries:
                     time.sleep(delay)
-        raise urllib.error.URLError(last_err)  # re-raise after all retries exhausted
+        raise urllib.error.URLError(last_err or OSError("all retries exhausted"))
 
     def get_premium_index(self, symbol: str) -> Any:
         return self._request(path="/fapi/v1/premiumIndex", params={"symbol": symbol.upper()})
@@ -559,8 +562,8 @@ class BinanceFuturesClient:
 
             if signed:
                 # Apply server-time offset to minimise -1021 timestamp errors.
-                params["timestamp"] = _now_ms() + int(self.timestamp_offset_ms)
-                params.setdefault("recvWindow", int(self.recv_window))
+                params["timestamp"] = _now_ms() + self.timestamp_offset_ms
+                params.setdefault("recvWindow", self.recv_window)
                 qs = _encode_params_stable(params)
                 sig = _hmac_sha256_hex(self.api_secret, qs)
                 qs = qs + "&signature=" + sig
@@ -666,11 +669,11 @@ class BinanceFuturesClient:
         try:
             if BINANCE_API_ERRORS_TOTAL is not None:
                 BINANCE_API_ERRORS_TOTAL.labels(endpoint=endpoint, code=code).inc()
-            if int(status) == 429 and BINANCE_429_TOTAL is not None:
+            if status == 429 and BINANCE_429_TOTAL is not None:
                 BINANCE_429_TOTAL.labels(endpoint=endpoint).inc()
-            if str(code) == "-1008" and BINANCE_1008_TOTAL is not None:
+            if code == "-1008" and BINANCE_1008_TOTAL is not None:
                 BINANCE_1008_TOTAL.labels(endpoint=endpoint).inc()
-            if int(status) == 503:
+            if status == 503:
                 if "unknown" in msg:
                     if BINANCE_503_UNKNOWN_TOTAL is not None:
                         BINANCE_503_UNKNOWN_TOTAL.labels(endpoint=endpoint).inc()
@@ -707,7 +710,7 @@ class BinanceFuturesClient:
             t1 = _now_ms()
             # serverTime corresponds to the mid-point of the local request round-trip.
             mid = (t0 + t1) // 2
-            self.timestamp_offset_ms = int(st - mid)
+            self.timestamp_offset_ms = st - mid
         except Exception:
             # fail-open: leave offset at 0
             self.timestamp_offset_ms = 0
@@ -779,10 +782,10 @@ class BinanceFuturesClient:
         return (j.get("listenKey") or "")
 
     def keepalive_user_stream(self, listen_key: str) -> Any:
-        return self._request("PUT", "/fapi/v1/listenKey", params={"listenKey": str(listen_key)})
+        return self._request("PUT", "/fapi/v1/listenKey", params={"listenKey": listen_key})
 
     def close_user_stream(self, listen_key: str) -> Any:
-        return self._request("DELETE", "/fapi/v1/listenKey", params={"listenKey": str(listen_key)})
+        return self._request("DELETE", "/fapi/v1/listenKey", params={"listenKey": listen_key})
 
     def is_ambiguous_execution_error(self, exc: Exception) -> bool:
         """Return True when the request outcome could be unknown and must be reconciled.
@@ -806,8 +809,11 @@ class BinanceFuturesClient:
     def get_account(self) -> Any:
         return self._request("GET", "/fapi/v2/account", signed=True)
 
-    def get_position_risk(self) -> Any:
-        return self._request("GET", "/fapi/v2/positionRisk", signed=True)
+    def get_position_risk(self, symbol: str | None = None) -> Any:
+        params: dict[str, Any] = {}
+        if symbol:
+            params["symbol"] = symbol
+        return self._request("GET", "/fapi/v2/positionRisk", params=params, signed=True)
 
     def get_symbol_position_risk(
         self,
@@ -899,7 +905,7 @@ class BinanceFuturesClient:
         """Set account leverage for a symbol. Idempotent — safe to call on each open."""
         return self._request(
             "POST", "/fapi/v1/leverage",
-            params={"symbol": symbol, "leverage": int(leverage)}, signed=True,
+            params={"symbol": symbol, "leverage": leverage}, signed=True,
         )
 
     def post_margin_type(self, symbol: str, margin_type: str) -> Any:
@@ -910,7 +916,7 @@ class BinanceFuturesClient:
         """
         return self._request(
             "POST", "/fapi/v1/marginType",
-            params={"symbol": symbol, "marginType": str(margin_type).upper()}, signed=True,
+            params={"symbol": symbol, "marginType": margin_type.upper()}, signed=True,
         )
 
     def position_mode(self) -> str:
@@ -965,7 +971,7 @@ class BinanceFuturesClient:
     ) -> Any:
         p: dict[str, Any] = {"symbol": symbol}
         if order_id is not None:
-            p["orderId"] = int(order_id)
+            p["orderId"] = order_id
         if client_order_id is not None:
             p["origClientOrderId"] = client_order_id
         return self._request("GET", "/fapi/v1/order", params=p, signed=True)
@@ -977,7 +983,7 @@ class BinanceFuturesClient:
     ) -> Any:
         p: dict[str, Any] = {"symbol": symbol}
         if algo_id is not None:
-            p["algoId"] = int(algo_id)
+            p["algoId"] = algo_id
         if client_algo_id is not None:
             p["clientAlgoId"] = client_algo_id
         return self._request("GET", "/fapi/v1/algoOrder", params=p, signed=True)
@@ -1000,7 +1006,7 @@ class BinanceFuturesClient:
     ) -> Any:
         p: dict[str, Any] = {"symbol": symbol}
         if order_id is not None:
-            p["orderId"] = int(order_id)
+            p["orderId"] = order_id
         if client_order_id is not None:
             p["origClientOrderId"] = client_order_id
         return self._request("DELETE", "/fapi/v1/order", params=p, signed=True)
@@ -1012,7 +1018,7 @@ class BinanceFuturesClient:
     ) -> Any:
         p: dict[str, Any] = {"symbol": symbol}
         if algo_id is not None:
-            p["algoId"] = int(algo_id)
+            p["algoId"] = algo_id
         if client_algo_id is not None:
             p["clientAlgoId"] = client_algo_id
         return self._request("DELETE", "/fapi/v1/algoOrder", params=p, signed=True)
@@ -1056,7 +1062,7 @@ class BinanceFuturesClient:
             pass
         try:
             for row in self.get_open_orders(symbol) or []:
-                if str(row.get('clientOrderId') or row.get('origClientOrderId') or '') == str(client_order_id):
+                if (row.get('clientOrderId') or row.get('origClientOrderId') or '') == client_order_id:
                     return row
         except Exception:
             pass
@@ -1092,8 +1098,8 @@ class BinanceFuturesClient:
     def _legacy__reconcile_protection_by_sid__sha1scan__dedupe_1(self, symbol: str, sid: str) -> dict[str, Any]:
         """[Legacy] sha1-token-based linear scan variant (superseded by inspect_protection_set)."""
         import hashlib as _hl
-        token = _hl.sha1(str(sid).encode("utf-8")).hexdigest()[:8]
-        matched: dict[str, Any] = {"sid": str(sid), "symbol": symbol.upper()}
+        token = _hl.sha1(sid.encode("utf-8")).hexdigest()[:8]
+        matched: dict[str, Any] = {"sid": sid, "symbol": symbol.upper()}
         try:
             open_orders = self.get_open_algo_orders(symbol) or []
         except Exception:
@@ -1133,7 +1139,7 @@ class BinanceFuturesClient:
     @staticmethod
     def _sid_token(sid: str) -> str:
         """SHA1[:8] of SID for embedding in clientAlgoId."""
-        return hashlib.sha1(str(sid).encode("utf-8")).hexdigest()[:8]
+        return hashlib.sha1(sid.encode("utf-8")).hexdigest()[:8]
 
     @classmethod
     def _build_client_algo_id(cls, sid: str, tag: str) -> str:
@@ -1143,7 +1149,7 @@ class BinanceFuturesClient:
         each protective order without storing a separate mapping.
         """
         token = cls._sid_token(sid)
-        base = str(sid).replace(" ", "").replace(":", "-")
+        base = sid.replace(" ", "").replace(":", "-")
         base = base[: max(6, 36 - (len(tag) + len(token) + 2))]
         cid = f"{base}-{token}-{tag}"
         return cid[:36]
@@ -1192,7 +1198,7 @@ class BinanceFuturesClient:
 
         token = self._sid_token(sid)
         result: dict[str, Any] = {
-            "sid": str(sid),
+            "sid": sid,
             "symbol": symbol.upper(),
             "by_client_algo_id": {},
             "sl": None,
@@ -1216,8 +1222,8 @@ class BinanceFuturesClient:
             actual = _float_or_none(row.get("triggerPrice") or row.get("stopPrice") or row.get("activatePrice")) or 0.0
             if actual <= 0:
                 return False
-            tol = max(1e-9, abs(float(expected)) * 1e-9)
-            return abs(actual - float(expected)) <= tol
+            tol = max(1e-9, abs(expected) * 1e-9)
+            return abs(actual - expected) <= tol
 
         # Index all orders belonging to this SID by clientAlgoId
         for order in open_orders:
@@ -1281,7 +1287,7 @@ class BinanceFuturesClient:
         CREATED) can be replaced; triggered or terminal orders raise RuntimeError.
         """
         existing = self.query_algo_order(symbol, algo_id=algo_id, client_algo_id=client_algo_id)
-        status = str(existing.get("status") or existing.get("X") or existing.get("state") or "NEW").upper()
+        status = (existing.get("status") or existing.get("X") or existing.get("state") or "NEW").upper()
         if status not in {"NEW", "PENDING", "WORKING", "OPEN", "CREATED"}:
             raise RuntimeError(f"algo_order_not_replaceable:{status}")
         self.cancel_algo_order(symbol, algo_id=algo_id, client_algo_id=client_algo_id)

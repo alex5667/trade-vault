@@ -78,7 +78,7 @@ def apply_emergency_bundle(
         "who": who,
         "ops": ops,
         "meta": meta,
-    },
+    }
 
     r.set(f"recs:bundle:{bundle_id}", json.dumps(bundle, ensure_ascii=False, separators=(",", ":")), ex=ttl_sec)
     r.set(f"recs:status:{bundle_id}", "PENDING", ex=ttl_sec)

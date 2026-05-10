@@ -39,6 +39,7 @@ from services.orderflow.exec_health_slo_contract import (
 from services.orderflow.utils import session_utc
 from utils.time_utils import get_ny_time_millis
 import contextlib
+from core.redis_keys import RedisStreams as RS
 
 
 def _now_ms() -> int:
@@ -103,9 +104,9 @@ class PolicyCfg:
     @staticmethod
     def from_env() -> PolicyCfg:
         return PolicyCfg(
-            in_stream=os.getenv("SMT_ENTRY_STREAM", "stream:trade:entry_candidate"),
-            out_stream=os.getenv("TRADE_ENTRY_STREAM", "stream:trade:entry"),
-            audit_stream=os.getenv("TRADE_ENTRY_AUDIT_STREAM", "stream:trade:entry_audit"),
+            in_stream=os.getenv("SMT_ENTRY_STREAM", RS.ENTRY_CANDIDATE),
+            out_stream=os.getenv("TRADE_ENTRY_STREAM", RS.TRADE_ENTRY),
+            audit_stream=os.getenv("TRADE_ENTRY_AUDIT_STREAM", RS.ENTRY_AUDIT),
             group=os.getenv("ENTRY_POLICY_GROUP", "entry-policy"),
             consumer=os.getenv("ENTRY_POLICY_CONSUMER", "c1"),
             snap_prefix=os.getenv("SMT_SNAP_PREFIX", "smt:snap:"),

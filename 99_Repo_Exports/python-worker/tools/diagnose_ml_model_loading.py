@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+from core.redis_keys import RedisStreams as RS
 
 """
 Диагностика проблемы загрузки ML модели.
@@ -242,7 +243,7 @@ def try_load_model(model_path: str) -> tuple[bool, Any | None, str | None]:
         return False, None, str(e)
 
 
-def check_logs_for_errors(redis_url: str, metrics_stream: str = "metrics:ml_confirm", limit: int = 100) -> None:
+def check_logs_for_errors(redis_url: str, metrics_stream: str = RS.ML_CONFIRM_METRICS, limit: int = 100) -> None:
     """Проверка логов на ошибки загрузки модели."""
     print("\n" + "=" * 60)
     print("5. Проверка логов на ошибки")
@@ -299,7 +300,7 @@ def main() -> None:
     """Главная функция диагностики."""
     redis_url = os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
     champion_key = os.getenv("ML_CFG_CHAMPION_KEY", "cfg:ml_confirm:champion")
-    metrics_stream = os.getenv("ML_CONFIRM_METRICS_STREAM", "metrics:ml_confirm")
+    metrics_stream = os.getenv("ML_CONFIRM_METRICS_STREAM", RS.ML_CONFIRM_METRICS)
 
     print("=" * 60)
     print("Диагностика загрузки ML модели")

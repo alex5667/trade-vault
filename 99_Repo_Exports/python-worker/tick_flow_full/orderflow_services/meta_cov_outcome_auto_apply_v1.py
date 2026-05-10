@@ -108,7 +108,7 @@ except Exception:
 
 # P41 fallback enrichment configuration
 _ENRICH_ENABLED = bool(int(os.environ.get("META_COV_OUTCOME_ENRICH_FROM_TRADES_CLOSED", "1") or 1))
-_ENRICH_STREAM = os.environ.get("TRADES_CLOSED_STREAM", "trades:closed")
+_ENRICH_STREAM = os.environ.get("TRADES_CLOSED_STREAM", RS.TRADES_CLOSED)
 _ENRICH_MAX_SCAN = int(os.environ.get("META_COV_OUTCOME_ENRICH_MAX_SCAN", "200000") or 200000)
 
 

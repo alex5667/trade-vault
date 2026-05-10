@@ -21,6 +21,10 @@ from collections import deque
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
+from core.thresh_stability import ThresholdStabilityTracker
+from core.atr_sanity_guard import RangeTfAggregator
+from core.pressure_tier_calibrator import PressureTierCalibrator
+
 from utils.time_utils import get_ny_time_millis
 
 
@@ -317,6 +321,8 @@ class SymbolRuntime:
     l3_queue: L3QueueEventsProxy = field(init=False)
     liquidity: CryptoLiquidity = field(init=False)
     l3_stats: Any | None = None  # Stores L3BucketStats
+    hawkes_state: dict[str, Any] = field(default_factory=dict)
+    hawkes_snapshot: dict[str, Any] = field(default_factory=dict)
     vol_regime: Any = field(init=False)
     resilience: Any = field(init=False)
     # Phase C/P2: liquidity resiliency (spread/depth recovery-time)
@@ -371,6 +377,13 @@ class SymbolRuntime:
     last_book_health: str = "OK"
     last_book_age_ms: int = 0
 
+    # Pressure Proxy State
+    last_pressure_per_min: float = 0.0
+    last_cd_hit_rate: float = 0.0
+
+    # Strong Gate and Confirmation State
+    last_of_confirm_have_need_ratio: float = 0.0
+
     # Book missing-seq continuity (Binance depthUpdate: U/u).
     # Updated by BookProcessor.process_book().
     book_seq_last_u: int = 0
@@ -418,10 +431,12 @@ class SymbolRuntime:
     last_reclaim: ReclaimEvent | None = None
     # CVD reclaim evidence (computed ONLY when reclaim confirmed)
     last_cvd_reclaim: CVDReclaimEvent | None = None
+    reclaim_start_ts_ms: int = 0
 
     # OFI evidence (best bid/ask incremental flow)
     ofi_tracker: OFIStabilityTracker = field(init=False)
     last_ofi_event: dict[str, Any] | None = None
+    _ofi_prev_book: Any = None
 
     # Phase D (P3): Flow toxicity (OFI normalized by near depth; robust z)
     # Used to compute `ofi_norm_z` in hot-path (strategy.py) and enforce FlowToxicityGate.
@@ -438,6 +453,47 @@ class SymbolRuntime:
     fp_edge: FPEdgeAbsorbDetector = field(init=False)
     last_fp_edge: EdgeAbsorbEvent | None = None
 
+    # Phase C: A5 Liquidity / Depth baselines (time-decayed EMAs)
+    # Maintained by tick_processor.py for A5 flag computation.
+    _a5_trade_qty_ema: float = 0.0
+    _a5_trade_qty_ts_ms: int = 0
+    _a5_depth_total10_last: float = 0.0
+    _a5_depth_total10_ema: float = 0.0
+    _a5_depth_ts_ms: int = 0
+    _a5_depth_book_ts_ms: int = 0
+    _a5_bad_time_total: int = 0
+
+    # Phase C: Calibration / Persist state
+    _tick_dn_calib_last_persist_ts_ms: int = 0
+    _atr_sanity_bars_since_persist: int = 0
+    _atr_sanity_last_persist_ts_ms: int = 0
+    _atr_tf_last_persist_ts_ms: int = 0
+    _calib_bars_since_persist: int = 0
+    _atr_bps_last_persist_ts_ms: int = 0
+    _calib_last_persist_ts_ms: int = 0
+    _dn_last_persist_ts_ms: int = 0
+
+    # Phase D: Calibration loading status
+    _calib_loaded: bool = False
+    _book_calib_loaded: bool = False
+    _dn_calib_loaded: bool = False
+    _atr_bps_loaded: bool = False
+    _atr_sanity_loaded: bool = False
+    _atr_tf_loaded: bool = False
+
+    # Microstructure V4 internal state
+    _ms_v4_prev_book_ts_ms: int = 0
+    _ms_v4_prev_depth_imbalance_10: float = 0.0
+    _ms_v4_book_deriv_bad_time_total: int = 0
+    _ms_v4_cache_book_ts: int = 0
+    _ms_v4_prev_raw: Any | None = None
+    _ms_v4_cache: Any | None = None
+
+    # Other internal state
+    _of_inputs_quarantine_last: dict[str, Any] | None = None
+    _cvd_guard: Any | None = None
+    _metrics_call_count: int = 0
+
 
     # NEW: continuation context (countertrend absorption observed recently)
     cont_ctx_ts_ms: int = 0
@@ -447,7 +503,10 @@ class SymbolRuntime:
     last_atr: float = 0.0
     last_atr_ts_ms: int = 0
     # ATR sanity: TF-range proxy (roll-up microbars -> atr_tf)
-    atr_range_agg: object = field(init=False)
+    atr_range_agg: RangeTfAggregator = field(init=False)
+
+    # NEW: threshold stability tracker
+    _th_stab: ThresholdStabilityTracker = field(init=False)
 
     # Adaptive Pressure Proxy Tier Calibration (legacy - kept for compatibility)
     ptier_samples_usd: deque[float] = field(default_factory=lambda: deque(maxlen=4096))
@@ -455,7 +514,7 @@ class SymbolRuntime:
 
     # Pressure Tier Calibrator (Expert Recommendation - Production Ready)
     # Adaptive DN threshold calibration with regime-awareness and hysteresis
-    ptier_calib: object = field(init=False)  # PressureTierCalibrator instance
+    ptier_calib: PressureTierCalibrator = field(init=False)  # PressureTierCalibrator instance
 
     tick_buffer: deque[dict[str, Any]] = field(init=False)
     # Raw (full) book dict from Redis stream (fail-open compatibility for detectors)
@@ -535,16 +594,51 @@ class SymbolRuntime:
     book_integrity: StreamIntegrityTracker = field(init=False)
     # NEW: lock for burst/flush race protection
     burst_mu: asyncio.Lock = field(default_factory=asyncio.Lock)
-    # NEW: monotonic tick time tracking
+    # Monotonic tick time tracking (canonical for tick_processor)
     last_tick_ts_ms: int = 0
+    last_tick_ts: int = 0
     # Tick dedup (best-effort). Helps avoid double-counting on retries/replays.
     tick_dedup_window: int = 4096
+
+    # NEW: World-practice adverse selection tracker (realized drift)
+    adverse_rd_tracker: Any | None = None
+    # NEW: Retrace info for orderflow_strategy
+    last_retrace: Any | None = None
+    # NEW: v13 feature injection tracker
+    v13_tracker: Any | None = None
+    # NEW: Taker-flow imbalance stats (L3-lite)
+    taker_flow_imb: float = 0.0
+    taker_flow_imb_z: float = 0.0
+    # NEW: Snapshot extra fields for SMT V2/Quality
+    last_delta_z: float = 0.0
+    last_delta_eff_norm: float = 0.0
+    last_abs_lvl_ok: int = 0
+    # NEW: RSI and CVD state for orderflow_strategy
+    rsi_price: Any | None = None
+    rsi_cvd: Any | None = None
+    cvd_state: Any | None = None
+    # NEW: Regime state (canonical name used by some components)
+    last_regime: str = "na"
     tick_uid_ring: deque[str] = field(default_factory=lambda: deque(maxlen=4096), repr=False)
     tick_uid_set: set[str] = field(default_factory=set, repr=False)
     burst_cal: BurstCalibrator = field(init=False)
     # простая телеметрия
     tick_count: int = 0
     heartbeat_counter: int = 0
+    last_trade_id: int = 0
+
+    # DQ gap / missing-seq metrics
+    tick_gap_p50_ms: float = 0.0
+    tick_gap_p95_ms: float = 0.0
+    tick_gap_n: int = 0
+    tick_missing_seq_ema: float = 0.0
+    tick_seq_last_reason: str = "init"
+    tick_id_gap_count: int = 0
+    tick_id_dup_count: int = 0
+    tick_id_reorder_count: int = 0
+    
+    tick_seq_gap: Any = field(init=False)
+    book_seq_gap: Any = field(init=False)
 
     # Latest DQ gate state (for edge-triggered metrics).
     dq_level_last: int = 0
@@ -552,6 +646,7 @@ class SymbolRuntime:
 
     delta_triggers: int = 0
     signal_count: int = 0
+    last_signal_reason: str = ""
 
     # Counters moved from Service
     strong_gate_counter: int = 0
@@ -787,6 +882,19 @@ class SymbolRuntime:
     last_dn_how_alert_ts_ms: int = 0
     last_dn_how_report_ts_ms: int = 0
 
+    # Persistence counters for strategy
+    _calib_bars_since_persist: int = 0
+    _calib_last_persist_ts_ms: int = 0
+
+    async def ensure_atr_tf_loaded(self, r) -> None:
+        pass
+
+    async def ensure_atr_bps_loaded(self, r) -> None:
+        pass
+
+    async def ensure_atr_sanity_loaded(self, r) -> None:
+        pass
+
     # State flags
     ready: bool = False
 
@@ -957,6 +1065,14 @@ class SymbolRuntime:
         self.book_rate_stats = RollingRobustZ(window=max(32, rw))
         # Dynamic calibration (eff_quote thresholds per regime)
         self.eff_calib = EffQuoteCalibrator(min_samples=int(os.getenv("EFF_CALIB_MIN_SAMPLES", "300")))
+
+        # Threshold stability tracker (P91)
+        from core.thresh_stability import ThresholdStabilityTracker
+        self._th_stab = ThresholdStabilityTracker(
+            alpha=float(self.config.get("abs_lvl_th_stab_alpha", 0.05)),
+            window=int(self.config.get("abs_lvl_th_stab_window", 200)),
+        )
+
         # ATR TF calibration (per regime)
         # ATR TF Calibrator (per regime)
         # ATR TF selector (service-level; deterministic inputs come from bar_close)

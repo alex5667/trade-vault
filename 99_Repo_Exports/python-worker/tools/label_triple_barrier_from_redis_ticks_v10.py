@@ -13,6 +13,7 @@ import redis
 
 from utils.time_utils import get_ny_time_millis
 import contextlib
+from core.redis_keys import RedisStreams as RS
 
 
 # =============================================================================
@@ -373,7 +374,7 @@ def main() -> None:
 
     # Ticks are in a dedicated Redis instance (scanner-redis-ticks). Keep separate URL.
     ap.add_argument("--ticks-redis-url", default=os.getenv("TICKS_REDIS_URL", os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")))
-    ap.add_argument("--tick-stream-prefix", default="stream:tick_", help="final stream = prefix + SYMBOL (upper)")
+    ap.add_argument("--tick-stream-prefix", default=RS.TB_TICK_PREFIX, help="final stream = prefix + SYMBOL (upper)")
 
     # IMPORTANT: retention is ~1-2 hours due to MAXLEN=200k.
     ap.add_argument("--since-hours", type=float, default=1.0, help="how far back to allow scanning ticks (suggest 0.5..1.0)")

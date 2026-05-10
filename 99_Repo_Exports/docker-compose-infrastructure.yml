@@ -84,7 +84,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: 16GB
+          memory: 10GB
           cpus: '2.0'
         reservations:
           memory: 3G
@@ -136,10 +136,10 @@ services:
     deploy:
       resources:
         limits:
-          memory: 18GB
+          memory: 10GB
           cpus: '2.0'
         reservations:
-          memory: 4G
+          memory: 3G
     ulimits:
       nofile:
         soft: 65536
@@ -242,7 +242,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: 12GB
+          memory: 13GB
           cpus: '2.0'
         reservations:
           memory: 1G
@@ -298,7 +298,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: 14GB
+          memory: 10GB
           cpus: '2.0'
         reservations:
           memory: 2G
@@ -350,7 +350,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: 12GB
+          memory: 5GB
           cpus: '2.0'
         reservations:
           memory: 1G
@@ -370,8 +370,8 @@ services:
     - redis-ticks-data:/data
     - ./redis-ticks.conf:/usr/local/etc/redis/redis.conf
     - ./redis-ticks-acl.conf:/usr/local/etc/redis/redis-ticks-acl.conf:ro
-    command: 'redis-server /usr/local/etc/redis/redis.conf --maxmemory 16gb --maxmemory-policy
-      noeviction --aclfile /usr/local/etc/redis/redis-ticks-acl.conf '
+    command: 'redis-server /usr/local/etc/redis/redis.conf --maxmemory 4500mb --maxmemory-policy
+      allkeys-lru --aclfile /usr/local/etc/redis/redis-ticks-acl.conf '
     networks:
       scanner-infra:
         aliases:
@@ -398,10 +398,10 @@ services:
     deploy:
       resources:
         limits:
-          memory: 16G
+          memory: 6G
           cpus: '4.0'
         reservations:
-          memory: 4G
+          memory: 3G
     ulimits:
       nofile:
         soft: 65536
@@ -419,8 +419,8 @@ services:
     - ./redis-ticks.conf:/usr/local/etc/redis/redis-ticks.conf
     - ./redis-ticks-b.conf:/usr/local/etc/redis/redis.conf
     - ./redis-ticks-acl.conf:/usr/local/etc/redis/redis-ticks-acl.conf:ro
-    command: 'redis-server /usr/local/etc/redis/redis.conf --maxmemory 10gb --maxmemory-policy
-      noeviction --aclfile /usr/local/etc/redis/redis-ticks-acl.conf '
+    command: 'redis-server /usr/local/etc/redis/redis.conf --maxmemory 4500mb --maxmemory-policy
+      allkeys-lru --aclfile /usr/local/etc/redis/redis-ticks-acl.conf '
     networks:
       scanner-infra:
         aliases:
@@ -447,7 +447,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: 12G
+          memory: 6G
           cpus: '2.0'
         reservations:
           memory: 2G

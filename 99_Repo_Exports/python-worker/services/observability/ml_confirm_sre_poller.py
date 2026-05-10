@@ -22,6 +22,7 @@ import os
 import time
 
 import redis
+from core.redis_keys import RedisStreams as RS
 
 # Prometheus metrics (optional, fail-open if not available)
 try:
@@ -125,7 +126,7 @@ class MLConfirmSREPoller:
         self,
         *,
         r: redis.Redis,
-        labels_stream: str = "labels:tb",
+        labels_stream: str = RS.TB_LABELS,
         poll_interval_sec: int = 60,
         champion_key: str = "cfg:ml_confirm:champion",
     ) -> None:
@@ -260,7 +261,7 @@ def main() -> None:
 
     ap = argparse.ArgumentParser(description="ML Confirm SRE Poller")
     ap.add_argument("--redis-url", default=os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0"))
-    ap.add_argument("--labels-stream", default=os.getenv("TB_LABELS_STREAM", "labels:tb"))
+    ap.add_argument("--labels-stream", default=os.getenv("TB_LABELS_STREAM", RS.TB_LABELS))
     ap.add_argument("--poll-interval", type=int, default=int(os.getenv("SRE_POLL_INTERVAL_SEC", "60")))
     ap.add_argument("--prometheus-port", type=int, default=int(os.getenv("PROMETHEUS_PORT", "8005")))
     ap.add_argument("--champion-key", default=os.getenv("ML_CFG_CHAMPION_KEY", "cfg:ml_confirm:champion"))

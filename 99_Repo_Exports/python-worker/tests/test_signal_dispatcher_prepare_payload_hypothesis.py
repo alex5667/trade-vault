@@ -3,7 +3,7 @@ from __future__ import annotations
 from hypothesis import given
 from hypothesis import strategies as st
 
-from services.signal_dispatcher import SignalDispatcher
+from services.dispatch.dispatcher_app import SignalDispatcher
 
 
 @given(

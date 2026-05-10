@@ -54,7 +54,7 @@ class _FakeHelper:
 
 
 def _mk_sd():
-    from services.signal_dispatcher import SignalDispatcher
+    from services.dispatch.dispatcher_app import SignalDispatcher
 
     # Create instance without calling __init__ to avoid Redis connection
     sd = SignalDispatcher.__new__(SignalDispatcher)
@@ -122,7 +122,7 @@ def test_env_done_fastpath_skips_delivery_and_acks():
 
 
 def test_deliver_one_target_missing_meta_is_permanent():
-    from services.signal_dispatcher import PermanentDeliveryError
+    from services.dispatch.dispatcher_app import PermanentDeliveryError
     sd = _mk_sd()
     with pytest.raises(PermanentDeliveryError):
         sd._deliver_one_target(

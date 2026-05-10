@@ -117,7 +117,7 @@ class OFConfirmService:
         # Streams
         self.stream_spikes = "events:delta_spike"
         # Legacy shared stream (kept for migration / dual-write)
-        self.stream_bars_legacy = os.getenv("MICROBAR_LEGACY_STREAM", "events:microbar_closed")
+        self.stream_bars_legacy = os.getenv("MICROBAR_LEGACY_STREAM", RS.EVENTS_MICROBAR_CLOSED)
         # Per-symbol stream template (preferred when split enabled)
         self.stream_bars_template = os.getenv("MICROBAR_PER_SYMBOL_STREAM_TEMPLATE", "events:microbar_closed:{sym}")
         self.microbar_symbols_set = os.getenv("MICROBAR_SYMBOLS_SET", "events:microbar_closed:symbols")

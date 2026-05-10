@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 from __future__ import annotations
+from core.redis_keys import RedisStreams as RS
 
 """
 Edge analytics by entry_tag with baseline pnl_if_fixed_exit.
@@ -564,7 +565,7 @@ def load_trades_from_redis(r: redis.Redis, limit: int) -> list[dict]:
     Берёт последние limit записей из стрима trades:closed в обратном порядке (свежее → старое).
     """
     # xrevrange: [max, min], max='+' → хвост, count=limit
-    entries = r.xrevrange("trades:closed", max="+", min="-", count=limit)
+    entries = r.xrevrange(RS.TRADES_CLOSED, max="+", min="-", count=limit)
     trades: list[dict] = []
     for _id, fields in entries:
         if isinstance(fields, dict):
@@ -608,7 +609,7 @@ def load_trades(r, source: str, symbol: str, limit: int = 5000) -> Iterable[dict
     src = canon_source(source)
     sym = canon_symbol(symbol)
 
-    entries = r.xrevrange("trades:closed", max="+", count=limit) or []
+    entries = r.xrevrange(RS.TRADES_CLOSED, max="+", count=limit) or []
     for _, fields in entries:
         if not fields:
             continue

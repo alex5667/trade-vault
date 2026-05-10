@@ -277,7 +277,7 @@ async def _write_outputs(
             "decision_age_ms": int(max(0, close_ts_ms - decision_ts_ms)) if decision_ts_ms else None,
             "win_r_min": label.get("win_r_min"),
         },
-    },
+    }
 
     out_ml = {
         "version": 1,
@@ -297,7 +297,7 @@ async def _write_outputs(
             "bucket": bucket,
             "model_ver": model_ver,
         },
-    },
+    }
 
     payload_trades = json.dumps(out_trades, ensure_ascii=False, separators=(",", ":"), default=str)
     payload_ml = json.dumps(out_ml, ensure_ascii=False, separators=(",", ":"), default=str)

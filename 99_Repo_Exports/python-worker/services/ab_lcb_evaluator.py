@@ -30,12 +30,10 @@ class ArmMoments:
         # sample variance (unbiased) if n>=2, else 0
         if self.n < 2:
             return 0.0
-        m = self.mean()
-        # E[x^2] - mean^2
-        ex2 = self.sum_r2 / float(self.n)
-        v = max(0.0, ex2 - m * m)
-        # unbiased-ish: scale by n/(n-1)
-        return v * float(self.n) / float(self.n - 1)
+        ex2 = self.sum_r2 / self.n
+        mean = self.mean()
+        v = max(0.0, ex2 - mean * mean)
+        return v * self.n / (self.n - 1)
 
     def std(self) -> float:
         return math.sqrt(max(0.0, self.var()))
@@ -92,9 +90,9 @@ def lcb_mean(m: float, s: float, n: int, z: float) -> float:
     if n <= 0:
         return float("-inf")
     if n < 2 or s <= 0:
-        return float(m)
-    se = s / math.sqrt(float(n))
-    return float(m - z * se)
+        return m
+    se = s / math.sqrt(n)
+    return m - z * se
 
 
 def moments_from_stats(d: dict[str, Any]) -> ArmMoments:
@@ -129,7 +127,7 @@ def moments_from_stats(d: dict[str, Any]) -> ArmMoments:
         return ArmMoments(n=n, sum_r=float(n) * mean_r, sum_r2=sum_r2)
 
     # Fallback: no dispersion info => treat variance=0 (LCB==mean). Still deterministic.
-    return ArmMoments(n=n, sum_r=float(n) * mean_r, sum_r2=float(n) * mean_r * mean_r)
+    return ArmMoments(n=n, sum_r=n * mean_r, sum_r2=n * mean_r * mean_r)
 
 
 @dataclass
@@ -184,7 +182,7 @@ def choose_winner_lcb(
 
     eligible = []
     for a, m in moms.items():
-        n_map[a] = int(m.n)
+        n_map[a] = m.n
         mean_map[a] = float(m.mean())
         # eligibility
         if m.n >= cfg.min_n:
@@ -223,15 +221,15 @@ def choose_winner_lcb(
     best = base
     best_lcb = lcb_map.get(base, float("-inf"))
     for a in eligible:
-        v = float(lcb_map.get(a, float("-inf")))
+        v = lcb_map.get(a, float("-inf"))
         if v > best_lcb:
             best = a
             best_lcb = v
 
-    base_lcb = float(lcb_map.get(base, float("-inf")))
+    base_lcb = lcb_map.get(base, float("-inf"))
     if best != base:
         edge = best_lcb - base_lcb
-        if edge < float(cfg.min_edge_lcb):
+        if edge < cfg.min_edge_lcb:
             return WinnerDecision(
                 winner=base,
                 ok=False,

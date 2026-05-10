@@ -65,7 +65,7 @@ class WinnerSuggester:
         self.group = os.getenv("AB_EVENTS_GROUP", "ab_winner")
         self.consumer = os.getenv("AB_EVENTS_CONSUMER", f"ab_winner:{os.getpid()}")
         self.out_key_prefix = os.getenv("AB_WINNER_KEY_PREFIX", "ab:winner:v1:")
-        self.out_stream = os.getenv("AB_SUGGEST_STREAM", "stream:ab:suggestions")
+        self.out_stream = os.getenv("AB_SUGGEST_STREAM", RS.AB_SUGGESTIONS)
         self.min_n = int(os.getenv("AB_MIN_N", "30"))
         self.window_ms = int(os.getenv("AB_WINDOW_MS", str(6 * 60 * 60 * 1000)))
         self.every_ms = int(os.getenv("AB_SUGGEST_EVERY_MS", str(15 * 60 * 1000))) # 15 min default

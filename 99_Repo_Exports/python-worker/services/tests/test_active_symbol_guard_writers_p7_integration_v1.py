@@ -11,6 +11,7 @@ import importlib.util
 import json
 import sys
 from pathlib import Path
+from core.redis_keys import RedisStreams as RS
 
 # Load executor
 exec_mod_path = Path(__file__).parent.parent / 'binance_executor.py'
@@ -112,10 +113,10 @@ def test_projection_late_same_sid_event_cannot_resurrect_after_repair_release():
     # In P6 this would overwrite the key and resurrect the guard blocking the symbol.
     # In P7 CAS, it must be rejected!
     proj = proj_mod.ExecutionProjectionWorker(
-        r, exec_stream='orders:exec', state_key_prefix='orders:state:',
+        r, exec_stream=RS.ORDERS_EXEC, state_key_prefix='orders:state:',
         active_symbol_key_prefix='orders:active_symbol_sid:', cursor_key='orders:cursor'
     )
-    r.xadd('orders:exec', {
+    r.xadd(RS.ORDERS_EXEC, {
         'sid': 'sid-1', 'symbol': 'ETHUSDT', 'action': 'cancel', 'fsm_state': 'EXIT_FILLED',
         'event_type': 'state_transition'
     })

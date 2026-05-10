@@ -16,7 +16,7 @@ class SymbolSnapshot:
     - computed/updated on bar_close (1s microbar) + some fields from last events
     """
 
-    symbol=""
+    symbol: str = ""
     ts_ms: int = 0
 
     # Trend / structure (proxy BOS)
@@ -66,6 +66,7 @@ class SymbolSnapshot:
 
     # New fields for SMT V2
     delta_z: float = 0.0
+    delta_z_window: int = 60
     delta_eff_norm: float = 0.0
     zone_dist_bp: float = 0.0
     zone_ok: int = 0
@@ -86,9 +87,13 @@ class SymbolSnapshot:
     # Book Health
     book_rate_hz: float = 0.0
     book_rate_z: float = 0.0
+    book_rate_ok_min_hz: float = 5.0
+    book_rate_crit_hz: float = 2.0
+    book_rate_ready: int = 0
     book_age_ms: int = 0
     book_health_ok: int = 1
     book_health: str = "OK"     # "OK"|"WARN"|"ERR"
+    book_rate_src: str = "static"
 
     # Data-quality (deterministic, at snapshot ts_ms)
     spread_bp: float = 0.0
@@ -169,6 +174,7 @@ class SymbolSnapshot:
 
             # New fields for SMT V2
             delta_z=_f("delta_z", 0.0),
+            delta_z_window=_i("delta_z_window", 60),
             delta_eff_norm=_f("delta_eff_norm", 0.0),
             zone_dist_bp=_f("zone_dist_bp", 0.0),
             zone_ok=_i("zone_ok", 0),
@@ -205,9 +211,13 @@ class SymbolSnapshot:
 
             book_rate_hz=_f("book_rate_hz", 0.0),
             book_rate_z=_f("book_rate_z", 0.0),
+            book_rate_ok_min_hz=_f("book_rate_ok_min_hz", 5.0),
+            book_rate_crit_hz=_f("book_rate_crit_hz", 2.0),
+            book_rate_ready=_i("book_rate_ready", 0),
             book_age_ms=_i("book_age_ms", 0),
             book_health_ok=_i("book_health_ok", 1),
             book_health=_s("book_health", "OK"),
+            book_rate_src=_s("book_rate_src", "static"),
 
             obi_age_ms=_i("obi_age_ms", 10**9),
             iceberg_age_ms=_i("iceberg_age_ms", 10**9),
@@ -245,7 +255,7 @@ def detect_smt_divergence(leader: SymbolSnapshot, sat: SymbolSnapshot) -> SMTDiv
 
     if l_l0 < l_l1 and s_l0 > s_l1:
         if l_l0 > 0 and l_l1 > 0 and s_l0 > 0 and s_l1 > 0:
-            return SMTDiv(kind="bullish_smt", ts_ms=int(sat.ts_ms))
+            return SMTDiv(kind="bullish_smt", ts_ms=sat.ts_ms)
 
     # 2. Compare last Swing Highs (for Bearish)
     # Leader makes Higher High (HH): H0 > H1
@@ -259,6 +269,6 @@ def detect_smt_divergence(leader: SymbolSnapshot, sat: SymbolSnapshot) -> SMTDiv
 
     if l_h0 > l_h1 and s_h0 < s_h1:
         if l_h0 > 0 and l_h1 > 0 and s_h0 > 0 and s_h1 > 0:
-            return SMTDiv(kind="bearish_smt", ts_ms=int(sat.ts_ms))
+            return SMTDiv(kind="bearish_smt", ts_ms=sat.ts_ms)
 
     return None

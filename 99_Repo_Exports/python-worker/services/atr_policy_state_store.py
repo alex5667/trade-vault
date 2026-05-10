@@ -80,7 +80,7 @@ def insert_decision(conn, proposal_id: str, decision: dict[str, Any]) -> None:
             INSERT INTO atr_policy_decisions (
               proposal_id, action, actor, note, decision_json, ts_ms
             ) VALUES (%s,%s,%s,%s,%s::jsonb,%s)
-            """
+            """,
             (
                 proposal_id,
                 (decision.get("action", "")),
@@ -101,7 +101,7 @@ def update_proposal_status(conn, proposal_id: str, *, status: str, approved: boo
                 approved = %s,
                 updated_at_ms = %s
             WHERE proposal_id = %s
-            """
+            """,
             (status, approved, updated_at_ms, proposal_id),
         )
 
@@ -134,7 +134,7 @@ def transition_snapshot(
               AND regime = %s
               AND risk_horizon_bucket = %s
               AND is_current = true
-            """
+            """,
             (effective_from_ms, snapshot_kind, source, symbol, scenario, regime, bucket),
         )
 
@@ -145,7 +145,7 @@ def transition_snapshot(
               policy_ver, stop_ttl_mode, trailing_mode, snapshot_json,
               is_current, effective_from_ms, applied_from_proposal_id
             ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,true,%s,%s)
-            """
+            """,
             (
                 snapshot_kind,
                 source,
@@ -179,7 +179,7 @@ def insert_recovery_event(
               event_type, source, symbol, scenario, regime, risk_horizon_bucket,
               status, reason_code, payload
             ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb)
-            """
+            """,
             (
                 event_type,
                 (policy_ref.get("source", "")),

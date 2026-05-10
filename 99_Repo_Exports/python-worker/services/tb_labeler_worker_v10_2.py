@@ -49,9 +49,9 @@ SID_INDEX_TTL_SEC = int(os.getenv("OF_INPUTS_SID_INDEX_TTL_SEC", "172800"))  # 4
 
 TB_JOBS_ZSET = os.getenv("TB_JOBS_ZSET", "tb:jobs:due")
 TB_JOB_KEY_PREFIX = os.getenv("TB_JOB_KEY_PREFIX", "tb:job:")
-TB_LABELS_STREAM = os.getenv("TB_LABELS_STREAM", "labels:tb")
+TB_LABELS_STREAM = os.getenv("TB_LABELS_STREAM", RS.TB_LABELS)
 
-TB_TICK_STREAM_PREFIX = os.getenv("TB_TICK_STREAM_PREFIX", "stream:tick_")
+TB_TICK_STREAM_PREFIX = os.getenv("TB_TICK_STREAM_PREFIX", RS.TB_TICK_PREFIX)
 
 TB_HORIZONS_MS = os.getenv("TB_HORIZONS_MS", "60000,180000,300000")
 HORIZONS = sorted([int(x) for x in TB_HORIZONS_MS.split(",") if x.strip().isdigit()])

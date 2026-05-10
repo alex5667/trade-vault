@@ -14,6 +14,7 @@ import MetaTrader5 as mt5
 import redis
 
 from .mt5_client import Mt5Client
+from core.redis_keys import RedisStreams as RS
 
 
 class ExecCommandsConsumer:
@@ -25,7 +26,7 @@ class ExecCommandsConsumer:
     на MT5 раньше тейков/стопов.
     """
 
-    def __init__(self, redis_dsn: str, mt5_client: Mt5Client, stream_key: str = "stream:signals:exec_events"):
+    def __init__(self, redis_dsn: str, mt5_client: Mt5Client, stream_key: str = RS.SIGNAL_EXEC_EVENTS):
         """
         Args:
             redis_dsn: Redis connection string

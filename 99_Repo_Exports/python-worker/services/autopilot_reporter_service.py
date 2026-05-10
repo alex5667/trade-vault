@@ -107,7 +107,7 @@ async def run_once() -> None:
 
     prefix_latest = os.getenv("AUTOPILOT_LATEST_PREFIX", "cfg:suggestions:entry_policy:latest:autopilot")
     prefix_meta = os.getenv("AUTOPILOT_META_PREFIX", "cfg:suggestions:entry_policy:meta")
-    stream = os.getenv("AUTOPILOT_SUGGEST_STREAM", "stream:ab:suggestions")
+    stream = os.getenv("AUTOPILOT_SUGGEST_STREAM", RS.AB_SUGGESTIONS)
 
     for w in winners:
         sym = (w.get("symbol","")).upper()

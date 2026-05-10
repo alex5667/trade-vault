@@ -16,7 +16,7 @@ def test_trade_monitor_log_throttling(caplog):
     # Helper to mock signal processing parts
     mon._normalize_signal = MagicMock(side_effect=lambda x: SignalNorm(
         sid=x["sid"], symbol=x["symbol"], direction="LONG", entry_price=1.0, sl=0.9, tp_levels=[1.1],
-        source="Test", tf="1m", entry_ts_ms=1000, strategy="Test", lot=1.0
+        source="Test", tf="1m", entry_ts_ms=1000, strategy="Test", lot=1.0, qty=1.0, quantity=1.0, payload={"confidence": 0.9}
     ))
     mon._get_symbol_lock = MagicMock(return_value=MagicMock(__enter__=MagicMock(), __exit__=MagicMock()))
     mon._sid_claim = MagicMock(return_value=True)

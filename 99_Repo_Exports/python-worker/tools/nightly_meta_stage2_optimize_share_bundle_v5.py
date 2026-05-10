@@ -635,7 +635,7 @@ def main() -> None:
         return
 
     # -------- Metrics health (global only; per-symbol optional) --------
-    metrics_stream = os.getenv("OF_GATE_METRICS_STREAM", "metrics:of_gate")
+    metrics_stream = os.getenv("OF_GATE_METRICS_STREAM", RS.OF_GATE_METRICS)
     win_h = float(os.getenv("META_BUDGET_HEALTH_WINDOW_HOURS", "24") or 24)
     since_ms = now_ms() - int(win_h * 3600_000)
     max_scan = int(os.getenv("META_BUDGET_METRICS_MAX_SCAN", "400000") or 400000)

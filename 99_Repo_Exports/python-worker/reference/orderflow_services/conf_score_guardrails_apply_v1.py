@@ -740,7 +740,7 @@ def main() -> int:
             "latched": sum(1 for v in decisions.values() if float(v.get("latch_remaining_sec", 0) or 0) > 0),
             "canary_skip": sum(1 for v in decisions.values() if int(v.get("canary", 1)) == 0),
             "symbols": len(decisions),
-        },
+        }
 
         # Calculate Changed Symbols
         n_changed, changed_list = _compute_changed_symbols(

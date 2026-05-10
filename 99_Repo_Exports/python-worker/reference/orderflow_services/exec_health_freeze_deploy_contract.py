@@ -141,7 +141,7 @@ def render_sensitive_deploy_env_templates(
             'EXEC_HEALTH_SERVICE_IDENTITY_ENFORCE': '1',
             'EXEC_HEALTH_SERVICE_IDENTITY_REQUIRE_LIB_NAME': '1',
             'EXEC_HEALTH_DEPLOY_CONTRACT_ENFORCE': '1',
-        },
+        }
     return out
 
 

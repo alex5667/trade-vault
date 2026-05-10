@@ -9,6 +9,7 @@ import redis
 
 from domain.evidence_keys import MetaKeys
 from utils.time_utils import get_ny_time_millis
+from core.redis_keys import RedisStreams as RS
 
 
 def _now_ms() -> int:
@@ -77,7 +78,7 @@ def _read_stream_window(r: redis.Redis, stream: str, start_ms: int, window_ms: i
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--redis-url", default=os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0"))
-    ap.add_argument("--stream", default=os.getenv("OF_GATE_METRICS_STREAM", "metrics:of_gate"))
+    ap.add_argument("--stream", default=os.getenv("OF_GATE_METRICS_STREAM", RS.OF_GATE_METRICS))
     ap.add_argument("--window-min", type=int, default=int(os.getenv("OF_BENCH_WINDOW_MIN", "60")))
     ap.add_argument("--out", default=os.getenv("OF_BENCH_OUT", ""))
     args = ap.parse_args()

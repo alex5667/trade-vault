@@ -3,7 +3,7 @@ import types
 import pytest
 
 # Подстройте импорт под ваш реальный путь:
-from services.signal_dispatcher import SignalDispatcher
+from services.dispatch.dispatcher_app import SignalDispatcher
 from utils.time_utils import get_ny_time_millis
 
 
@@ -64,7 +64,7 @@ def dispatcher(r, monkeypatch):
                         raising=False)
 
     # transient classifier: всё неизвестное — permanent (для предсказуемости)
-    monkeypatch.setattr("services.signal_dispatcher.is_transient_error", lambda e: False, raising=False)
+    monkeypatch.setattr("services.dispatch.dispatcher_app.is_transient_error", lambda e: False, raising=False)
 
     return d
 

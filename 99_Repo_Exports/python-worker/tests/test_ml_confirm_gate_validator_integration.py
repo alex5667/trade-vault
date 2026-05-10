@@ -11,7 +11,7 @@ from typing import Any
 import pytest
 import redis
 
-from services.ml_confirm_gate import MLConfirmGate
+from services.ml_confirm import MLConfirmGate
 from utils.time_utils import get_ny_time_millis
 
 

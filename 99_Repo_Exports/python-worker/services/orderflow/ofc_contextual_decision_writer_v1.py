@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from utils.time_utils import get_ny_time_millis
+from core.redis_keys import RedisStreams as RS
 
 """Redis Stream -> Timescale writer for OFC contextual decision records.
 
@@ -190,7 +191,7 @@ def _normalize_row(evt: dict[str, Any]) -> tuple[dict[str, Any] | None, str]:
         "ctx_infer_latency_us": _to_int(src.get(CtxKeys.INFER_LATENCY_US) if src.get(CtxKeys.INFER_LATENCY_US) is not None else evt.get(CtxKeys.INFER_LATENCY_US), 0),
         "spread_bps_missing": _to_bool(evt.get("spread_bps_missing"), False),
         "slippage_missing": _to_bool(evt.get("slippage_missing"), False),
-    },
+    }
     return row, ""
 
 
@@ -257,7 +258,7 @@ class Cfg:
         host = socket.gethostname()
         return Cfg(
             redis_url=_env("REDIS_URL", "redis://redis-worker-1:6379/0"),
-            stream=_env("OFC_CTX_DECISION_STREAM", _env("DECISIONS_FINAL_STREAM", "decisions:final")),
+            stream=_env("OFC_CTX_DECISION_STREAM", _env("DECISIONS_FINAL_STREAM", RS.DECISIONS_FINAL)),
             group=_env("OFC_CTX_DECISION_CG", "ofc_ctx_decision_writer"),
             consumer=_env("OFC_CTX_DECISION_CONSUMER", f"{host}:{os.getpid()}"),
             block_ms=_env_int("OFC_CTX_DECISION_BLOCK_MS", 5000),
@@ -291,7 +292,7 @@ async def _publish_dlq(r: Any, *, stream: str, payload: dict[str, Any], reason: 
             "payload": json.dumps(payload, ensure_ascii=False),
             "reason": reason,
             "ts_ms": str(_now_ms()),
-        },
+        }
         await r.xadd(stream, body, maxlen=maxlen, approximate=True)
     except Exception:
         return

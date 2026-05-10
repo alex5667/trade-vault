@@ -16,6 +16,7 @@ import importlib.util
 import json
 import sys
 from pathlib import Path
+from core.redis_keys import RedisStreams as RS
 
 # Load executor from services/ dir (parent of services/tests/)
 mod_path = Path(__file__).parent.parent / "binance_executor.py"
@@ -60,7 +61,7 @@ def _make_exec():
     """Build a bare-bones BinanceExecutor with a DummyRedis backend."""
     ex = mod.BinanceExecutor.__new__(mod.BinanceExecutor)
     ex.r = DummyRedis()
-    ex.exec_stream = 'orders:exec'
+    ex.exec_stream = RS.ORDERS_EXEC
     ex.state_key_prefix = 'orders:state:'
     ex.state_ttl = 60
     ex.user_stream_cache_prefix = 'orders:user_stream:'

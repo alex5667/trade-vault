@@ -152,7 +152,7 @@ logging.basicConfig(
 DEBUG_DELTAS = os.getenv("CRYPTO_OF_DEBUG_DELTAS", "false").strip().lower() in ("1", "true", "yes", "on")
 
 # SRE metrics for gate decisions (world-class: drift + latency + exec risk)
-OF_GATE_METRICS_STREAM = os.getenv("OF_GATE_METRICS_STREAM", "metrics:of_gate")
+OF_GATE_METRICS_STREAM = os.getenv("OF_GATE_METRICS_STREAM", RS.OF_GATE_METRICS)
 OF_GATE_METRICS_ENABLE = os.getenv("OF_GATE_METRICS_ENABLE", "1").strip() in ("1","true","yes","on")
 OF_GATE_METRICS_SAMPLE = float(os.getenv("OF_GATE_METRICS_SAMPLE", "0.02") or 0.02)  # 2% кандидатов (was 10%, reduced for Redis load)
 OF_GATE_METRICS_MAXLEN = int(os.getenv("OF_GATE_METRICS_MAXLEN", "10000") or 10000)
@@ -2101,7 +2101,7 @@ class OrderFlowStrategy:
                     if liq_score >= 0.8:
                         # Healthy market: allow 2-leg signals in Range scenario
                         if str(getattr(dec, "scenario", "")) == "range":
-                             dec.need = max(2, int(dec.need) - 1)
+                             dec.need = max(2, dec.need - 1)
                              dec.reason = f"{dec.reason}|liq_relax"
                     elif liq_score < 0.35:
                         need_bump = 1
@@ -2110,10 +2110,10 @@ class OrderFlowStrategy:
                         indicators["strong_gate_need_bump"] = 1
                         indicators["strong_gate_need_reason"] = "low_liquidity"
 
-                    eff_need = int(dec.need) + need_bump
+                    eff_need = dec.need + need_bump
 
                     # Re-evaluate OK status
-                    is_ok = int(dec.have) >= eff_need
+                    is_ok = dec.have >= eff_need
                     # Only strictify (never relax)
                     if not is_ok:
                         indicators["strong_gate_ok"] = 0
@@ -2128,7 +2128,7 @@ class OrderFlowStrategy:
                     indicators["of_confirm_have_need_ratio"] = float(dec.have / eff_need) if eff_need > 0 else 0.0
 
                     # Soft-fail diagnostics
-                    if bool(int(ev.get("ok_soft", 0))):
+                    if bool(ev.get("ok_soft", 0)):
                         indicators["of_confirm_ok_soft"] = 1
                         # --- NEW: Always export analytics flags for ok-soft trades ---
                         scenario_v4 = (ev.get("scenario_v4", "") or "")
@@ -2148,8 +2148,8 @@ class OrderFlowStrategy:
 
                     # Persist last strong-gate diagnostics for SMT snapshot / entry policy.
                     try:
-                        indicators["strong_gate_have"] = int(dec.have)
-                        indicators["strong_gate_need"] = int(eff_need)
+                        indicators["strong_gate_have"] = dec.have
+                        indicators["strong_gate_need"] = eff_need
                         indicators["strong_gate_scn"] = str(dec.scenario)
                         indicators["strong_need_reason"] = str(getattr(dec, "need_reason", "") or "")
 
@@ -2160,7 +2160,7 @@ class OrderFlowStrategy:
                         runtime.last_strong_gate_scn = (indicators.get("strong_gate_scn", "") or "")
                     except Exception:
                         pass
-                indicators["strong_gate_bits"] = int(ofc.gate_bits)
+                indicators["strong_gate_bits"] = ofc.gate_bits
                 indicators["strong_gate_reason"] = str(ofc.reason)
                 # indicators["strong_gate_ok"] already updated if needed
                 indicators["of_gate_mode"] = "SHADOW" if bool(runtime.config.get("strong_gate_shadow", False)) else "ENFORCE"
@@ -2168,8 +2168,8 @@ class OrderFlowStrategy:
                 # --- NEW: record last strong-pass dir/ts ONLY when gate passed (ok==1) ---
                 # This is the value SMT/EntryPolicy should trust as "leader confirmed by OF".
                 try:
-                    if int(ofc.ok) == 1:
-                        runtime.last_strong_pass_ts_ms = int(tick_ts)
+                    if ofc.ok == 1:
+                        runtime.last_strong_pass_ts_ms = tick_ts
                         runtime.last_strong_pass_dir = str(direction).upper()
                 except Exception:
                     pass
@@ -2191,7 +2191,7 @@ class OrderFlowStrategy:
                 enforce = bool(runtime.config.get("require_strong_confirmation", False))
                 try:
                     if str(getattr(runtime, "liq_regime", "normal") or "normal").lower() == "stressed":
-                        enforce = bool(int(runtime.config.get("liq_enforce_strong_when_stressed", 1) or 1))
+                        enforce = bool(runtime.config.get("liq_enforce_strong_when_stressed", 1) or 1)
                 except Exception:
                     pass
 
@@ -2199,7 +2199,7 @@ class OrderFlowStrategy:
                     # Soft-Fail Bypass (Analytics Mode)
                     # If engine marked it as ok_soft=1 (high quality but missing 1 leg), we let it pass as VIRTUAL signal.
                     # This allows tracking stats via TradeMonitor/DB without risking capital.
-                    is_soft_pass = int(ev.get("ok_soft", 0) or 0) == 1
+                    is_soft_pass = (ev.get("ok_soft", 0) or 0) == 1
 
                     if is_soft_pass:
                         # BYPASS VETO via Soft-Fail (Virtual)
@@ -2226,7 +2226,7 @@ class OrderFlowStrategy:
 
                 # Audit Confirmations (mirror resulting evidence)
                 # Note: We append these to confirmations list for Telegram/UI
-                ttl = int(runtime.config.get("obi_event_ttl_ms", 30000))
+                ttl = runtime.config.get("obi_event_ttl_ms", 30000)
                 if ev.get("sweep"):
                     # Generic sweep flag (always emit for backward compatibility)
                     if "sweep=1" not in confirmations: # Avoid duplicate if already present
@@ -2254,16 +2254,16 @@ class OrderFlowStrategy:
                     now_ms_det = int(now_ms)
                     # OBI stability (quality-gated)
                     if runtime.last_obi_event:
-                        age = now_ms_det - int(runtime.last_obi_event.get("ts_ms", 0) or 0)
-                        ttl = int(runtime.config.get("obi_event_ttl_ms", 30000))
+                        age = now_ms_det - (runtime.last_obi_event.get("ts_ms", 0) or 0)
+                        ttl = runtime.config.get("obi_event_ttl_ms", 30000)
                         if 0 <= age <= ttl:
-                            indicators["obi_event_age_ms"] = int(age)
+                            indicators["obi_event_age_ms"] = age
                             indicators["obi_dir"] = str(runtime.last_obi_event.get("direction") or "")
                             indicators["obi"] = float(runtime.last_obi_event.get("obi", 0.0) or 0.0)
                             indicators["obi_z"] = float(runtime.last_obi_event.get("obi_z", 0.0) or 0.0)
                             indicators["obi_stable_secs"] = float(runtime.last_obi_event.get("stable_secs", 0.0) or 0.0)
                             indicators["obi_stability_score"] = float(runtime.last_obi_event.get("stability_score", 0.0) or 0.0)
-                            indicators["obi_sustained"] = bool(int(runtime.last_obi_event.get("stable", 0) or 0) == 1)
+                            indicators["obi_sustained"] = bool((runtime.last_obi_event.get("stable", 0) or 0) == 1)
                             if str(runtime.last_obi_event.get("direction") or "").upper() == direction:
                                 if indicators["obi_sustained"]:
                                     confirmations.append(f"obi_stable={float(indicators['obi_stable_secs']):.2f}")
@@ -2271,22 +2271,22 @@ class OrderFlowStrategy:
                     # Footprint edge absorb (recent, no range expansion)
                     fe = getattr(runtime, "last_fp_edge", None)
                     if fe is not None:
-                        valid = int(runtime.config.get("fp_edge_valid_ms", 30000))
-                        age = now_ms_det - int(getattr(fe, "ts_ms", 0) or 0)
+                        valid = runtime.config.get("fp_edge_valid_ms", 30000)
+                        age = now_ms_det - (getattr(fe, "ts_ms", 0) or 0)
                         if 0 <= age <= valid:
                             p90 = float(getattr(fe, "p90", 0.0) or 0.0)
                             val = float(getattr(fe, "value", 0.0) or 0.0)
                             strength = (val / p90) if p90 > 0 else 0.0
                             bias = str(getattr(fe, "bias", "") or "").upper()
-                            rng = int(getattr(fe, "range_expansion", 0) or 0)
+                            rng = getattr(fe, "range_expansion", 0) or 0
                             # Logic: LONG signal needs BUY bias edge (support?), SHORT needs SELL bias?
                             # Actually, tick-level fp_edge side "BID" means absorption on bid (support).
                             # If bias is present, use it.
                             ok = 1 if (bias == direction and rng == 0 and strength > 0) else 0
-                            indicators["fp_edge_absorb"] = int(ok)
+                            indicators["fp_edge_absorb"] = ok
                             indicators["fp_edge_strength"] = float(strength)
-                            indicators["fp_edge_range_expansion"] = int(rng)
-                            indicators["fp_edge_age_ms"] = int(age)
+                            indicators["fp_edge_range_expansion"] = rng
+                            indicators["fp_edge_age_ms"] = age
                             if ok:
                                 confirmations.append(f"fp_edge_absorb={strength:.2f}")
 
@@ -2294,15 +2294,15 @@ class OrderFlowStrategy:
                     try:
                         wp_det = getattr(runtime, "weak_progress_det", None)
                         if wp_det is not None:
-                            indicators["weak_recent_window"] = int(getattr(wp_det, "recent_window", 0) or 0)
-                            indicators["weak_recent_count"] = int(wp_det.recent_weak_count())
-                            w = int(indicators["weak_recent_window"] or 0)
-                            c = int(indicators["weak_recent_count"] or 0)
+                            indicators["weak_recent_window"] = getattr(wp_det, "recent_window", 0) or 0
+                            indicators["weak_recent_count"] = wp_det.recent_weak_count()
+                            w = indicators["weak_recent_window"] or 0
+                            c = indicators["weak_recent_count"] or 0
                             ratio = float(c / w) if w > 0 else 0.0
                             indicators["weak_recent_ratio"] = ratio
 
                             # Legacy boolean for Scorer fallback
-                            min_weak = int(runtime.config.get("weak_recent_min_cnt", 3))
+                            min_weak = runtime.config.get("weak_recent_min_cnt", 3)
                             indicators["weak_progress"] = bool(ev.get("weak_progress") or (c >= min_weak))
                             if c >= min_weak:
                                 confirmations.append(f"weak_recent={c}/{w}")
@@ -2313,7 +2313,7 @@ class OrderFlowStrategy:
 
                 # Iceberg (Strict/Recent)
                 if runtime.last_iceberg_event:
-                     ice_ts = int(runtime.last_iceberg_event.get("ts_ms") or 0)
+                     ice_ts = runtime.last_iceberg_event.get("ts_ms") or 0
                      if (tick_ts - ice_ts) < 5000:
                          confirmations.append(f"iceberg={runtime.last_iceberg_event.get('total_refresh_qty')}")
                          # strict direction check
@@ -2327,14 +2327,14 @@ class OrderFlowStrategy:
 
 
                 # Optional Redis Publication (v3 asychronous)
-                if bool(int(runtime.config.get("publish_of_confirm", 0))):
+                if bool(runtime.config.get("publish_of_confirm", 0)):
                     stream = str(runtime.config.get("of_confirm_stream", RS.OF_CONFIRM))
                     with contextlib.suppress(Exception):
                         safe_create_task(
                             self.ticks.xadd(
                                 stream,
                                 fields={"payload": json.dumps(ofc.to_dict(), ensure_ascii=False)},
-                                maxlen=int(runtime.config.get("of_confirm_stream_maxlen", 50000)),
+                                maxlen=runtime.config.get("of_confirm_stream_maxlen", 50000),
                                 approximate=True,
                             )
                         )
@@ -2345,12 +2345,12 @@ class OrderFlowStrategy:
                 try:
                     # logger.error("DEBUG: 1. accessing OFI config")
                     pub_val = runtime.config.get("publish_of_inputs", 0)
-                    should_pub = bool(int(pub_val))
+                    should_pub = bool(pub_val)
 
                     if should_pub:
                         # Deterministic time check: skip publish if tick_ts_ms <= 0
                         # This is critical for "golden replay": same ticks must produce same inputs
-                        tick_ts_ms = int(tick_ts) if int(tick_ts or 0) > 0 else 0
+                        tick_ts_ms = tick_ts if (tick_ts or 0) > 0 else 0
                         if tick_ts_ms <= 0:
                             # skip publish: non-deterministic / bad tick time
                             try:
@@ -2374,13 +2374,13 @@ class OrderFlowStrategy:
                                 # hidden ctx - deterministic: depends only on tick_ts
                                 if div and td:
                                     now_ts = tick_ts_ms
-                                    hidden_ms = int(runtime.config.get("hidden_ctx_valid_ms", 120_000))
-                                    age = now_ts - int(getattr(div, "ts_ms", now_ts))
+                                    hidden_ms = runtime.config.get("hidden_ctx_valid_ms", 120_000)
+                                    age = now_ts - (getattr(div, "ts_ms", now_ts))
                                     hidden_ctx_recent = 1 if (0 <= age <= hidden_ms) else 0
                                 # cont ctx - deterministic: depends only on tick_ts
                                 now_ts = tick_ts_ms
-                                cts = int(getattr(runtime, "cont_ctx_ts_ms", 0) or 0)
-                                cv = int(runtime.config.get("cont_ctx_valid_ms", 120_000))
+                                cts = getattr(runtime, "cont_ctx_ts_ms", 0) or 0
+                                cv = runtime.config.get("cont_ctx_valid_ms", 120_000)
                                 cont_ctx_recent = 1 if (cts > 0 and 0 <= now_ts - cts <= cv) else 0
                             except Exception as ex_ctx:
                                 logger.debug(f"OFI: Context calc error: {ex_ctx}")
@@ -2461,7 +2461,7 @@ class OrderFlowStrategy:
                         ofi_kwargs = {
                             "v": 2 if emit_v2 else 1,
                             "symbol": _s(runtime.symbol),
-                            "ts_ms": int(tick_ts_ms),
+                            "ts_ms": tick_ts_ms,
                             "regime": _s(getattr(runtime, "last_regime", "na")),
                             "direction": _s(direction),
                             # prefer scenario_v4 from evidence snapshot if available
@@ -2823,7 +2823,7 @@ class OrderFlowStrategy:
                         indicators["ofi_z"] = float(ev.get("ofi_z", 0.0) or 0.0)
                         indicators["ofi_stable_secs"] = float(ev.get("stable_secs", 0.0) or 0.0)
                         indicators["ofi_stability_score"] = float(ev.get("stability_score", 0.0) or 0.0)
-                        indicators["ofi_stable"] = int(ev.get("stable", 0) or 0)
+                        indicators["ofi_stable"] = ev.get("stable", 0) or 0
                         indicators["ofi_age_ms"] = int(now_ms - ots)
 
                         # direction match -> add confirmation
@@ -2865,7 +2865,7 @@ class OrderFlowStrategy:
                 if proof and bool(proof.get("valid")):
                     # Check freshness against evidence_ts (NOT controller update ts)
                     evidence_ts = int(proof.get("evidence_ts", proof.get("ts", 0)) or 0)
-                    max_age = int(runtime.config.get("confidence_cal_gating_proof_max_age_sec", 21600))
+                    max_age = runtime.config.get("confidence_cal_gating_proof_max_age_sec", 21600)
 
                     # Deterministic freshness relative to tick time
                     age = (int(tick_ts / 1000.0) - evidence_ts) if evidence_ts > 0 else 10**18
@@ -2950,18 +2950,8 @@ class OrderFlowStrategy:
         if tick.get("mock_force"):
              self.logger.warning("TRACE 6: Confidence Check. conf=%f min=%f", confidence, min_conf)
 
-        # Strict confidence filter
-        if confidence < min_conf:
-             disabled = _to_bool(os.getenv("DISABLE_CONFIDENCE_FILTER", os.getenv("CRYPTO_DISABLE_CONFIDENCE_FILTER", runtime.config.get("disable_confidence_filter", "false"))))
-             if disabled:
-                 self.logger.info("ℹ️ (%s) [LOW-CONF] Signal confidence %.2f%% < %.2f%% but filter is DISABLED.", runtime.symbol, confidence * 100.0, min_conf_pct)
-             else:
-                 self.low_conf_counters[runtime.symbol] = self.low_conf_counters.get(runtime.symbol, 0) + 1
-                 sampled_warning(logger, "LOW_CONF",
-                     "🛑 [LOW-CONF] (%s) Signal filtered: conf=%.2f%% < min_conf=%.2f%%. (x%d)",
-                     runtime.symbol, confidence * 100.0, min_conf_pct, self.low_conf_counters[runtime.symbol]
-                 )
-                 return None
+        # Delegation to SignalPipeline: strategy.py only annotates confidence.
+        # CONFIDENCE_GATE_OWNER = signal_pipeline
 
         # Telemetry: Hidden Divergence Usage
         if indicators.get("hidden_div_used"):
@@ -2992,10 +2982,8 @@ class OrderFlowStrategy:
         except Exception:
             executable_entry = float(price)
 
-        # REAL vs VIRTUAL Logic
-        min_conf = float(os.getenv("CRYPTO_SIGNAL_MIN_CONF", runtime.config.get("min_confidence", 0.0)))
-        if min_conf > 0 and confidence < min_conf:
-             return None
+        # Delegation to SignalPipeline: tick_processor.py only annotates confidence.
+        # CONFIDENCE_GATE_OWNER = signal_pipeline
 
         # Virtual if it failed strict gates (ofc.ok == 0) but passed filters (reaches here)
         indicators["is_virtual"] = 1 if (ofc and getattr(ofc, "ok", 0) == 0) else 0
@@ -5085,7 +5073,7 @@ class OrderFlowStrategy:
                 spread_bp = float(getattr(runtime, "last_spread_bps", 0.0) or 0.0)
                 book_age_ms = 10**9
                 try:
-                    bts = int(getattr(runtime, "last_book_ts_ms", 0) or 0)
+                    bts = getattr(runtime, "last_book_ts_ms", 0) or 0
                     if bts > 0:
                         book_age_ms = int(max(0, now_ts - bts))
                 except Exception:

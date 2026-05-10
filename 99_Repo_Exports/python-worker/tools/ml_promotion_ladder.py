@@ -174,7 +174,7 @@ def main() -> None:
     base_hours = float(os.getenv("ML_PROMO_BASELINE_HOURS", "168") or 168)
     max_scan = int(os.getenv("ML_PROMO_MAX_SCAN", "500000") or 500000)
 
-    out_stream = os.getenv("ML_OUTCOME_METRICS_STREAM", "metrics:ml_outcome")
+    out_stream = os.getenv("ML_OUTCOME_METRICS_STREAM", RS.ML_OUTCOME_METRICS)
     rows_p = read_recent_stream(r, out_stream, now_ms() - int(promo_hours * 3600_000), max_scan)
     rows_b = read_recent_stream(r, out_stream, now_ms() - int(base_hours * 3600_000), max_scan)
 
@@ -182,7 +182,7 @@ def main() -> None:
     base = agg_outcomes(rows_b)
 
     # health gate from metrics:ml_confirm
-    ml_stream = os.getenv("ML_CONFIRM_METRICS_STREAM", "metrics:ml_confirm")
+    ml_stream = os.getenv("ML_CONFIRM_METRICS_STREAM", RS.ML_CONFIRM_METRICS)
     health_win_min = float(os.getenv("ML_PROMO_HEALTH_MIN", "60") or 60)
     h_rows = read_recent_stream(r, ml_stream, now_ms() - int(health_win_min * 60_000), int(os.getenv("ML_PROMO_HEALTH_MAX_SCAN", "200000") or 200000))
     health = agg_health_ml_confirm(h_rows)

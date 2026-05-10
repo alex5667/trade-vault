@@ -18,8 +18,11 @@ try:  # pragma: no cover
 except Exception:  # pragma: no cover
     psycopg = None  # type: ignore
 
-from prometheus_client import Counter, Gauge, Histogram, start_http_server
 import contextlib
+
+from prometheus_client import Counter, Gauge, Histogram, start_http_server
+
+from core.redis_stream_consumer import AsyncRedisStreamHelper
 
 VERIFY_RUNS = Counter(
     "ml_post_commit_verifier_runs_total",
@@ -94,12 +97,12 @@ def parse_commit_result(fields: dict[Any, Any]) -> CommitResult:
         target_kind=(d.get("target_kind", "unknown")),
         target_ref=(d.get("target_ref", "")),
         ts_ms=_i(d.get("ts_ms", 0), 0),
-        apply_status=(d.get("apply_status", "UNKNOWN")),
+        apply_status=(d.get("status", d.get("apply_status", "UNKNOWN"))),
         executor_mode=(d.get("executor_mode", "DRY_RUN")),
-        previous_value=None if d.get("previous_value") in (None, "", "null") else (d.get("previous_value")),
-        new_value=None if d.get("new_value") in (None, "", "null") else (d.get("new_value")),
+        previous_value=d.get("before_json") if d.get("before_json") else (None if d.get("previous_value") in (None, "", "null") else d.get("previous_value")),
+        new_value=d.get("after_json") if d.get("after_json") else (None if d.get("new_value") in (None, "", "null") else d.get("new_value")),
         replay_status=(d.get("replay_status", "UNKNOWN")),
-        reason_codes_json=(d.get("reason_codes_json", "[]")),
+        reason_codes_json=(d.get("reason_code", d.get("reason", d.get("reason_codes_json", "[]")))),
     )
 
 
@@ -165,7 +168,7 @@ def evaluate_post_commit(
 
 
 async def fetch_snapshot(conn: Any, model_id: str, since_ts_ms: int) -> dict[str, Any]:
-    sql = """,
+    sql = """
         SELECT
             COALESCE(MAX(latency_p95_max_ms), 0.0) AS latency_p95_max_ms,
             COALESCE(MAX(error_rate_max), 0.0) AS error_rate_max,
@@ -173,8 +176,8 @@ async def fetch_snapshot(conn: Any, model_id: str, since_ts_ms: int) -> dict[str
             COALESCE(MAX(signals_n), 0) AS signals_n,
             COALESCE(MAX(symbols_seen_n), 0) AS symbols_seen_n
         FROM ml_model_snapshots
-        WHERE model_id = %s AND snapshot_ts_ms >= %s,
-    """,
+        WHERE model_id = %s AND snapshot_ts_ms >= %s
+    """
     async with conn.cursor() as cur:
         await cur.execute(sql, (model_id, since_ts_ms))
         row = await cur.fetchone()
@@ -186,7 +189,6 @@ async def fetch_snapshot(conn: Any, model_id: str, since_ts_ms: int) -> dict[str
 
 async def write_verification_result(conn: Any, rec: CommitResult, verification_status: str, reasons: list[str]) -> None:
     sql = """
-
         INSERT INTO llm_post_commit_verifications (
             recommendation_id, ts_ms, action_type, target_kind, target_ref,
             verification_status, reasons_json, executor_mode, replay_status
@@ -196,8 +198,8 @@ async def write_verification_result(conn: Any, rec: CommitResult, verification_s
             verification_status = EXCLUDED.verification_status,
             reasons_json = EXCLUDED.reasons_json,
             executor_mode = EXCLUDED.executor_mode,
-            replay_status = EXCLUDED.replay_status,
-    """,
+            replay_status = EXCLUDED.replay_status
+    """
     async with conn.cursor() as cur:
         await cur.execute(
             sql,
@@ -215,28 +217,97 @@ async def write_verification_result(conn: Any, rec: CommitResult, verification_s
         )
 
 
-async def maybe_emit_rollback(redis_cli: Any, rec: CommitResult, reasons: list[str], verification_status: str) -> None:
-    if verification_status != "ROLLBACK_REQUIRED":
-        return
-    payload = {
-        "schema_version": 1,
-        "recommendation_id": rec.recommendation_id,
-        "ts_ms": get_ny_time_millis(),
-        "action_type": rec.action_type,
-        "target_kind": rec.target_kind,
-        "target_ref": rec.target_ref,
-        "rollback_reason_codes_json": json.dumps(reasons),
-        "requested_by": "ml_post_commit_verifier_v1",
-    }
-    await redis_cli.xadd(
-        os.getenv("ML_RECOMMENDATION_ROLLBACK_REQUESTS_STREAM", "stream:ml:recommendation_rollback_requests"),
-        payload,
-        maxlen=_i(os.getenv("ML_ROLLBACK_REQUESTS_MAXLEN", "50000"), 50000),
-        approximate=True,
+
+async def process_loop(conn: Any, redis_cli: Any, helper: Any, stream: str, group: str, consumer: str) -> None:
+    # Извлекаем сообщения, которые висят в PEL более 60 секунд
+    _, pending_msgs = await helper.claim_pending(
+        stream, min_idle_ms=60_000, start_id="0-0", count=100
     )
 
+    rows = []
+    if pending_msgs:
+        msgs = []
+        for m in pending_msgs:
+            fields_raw = {k.encode(): (v.encode() if isinstance(v, str) else v) for k, v in m.fields.items()}
+            msgs.append((m.msg_id.encode(), fields_raw))
+        rows = [(stream.encode(), msgs)]
+    else:
+        rows = await redis_cli.xreadgroup(group, consumer, {stream: ">"}, count=100, block=1000)
 
-async def run_once() -> None:
+    if not rows:
+        VERIFY_RUNS.labels(status="idle").inc()
+        return
+
+    t0 = time.perf_counter()
+
+    msgs_to_ack = []
+    pipe = redis_cli.pipeline()
+    audit_stream = os.getenv("ML_RECOMMENDATION_AUDIT_STREAM", "stream:ml:recommendation_audit")
+    audit_maxlen = _i(os.getenv("ML_RECOMMENDATION_AUDIT_MAXLEN", "100000"), 100000)
+
+    for _, messages in rows:
+        for msg_id, fields in messages:
+            rec = parse_commit_result(fields)
+            if rec.apply_status not in {"COMMIT_APPLIED", "COMMIT_OK", "APPLIED", "ok", "OK"}:
+                msgs_to_ack.append(msg_id)
+                continue
+            if rec.executor_mode != "COMMIT":
+                msgs_to_ack.append(msg_id)
+                continue
+
+            policy = build_verification_policy(rec.action_type)
+            delay_sec = _i(policy.get("verify_delay_sec", 300), 300)
+            if get_ny_time_millis() - rec.ts_ms < delay_sec * 1000:
+                continue
+
+            model_id = rec.target_ref
+            before_snapshot = await fetch_snapshot(conn, model_id, max(0, rec.ts_ms - (delay_sec * 1000)))
+            after_snapshot = await fetch_snapshot(conn, model_id, rec.ts_ms)
+            verification_status, reasons = evaluate_post_commit(
+                action_type=rec.action_type,
+                before_snapshot=before_snapshot,
+                after_snapshot=after_snapshot,
+                policy=policy,
+            )
+
+            await write_verification_result(conn, rec, verification_status, reasons)
+
+            VERIFY_RESULTS.labels(action_type=rec.action_type, status=verification_status).inc()
+            QUEUE_LAG_MS.set(max(0, get_ny_time_millis() - rec.ts_ms))
+
+            pipe.xadd(
+                audit_stream,
+                {
+                    "schema_version": 1,
+                    "event": "POST_COMMIT_VERIFICATION",
+                    "event_type": "POST_COMMIT_VERIFICATION",
+                    "recommendation_id": rec.recommendation_id,
+                    "action_type": rec.action_type,
+                    "target_kind": rec.target_kind,
+                    "target_ref": rec.target_ref,
+                    "ts_ms": get_ny_time_millis(),
+                    "verification_status": verification_status,
+                    "reason_codes_json": json.dumps(reasons),
+                }, maxlen=audit_maxlen,
+                approximate=True,
+            )
+            msgs_to_ack.append(msg_id)
+
+    # Batch execute writes
+    await conn.commit()
+
+    if msgs_to_ack:
+        with contextlib.suppress(Exception):
+            await pipe.execute()
+        with contextlib.suppress(Exception):
+            await helper.ack_many(stream, msgs_to_ack)
+
+    LAST_RUN_TS.set(time.time())
+    WINDOW_LAT.observe(time.perf_counter() - t0)
+    VERIFY_RUNS.labels(status="ok").inc()
+
+
+async def async_main() -> None:
     if redis is None:
         raise RuntimeError("redis.asyncio is required")
     if psycopg is None:
@@ -245,81 +316,43 @@ async def run_once() -> None:
     redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
     stream = os.getenv("ML_COMMIT_RESULTS_STREAM", "stream:ml:recommendation_apply_results")
     group = os.getenv("ML_POST_COMMIT_GROUP", "ml_post_commit_verifier_v1")
-    consumer = os.getenv("ML_POST_COMMIT_CONSUMER", os.uname().nodename)
+    try:
+        consumer = os.uname().nodename
+    except Exception:
+        consumer = os.getenv("HOSTNAME", "ml-post-commit-verifier-1")
     dsn = os.getenv("DATABASE_URL", "")
     if not dsn:
         raise RuntimeError("DATABASE_URL is required")
 
     redis_cli = redis.from_url(redis_url, decode_responses=False)
+    helper = AsyncRedisStreamHelper(client=redis_cli, group=group, consumer=consumer)
+
     with contextlib.suppress(Exception):
-        await redis_cli.xgroup_create(stream, group, id="0", mkstream=True)
+        await helper.ensure_group(stream, start_id="0")
 
-    async with await psycopg.AsyncConnection.connect(dsn) as conn:
-        rows = await redis_cli.xreadgroup(group, consumer, {stream: ">"}, count=100, block=1000)
-        if not rows:
-            VERIFY_RUNS.labels(status="idle").inc()
-            return
-
-        t0 = time.perf_counter()
-        for _, messages in rows:
-            for msg_id, fields in messages:
-                rec = parse_commit_result(fields)
-                if rec.apply_status not in {"COMMIT_APPLIED", "COMMIT_OK", "APPLIED"}:
-                    await redis_cli.xack(stream, group, msg_id)
-                    continue
-                if rec.executor_mode != "COMMIT":
-                    await redis_cli.xack(stream, group, msg_id)
-                    continue
-
-                policy = build_verification_policy(rec.action_type)
-                delay_sec = _i(policy.get("verify_delay_sec", 300), 300)
-                if get_ny_time_millis() - rec.ts_ms < delay_sec * 1000:
-                    continue
-
-                model_id = rec.target_ref
-                before_snapshot = await fetch_snapshot(conn, model_id, max(0, rec.ts_ms - (delay_sec * 1000)))
-                after_snapshot = await fetch_snapshot(conn, model_id, rec.ts_ms)
-                verification_status, reasons = evaluate_post_commit(
-                    action_type=rec.action_type,
-                    before_snapshot=before_snapshot,
-                    after_snapshot=after_snapshot,
-                    policy=policy,
-                )
-                await write_verification_result(conn, rec, verification_status, reasons)
-                await maybe_emit_rollback(redis_cli, rec, reasons, verification_status)
-                await conn.commit()
-                VERIFY_RESULTS.labels(action_type=rec.action_type, status=verification_status).inc()
-                QUEUE_LAG_MS.set(max(0, get_ny_time_millis() - rec.ts_ms))
-                await redis_cli.xadd(
-                    os.getenv("ML_RECOMMENDATION_AUDIT_STREAM", "stream:ml:recommendation_audit"),
-                    {
-                        "schema_version": 1,
-                        "event_type": "POST_COMMIT_VERIFICATION",
-                        "recommendation_id": rec.recommendation_id,
-                        "ts_ms": get_ny_time_millis(),
-                        "verification_status": verification_status,
-                        "reason_codes_json": json.dumps(reasons),
-                    }, maxlen=_i(os.getenv("ML_RECOMMENDATION_AUDIT_MAXLEN", "100000"), 100000),
-                    approximate=True,
-                )
-                await redis_cli.xack(stream, group, msg_id)
-
-        LAST_RUN_TS.set(time.time())
-        WINDOW_LAT.observe(time.perf_counter() - t0)
-        VERIFY_RUNS.labels(status="ok").inc()
+    try:
+        while True:
+            try:
+                async with await psycopg.AsyncConnection.connect(dsn) as conn:
+                    while True:
+                        await process_loop(conn, redis_cli, helper, stream, group, consumer)
+            except Exception:
+                import asyncio
+                VERIFY_RUNS.labels(status="error").inc()
+                await asyncio.sleep(5)
+    finally:
+        import inspect
+        close = getattr(redis_cli, "aclose", None) or getattr(redis_cli, "close", None)
+        if close:
+            res = close()
+            if inspect.isawaitable(res):
+                await res
 
 
 def main() -> None:
     start_http_server(_i(os.getenv("ML_POST_COMMIT_VERIFIER_METRICS_PORT", "9872"), 9872))
     import asyncio
-
-    while True:
-        try:
-            asyncio.run(run_once())
-        except Exception:
-            VERIFY_RUNS.labels(status="error").inc()
-            time.sleep(5)
-
+    asyncio.run(async_main())
 
 if __name__ == "__main__":
     main()

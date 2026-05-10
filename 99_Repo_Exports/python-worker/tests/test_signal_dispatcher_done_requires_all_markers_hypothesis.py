@@ -3,7 +3,7 @@ import pytest
 from hypothesis import settings
 from hypothesis.stateful import RuleBasedStateMachine, initialize, rule
 
-from services.signal_dispatcher import SignalDispatcher
+from services.dispatch.dispatcher_app import SignalDispatcher
 from utils.time_utils import get_ny_time_millis
 
 

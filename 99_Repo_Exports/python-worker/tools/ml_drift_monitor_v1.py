@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+from core.redis_keys import RedisStreams as RS
 
 """ML drift monitor v1.
 
@@ -222,8 +223,8 @@ async def main() -> int:
     args = ap.parse_args()
 
     redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
-    stream_pred = os.getenv("ML_DRIFT_STREAM_PRED", "metrics:ml_confirm")
-    stream_trades = os.getenv("ML_DRIFT_STREAM_TRADES", "trades:closed")
+    stream_pred = os.getenv("ML_DRIFT_STREAM_PRED", RS.ML_CONFIRM_METRICS)
+    stream_trades = os.getenv("ML_DRIFT_STREAM_TRADES", RS.TRADES_CLOSED)
     stream_out = os.getenv("ML_DRIFT_STREAM_OUT", "metrics:ml_drift")
 
     now = _now_ms()

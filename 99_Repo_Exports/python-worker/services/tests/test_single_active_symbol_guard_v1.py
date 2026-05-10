@@ -2,6 +2,7 @@ import importlib.util
 import json
 import sys
 from pathlib import Path
+from core.redis_keys import RedisStreams as RS
 
 exec_mod_path = Path(__file__).parent.parent / 'binance_executor.py'
 exec_spec = importlib.util.spec_from_file_location('binance_executor_single_active', exec_mod_path)
@@ -74,12 +75,12 @@ def test_projection_worker_sets_and_clears_active_symbol_key_from_journal():
     r = FakeRedis()
     worker = worker_mod.ExecutionProjectionWorker(
         r,
-        exec_stream='orders:exec',
+        exec_stream=RS.ORDERS_EXEC,
         state_key_prefix='orders:state:',
         active_symbol_key_prefix='orders:active_symbol_sid:',
         cursor_key='orders:exec:projection:cursor',
     )
-    r.xadd('orders:exec', {
+    r.xadd(RS.ORDERS_EXEC, {
         'sid': 'sid-1',
         'symbol': 'BTCUSDT',
         'action': 'open',
@@ -93,7 +94,7 @@ def test_projection_worker_sets_and_clears_active_symbol_key_from_journal():
     assert active['sid'] == 'sid-1'
     assert active['fsm_state'] == 'PROTECTED'
 
-    r.xadd('orders:exec', {
+    r.xadd(RS.ORDERS_EXEC, {
         'sid': 'sid-1',
         'symbol': 'BTCUSDT',
         'action': 'cancel',

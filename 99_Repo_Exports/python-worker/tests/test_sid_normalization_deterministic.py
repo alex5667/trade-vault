@@ -13,7 +13,7 @@ Tests:
 
 import pytest
 
-from services.ml_confirm_gate import (
+from services.ml_confirm import (
     _canonical_sid,
     _make_sid,
     _normalize_sid,

@@ -40,7 +40,7 @@ class DummyClient:
             "totalUnrealizedProfit": "25.50",
             "totalInitialMargin": "250.00",
             "totalMaintMargin": "15.00",
-        },
+        }
         self._pos = [
             {
                 "symbol": "BTCUSDT",

@@ -2,6 +2,7 @@ import importlib.util
 import json
 import sys
 from pathlib import Path
+from core.redis_keys import RedisStreams as RS
 
 mod_path = Path(__file__).parent.parent / 'binance_executor.py'
 spec = importlib.util.spec_from_file_location('binance_executor_p112', mod_path)
@@ -53,7 +54,7 @@ class FakeRedis:
 def _mk_exec():
     ex = mod.BinanceExecutor.__new__(mod.BinanceExecutor)
     ex.r = FakeRedis()
-    ex.exec_stream = 'orders:exec'
+    ex.exec_stream = RS.ORDERS_EXEC
     ex.state_key_prefix = 'orders:state:'
     ex.state_ttl = 86400
     ex.exec_rehydrate_on_state_miss = True
@@ -110,7 +111,7 @@ def test_transition_state_is_journal_first_and_updates_cache():
     cache = json.loads(ex.r.get(f'orders:state:{sid}'))
     assert cache['fsm_state'] == 'ENTRY_ACKED'
     assert cache['entry']['client_order_id'] == 'cid-1'
-    assert ex.r.streams['orders:exec'][-1][1]['event_type'] == 'state_transition'
+    assert ex.r.streams[RS.ORDERS_EXEC][-1][1]['event_type'] == 'state_transition'
 
 
 def test_save_order_state_merges_patch_on_top_of_journal_state():

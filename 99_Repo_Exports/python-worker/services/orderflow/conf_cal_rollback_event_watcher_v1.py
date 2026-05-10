@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+from core.redis_keys import RedisStreams as RS
 
 """
 conf_cal_rollback_event_watcher_v1.py
@@ -129,8 +130,8 @@ def main() -> int:
     ap.add_argument("--state-path", default=os.getenv("CONF_CAL_ROLLBACK_WATCHER_STATE", "/tmp/conf_cal_rollback_watcher_state.json"))
     ap.add_argument("--poll-sec", type=float, default=float(os.getenv("CONF_CAL_ROLLBACK_POLL_SEC", "2.0")))
     ap.add_argument("--redis-url", default=os.getenv("REDIS_URL", "redis://localhost:6379/0"))
-    ap.add_argument("--stream-key", default=os.getenv("EVENTS_STREAM_KEY", "events:conf_cal"))
-    ap.add_argument("--pubsub-ch", default=os.getenv("EVENTS_PUBSUB_CH", "events:conf_cal"))
+    ap.add_argument("--stream-key", default=os.getenv("EVENTS_STREAM_KEY", RS.EVENTS_CONF_CAL))
+    ap.add_argument("--pubsub-ch", default=os.getenv("EVENTS_PUBSUB_CH", RS.EVENTS_CONF_CAL))
     ap.add_argument("--stream-maxlen", type=int, default=int(os.getenv("EVENTS_STREAM_MAXLEN", "20000")))
     ap.add_argument("--run-id", default=os.getenv("CONF_CAL_ROLLBACK_RUN_ID", "rollback_watcher_v1"))
     # Grafana optional

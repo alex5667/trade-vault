@@ -10,7 +10,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from services.ml_confirm_gate import MLConfirmGate
+from services.ml_confirm import MLConfirmGate
 
 
 @pytest.fixture

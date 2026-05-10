@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from domain.evidence_keys import MetaKeys
+from core.redis_keys import RedisStreams as RS
 
 """of_gate_metrics_contract_check_v1.py
 
@@ -47,7 +48,7 @@ def _f(v: Any) -> float | None:
 
 def main() -> int:
     p = argparse.ArgumentParser()
-    p.add_argument("--stream", default=os.getenv("META_COV_SOURCE_STREAM", "metrics:of_gate"))
+    p.add_argument("--stream", default=os.getenv("META_COV_SOURCE_STREAM", RS.OF_GATE_METRICS))
     p.add_argument("--count", type=int, default=int(os.getenv("OF_GATE_CONTRACT_COUNT", "500")))
     p.add_argument("--min-ok", type=int, default=int(os.getenv("OF_GATE_CONTRACT_MIN_OK", "50")))
     p.add_argument("--strict", type=int, default=int(os.getenv("OF_GATE_CONTRACT_STRICT", "0")))

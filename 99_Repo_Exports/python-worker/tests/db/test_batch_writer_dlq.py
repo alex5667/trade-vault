@@ -100,11 +100,11 @@ class TestMLConfirmGateImportContract(unittest.TestCase):
     """P0-5: MLConfirmGate must be importable and expose from_env."""
 
     def test_ml_confirm_gate_importable(self):
-        from services.ml_confirm_gate import MLConfirmGate
+        from services.ml_confirm import MLConfirmGate
         assert MLConfirmGate is not None
 
     def test_ml_confirm_gate_has_from_env(self):
-        from services.ml_confirm_gate import MLConfirmGate
+        from services.ml_confirm import MLConfirmGate
         assert hasattr(MLConfirmGate, "from_env"), "MLConfirmGate.from_env() missing"
         assert callable(MLConfirmGate.from_env)
 

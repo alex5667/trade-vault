@@ -13,6 +13,8 @@ ServiceConfig — единое место для всех ENV-переменны
 import os
 from dataclasses import dataclass, field
 
+from core.redis_keys import RedisStreams as RS
+
 
 def _env_bool(name: str, default: str = "0") -> bool:
     return os.getenv(name, default).strip().lower() in ("1", "true", "yes", "on")
@@ -156,7 +158,7 @@ class TickCfg:
         default_factory=lambda: os.getenv("CRYPTO_OF_UNKNOWN_SIDE_POLICY", "ignore_delta"))
     unknown_side_quarantine_stream: str = field(
         default_factory=lambda: os.getenv(
-            "TICK_SIDE_QUARANTINE_STREAM", "stream:tick_side:quarantine"))
+            "TICK_SIDE_QUARANTINE_STREAM", RS.TICK_SIDE_QUARANTINE))
     unknown_side_quarantine_sample: float = field(
         default_factory=lambda: _env_float("TICK_SIDE_QUARANTINE_SAMPLE", 0.01))
     unknown_side_quarantine_maxlen: int = field(
@@ -177,10 +179,8 @@ class TickCfg:
 class StreamCfg:
     """Имена Redis-ключей и stream-темплейтов для публикации сигналов."""
 
-    # Импортируем RS здесь чтобы не создавать circular-import на уровне модуля
     @classmethod
     def from_env(cls) -> StreamCfg:
-        from core.redis_keys import RedisStreams as RS
         return cls(
             notify_stream=os.getenv("NOTIFY_STREAM", RS.NOTIFY_TELEGRAM),
             raw_signal_stream=os.getenv("CRYPTO_RAW_STREAM", RS.CRYPTO_RAW),
@@ -188,8 +188,8 @@ class StreamCfg:
             orders_queue_binance=os.getenv("ORDERS_QUEUE_BINANCE", RS.ORDERS_QUEUE_BINANCE),
             signal_stream_template=os.getenv(
                 "CRYPTO_ORDERFLOW_SIGNAL_STREAM", "signals:cryptoorderflow:{symbol}"),
-            burst_audit_stream=os.getenv("BURST_AUDIT_STREAM", "stream:of:burst_audit"),
-            quarantine_stream=os.getenv("SIGNAL_QUARANTINE_STREAM", "stream:of:quarantine"),
+            burst_audit_stream=os.getenv("BURST_AUDIT_STREAM", RS.BURST_AUDIT),
+            quarantine_stream=os.getenv("SIGNAL_QUARANTINE_STREAM", RS.OF_QUARANTINE),
         )
 
     notify_stream: str = ""
@@ -197,8 +197,8 @@ class StreamCfg:
     orders_queue_mt5: str = ""
     orders_queue_binance: str = ""
     signal_stream_template: str = "signals:cryptoorderflow:{symbol}"
-    burst_audit_stream: str = "stream:of:burst_audit"
-    quarantine_stream: str = "stream:of:quarantine"
+    burst_audit_stream: str = RS.BURST_AUDIT
+    quarantine_stream: str = RS.OF_QUARANTINE
 
 
 # ── ML / Engine ───────────────────────────────────────────────────────────────

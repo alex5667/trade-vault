@@ -17,6 +17,7 @@ from typing import Any
 from common.time_utils import format_timestamp_for_redis, get_current_timestamp_ms
 from core.config import STREAM_MAPPING, STREAM_MAX_LENGTH
 from core.signals_redis_client import get_signals_redis
+from core.redis_keys import RedisStreams as RS
 
 logger = logging.getLogger(__name__)
 
@@ -57,7 +58,7 @@ class SignalExporter:
                 'count': len(losers_data),
                 'timestamp': format_timestamp_for_redis(current_time_ms)
             }
-            stream_name = self.stream_mapping.get('top:losers', 'stream:top-losers')
+            stream_name = self.stream_mapping.get('top:losers', RS.TOP_LOSERS)
             message_id = self._publish_to_stream(stream_name, signal)
             if message_id:
                 logger.info("Exported %d losers to Redis (port 6380)", len(losers_data))
@@ -89,7 +90,7 @@ class SignalExporter:
                 'count': len(gainers_data),
                 'timestamp': format_timestamp_for_redis(current_time_ms)
             }
-            stream_name = self.stream_mapping.get('top:gainers', 'stream:top-gainers')
+            stream_name = self.stream_mapping.get('top:gainers', RS.TOP_GAINERS)
             message_id = self._publish_to_stream(stream_name, signal)
             if message_id:
                 logger.info("Exported %d gainers to Redis (port 6380)", len(gainers_data))
@@ -184,7 +185,7 @@ class SignalExporter:
                 'data': volatility_data,
                 'timestamp': format_timestamp_for_redis(current_time_ms)
             }
-            stream_name = self.stream_mapping.get('signal:volatilityRange', 'stream:volatilityRange')
+            stream_name = self.stream_mapping.get('signal:volatilityRange', RS.VOLATILITY_RANGE)
             message_id = self._publish_to_stream(stream_name, signal)
             if message_id:
                 logger.info("Exported volatilitybyrange for %s to Redis (port 6380)",
@@ -216,7 +217,7 @@ class SignalExporter:
                 'data': volatility_data,
                 'timestamp': format_timestamp_for_redis(current_time_ms)
             }
-            stream_name = self.stream_mapping.get('signal:volatility', 'stream:volatility')
+            stream_name = self.stream_mapping.get('signal:volatility', RS.VOLATILITY)
             message_id = self._publish_to_stream(stream_name, signal)
             if message_id:
                 logger.info("Exported volatilityspike for %s to Redis (port 6380)",

@@ -7,11 +7,12 @@ from datetime import UTC, datetime
 
 import redis.asyncio as aioredis
 import contextlib
+from core.redis_keys import RedisStreams as RS
 
 # Configuration
 REDIS_URL = os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
 # Legacy shared stream (kept for migration / dual-write)
-LEGACY_STREAM_KEY = os.getenv("MICROBAR_LEGACY_STREAM", "events:microbar_closed")
+LEGACY_STREAM_KEY = os.getenv("MICROBAR_LEGACY_STREAM", RS.EVENTS_MICROBAR_CLOSED)
 SYMBOLS_SET_KEY = os.getenv("MICROBAR_SYMBOLS_SET", "events:microbar_closed:symbols")
 # Per-symbol stream template (preferred when split streams are enabled)
 STREAM_TEMPLATE = os.getenv("MICROBAR_PER_SYMBOL_STREAM_TEMPLATE", "events:microbar_closed:{sym}")

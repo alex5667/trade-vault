@@ -14,6 +14,7 @@ import unittest
 from unittest.mock import AsyncMock, patch
 
 from services.async_signal_publisher import AsyncPublishResult, StreamSink
+from core.redis_keys import RedisStreams as RS
 
 
 def _make_publisher(redis_client=None):
@@ -32,7 +33,7 @@ class TestTerminalDenyNotRetried(unittest.IsolatedAsyncioTestCase):
             ok=False, raw_written=False, busy_loading=False, errors=1,
             retryable=False, status="invariant_denied",
         )
-        sink = StreamSink(name="orders:queue", field="payload", maxlen=1000)
+        sink = StreamSink(name=RS.ORDERS_QUEUE, field="payload", maxlen=1000)
 
         with patch.object(pub, "xadd_json_internal", return_value=invariant_result):
             result = await pub.xadd_json(sink=sink, payload={"symbol": "BTCUSDT"}, symbol="BTCUSDT")
@@ -52,7 +53,7 @@ class TestTerminalDenyNotRetried(unittest.IsolatedAsyncioTestCase):
             ok=False, raw_written=False, busy_loading=False, errors=1,
             retryable=False, status="runtime_policy_denied",
         )
-        sink = StreamSink(name="orders:queue", field="payload", maxlen=1000)
+        sink = StreamSink(name=RS.ORDERS_QUEUE, field="payload", maxlen=1000)
 
         with patch.object(pub, "xadd_json_internal", return_value=policy_result):
             result = await pub.xadd_json(sink=sink, payload={"symbol": "ETHUSDT"}, symbol="ETHUSDT")

@@ -18,8 +18,9 @@ Thresholds are opt-in; if env is 0, gate is effectively monitor-only.
 """
 
 import os
-from dataclasses import dataclass
+import time
 from typing import Any
+from core.signal_payload import GateDecisionV1
 
 
 def _f(x: Any, d: float = 0.0) -> float:
@@ -40,14 +41,6 @@ def _profile() -> str:
     return os.getenv("GATE_PROFILE", os.getenv("STREAM_INTEGRITY_PROFILE", "default") or "default").strip().lower()
 
 
-@dataclass
-class StreamIntegrityDecision:
-    apply: bool
-    veto: bool
-    gate: str
-    reason_code: str
-    flags: list[str]
-    notes: str = ""
 
 
 class StreamIntegrityGate:
@@ -96,9 +89,33 @@ class StreamIntegrityGate:
             return "tighten"
         return "monitor"
 
-    def evaluate(self, *, indicators: dict[str, Any], symbol: str) -> StreamIntegrityDecision:
+    def evaluate(self, *, indicators: dict[str, Any], symbol: str) -> GateDecisionV1:
+        t0 = time.monotonic()
+        ts_dec_ms = int(time.time() * 1000)
+        ts_ev_ms = int(indicators.get("ts_ms", 0) or 0)
+
+        def _make_res(decision: str, reason: str, flags: list[str], notes: dict[str, Any] = None) -> GateDecisionV1:
+            latency_us = int((time.monotonic() - t0) * 1_000_000)
+            return GateDecisionV1(
+                stage="dq_integrity",
+                gate="StreamIntegrityGate",
+                decision=decision,
+                reason_code=reason,
+                severity="CRITICAL" if decision == "DENY" else "INFO",
+                profile=_profile(),
+                fail_policy="OPEN",
+                ts_event_ms=ts_ev_ms,
+                ts_decision_ms=ts_dec_ms,
+                latency_us=latency_us,
+                inputs_hash="",
+                notes={
+                    "flags": flags,
+                    **(notes or {})
+                }
+            )
+
         if not self.enabled:
-            return StreamIntegrityDecision(apply=False, veto=False, gate="StreamIntegrityGate", reason_code="", flags=[])
+            return _make_res("ABSTAIN", "DISABLED", [], {"msg": "gate_disabled"})
 
         mode = self._effective_mode()
         flags: list[str] = []
@@ -114,7 +131,6 @@ class StreamIntegrityGate:
 
         if self.max_gap_rate_ema > 0 and max(tg, bg) >= self.max_gap_rate_ema:
             flags.append("gap_rate_ema_high")
-        # Dup-rate veto: participates in VETO_DUP_RATE reason if threshold is configured.
         if self.max_dup_rate_ema > 0 and max(td, bd) >= self.max_dup_rate_ema:
             flags.append("dup_rate_ema_high")
         if self.max_gap_window > 0 and max(tmax, bmax) >= self.max_gap_window:
@@ -123,20 +139,16 @@ class StreamIntegrityGate:
             flags.append("schema_changed")
 
         if not flags:
-            return StreamIntegrityDecision(apply=False, veto=False, gate="StreamIntegrityGate", reason_code="", flags=[])
+            return _make_res("ALLOW", "OK", [], {"msg": "no_flags"})
 
         if mode != "veto":
-            return StreamIntegrityDecision(apply=True, veto=False, gate="StreamIntegrityGate", reason_code="STREAM_INTEGRITY", flags=flags, notes=f"mode={mode}")
+            return _make_res("ALLOW", "STREAM_INTEGRITY", flags, {"mode": mode})
 
-        # hard veto — deterministic reason (first match by priority)
+        # hard veto
         reason = "VETO_STREAM_INTEGRITY"
-        if "schema_changed" in flags:
-            reason = "VETO_SCHEMA_DRIFT"
-        elif "gap_window_high" in flags:
-            reason = "VETO_SEQ_GAP_WINDOW"
-        elif "gap_rate_ema_high" in flags:
-            reason = "VETO_SEQ_GAP_RATE"
-        elif "dup_rate_ema_high" in flags:
-            reason = "VETO_DUP_RATE"
+        if "schema_changed" in flags: reason = "VETO_SCHEMA_DRIFT"
+        elif "gap_window_high" in flags: reason = "VETO_SEQ_GAP_WINDOW"
+        elif "gap_rate_ema_high" in flags: reason = "VETO_SEQ_GAP_RATE"
+        elif "dup_rate_ema_high" in flags: reason = "VETO_DUP_RATE"
 
-        return StreamIntegrityDecision(apply=True, veto=True, gate="StreamIntegrityGate", reason_code=reason, flags=flags, notes=f"symbol={symbol}")
+        return _make_res("DENY", reason, flags, {"symbol": symbol})

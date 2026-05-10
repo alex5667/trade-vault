@@ -1,4 +1,5 @@
 from __future__ import annotations
+from tests.trade_monitor_test_utils import create_mock_trade_monitor
 
 import json
 from types import SimpleNamespace
@@ -15,7 +16,7 @@ def _mk_monitor() -> TradeMonitorService:
     """
     Minimal TradeMonitorService instance for calling _normalize_signal().
     """
-    mon = TradeMonitorService.__new__(TradeMonitorService)
+    mon = create_mock_trade_monitor()
     mon._get_spec = lambda symbol: _SpecStub()
     mon.logger = SimpleNamespace(
         debug=lambda *a, **k: None,

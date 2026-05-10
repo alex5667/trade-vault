@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from domain.evidence_keys import MetaKeys
+from core.redis_keys import RedisStreams as RS
 
 """Unified Decision Record (v1).
 
@@ -329,7 +330,7 @@ async def maybe_write_decision_record_v1(
 
     ttl = _env_int("DECISION_TTL_SEC", "1209600")  # 14d
     maxlen = _env_int("DECISIONS_FINAL_MAXLEN", "200000")
-    stream = os.getenv("DECISIONS_FINAL_STREAM", "decisions:final")
+    stream = os.getenv("DECISIONS_FINAL_STREAM", RS.DECISIONS_FINAL)
 
     record = build_decision_record_v1(
         runtime=runtime,
@@ -523,7 +524,7 @@ async def write_decision_record(redis_client: Any, record: DecisionRecordV1) -> 
 
         ttl = _env_int("DECISION_TTL_SEC", "1209600")
         maxlen = _env_int("DECISIONS_FINAL_MAXLEN", "200000")
-        stream = os.getenv("DECISIONS_FINAL_STREAM", "decisions:final")
+        stream = os.getenv("DECISIONS_FINAL_STREAM", RS.DECISIONS_FINAL)
 
         sid = record.get("sid", "unknown")
         key = f"decision:{sid}"

@@ -1094,7 +1094,7 @@ class TradeMonitorService:
                 "health_pending_len": (h.get("pending_len", "0")),
                 "health_window_sec": (h.get("window_sec", "0")),
                 "health_ts": (h.get("ts", "0")),
-            },
+            }
             return out
         except Exception:
             return {}
@@ -1239,7 +1239,7 @@ class TradeMonitorService:
             "health_pending_len": (raw.get("pending_len", "0")),
             "health_snapshot_ts": (raw.get("ts", "0")),
             "health_window_sec": (raw.get("window_sec", "0")),
-        },
+        }
         self._health_cache[sym] = (now_ms, snap)
         return snap
 
@@ -1283,7 +1283,7 @@ class TradeMonitorService:
             "health_pending_len": (raw.get("pending_len", "0")),
             "health_snapshot_ts": (raw.get("ts", "0")),
             "health_window_sec": (raw.get("window_sec", "0")),
-        },
+        }
         self._health_cache[sym] = (now_ms, snap)
         return snap
 
@@ -3554,7 +3554,7 @@ class TradeMonitorService:
                     "ab_arm": (ab_arm or ""),
                     "ab_group": (ab_group or ""),
                     "regime": (rg or "na"),
-                },
+                }
 
                 # === AB attribution + entry context (flattened into event payload) ===
                 try:

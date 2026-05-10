@@ -59,7 +59,7 @@ logging.basicConfig(
 DEBUG_DELTAS = os.getenv("CRYPTO_OF_DEBUG_DELTAS", "false").strip().lower() in ("1", "true", "yes", "on")
 
 # SRE metrics for gate decisions (world-class: drift + latency + exec risk)
-OF_GATE_METRICS_STREAM = os.getenv("OF_GATE_METRICS_STREAM", "metrics:of_gate")
+OF_GATE_METRICS_STREAM = os.getenv("OF_GATE_METRICS_STREAM", RS.OF_GATE_METRICS)
 OF_GATE_METRICS_ENABLE = os.getenv("OF_GATE_METRICS_ENABLE", "1").strip() in ("1","true","yes","on")
 OF_GATE_METRICS_SAMPLE = float(os.getenv("OF_GATE_METRICS_SAMPLE", "0.10") or 0.10)  # 10% кандидатов
 OF_GATE_METRICS_MAXLEN = int(os.getenv("OF_GATE_METRICS_MAXLEN", "200000") or 200000)
@@ -125,7 +125,7 @@ class OrderFlowStrategy:
         self._atr_sanity = ATRSanity(window=int(os.getenv("ATR_SANITY_WINDOW", "60")))
 
         # SRE metrics
-        self.of_gate_metrics_stream = os.getenv("OF_GATE_METRICS_STREAM", "metrics:of_gate")
+        self.of_gate_metrics_stream = os.getenv("OF_GATE_METRICS_STREAM", RS.OF_GATE_METRICS)
 
         self.of_gate_metrics_enable = os.getenv("OF_GATE_METRICS_ENABLE", "1").strip().lower() in ("1", "true", "yes", "on")
         self.of_gate_metrics_sample = float(os.getenv("OF_GATE_METRICS_SAMPLE", "0.10") or 0.10)

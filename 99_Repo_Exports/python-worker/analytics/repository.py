@@ -299,7 +299,7 @@ class Repository:
             корректно прожевать частичные/legacy payload без падений.
         """
         try:
-            messages = self.r.xrevrange("trades:closed", count=int(limit)) or []
+            messages = self.r.xrevrange(RS.TRADES_CLOSED, count=int(limit)) or []
 
             raw_items = [self._norm_map(fields or {}) for _id, fields in messages]
             hydrated = hydrate_trade_closed_batch(

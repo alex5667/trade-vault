@@ -23,7 +23,7 @@ def test_notify_lua_gate_is_atomic_and_dedup_before_incr(r):
           * повтор с тем же sid => dedup, counter не растёт
           * после удаления marker следующий вызов => sent (XADD), marker поставлен
     """
-    import services.signal_dispatcher as sd
+    import services.dispatch.dispatcher_app as sd
 
     lua = sd._LUA_NOTIFY_GATE_XADD_THEN_MARK  # используем ровно тот же скрипт
 

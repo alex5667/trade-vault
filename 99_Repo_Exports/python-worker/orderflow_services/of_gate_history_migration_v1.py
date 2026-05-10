@@ -25,6 +25,7 @@ from typing import Any
 import psycopg2
 import redis.asyncio as aioredis
 from psycopg2.extras import execute_values
+from core.redis_keys import RedisStreams as RS
 
 
 def env(name: str, default: str) -> str:
@@ -275,7 +276,7 @@ def parse_args() -> argparse.Namespace:
     p_refresh.add_argument("--end", type=str, default="")
 
     p_backfill = sub.add_parser("backfill", help="Backfill of_gate_metrics from Redis stream")
-    p_backfill.add_argument("--stream", type=str, default=env("OF_GATE_METRICS_STREAM", "metrics:of_gate"))
+    p_backfill.add_argument("--stream", type=str, default=env("OF_GATE_METRICS_STREAM", RS.OF_GATE_METRICS))
     p_backfill.add_argument("--start-id", type=str, required=True)
     p_backfill.add_argument("--max-messages", type=int, default=2_000_000)
     p_backfill.add_argument("--batch", type=int, default=5000)

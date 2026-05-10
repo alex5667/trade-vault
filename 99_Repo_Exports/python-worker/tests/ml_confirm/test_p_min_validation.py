@@ -1,7 +1,7 @@
 import pytest
 from pydantic import ValidationError
 
-from services.ml_confirm_gate import MLConfirmConfig
+from services.ml_confirm import MLConfirmConfig
 
 
 def test_ml_confirm_config_valid_p_min():

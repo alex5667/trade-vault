@@ -7,12 +7,13 @@ from typing import Any
 import feedparser
 import redis
 import contextlib
+from core.redis_keys import RedisStreams as RS
 
 log = logging.getLogger("news_ingestor_py")
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
 
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
-NEWS_RAW_STREAM = os.getenv("NEWS_RAW_STREAM", "news:raw")
+NEWS_RAW_STREAM = os.getenv("NEWS_RAW_STREAM", RS.NEWS_RAW)
 NEWS_RAW_DLQ = os.getenv("NEWS_RAW_DLQ", "news:raw:dlq")
 
 LEADER_KEY = os.getenv("NEWS_INGESTOR_LEADER_KEY", "news:ingestor:leader")

@@ -1475,7 +1475,7 @@ def build_dataset_df(
     lookback_hours: int,
     max_rows: int | None = None,
     signal_stream: str = RS.OF_INPUTS,
-    closed_stream: str = "trades:closed",
+    closed_stream: str = RS.TRADES_CLOSED,
 ) -> pd.DataFrame:
     """
     Helper function for P60 shadow evaluation.
@@ -1540,10 +1540,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         default=os.environ.get("ML_REPLAY_STREAM", RS.OF_INPUTS),
         help="Redis stream with ML inputs (indicators+sid). Accepts aliases (v5_of, ml_replay_inputs_v1) or full stream names (signals:of:inputs).",
     )
-    ap.add_argument("--closed_stream", default=os.environ.get("TRADES_CLOSED_STREAM", "trades:closed"))
+    ap.add_argument("--closed_stream", default=os.environ.get("TRADES_CLOSED_STREAM", RS.TRADES_CLOSED))
     ap.add_argument("--signals_count", type=int, default=int(os.environ.get("SIGNALS_COUNT", "200000")))
     ap.add_argument("--closes_count", type=int, default=int(os.environ.get("CLOSES_COUNT", "200000")))
-    ap.add_argument("--tb_labels_stream", default=os.environ.get("TB_LABELS_STREAM", "labels:tb"))
+    ap.add_argument("--tb_labels_stream", default=os.environ.get("TB_LABELS_STREAM", RS.TB_LABELS))
     ap.add_argument("--tb_labels_field", default=os.environ.get("TB_LABELS_FIELD", "payload"))
     ap.add_argument("--tb_labels_count", type=int, default=int(os.environ.get("TB_LABELS_COUNT", "200000")))
     ap.add_argument("--label_source", default=os.environ.get("LABEL_SOURCE", "closed"), choices=["closed","tb_primary","tb_util"])

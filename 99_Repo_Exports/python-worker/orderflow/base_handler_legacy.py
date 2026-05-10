@@ -2480,7 +2480,7 @@ class BaseOrderFlowHandler(ABC):
                 "regime": signal_settings.get("regime", "na"),
             }
             self.redis.xadd(
-                "stream:trade:entry_candidate",
+                RS.ENTRY_CANDIDATE,
                 {"payload": json.dumps(entry_payload, ensure_ascii=False)},
                 maxlen=20000,
                 approximate=True

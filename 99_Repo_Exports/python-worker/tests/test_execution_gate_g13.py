@@ -18,6 +18,7 @@ import pytest
 from services.execution_gate_service import (
     ExecutionGateService,
 )
+from core.redis_keys import RedisStreams as RS
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -40,7 +41,7 @@ def _make_proposal_fields(
         "sl": 64000.0,
         "tp_levels": [65000.0, 65500.0],
         "qty": 1.0,
-    },
+    }
     if extra:
         payload.update(extra)
     return {"payload": json.dumps(payload)}
@@ -60,7 +61,7 @@ def _make_confirm_fields(
         "score": score,
         "ts_ms": ts_ms or get_ny_time_millis(),
         "reason": "delta_z_confirmed",
-    },
+    }
     return {"payload": json.dumps(payload)}
 
 
@@ -104,7 +105,7 @@ class TestPassThroughMode:
         queue_name = svc.redis.rpush.call_args[0][0]
         payload = json.loads(svc.redis.rpush.call_args[0][1])
 
-        assert queue_name == "orders:queue:binance"
+        assert queue_name == RS.ORDERS_QUEUE_BINANCE
         assert payload["gate_verified"] is True
         assert payload["validation_status"] == "bypassed"
         assert payload["confirm_score"] == 1.0
@@ -475,7 +476,7 @@ class TestOutputContract:
         await svc._handle_proposal(fields)
 
         queue_name = svc.redis.rpush.call_args[0][0]
-        assert queue_name == "orders:queue:binance"
+        assert queue_name == RS.ORDERS_QUEUE_BINANCE
         assert "mt5" not in queue_name
 
 

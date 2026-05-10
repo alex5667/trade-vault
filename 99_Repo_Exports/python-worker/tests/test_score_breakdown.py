@@ -4,7 +4,8 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 from core.of_confirm_engine import OFConfirmEngine
-from services.ml_confirm_gate import MLConfirmDecision, MLConfirmGate
+from services.ml_confirm import MLConfirmDecision, MLConfirmGate
+from core.redis_keys import RedisStreams as RS
 
 
 def test_score_breakdown_generation_and_enrichment():
@@ -106,7 +107,7 @@ def test_ml_gate_emit_metrics_rule_fields():
         challenger_key="test_chall"
     )
     gate._metrics_enable = True
-    gate._metrics_stream = "metrics:ml_confirm"
+    gate._metrics_stream = RS.ML_CONFIRM_METRICS
     gate._metrics_sample = 1.0
 
     # Create indicators with score_breakdown_small (as produced by OFConfirmEngine)
@@ -145,7 +146,7 @@ def test_ml_gate_emit_metrics_rule_fields():
     args, kwargs = mock_redis.xadd.call_args
     stream, payload = args[0], args[1]
 
-    assert stream == "metrics:ml_confirm"
+    assert stream == RS.ML_CONFIRM_METRICS
     # Expect strings with 6 decimal places
     assert payload["rule_base_score"] == "0.800000"
     assert payload["rule_exec_pen"] == "0.100000"

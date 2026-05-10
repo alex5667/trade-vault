@@ -42,7 +42,7 @@ def guard_view(doc: dict[str, Any] | None, *, now_ms: int | None = None) -> dict
     if status == "released" and released_at_ms > 0:
         tombstone_age_ms = max(0, now - released_at_ms)
 
-    is_blocking = bool(symbol and sid and status == "active")
+    is_blocking = (symbol and sid and status == "active")
     return {
         "symbol": symbol,
         "sid": sid,

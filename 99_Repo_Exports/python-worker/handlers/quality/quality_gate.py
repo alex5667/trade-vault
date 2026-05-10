@@ -13,7 +13,7 @@ import contextlib
 
 
 def clamp01(x: float) -> float:
-    return 0.0 if x <= 0.0 else (1.0 if x >= 1.0 else float(x))
+    return 0.0 if x <= 0.0 else (1.0 if x >= 1.0 else x)
 
 
 @dataclass(frozen=True)
@@ -82,7 +82,7 @@ class QualityGate:
         l3 = getattr(ctx, "l3", None)
         l3a = self._l3.assess(ctx=ctx, l3=l3)
         apply_l3_policy_to_ctx(ctx=ctx, assessment=l3a)
-        parts["l3_score01"] = float(l3a.score01)
+        parts["l3_score01"] = l3a.score01
         for f in l3a.flags:
             if f not in flags:
                 flags.append(f)
@@ -90,7 +90,7 @@ class QualityGate:
         # Geometry/HTF
         geoa = self._geo.assess(ctx=ctx)
         apply_geometry_policy_to_ctx(ctx=ctx, assessment=geoa)
-        parts["geo_score01"] = float(geoa.score01)
+        parts["geo_score01"] = geoa.score01
         for f in geoa.flags:
             if f not in flags:
                 flags.append(f)
@@ -101,26 +101,26 @@ class QualityGate:
         q = 1.0
         if "hlc_fallback" in flags:
             q *= self.hlc_fallback_penalty01
-            parts["hlc_penalty01"] = float(self.hlc_fallback_penalty01)
+            parts["hlc_penalty01"] = self.hlc_fallback_penalty01
         else:
             parts["hlc_penalty01"] = 1.0
 
         if "atr_fallback" in flags:
             q *= self.atr_fallback_penalty01
-            parts["atr_penalty01"] = float(self.atr_fallback_penalty01)
+            parts["atr_penalty01"] = self.atr_fallback_penalty01
         else:
             parts["atr_penalty01"] = 1.0
 
         if "bad_ctx_price" in flags:
             q *= self.invalid_price_penalty01
-            parts["bad_price_penalty01"] = float(self.invalid_price_penalty01)
+            parts["bad_price_penalty01"] = self.invalid_price_penalty01
         else:
             parts["bad_price_penalty01"] = 1.0
 
         # итоговая global quality
-        q *= float(parts["l3_score01"])
-        q *= float(parts["geo_score01"])
-        q = clamp01(float(q))
+        q *= parts["l3_score01"]
+        q *= parts["geo_score01"]
+        q = clamp01(q)
         parts["global_quality01"] = q
 
         with contextlib.suppress(Exception):
@@ -152,16 +152,16 @@ class QualityGate:
 
         # L2 kind-policy
         l2a: L2Assessment = self._l2.assess(kind=kind, ctx=ctx, l2=l2)
-        parts["l2_score01"] = float(l2a.score01)
+        parts["l2_score01"] = l2a.score01
         for f in l2a.flags:
             if f not in flags:
                 flags.append(f)
-        veto = bool(l2a.veto)
+        veto = l2a.veto
         if veto:
             self._m.inc(ctx, "l2_veto", 1)
 
         # объединение
-        q = float(parts.get("global_quality01", 1.0)) * float(parts["l2_score01"])
+        q = parts.get("global_quality01", 1.0) * parts["l2_score01"]
         q = clamp01(q)
         parts["quality_score01"] = q
 

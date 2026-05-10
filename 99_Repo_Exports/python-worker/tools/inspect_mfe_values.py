@@ -1,11 +1,12 @@
 import os
 
 import redis
+from core.redis_keys import RedisStreams as RS
 
 
 def main():
     redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
-    stream = "trades:closed"
+    stream = RS.TRADES_CLOSED
 
     print(f"Connecting to {redis_url}...")
     r = redis.from_url(redis_url, decode_responses=True)

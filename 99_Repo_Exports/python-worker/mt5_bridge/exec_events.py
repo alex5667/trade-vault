@@ -14,6 +14,7 @@ from datetime import datetime
 from typing import Any
 
 import redis
+from core.redis_keys import RedisStreams as RS
 
 
 @dataclass
@@ -83,7 +84,7 @@ class ExecEventsPublisher:
     SignalPerformanceTracker и другими компонентами системы.
     """
 
-    def __init__(self, redis_dsn: str, stream_key: str = "stream:signals:exec_events"):
+    def __init__(self, redis_dsn: str, stream_key: str = RS.SIGNAL_EXEC_EVENTS):
         self._r = redis.from_url(redis_dsn, decode_responses=True)
         self.stream_key = stream_key
 

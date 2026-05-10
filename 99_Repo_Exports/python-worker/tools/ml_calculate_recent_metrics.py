@@ -6,6 +6,7 @@ Used by nightly_meta_enforce_ramp_bundle.py to gate ramp-up.
 
 Usage:
     import ml_calculate_recent_metrics
+from core.redis_keys import RedisStreams as RS
     stats = ml_calculate_recent_metrics.calculate(window_hours=24)
 """
 
@@ -78,7 +79,7 @@ def calculate(
     r = redis.Redis.from_url(r_url, decode_responses=True)
     r_ticks = redis.Redis.from_url(t_url, decode_responses=True)
 
-    stream = os.getenv("ML_CONFIRM_METRICS_STREAM", "metrics:ml_confirm")
+    stream = os.getenv("ML_CONFIRM_METRICS_STREAM", RS.ML_CONFIRM_METRICS)
 
     now_ms = get_ny_time_millis()
     start_ms = now_ms - int(window_hours * 3600 * 1000)

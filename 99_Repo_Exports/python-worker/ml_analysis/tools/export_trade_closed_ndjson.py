@@ -2,7 +2,7 @@
 """
 export_trade_closed_ndjson.py
 
-Exports "trades:closed" stream to NDJSON for offline analysis.
+Exports RS.TRADES_CLOSED stream to NDJSON for offline analysis.
 """
 
 import argparse
@@ -12,6 +12,7 @@ import os
 import time
 
 import redis
+from core.redis_keys import RedisStreams as RS
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger("export_trade_closed")
@@ -19,7 +20,7 @@ logger = logging.getLogger("export_trade_closed")
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--redis-url", default=os.getenv("REDIS_URL", "redis://localhost:6379/0"))
-    parser.add_argument("--stream", default="trades:closed")
+    parser.add_argument("--stream", default=RS.TRADES_CLOSED)
     parser.add_argument("--out", required=True, help="Output file path (NDJSON)")
     parser.add_argument("--max", type=int, default=100000, help="Max items to export")
     parser.add_argument("--hours", type=float, default=24, help="Max age in hours (approx via check)")

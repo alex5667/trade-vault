@@ -44,11 +44,12 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
+from core.redis_keys import RedisStreams as RS
 logger = logging.getLogger("feature_drift_v1")
 
 # Env config
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
-DECISIONS_STREAM = os.getenv("DECISIONS_FINAL_STREAM", "decisions:final")
+DECISIONS_STREAM = os.getenv("DECISIONS_FINAL_STREAM", RS.DECISIONS_FINAL)
 DYN_CFG_KEY = os.getenv("DYN_CFG_KEY", "settings:dynamic_cfg")
 
 DRIFT_CUR_H = int(os.getenv("DRIFT_CUR_H", "24"))

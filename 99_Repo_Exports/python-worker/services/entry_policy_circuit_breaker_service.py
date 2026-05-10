@@ -36,6 +36,7 @@ from core.entry_policy_freeze import EntryPolicyFreezeV1
 from core.switch_budget import utc_day_id
 from utils.time_utils import get_ny_time_millis
 import contextlib
+from core.redis_keys import RedisStreams as RS
 
 
 def _now_ms() -> int:
@@ -198,7 +199,7 @@ class EntryPolicyCircuitBreakerService:
         redis_url = os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
         self.r = aioredis.from_url(redis_url, decode_responses=True, socket_connect_timeout=10, socket_timeout=30, max_connections=10)
 
-        self.stream = os.getenv("CB_AUDIT_STREAM", "stream:trade:entry_audit")
+        self.stream = os.getenv("CB_AUDIT_STREAM", RS.ENTRY_AUDIT)
         self.group = os.getenv("CB_GROUP", "entry-cb")
         self.consumer = os.getenv("CB_CONSUMER", f"cb-{os.getpid()}")
         self.block_ms = int(os.getenv("CB_BLOCK_MS", "1000"))

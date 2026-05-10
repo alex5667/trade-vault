@@ -33,10 +33,10 @@ class AbsorptionRule:
             Candidate(
                 kind="absorption",
                 side=side,
-                raw_score=float(raw),
-                level_price=float(level_price) if level_price is not None else None,
+                raw_score=raw,
+                level_price=level_price if level_price is not None else None,
                 level_key=getattr(ctx, "level_key", None),
                 reasons=["weak_progress_absorption"],
-                meta={"weak_progress": float(wp)},
+                meta={"weak_progress": wp},
             )
         ]

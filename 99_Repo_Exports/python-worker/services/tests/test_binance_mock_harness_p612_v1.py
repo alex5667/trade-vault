@@ -49,9 +49,9 @@ def _configure_env(monkeypatch, *, base_url: str, maker: bool = False, fill_time
         "EXECUTION_QUARANTINE_LEDGER_DSN": "",
         "REDIS_URL": "redis://mock/0",
         "EXEC_STREAM": RS.ORDERS_EXEC,
-        "ORDERS_QUEUE_BINANCE": "orders:queue:binance",
-        "ORDERS_QUEUE_BINANCE_PROCESSING": "orders:queue:binance:processing",
-        "ORDERS_QUEUE_BINANCE_DLQ": "orders:queue:binance:dlq",
+        "ORDERS_QUEUE_BINANCE": RS.ORDERS_QUEUE_BINANCE,
+        "ORDERS_QUEUE_BINANCE_PROCESSING": RS.ORDERS_QUEUE_BINANCE_PROCESSING,
+        "ORDERS_QUEUE_BINANCE_DLQ": RS.ORDERS_QUEUE_BINANCE_DLQ,
         "USER_STREAM_STREAM": "orders:user_stream",
         "USER_STREAM_CACHE_PREFIX": "orders:user_stream:",
         # Maker TP policy activated only when maker=True
@@ -80,7 +80,7 @@ def _new_worker(redis_client: InMemoryRedis, base_url: str) -> BinanceUserStream
 
 def _queue_open(redis_client: InMemoryRedis, payload: dict) -> None:
     """Push an open signal into the executor queue (left-push → BRPOPLPUSH pops from right)."""
-    redis_client.lpush("orders:queue:binance", json.dumps(payload))
+    redis_client.lpush(RS.ORDERS_QUEUE_BINANCE, json.dumps(payload))
 
 
 def _stream_events(redis_client: InMemoryRedis, key: str = RS.ORDERS_EXEC):
@@ -169,7 +169,7 @@ def test_503_unknown_reconciles_via_query_without_duplicate_submit(monkeypatch):
         assert len(get_orders) >= 1
 
         # Must NOT be DLQ'd
-        assert redis_client.lrange("orders:queue:binance:dlq", 0, -1) == []
+        assert redis_client.lrange(RS.ORDERS_QUEUE_BINANCE_DLQ, 0, -1) == []
 
         # Exec stream should show PROTECTED state transition
         events = _stream_events(redis_client)
@@ -334,7 +334,7 @@ def test_burst_open_signals_smoke(monkeypatch):
             processed += 1
 
         assert processed == 8
-        assert redis_client.lrange("orders:queue:binance:dlq", 0, -1) == [], "no DLQ entries expected"
+        assert redis_client.lrange(RS.ORDERS_QUEUE_BINANCE_DLQ, 0, -1) == [], "no DLQ entries expected"
 
         open_events = [ev for ev in _stream_events(redis_client) if ev.get("action") == "open"]
         assert len(open_events) >= 8

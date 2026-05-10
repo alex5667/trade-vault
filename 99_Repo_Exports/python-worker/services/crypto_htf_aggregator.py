@@ -24,6 +24,7 @@ import sys
 import threading
 import time
 from collections import defaultdict
+from core.redis_keys import RedisStreams as RS
 
 # Добавляем путь к core для импорта
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -33,7 +34,7 @@ from core.redis_stream_consumer import SyncRedisStreamHelper
 
 # Конфигурация
 REDIS_URL = os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
-CANDLES_STREAM = os.getenv("CANDLES_STREAM", "candles:data")
+CANDLES_STREAM = os.getenv("CANDLES_STREAM", RS.CANDLES_DATA)
 GROUP = os.getenv("HTF_GROUP", "htf-aggregator-group")
 CONSUMER_NAME_PREFIX = os.getenv("HTF_CONSUMER", "htf-aggregator")
 

@@ -169,7 +169,7 @@ class TestSignalLossSilentCounter(unittest.TestCase):
         ) as mock_inc:
             # Manually call the logic inline (without full dispatcher init)
             try:
-                fake_redis.xadd("dlq:signals", {"data": "{}"})
+                fake_redis.xadd(RS.DLQ_SIGNALS, {"data": "{}"})
             except RedisConnectionError:
                 SIGNAL_LOSS_SILENT_TOTAL.labels(reason="dlq_write_failed").inc()
             mock_inc.assert_called_once()

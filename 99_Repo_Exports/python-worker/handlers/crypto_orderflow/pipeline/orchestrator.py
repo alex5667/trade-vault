@@ -32,6 +32,7 @@ from services.observability.metrics_registry import (
 )
 from utils.time_utils import get_epoch_ms
 import contextlib
+from core.redis_keys import RedisStreams as RS
 
 logger = logging.getLogger(__name__)
 SIGNAL_BUILD_FAILED_TOTAL = Counter(
@@ -136,7 +137,7 @@ def _resolve_side(cand: Any) -> str:
         if direction == -1:
             return "SHORT"
     # fall back to whatever str() gives — may be empty
-    return (side or "").strip()
+    return str(side or "").strip()
 
 
 def _emit_dq_flag(ctx: Any, flag: str, symbol="") -> None:
@@ -390,22 +391,38 @@ class SignalOrchestrator:
             _t_cand_start = time.monotonic()
             audit = PipelineAuditWriter(self.observability, _sym_root, kind_key, _t_cand_start)
 
+            # 1.0 Data Quality & Integrity Gate (Early Pipeline)
+            _t_dq = time.monotonic()
+            dq_integrity = self.gates.check_dq_integrity(ctx, kind_key)
+            audit.record_stage("dq_integrity", _t_dq)
+            if dq_integrity and dq_integrity.decision in ("DENY", "SHADOW_DENY"):
+                self._handle_veto(ctx, cand, kind_key, dq_integrity.reason_code)
+                continue
+
             # 1.5 Quality Gate (Detector Check)
             _t_q = time.monotonic()
             qa = self.gates.check_quality(ctx, kind_key, side=_resolve_side(cand))
             audit.record_stage("quality", _t_q)
-            if getattr(qa, "veto", False):
-                rc = getattr(qa, "reason", VetoReason.VETO_QUALITY)
+            _qa_decision = getattr(qa, "decision", "DENY" if getattr(qa, "veto", False) else "ALLOW")
+            if qa and _qa_decision in ("DENY", "SHADOW_DENY"):
+                rc = getattr(qa, "reason_code", getattr(qa, "reason", VetoReason.VETO_QUALITY))
                 self._handle_veto(ctx, cand, kind_key, rc)
                 continue
 
 
             # 2. Regime Gate (Component)
             _t_r = time.monotonic()
-            allowed, gate_reason = self.gates.check_regime_gate(ctx=ctx, kind=kind_key)
+            rg_decision = self.gates.check_regime_gate(ctx=ctx, kind=kind_key)
             audit.record_stage("regime", _t_r)
-            if not allowed:
-                self._handle_veto(ctx, cand, kind_key, gate_reason)
+            if isinstance(rg_decision, tuple):
+                _rg_dec = "ALLOW" if rg_decision[0] else "DENY"
+                rc = rg_decision[1]
+            else:
+                _rg_dec = getattr(rg_decision, "decision", "DENY" if getattr(rg_decision, "veto", False) else "ALLOW")
+                rc = getattr(rg_decision, "reason_code", getattr(rg_decision, "reason", "VETO_REGIME"))
+
+            if rg_decision is not None and _rg_dec in ("DENY", "SHADOW_DENY"):
+                self._handle_veto(ctx, cand, kind_key, rc)
                 continue
 
 
@@ -414,8 +431,9 @@ class SignalOrchestrator:
             _t_smt = time.monotonic()
             smt_decision = self.gates.check_smt(ctx=ctx, kind=kind_key, side=side_val)
             audit.record_stage("smt", _t_smt)
-            if getattr(smt_decision, "veto", False):
-                rc = getattr(smt_decision, "reason_code", VetoReason.VETO_SMT)
+            _smt_dec = getattr(smt_decision, "decision", "DENY" if getattr(smt_decision, "veto", False) else "ALLOW")
+            if smt_decision and _smt_dec in ("DENY", "SHADOW_DENY"):
+                rc = getattr(smt_decision, "reason_code", getattr(smt_decision, "reason", VetoReason.VETO_SMT))
                 self._handle_veto(ctx, cand, kind_key, rc)
                 continue
 
@@ -424,8 +442,9 @@ class SignalOrchestrator:
             _t_const = time.monotonic()
             consistency_decision = self.gates.consistency_once(ctx=ctx, symbol=self.cfg.symbol, kind=kind_key, side=_resolve_side(cand))
             audit.record_stage("consistency", _t_const)
-            if getattr(consistency_decision, "veto", False):
-                rc = getattr(consistency_decision, "reason_code", VetoReason.VETO_CONSISTENCY)
+            _c_dec = getattr(consistency_decision, "decision", "DENY" if getattr(consistency_decision, "veto", False) else "ALLOW")
+            if consistency_decision and _c_dec in ("DENY", "SHADOW_DENY"):
+                rc = getattr(consistency_decision, "reason_code", getattr(consistency_decision, "reason", VetoReason.VETO_CONSISTENCY))
                 self._handle_veto(ctx, cand, kind_key, rc)
                 continue
 
@@ -438,7 +457,12 @@ class SignalOrchestrator:
                 # SLQ dynamic stop override (fail-open, idempotent)
                 try:
                     from services.slq_risk_adjust import maybe_apply_slq_to_risk_cfg
+                    # FIX: ctx.redis is None in production (ctx has no redis attr).
+                    # Use the sync Redis client from handler_config as fallback.
                     redis_client = getattr(ctx, "redis", None)
+                    if redis_client is None:
+                        from handlers.crypto_orderflow.config.handler_config import _get_sync_redis
+                        redis_client = _get_sync_redis()
                     risk_cfg = maybe_apply_slq_to_risk_cfg(
                         redis=redis_client,
                         ctx=ctx,
@@ -491,10 +515,23 @@ class SignalOrchestrator:
                 sym = str(getattr(ctx, "symbol", getattr(self.cfg, "symbol", "unknown")))
                 self._emit_build_failed(kind_key, e, symbol=sym)
 
-            if cost_decision and getattr(cost_decision, "veto", False):
-                rc = getattr(cost_decision, "reason_code", VetoReason.VETO_COST)
+            _cost_dec = getattr(cost_decision, "decision", "DENY" if getattr(cost_decision, "veto", False) else "ALLOW")
+            if cost_decision and _cost_dec in ("DENY", "SHADOW_DENY"):
+                rc = getattr(cost_decision, "reason_code", getattr(cost_decision, "reason", VetoReason.VETO_COST))
                 self._handle_veto(ctx, cand, kind_key, rc)
                 continue
+            elif cost_decision and _cost_dec == "TIGHTEN":
+                # ARCH-3 fix: propagate slippage tighten into ctx.indicators so downstream sizing
+                # and risk calculations see the updated cost. Mirror logic from signal_pipeline.py.
+                tadd = float(getattr(cost_decision, "notes", {}).get("tighten_add_bps", 0.0) or 0.0)
+                if tadd > 0:
+                    inds = getattr(ctx, "indicators", None)
+                    if isinstance(inds, dict):
+                        inds["expected_slippage_bps"] = float(inds.get("expected_slippage_bps", 0.0) or 0.0) + tadd
+                    logger.info(
+                        "⚡ [ORCH] edge_cost TIGHTEN +%.2f bps | reason=%s sym=%s kind=%s",
+                        tadd, getattr(cost_decision, "reason_code", "?"), _sym_root, kind_key,
+                    )
 
 
             # 5. Validation & Scoring (ConfirmationsEngine)
@@ -526,10 +563,11 @@ class SignalOrchestrator:
                 audit.record_stage("build_payload", _t_build)
 
             # Entry Policy
-            # Fix: GateDecision uses 'veto' (bool), not 'allow'.
+            # Fix: GateDecisionV1 uses 'decision' ("DENY", "SHADOW_DENY")
             ep_decision = self.gates.check_entry_policy(ctx, payload)
-            if getattr(ep_decision, "veto", False):
-                rc = getattr(ep_decision, "reason_code", VetoReason.VETO_ENTRY_POLICY)
+            _ep_dec = getattr(ep_decision, "decision", "DENY" if getattr(ep_decision, "veto", False) else "ALLOW")
+            if ep_decision and _ep_dec in ("DENY", "SHADOW_DENY"):
+                rc = getattr(ep_decision, "reason_code", getattr(ep_decision, "reason", VetoReason.VETO_ENTRY_POLICY))
                 self._handle_veto(ctx, cand, kind_key, rc)
                 continue
 
@@ -600,8 +638,8 @@ class SignalOrchestrator:
                 PAYLOAD_TS_ANOMALY_TOTAL.labels(symbol=_sym_for_metric).inc()
             _emit_dq_flag(ctx, "payload_ts_anomaly", symbol=_sym_for_metric)
             logger.warning(
-                "orchestrator _build_payload: ts anomaly symbol=%s raw_ts=%r; payload.ts=0",
-                _sym_for_metric, _ts_raw,
+                "orchestrator _build_payload: ts anomaly symbol=%s ts_ms=%r; payload.ts=0",
+                _sym_for_metric, _ts_ms,
             )
 
         # ── ingest_time_ms ────────────────────────────────────────────────────
@@ -634,9 +672,10 @@ class SignalOrchestrator:
 
         if not _raw_schema_v:
             _sym_sch = _ss(getattr(ctx, "symbol", ""))
-            logger.warning("⚠️ schema_version fallback to 1 for %s (kind=%s)", _sym_sch, payload.get("kind"))
+            _kind = _ss(getattr(cand, "kind", ""))
+            logger.warning("⚠️ schema_version fallback to 1 for %s (kind=%s)", _sym_sch, _kind)
             with contextlib.suppress(Exception):
-                _SCHEMA_VERSION_FALLBACK_TOTAL.labels(symbol=_sym_sch, kind=payload.get("kind")).inc()
+                _SCHEMA_VERSION_FALLBACK_TOTAL.labels(symbol=_sym_sch, kind=_kind).inc()
 
         # ── source ───────────────────────────────────────────────────────────
         _source: str = (
@@ -929,7 +968,7 @@ class SignalOrchestrator:
         if not redis_client:
             return
 
-        stream_key = os.getenv("EDGE_GATE_EVENTS_STREAM", "stream:diag:edge_gate_events")
+        stream_key = os.getenv("EDGE_GATE_EVENTS_STREAM", RS.EDGE_GATE_EVENTS)
 
         # Build event with robust field mapping
         try:

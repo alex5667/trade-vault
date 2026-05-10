@@ -15,7 +15,7 @@ import pytest
 
 try:
     from core.champion_cfg_validator import CfgError, validate_champion_cfg
-    from services.ml_confirm_gate import MLConfirmGate
+    from services.ml_confirm import MLConfirmGate
 except ImportError as e:
     pytest.skip(f"Required modules not available: {e}", allow_module_level=True)
 

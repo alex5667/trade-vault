@@ -8,6 +8,7 @@ from typing import Any
 import redis
 
 from utils.time_utils import get_ny_time_millis
+from core.redis_keys import RedisStreams as RS
 
 
 def _safe_json(obj: Any) -> str:
@@ -108,7 +109,7 @@ def main() -> None:
     ap = argparse.ArgumentParser(description="Export TB labels from Redis Stream to NDJSON")
     ap.add_argument("--since-hours", type=float, default=6.0, help="Export labels from last N hours")
     ap.add_argument("--out", required=True, help="Output NDJSON file path")
-    ap.add_argument("--stream", default=os.getenv("TB_LABELS_STREAM", "labels:tb"), help="Redis stream name")
+    ap.add_argument("--stream", default=os.getenv("TB_LABELS_STREAM", RS.TB_LABELS), help="Redis stream name")
     ap.add_argument("--redis-url", default=os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0"), help="Redis URL")
     ap.add_argument("--max-scan", type=int, default=500_000, help="Max messages to scan")
     ap.add_argument("--payload-field", default="payload", help="Field name containing JSON payload")

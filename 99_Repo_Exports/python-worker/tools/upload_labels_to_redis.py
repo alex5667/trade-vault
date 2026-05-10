@@ -5,6 +5,7 @@ import json
 import os
 
 import redis
+from core.redis_keys import RedisStreams as RS
 
 # Utility to bridge manual labeling and training steps
 # Uploads generated labels to Redis labels:tb stream
@@ -13,7 +14,7 @@ def main() -> None:
     ap = argparse.ArgumentParser(description="Upload labels from NDJSON to Redis stream")
     ap.add_argument("--path", required=True, help="Path to NDJSON file")
     ap.add_argument("--redis-url", default=os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0"))
-    ap.add_argument("--stream", default=os.getenv("TB_LABELS_STREAM", "labels:tb"))
+    ap.add_argument("--stream", default=os.getenv("TB_LABELS_STREAM", RS.TB_LABELS))
     ap.add_argument("--maxlen", type=int, default=200000)
     args = ap.parse_args()
 

@@ -3,6 +3,7 @@ import unittest
 from unittest.mock import AsyncMock
 
 from services.ab_winner_apply_lib import apply_sid_if_ready
+from core.redis_keys import RedisStreams as RS
 
 
 class TestABWinnerApplyLib(unittest.IsolatedAsyncioTestCase):
@@ -34,7 +35,7 @@ class TestABWinnerApplyLib(unittest.IsolatedAsyncioTestCase):
             lock_sec=60,
             active_ttl_sec=0,
             applied_ttl_sec=3600,
-            audit_stream="stream:trade:entry_audit",
+            audit_stream=RS.ENTRY_AUDIT,
             by="test",
         )
         self.assertTrue(res.applied)
@@ -66,7 +67,7 @@ class TestABWinnerApplyLib(unittest.IsolatedAsyncioTestCase):
             lock_sec=60,
             active_ttl_sec=0,
             applied_ttl_sec=3600,
-            audit_stream="stream:trade:entry_audit",
+            audit_stream=RS.ENTRY_AUDIT,
         )
         self.assertTrue(res.skipped)
         self.assertEqual(res.reason, "no_meta")

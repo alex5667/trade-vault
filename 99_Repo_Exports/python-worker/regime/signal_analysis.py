@@ -217,7 +217,7 @@ class SignalAnalyzer:
             'obi_persistence': self.analyze_by_quantiles(df, 'l3_obi_persistence_score'),
             'spread': self.analyze_by_quantiles(df, 'l3_spread_bps'),
             'cancel_to_trade': self.analyze_by_quantiles(df, 'l3_cancel_to_trade_bid_5s'),
-        },
+        }
 
         # Рекомендации
         recommendations = self.generate_recommendations(df),

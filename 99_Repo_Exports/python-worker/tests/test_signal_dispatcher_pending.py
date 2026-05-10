@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from services.signal_dispatcher import PendingMsg, SignalDispatcher
+from services.dispatch.dispatcher_app import PendingMsg, SignalDispatcher
 from core.redis_keys import RedisStreams as RS
 
 

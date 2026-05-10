@@ -62,7 +62,7 @@ def test_health_gate_fails(mock_redis, monkeypatch):
     for i in range(300):
         lat = 5000.0 if i >= 297 else 1000.0  # p99 will be 5000
         mock_redis.xadd(
-            "metrics:of_gate",
+            RS.OF_GATE_METRICS,
             {
                 "ts_ms": str(current_ms - (300 - i) * 1000),
                 "ok": "1",
@@ -79,7 +79,7 @@ def test_health_gate_fails(mock_redis, monkeypatch):
     monkeypatch.setenv("BASELINE_PROPOSE_HEALTH_WINDOW_HOURS", "24")
     monkeypatch.setenv("BASELINE_PROPOSE_MIN_N", "200")
     monkeypatch.setenv("BASELINE_PROPOSE_LAT_P99_US_MAX", "4000")
-    monkeypatch.setenv("OF_GATE_METRICS_STREAM", "metrics:of_gate")
+    monkeypatch.setenv("OF_GATE_METRICS_STREAM", RS.OF_GATE_METRICS)
     monkeypatch.setenv("META_ENFORCE_NOTIFY_ON_SKIP", "0")
     monkeypatch.setenv("REDIS_URL", "redis://localhost:6379/0")
 
@@ -106,7 +106,7 @@ def test_model_path_resolution(mock_redis, monkeypatch, tmp_path):
     current_ms = now_ms()
     for i in range(300):
         mock_redis.xadd(
-            "metrics:of_gate",
+            RS.OF_GATE_METRICS,
             {
                 "ts_ms": str(current_ms - (300 - i) * 1000),
                 "ok": "1",
@@ -136,7 +136,7 @@ def test_model_path_resolution(mock_redis, monkeypatch, tmp_path):
     monkeypatch.setenv("BASELINE_PROPOSE_HEALTH_WINDOW_HOURS", "24")
     monkeypatch.setenv("BASELINE_PROPOSE_MIN_N", "200")
     monkeypatch.setenv("BASELINE_PROPOSE_LAT_P99_US_MAX", "4000")
-    monkeypatch.setenv("OF_GATE_METRICS_STREAM", "metrics:of_gate")
+    monkeypatch.setenv("OF_GATE_METRICS_STREAM", RS.OF_GATE_METRICS)
     monkeypatch.setenv("MODELS_DIR", str(models_dir))
     monkeypatch.setenv("META_ENFORCE_NOTIFY_ON_SKIP", "0")
     monkeypatch.setenv("REDIS_URL", "redis://localhost:6379/0")
@@ -184,7 +184,7 @@ def test_no_valid_threshold(mock_redis, monkeypatch, tmp_path):
     current_ms = now_ms()
     for i in range(300):
         mock_redis.xadd(
-            "metrics:of_gate",
+            RS.OF_GATE_METRICS,
             {
                 "ts_ms": str(current_ms - (300 - i) * 1000),
                 "ok": "1",
@@ -214,7 +214,7 @@ def test_no_valid_threshold(mock_redis, monkeypatch, tmp_path):
     monkeypatch.setenv("BASELINE_PROPOSE_HEALTH_WINDOW_HOURS", "24")
     monkeypatch.setenv("BASELINE_PROPOSE_MIN_N", "200")
     monkeypatch.setenv("BASELINE_PROPOSE_LAT_P99_US_MAX", "4000")
-    monkeypatch.setenv("OF_GATE_METRICS_STREAM", "metrics:of_gate")
+    monkeypatch.setenv("OF_GATE_METRICS_STREAM", RS.OF_GATE_METRICS)
     monkeypatch.setenv("META_MODEL_LATEST", str(model_path))
     monkeypatch.setenv("META_ENFORCE_NOTIFY_ON_SKIP", "0")
     monkeypatch.setenv("REDIS_URL", "redis://localhost:6379/0")

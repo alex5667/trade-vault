@@ -33,6 +33,7 @@ import math
 import os
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
+from core.redis_keys import RedisStreams as RS
 
 # Import is optional to keep unit tests runnable in minimal environments.
 if TYPE_CHECKING:  # pragma: no cover
@@ -85,7 +86,7 @@ class BBOStoreCfg:
     @staticmethod
     def from_env() -> BBOStoreCfg:
         enabled = bool(int(os.getenv("BBO_TS_PUBLISH_ENABLED", "1") or 1))
-        stream = os.getenv("BBO_TS_STREAM", "events:bbo_ts")
+        stream = os.getenv("BBO_TS_STREAM", RS.EVENTS_BBO_TS)
         stream_maxlen = int(os.getenv("BBO_TS_STREAM_MAXLEN", "5000") or 5000)
         schema_version = int(os.getenv("BBO_TS_SCHEMA_VERSION", "1") or 1)
         # 100ms => 10Hz upper bound per symbol (sane default for TCA joins).

@@ -37,6 +37,8 @@ REQUIRED_SNAPSHOT_KEYS = {
     "last_spread_z",
     "pressure_sps",
     "prev_book",
+    "liq_score",
+    "symbol",
 }
 
 

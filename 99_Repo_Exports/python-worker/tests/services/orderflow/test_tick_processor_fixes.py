@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from services.orderflow.service_config import TickCfg
-from services.orderflow.tick_processor import TickProcessor
+from services.orderflow.components.tick_processor import TickProcessor
 
 
 def test_unknown_side_default_is_ignore_delta():
@@ -44,7 +44,7 @@ async def test_dq_quarantine_tick_serialized_synchronously():
 
     original_tick = {"event_ts_ms": 100, "price": 50000}
     # To prove it's serialized synchronously, we modify original_tick right after the call
-    tp._xadd_dq_quarantine(original_tick, "test_reason")
+    tp._quarantine_writer.xadd_dq_quarantine(original_tick, "test_reason")
     original_tick["price"] = 99999
 
     # Give the event loop a beat to execute the background task inside _xadd_dq_quarantine

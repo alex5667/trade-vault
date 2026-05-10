@@ -8,6 +8,7 @@ import sys
 import redis
 
 from utils.time_utils import get_ny_time_millis
+from core.redis_keys import RedisStreams as RS
 
 
 def export_stream_to_ndjson(
@@ -58,7 +59,7 @@ def export_stream_to_ndjson(
 def main():
     ap = argparse.ArgumentParser(description="Export of_gate metrics from Redis Stream to NDJSON.")
     ap.add_argument("--redis", default=os.getenv("REDIS_URL", "redis://localhost:6379/0"), help="Redis URL")
-    ap.add_argument("--stream", default="metrics:of_gate", help="Redis Stream key")
+    ap.add_argument("--stream", default=RS.OF_GATE_METRICS, help="Redis Stream key")
     ap.add_argument("--out", required=True, help="Output NDJSON path")
     ap.add_argument("--count", type=int, default=10000, help="Max entries to export")
     ap.add_argument("--hours", type=float, default=24.0, help="Lookback hours")

@@ -23,11 +23,12 @@ from typing import Any
 
 import redis
 from prometheus_client import Counter
+from core.redis_keys import RedisStreams as RS
 
 logger = logging.getLogger(__name__)
 
-STREAM_ROLLBACK = "stream:atr_policy:rollback_results"
-STREAM_ESC = "stream:atr_policy:escalations"
+STREAM_ROLLBACK = RS.ATR_POLICY_ROLLBACK
+STREAM_ESC = RS.ATR_POLICY_ESCALATIONS
 
 # ── Prometheus ────────────────────────────────────────────────────────────────
 

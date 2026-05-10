@@ -2,7 +2,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from services.ml_confirm_gate import MLConfirmDecision, MLConfirmGate
+from services.ml_confirm import MLConfirmDecision, MLConfirmGate
 
 
 @pytest.fixture
@@ -17,7 +17,7 @@ def _create_decision(**kwargs):
     return dec
 
 def test_ml_confirm_gate_from_env(mock_redis):
-    with patch("services.ml_confirm_gate.redis.Redis.from_url", return_value=mock_redis):
+    with patch("services.ml_confirm.gate.redis.Redis.from_url", return_value=mock_redis):
         gate = MLConfirmGate.from_env()
         assert gate is not None
         assert gate.champion_key == "cfg:ml_confirm:champion"

@@ -31,7 +31,7 @@ except ImportError:
     pytest.skip("sklearn not available", allow_module_level=True)
 
 try:
-    from services.ml_confirm_gate import MLConfirmGate, _DictPackModelView
+    from services.ml_confirm import MLConfirmGate, _DictPackModelView
 except ImportError as e:
     pytest.skip(f"Required modules not available: {e}", allow_module_level=True)
 

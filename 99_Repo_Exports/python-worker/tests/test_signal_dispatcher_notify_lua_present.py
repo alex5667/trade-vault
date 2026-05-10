@@ -1,4 +1,4 @@
-import services.signal_dispatcher as sd
+import services.dispatch.dispatcher_app as sd
 
 
 def test_notify_lua_script_exists_and_has_marker_write():

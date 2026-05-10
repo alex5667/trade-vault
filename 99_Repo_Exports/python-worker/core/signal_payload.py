@@ -75,3 +75,35 @@ class SignalPayload:
         if self.confidence_parts is not None:
             d["confidence_parts"] = dict(self.confidence_parts)
         return d
+
+
+@dataclass(frozen=True)
+class GateDecisionV1:
+    stage: str
+    gate: str
+    decision: str  # Literal["ALLOW", "DENY", "ABSTAIN", "TIGHTEN", "SHADOW_DENY"]
+    reason_code: str
+    severity: str  # Literal["INFO", "WARN", "RISK", "CRITICAL"]
+    profile: str
+    fail_policy: str  # Literal["OPEN", "CLOSED", "VIRTUAL_ONLY"]
+    ts_event_ms: int
+    ts_decision_ms: int
+    latency_us: int
+    inputs_hash: str
+    notes: dict[str, Any]
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "stage": self.stage,
+            "gate": self.gate,
+            "decision": self.decision,
+            "reason_code": self.reason_code,
+            "severity": self.severity,
+            "profile": self.profile,
+            "fail_policy": self.fail_policy,
+            "ts_event_ms": self.ts_event_ms,
+            "ts_decision_ms": self.ts_decision_ms,
+            "latency_us": self.latency_us,
+            "inputs_hash": self.inputs_hash,
+            "notes": self.notes,
+        }

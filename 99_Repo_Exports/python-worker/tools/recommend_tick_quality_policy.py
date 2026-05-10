@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+from core.redis_keys import RedisStreams as RS
 
 """Recommend tick-quality policy & alert thresholds from Step13 smoke JSON.
 
@@ -277,7 +278,7 @@ def compute_recommendation(smoke: dict[str, Any]) -> dict[str, Any]:
     }
     if policy == "quarantine" and q_sample is not None:
         env["TICK_SIDE_QUARANTINE_SAMPLE"] = float(q_sample)
-        env["TICK_SIDE_QUARANTINE_STREAM"] = "stream:tick_side:quarantine"
+        env["TICK_SIDE_QUARANTINE_STREAM"] = RS.TICK_SIDE_QUARANTINE
         env["TICK_SIDE_QUARANTINE_MAXLEN"] = 20000
 
     return {

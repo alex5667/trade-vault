@@ -2,6 +2,7 @@ import importlib.util
 import json
 import sys
 from pathlib import Path
+from core.redis_keys import RedisStreams as RS
 
 # ---------------------------------------------------------------------------
 # P6 test: Exchange Truth Guard Semantics — projection worker, executor, repair
@@ -118,13 +119,13 @@ def test_projection_worker_keeps_terminal_guard_pending_when_exchange_truth_rele
     r = FakeRedis()
     worker = worker_mod.ExecutionProjectionWorker(
         r,
-        exec_stream='orders:exec',
+        exec_stream=RS.ORDERS_EXEC,
         state_key_prefix='orders:state:',
         active_symbol_key_prefix='orders:active_symbol_sid:',
         exchange_truth_release=True,
         cursor_key='orders:exec:projection:cursor',
     )
-    r.xadd('orders:exec', {
+    r.xadd(RS.ORDERS_EXEC, {
         'sid': 'sid-1',
         'symbol': 'BTCUSDT',
         'action': 'open',
@@ -133,7 +134,7 @@ def test_projection_worker_keeps_terminal_guard_pending_when_exchange_truth_rele
         'fsm_state': 'PROTECTED',
         'ts_event_ms': '1700000000001',
     })
-    r.xadd('orders:exec', {
+    r.xadd(RS.ORDERS_EXEC, {
         'sid': 'sid-1',
         'symbol': 'BTCUSDT',
         'action': 'close',
@@ -156,13 +157,13 @@ def test_projection_worker_still_deletes_terminal_guard_when_exchange_truth_rele
     r = FakeRedis()
     worker = worker_mod.ExecutionProjectionWorker(
         r,
-        exec_stream='orders:exec',
+        exec_stream=RS.ORDERS_EXEC,
         state_key_prefix='orders:state:',
         active_symbol_key_prefix='orders:active_symbol_sid:',
         exchange_truth_release=False,
         cursor_key='orders:exec:projection:cursor',
     )
-    r.xadd('orders:exec', {
+    r.xadd(RS.ORDERS_EXEC, {
         'sid': 'sid-2',
         'symbol': 'ETHUSDT',
         'action': 'open',
@@ -173,7 +174,7 @@ def test_projection_worker_still_deletes_terminal_guard_when_exchange_truth_rele
     })
     worker.run_until_idle()
     assert json.loads(r.get('orders:active_symbol_sid:ETHUSDT'))['sid'] == 'sid-2'
-    r.xadd('orders:exec', {
+    r.xadd(RS.ORDERS_EXEC, {
         'sid': 'sid-2',
         'symbol': 'ETHUSDT',
         'action': 'close',
@@ -207,13 +208,13 @@ def test_inline_executor_and_projection_worker_use_same_pending_release_contract
     r2 = FakeRedis()
     worker = worker_mod.ExecutionProjectionWorker(
         r2,
-        exec_stream='orders:exec',
+        exec_stream=RS.ORDERS_EXEC,
         state_key_prefix='orders:state:',
         active_symbol_key_prefix='orders:active_symbol_sid:',
         exchange_truth_release=True,
         cursor_key='orders:exec:projection:cursor',
     )
-    r2.xadd('orders:exec', {
+    r2.xadd(RS.ORDERS_EXEC, {
         'sid': 'sid-inline',
         'symbol': 'SOLUSDT',
         'action': 'close',

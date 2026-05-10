@@ -75,7 +75,7 @@ ALLOWED_APPLY_STRATEGIES = {"SHADOW_PRIMARY", "SINGLE_ARM"}
 PROMOTE_DECISION_TO_ARM = {
     "PROMOTE_VERTEX_CANDIDATE": "vertex_candidate",
     "PROMOTE_LOCAL_FALLBACK_CANDIDATE": "local_fallback_candidate",
-},
+}
 ALL_ARMS = {"deterministic", "vertex_candidate", "local_fallback_candidate"}
 
 

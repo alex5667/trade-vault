@@ -4,6 +4,7 @@ import json
 import redis.asyncio as aioredis
 
 from utils.time_utils import get_ny_time_millis
+from core.redis_keys import RedisStreams as RS
 
 
 async def main():
@@ -53,7 +54,7 @@ async def main():
     await r.hset(f"order:{order_id}", mapping=trade_data)
 
     # Add to stream to trigger Reporter
-    await r.xadd("trades:closed", trade_data)
+    await r.xadd(RS.TRADES_CLOSED, trade_data)
     print(f"Published fake trade {order_id} to trades:closed stream.")
 
     # Also directly set the report counter to trigger it

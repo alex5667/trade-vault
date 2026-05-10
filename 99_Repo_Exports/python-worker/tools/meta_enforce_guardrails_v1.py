@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from domain.evidence_keys import MetaKeys
+from core.redis_keys import RedisStreams as RS
 
 """meta_enforce_guardrails_v1.py
 
@@ -155,7 +156,7 @@ def main() -> int:
     ap.add_argument("--cfg2-key", default=os.getenv("DYN_CFG_KEY", "settings:dynamic_cfg"))
     ap.add_argument(
         "--stream",
-        default=os.getenv("META_GUARD_STREAM", os.getenv("OF_GATE_METRICS_STREAM", "metrics:of_gate")),
+        default=os.getenv("META_GUARD_STREAM", os.getenv("OF_GATE_METRICS_STREAM", RS.OF_GATE_METRICS)),
     )
     ap.add_argument("--lookback-min", type=int, default=int(os.getenv("META_GUARD_LOOKBACK_MIN", "30") or 30))
     ap.add_argument("--max-scan", type=int, default=int(os.getenv("META_GUARD_MAX_SCAN", "50000") or 50000))

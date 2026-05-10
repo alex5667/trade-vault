@@ -305,6 +305,8 @@ class MLScoringGate:
                 "v11_of", "v11", "v12_of", "v12", "v13_of", "v13",
             ):
                 sv = "registry"
+            elif sv_tag in ("v3_unified",):
+                sv = "v3_unified"
             elif sv_tag in ("v3", "3"):
                 sv = "3"
             elif sv_tag in ("v2", "2"):
@@ -362,6 +364,60 @@ class MLScoringGate:
                 out.append(max(c2t))  # cancel_to_trade_max
                 out.append(_fd(ind, "l3_obi_5") - _fd(ind, "l3_obi_50"))  # obi_spread
                 out.append(_fd(ind, "l3_queue_pressure_bid") - _fd(ind, "l3_queue_pressure_ask"))  # queue_imbalance
+                outlier_count = sum(1.0 for v in out if abs(v) > 10.0)
+                out.append(outlier_count)
+                out.append(1.0 if outlier_count > 0 else 0.0)
+                return out
+
+            elif sv == "v3_unified":
+                out: list[float] = []
+                # 1. Legacy features
+                for attr in ["atr_14", "obi_avg_20", "weak_progress_ratio"]:
+                    if attr == "obi_avg_20":
+                        out.append(_fd(ind, "obi_avg_20", _fd(ind, "obi_20", 0.0)))
+                    else:
+                        out.append(_fd(ind, attr))
+
+                # 2. L3 features
+                for attr in [
+                    "l3_spread_bps", "l3_microprice_shift_bps_20", "l3_microprice_velocity_bps",
+                    "l3_obi_5", "l3_obi_20", "l3_obi_50", "l3_obi_persistence_score",
+                    "l3_cancel_to_trade_bid_5s", "l3_cancel_to_trade_ask_5s",
+                    "l3_cancel_to_trade_bid_20s", "l3_cancel_to_trade_ask_20s",
+                    "l3_queue_pressure_bid", "l3_queue_pressure_ask", "l3_market_depth_imbalance"
+                ]:
+                    out.append(_fd(ind, attr))
+                    
+                # 3. Golden features
+                for attr in ["delta_z", "exec_risk_bps", "ofi_z", "spread_bps", "burst_z", "data_health", "fill_prob_proxy"]:
+                    if attr == "data_health":
+                        out.append(_fd(ind, attr, 1.0))
+                    else:
+                        out.append(_fd(ind, attr, 0.0))
+                        
+                # 4. Derived features
+                direction_sign = 1.0 if _dir_sign_from_side(side) > 0 else -1.0
+                out.append(1.0 if direction_sign > 0 else 0.0)  # direction_long
+                
+                c2t = [
+                    _fd(ind, "l3_cancel_to_trade_bid_5s"),
+                    _fd(ind, "l3_cancel_to_trade_ask_5s"),
+                    _fd(ind, "l3_cancel_to_trade_bid_20s"),
+                    _fd(ind, "l3_cancel_to_trade_ask_20s"),
+                ]
+                out.append(max(c2t) if c2t else 0.0)  # cancel_to_trade_max
+                out.append(_fd(ind, "l3_obi_5") - _fd(ind, "l3_obi_50"))  # obi_spread
+                out.append(_fd(ind, "l3_queue_pressure_bid") - _fd(ind, "l3_queue_pressure_ask"))  # queue_imbalance
+                
+                ind_delta_z = _fd(ind, "delta_z", 0.0)
+                ind_ofi_z = _fd(ind, "ofi_z", 0.0)
+                ind_spread_bps = _fd(ind, "spread_bps", 0.0)
+                ind_obi = _fd(ind, "obi_avg_20", _fd(ind, "obi_20", 0.0))
+                
+                out.append(ind_delta_z * direction_sign)
+                out.append(ind_ofi_z * direction_sign)
+                out.append(ind_spread_bps * ind_obi)
+                
                 outlier_count = sum(1.0 for v in out if abs(v) > 10.0)
                 out.append(outlier_count)
                 out.append(1.0 if outlier_count > 0 else 0.0)

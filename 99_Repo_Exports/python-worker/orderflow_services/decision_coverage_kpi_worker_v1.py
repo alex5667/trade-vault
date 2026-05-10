@@ -26,6 +26,7 @@ from typing import Any
 
 from utils.time_utils import get_ny_time_millis
 import contextlib
+from core.redis_keys import RedisStreams as RS
 
 
 def _env(name: str, default: str = "") -> str:
@@ -131,7 +132,7 @@ class Cfg:
 def load_cfg() -> Cfg:
     return Cfg(
         redis_url=_env("REDIS_URL", "redis://redis-worker-1:6379/0"),
-        stream=_env("DECISIONS_FINAL_STREAM", "decisions:final"),
+        stream=_env("DECISIONS_FINAL_STREAM", RS.DECISIONS_FINAL),
         group=_env("DECISION_COVERAGE_CG", "decision_coverage_kpi_v1"),
         consumer=_env("DECISION_COVERAGE_CONSUMER", socket.gethostname()),
         block_ms=_i(_env("DECISION_COVERAGE_BLOCK_MS", "5000"), 5000),

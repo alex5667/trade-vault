@@ -5,6 +5,7 @@ from typing import Any
 from core.book_rate_calibrator import BookRateCalibrator
 from core.dyn_cfg_keys import DynCfgKeys as DK
 from services.orderflow.metrics import calib_persist_total, log_silent_error
+from core.redis_keys import RedisStreams as RS
 
 logger = logging.getLogger("crypto_orderflow.calibration_repo")
 
@@ -245,7 +246,7 @@ class CalibrationRepository:
         # 3. Audit Stream (with Dedup)
         try:
             if bool(int(cfg.get("calib_audit_enable", 1))):
-                audit_stream = (cfg.get("calib_audit_stream", "signals:calib:effq"))
+                audit_stream = (cfg.get("calib_audit_stream", RS.CALIB_AUDIT))
                 maxlen = int(cfg.get("calib_audit_stream_maxlen", 200000))
 
                 th = runtime.eff_calib.thresholds(

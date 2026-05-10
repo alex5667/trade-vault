@@ -53,6 +53,7 @@ from prometheus_client import Gauge, start_http_server
 
 from utils.time_utils import get_ny_time_millis
 import contextlib
+from core.redis_keys import RedisStreams as RS
 
 
 def _now_ms() -> int:
@@ -137,7 +138,7 @@ class Exporter:
             )
         )
         if not self.streams:
-            self.streams = ["stream:dlq:of_gate_metrics", "stream:dlq:of_gate_quarantine"]
+            self.streams = [RS.DLQ_OF_GATE_METRICS, RS.DLQ_OF_GATE_QUARANTINE]
 
         self.refresh_sec = int(os.getenv("OF_GATE_DLQ_EXPORTER_REFRESH_SEC", "10"))
 

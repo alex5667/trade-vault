@@ -1,11 +1,13 @@
 import unittest
 
+from core.redis_keys import RedisStreams as RS
+
 
 class TestOFInputsDLQDBArchiveParseP98(unittest.TestCase):
     def test_parse_dlq_payload_json(self):
         from orderflow_services.of_inputs_dlq_archive_to_db_p98 import parse_event
 
-        stream = "stream:dlq:of_inputs"
+        stream = RS.DLQ_OF_INPUTS
         mid = "1700000000000-1"
         fields = {
             b"stream": b"signals:of:inputs",

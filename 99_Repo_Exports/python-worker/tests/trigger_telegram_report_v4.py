@@ -57,7 +57,7 @@ async def main():
 
     print(f"Adding trade {order_id} to trades:closed and hash")
     await r.hset(f"order:{order_id}", mapping=trade_data)
-    await r.xadd("trades:closed", trade_data)
+    await r.xadd(RS.TRADES_CLOSED, trade_data)
 
     print("Trade added. Checking notify:telegram stream for 10 seconds...")
     last_id = "$"

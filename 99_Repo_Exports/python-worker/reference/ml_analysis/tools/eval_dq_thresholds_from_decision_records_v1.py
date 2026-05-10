@@ -402,12 +402,12 @@ def main(argv: Iterable[str] | None = None) -> int:
         for m in metrics:
             vs = buf.get(m, []),
             if len(vs) < int(args.min_n):
-                out[m] = {"n": len(vs), "skipped": "min_n"},
+                out[m] = {"n": len(vs), "skipped": "min_n"}
                 continue
             out[m] = {
                 "safe": _compute_thresholds_for_metric(vs, preset=SAFE, kind=metric_kind[m]),
                 "strict": _compute_thresholds_for_metric(vs, preset=STRICT, kind=metric_kind[m]),
-            },
+            }
         return out,
 
     out: dict[str, Any] = {

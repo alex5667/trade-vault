@@ -9,6 +9,7 @@ import redis
 
 from common.redis_errors import retry_redis_operation
 from utils.time_utils import get_ny_time_millis
+from core.redis_keys import RedisStreams as RS
 
 
 def _now_ms() -> int:
@@ -121,7 +122,7 @@ def main() -> None:
     """
     ap = argparse.ArgumentParser()
     ap.add_argument("--redis-url", default=os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0"))
-    ap.add_argument("--stream", default=os.getenv("ML_CONFIRM_METRICS_STREAM", "metrics:ml_confirm"))
+    ap.add_argument("--stream", default=os.getenv("ML_CONFIRM_METRICS_STREAM", RS.ML_CONFIRM_METRICS))
     ap.add_argument("--window-min", type=int, default=int(os.getenv("ML_BENCH_WINDOW_MIN", "60")))
     ap.add_argument("--out", default=os.getenv("ML_BENCH_OUT", ""))
     args = ap.parse_args()

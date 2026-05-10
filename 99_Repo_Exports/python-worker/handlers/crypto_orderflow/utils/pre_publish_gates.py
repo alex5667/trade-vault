@@ -9,8 +9,10 @@ from utils.time_utils import get_ny_time_millis
 @functools.lru_cache(maxsize=1024)
 def _cached_getenv(k, d=None): return os.getenv(k, d)
 import math
+import time
 from dataclasses import dataclass
 from typing import Any
+from core.signal_payload import GateDecisionV1
 
 from core.atr_floor_policy import compute_atr_bps_threshold
 from domain.gate_profile import strict_enabled
@@ -72,13 +74,6 @@ def _safe_float(v: Any, default: float = 0.0) -> float:
 
 
 
-@dataclass(frozen=True)
-class GateDecision:
-    apply: bool
-    veto: bool
-    reason_code: str
-    gate: str = ""
-    notes: str = ""
 
 
 @dataclass
@@ -122,19 +117,31 @@ class HardDataQualityGate:
             return per_sym_val.strip().lower() in {"1", "true", "yes", "on"}
         return self.enabled
 
-    def evaluate(self, *, ctx: Any, symbol: str, kind: str) -> GateDecision:
+    def evaluate(self, *, ctx: Any, symbol: str, kind: str) -> GateDecisionV1:
+        t0 = time.monotonic()
+        ts_dec_ms = int(time.time() * 1000)
+        ts_ev_ms = _get_epoch_ms(ctx) or 0
+        
+        def _make_res(decision: str, reason: str, notes: dict[str, Any] = None) -> GateDecisionV1:
+            latency_us = int((time.monotonic() - t0) * 1_000_000)
+            return GateDecisionV1(
+                stage="dq_integrity", gate="HardDataQualityGate", decision=decision,
+                reason_code=reason, severity="CRITICAL" if decision == "DENY" else "INFO",
+                profile="hard", fail_policy="CLOSED", ts_event_ms=ts_ev_ms,
+                ts_decision_ms=ts_dec_ms, latency_us=latency_us, inputs_hash="",
+                notes=(notes or {})
+            )
+
         if not self._is_enabled_for(symbol):
-            return GateDecision(apply=False, veto=False, reason_code="OK", gate="HardDataQualityGate", notes="disabled")
+            return _make_res("ABSTAIN", "OK", {"msg": "disabled"})
 
-        # 1) Epoch timestamp sanity (protect against "minutes_of_day" etc.)
-        ts_ms = _get_epoch_ms(ctx)
+        # 1) Epoch timestamp sanity
         if self.require_epoch_ts:
-            # 2000-01-01 epoch ms ~= 946684800000; anything below is very likely NOT epoch ms
-            if ts_ms is None or ts_ms < 946684800000:
-                return GateDecision(True, True, "VETO_BAD_TS_NOT_EPOCH", "HardDataQualityGate", "require_epoch_ts")
+            if ts_ev_ms < 946684800000:
+                return _make_res("DENY", "VETO_BAD_TS_NOT_EPOCH", {"ts_ms": ts_ev_ms})
 
-        # 2) ATR staleness (needs ctx.of.atr_ts_ms)
-        now_ms = ts_ms or 0
+        # 2) ATR staleness
+        now_ms = ts_ev_ms
         of = getattr(ctx, "of", None)
         atr_ts = (
             getattr(ctx, "atr_ts_ms", None)
@@ -143,74 +150,44 @@ class HardDataQualityGate:
         )
         if atr_ts is None:
             if self.strict_missing_atr_ts:
-                return GateDecision(True, True, "VETO_ATR_TS_MISSING", "HardDataQualityGate", "strict_missing_atr_ts")
+                return _make_res("DENY", "VETO_ATR_TS_MISSING")
         else:
-            try:
-                age = int(now_ms) - int(atr_ts)
-            except Exception:
-                age = 0
+            try: age = int(now_ms) - int(atr_ts)
+            except Exception: age = 0
             if now_ms and age > int(self.atr_stale_max_ms):
-                return GateDecision(True, True, "VETO_ATR_STALE", "HardDataQualityGate", f"age_ms={age}")
+                return _make_res("DENY", "VETO_ATR_STALE", {"age_ms": age})
 
-        # 3) Touch snapshot staleness (important for L2/L3 confirmation logic)
+        # 3) Touch snapshot staleness
         if self.strict_touch_fresh:
             if bool(getattr(ctx, "touch_is_stale", True)):
-                return GateDecision(True, True, "VETO_TOUCH_STALE", "HardDataQualityGate", "strict_touch_fresh")
+                return _make_res("DENY", "VETO_TOUCH_STALE")
 
-        # 4) Quality flags veto (pipeline-produced flags)
+        # 4) Quality flags veto
         if self.veto_flags:
             flags = getattr(ctx, "data_quality_flags", None)
             if isinstance(flags, list):
                 for f in flags:
                     if isinstance(f, str) and f.strip().lower() in self.veto_flags:
-                        return GateDecision(True, True, "VETO_QUALITY_FLAG", "HardDataQualityGate", f"flag={f}")
+                        return _make_res("DENY", "VETO_QUALITY_FLAG", {"flag": f})
 
-        # ------------------------------------------------------------------
-        # Phase 2.3A: horizon-aware selected ATR — canary-enforce DQ gate.
-        # Shadow is always computed (observe).
-        # Enforce fires only for the canary subset (sticky by symbol+regime+scenario+sid).
-        # Rollback: ATR_HORIZON_GATE_MODE=shadow → instant, no deploy.
-        # ------------------------------------------------------------------
+        # Phase 2.3A: horizon-aware shadow
         _emit_shadow = _cached_getenv("ATR_HORIZON_DQ_SHADOW_ENABLE", "1") == "1"
         if _emit_shadow:
             try:
                 shadow = compute_horizon_dq_shadow(ctx)
                 ctx.dq_horizon_shadow = shadow
-                # Append horizon shadow reason to dq_flags for diagnostics
-                shadow_flags = list(getattr(ctx, "dq_flags", []) or [])
-                shadow_flags.append(f"dq_hz_reason:{shadow['shadow_reason_code']}")
-                ctx.dq_flags = shadow_flags
-                # Convenience scalar attrs for downstream diagnostics
-                ctx.atr_selected_tf_ms = int(shadow.get("atr_selected_tf_ms", 0) or 0)
-                ctx.atr_selected_age_ms = int(shadow.get("atr_selected_age_ms", 0) or 0)
-                ctx.dq_hz_allow_shadow = int(bool(shadow.get("allow_shadow", True)))
-                # Phase 2.3A: canary router (sticky, deterministic)
                 canary = should_enforce_horizon_gate(
                     symbol=str(getattr(ctx, "symbol", "") or ""),
-                    sid=str(
-                        getattr(ctx, "sid", "")
-                        or getattr(ctx, "signal_id", "")
-                        or ""
-                    ),
+                    sid=str(getattr(ctx, "sid", "") or getattr(ctx, "signal_id", "") or ""),
                     regime=str(getattr(ctx, "regime", "") or ""),
                     scenario=str(getattr(ctx, "scenario", "") or ""),
                 )
-                ctx.dq_hz_canary = canary
-                ctx.dq_hz_should_enforce = int(bool(canary.get("should_enforce", False)))
-                ctx.dq_hz_gate_mode = (canary.get("mode", "shadow"))
-                # Enforce only when canary selected AND shadow says deny
                 if bool(canary.get("should_enforce", False)) and not bool(shadow.get("allow_shadow", True)):
-                    return GateDecision(
-                        apply=True,
-                        veto=True,
-                        reason_code=(shadow.get("shadow_reason_code") or "DQ_HZ_DENY"),
-                        gate="HardDataQualityGate",
-                        notes=f"horizon_dq_canary|mode={canary.get('mode')}|{canary.get('reason_code')}",
-                    )
+                    return _make_res("DENY", shadow.get("shadow_reason_code") or "DQ_HZ_DENY", {"canary": True})
             except Exception:
-                pass  # fail-open: shadow evaluation must never block trading
+                pass
 
-        return GateDecision(True, False, "OK", "HardDataQualityGate", "")
+        return _make_res("ALLOW", "OK")
 
 
 @dataclass
@@ -278,45 +255,49 @@ class RegimeSessionGate:
                 return _env_bool(name, False)
         return None
 
-    def evaluate(self, *, ctx: Any, symbol: str, kind: str) -> GateDecision:
+    def evaluate(self, *, ctx: Any, symbol: str, kind: str) -> GateDecisionV1:
+        t0 = time.monotonic()
+        ts_dec_ms = int(time.time() * 1000)
+        ts_ev_ms = _get_epoch_ms(ctx) or 0
+        
+        def _make_res(decision: str, reason: str, notes: dict[str, Any] = None) -> GateDecisionV1:
+            latency_us = int((time.monotonic() - t0) * 1_000_000)
+            return GateDecisionV1(
+                stage="regime_session", gate="RegimeSessionGate", decision=decision,
+                reason_code=reason, severity="WARN" if decision == "DENY" else "INFO",
+                profile="default", fail_policy="OPEN", ts_event_ms=ts_ev_ms,
+                ts_decision_ms=ts_dec_ms, latency_us=latency_us, inputs_hash="",
+                notes=(notes or {})
+            )
+
         if not self.enabled:
-            return GateDecision(False, False, "OK", "RegimeSessionGate", "disabled")
+            return _make_res("ABSTAIN", "OK", {"msg": "disabled"})
 
         sym = _norm_symbol(symbol)
         kind_l = (kind or "").strip().lower()
         regime = _get_regime(ctx)
 
-        # ------------------------------------------------------------------
-        # STRICT BLOCK: prevent "unknown" or "na" regimes
-        # from ever entering the pipeline if RS_STRICT_REGIME=1 (default true).
-        # ------------------------------------------------------------------
         from contexts import MARKET_REGIME_NA
         if regime == MARKET_REGIME_NA:
             strict_req = str(_cached_getenv("RS_STRICT_REGIME", "1") or "1").strip().lower() in {"1", "true", "yes", "on"}
             if strict_req:
-                return GateDecision(True, True, "VETO_RS_UNKNOWN_REGIME", "RegimeSessionGate", f"regime={regime}")
+                return _make_res("DENY", "VETO_RS_UNKNOWN_REGIME", {"regime": regime})
 
-        # Hard deny by matrix rule
         deny = self._pick_bool("RS_DENY", sym, kind_l, regime)
         if deny is True:
-            return GateDecision(True, True, "VETO_RS_DENY_RULE", "RegimeSessionGate", f"{sym}/{kind_l}/{regime}")
+            return _make_res("DENY", "VETO_RS_DENY_RULE", {"rule": f"{sym}/{kind_l}/{regime}"})
 
-        # Allow-only regimes per sym+kind
         allow_env = _cached_getenv(f"RS_ALLOW_ONLY_REGIMES__{sym}__{kind_l}", "") or ""
         if allow_env.strip():
             allowed = _parse_csv_set(allow_env)
             if regime not in allowed:
-                return GateDecision(True, True, "VETO_RS_REGIME_NOT_ALLOWED", "RegimeSessionGate", f"regime={regime} allowed={sorted(allowed)}")
+                return _make_res("DENY", "VETO_RS_REGIME_NOT_ALLOWED", {"regime": regime, "allowed": sorted(allowed)})
 
         of = getattr(ctx, "of", None)
         spread_bps = _safe_float(getattr(ctx, "spread_bps", None), 0.0)
         if of is not None:
             spread_bps = max(spread_bps, _safe_float(getattr(of, "spread_bps", None), 0.0))
-        # ------------------------------------------------------------------
-        # STRICT: depth поля в вашем ctx гарантированы именно так:
-        #   depth_bid_5, depth_ask_5, depth_bid_20, depth_ask_20
-        # Никаких l2_depth_* нет — намеренно НЕ читаем их, чтобы не словить регресс.
-        # ------------------------------------------------------------------
+        
         depth_bid_5 = _safe_float(getattr(ctx, "depth_bid_5", None), 0.0)
         depth_ask_5 = _safe_float(getattr(ctx, "depth_ask_5", None), 0.0)
         burst_flip_ratio = _safe_float(getattr(ctx, "burst_flip_ratio", None), 0.0)
@@ -325,12 +306,6 @@ class RegimeSessionGate:
             depth_ask_5 = max(depth_ask_5, _safe_float(getattr(of, "depth_ask_5", None), 0.0))
             burst_flip_ratio = max(burst_flip_ratio, _safe_float(getattr(of, "burst_flip_ratio", None), 0.0))
 
-        # ------------------------------------------------------------------
-        # NEW: drift-aware tightening
-        # Если drift alarm активен -> повышаем требуемую глубину:
-        #   d_min_eff = d_min * drift_factor
-        # Fail-open: если redis/ts недоступны -> drift_factor=1.0 (поведение прежнее).
-        # ------------------------------------------------------------------
         rs_drift_tighten = (_cached_getenv("RS_DRIFT_TIGHTEN", "1") or "").strip().lower() in {"1","true","yes","on"}
         drift_factor = 1.0
         drift_score = 0.0
@@ -344,44 +319,25 @@ class RegimeSessionGate:
                     tfv = str(getattr(ctx, "tf", None) or getattr(ctx, "timeframe", None) or "na")
                     ven = str(getattr(ctx, "venue", None) or "na")
                     drift_factor, drift_score, drift_feat = load_drift_active_factor(
-                        redis_client,
-                        symbol=str(sym).upper(),
-                        venue=str(ven),
-                        session=str(sess),
-                        tf=str(tfv),
-                        kind=str(kind_l),
+                        redis_client, symbol=str(sym).upper(), venue=str(ven),
+                        session=str(sess), tf=str(tfv), kind=str(kind_l),
                     )
-                    if not math.isfinite(drift_factor) or drift_factor <= 0:
-                        drift_factor = 1.0
-            except Exception:
-                drift_factor = 1.0
+                    if not math.isfinite(drift_factor) or drift_factor <= 0: drift_factor = 1.0
+            except Exception: drift_factor = 1.0
 
         sp_max = self._pick_float("RS_SPREAD_MAX_BPS", sym, kind_l, regime, self.spread_max_bps_default)
         if sp_max > 0.0 and spread_bps > sp_max:
-            return GateDecision(True, True, "VETO_RS_SPREAD", "RegimeSessionGate", f"spread_bps={spread_bps:.2f} > {sp_max:.2f}")
+            return _make_res("DENY", "VETO_RS_SPREAD", {"spread_bps": spread_bps, "limit": sp_max})
 
         d_min = self._pick_float("RS_DEPTH_MIN", sym, kind_l, regime, self.depth_min_default)
-
-        # Drift tightening power:
-        #   - default profile: power=1  (умеренно)
-        #   - strict profile : power=2  (очень агрессивно)
-        # Можно вручную задать RS_DRIFT_POWER=1|2|...
         strict = strict_enabled()
-        try:
-            power = int(float(_cached_getenv("RS_DRIFT_POWER", "2" if strict else "1")))
-        except Exception:
-            power = 2 if strict else 1
-        if power < 0:
-            power = 0
-        drift_mult = float(drift_factor) ** float(power)
+        try: power = int(float(_cached_getenv("RS_DRIFT_POWER", "2" if strict else "1")))
+        except Exception: power = 2 if strict else 1
+        drift_mult = float(drift_factor) ** float(max(0, power))
         d_min_eff = float(d_min) * drift_mult
         if d_min_eff > 0.0 and min(depth_bid_5, depth_ask_5) < d_min_eff:
-            note = f"min_depth={min(depth_bid_5, depth_ask_5):.3f} < {d_min_eff:.3f}"
-            if float(drift_factor) > 1.0:
-                note = f"{note} | drift x{float(drift_factor):.2f} score={float(drift_score):.1f} feat={drift_feat}"
-            return GateDecision(True, True, "VETO_RS_DEPTH", "RegimeSessionGate", note)
+            return _make_res("DENY", "VETO_RS_DEPTH", {"min_depth": min(depth_bid_5, depth_ask_5), "limit": d_min_eff, "drift": drift_factor})
 
-        # Depth20 check (separate from depth5)
         d_min_20 = self._pick_float("RS_DEPTH20_MIN", sym, kind_l, regime, 0.0)
         if d_min_20 > 0.0:
             depth_bid_20 = _safe_float(getattr(ctx, "depth_bid_20", None), 0.0)
@@ -392,16 +348,13 @@ class RegimeSessionGate:
             if depth_bid_20 > 0 and depth_ask_20 > 0:
                 d_min_20_eff = float(d_min_20) * drift_mult
                 if d_min_20_eff > 0.0 and min(depth_bid_20, depth_ask_20) < d_min_20_eff:
-                    note = f"min_depth20={min(depth_bid_20, depth_ask_20):.3f} < {d_min_20_eff:.3f}"
-                    if float(drift_factor) > 1.0:
-                        note = f"{note} | drift x{float(drift_factor):.2f} score={float(drift_score):.1f} feat={drift_feat}"
-                    return GateDecision(True, True, "VETO_RS_DEPTH20", "RegimeSessionGate", note)
+                    return _make_res("DENY", "VETO_RS_DEPTH20", {"min_depth20": min(depth_bid_20, depth_ask_20), "limit": d_min_20_eff, "drift": drift_factor})
 
         bf_max = self._pick_float("RS_BURST_FLIP_MAX", sym, kind_l, regime, self.burst_flip_max_default)
         if bf_max > 0.0 and burst_flip_ratio > bf_max:
-            return GateDecision(True, True, "VETO_RS_BURST_FLIP", "RegimeSessionGate", f"burst_flip={burst_flip_ratio:.3f} > {bf_max:.3f}")
+            return _make_res("DENY", "VETO_RS_BURST_FLIP", {"burst_flip": burst_flip_ratio, "limit": bf_max})
 
-        return GateDecision(True, False, "OK", "RegimeSessionGate", "")
+        return _make_res("ALLOW", "OK")
 
 
 @dataclass
@@ -453,9 +406,23 @@ class ConsistencyGate:
             return _env_float(f"{base}_OBI_THRESHOLD", 0.35)
         return _env_float("OBI_THRESHOLD", 0.35)
 
-    def evaluate(self, *, ctx: Any, symbol: str, kind: str, side: str) -> GateDecision:
+    def evaluate(self, *, ctx: Any, symbol: str, kind: str, side: str) -> GateDecisionV1:
+        t0 = time.monotonic()
+        ts_dec_ms = int(time.time() * 1000)
+        ts_ev_ms = _get_epoch_ms(ctx) or 0
+        
+        def _make_res(decision: str, reason: str, notes: dict[str, Any] = None) -> GateDecisionV1:
+            latency_us = int((time.monotonic() - t0) * 1_000_000)
+            return GateDecisionV1(
+                stage="consistency", gate="ConsistencyGate", decision=decision,
+                reason_code=reason, severity="WARN" if decision == "DENY" else "INFO",
+                profile="default", fail_policy="OPEN", ts_event_ms=ts_ev_ms,
+                ts_decision_ms=ts_dec_ms, latency_us=latency_us, inputs_hash="",
+                notes=(notes or {})
+            )
+
         if not self.enabled:
-            return GateDecision(False, False, "OK", "ConsistencyGate", "disabled")
+            return _make_res("ABSTAIN", "OK", {"msg": "disabled"})
 
         kind_l = (kind or "").strip().lower()
         of = getattr(ctx, "of", None)
@@ -468,74 +435,51 @@ class ConsistencyGate:
         z_thr = self._z_thr(symbol)
         obi_thr = self._obi_thr(symbol)
 
-        # Breakout: require delta z + optionally OBI agreement + microprice shift
         if kind_l == "breakout":
-            if z < z_thr:
-                return GateDecision(True, True, "VETO_BREAKOUT_Z_LOW", "ConsistencyGate", f"z={z:.3f} < {z_thr:.3f}")
-            if _env_bool("BREAKOUT_REQUIRE_OBI", False) and obi < obi_thr:
-                return GateDecision(True, True, "VETO_BREAKOUT_OBI_LOW", "ConsistencyGate", f"obi={obi:.3f} < {obi_thr:.3f}")
-            if _env_bool("BREAKOUT_REQUIRE_OBI20", False) and obi_20 < obi_thr:
-                return GateDecision(True, True, "VETO_BREAKOUT_OBI20_LOW", "ConsistencyGate", f"obi20={obi_20:.3f} < {obi_thr:.3f}")
+            if z < z_thr: return _make_res("DENY", "VETO_BREAKOUT_Z_LOW", {"z": z, "thr": z_thr})
+            if _env_bool("BREAKOUT_REQUIRE_OBI", False) and obi < obi_thr: return _make_res("DENY", "VETO_BREAKOUT_OBI_LOW", {"obi": obi, "thr": obi_thr})
+            if _env_bool("BREAKOUT_REQUIRE_OBI20", False) and obi_20 < obi_thr: return _make_res("DENY", "VETO_BREAKOUT_OBI20_LOW", {"obi20": obi_20, "thr": obi_thr})
             mps_min = _env_float("BREAKOUT_MIN_MICROPRICE_SHIFT_BPS", 0.0)
-            if mps_min > 0.0 and mps < mps_min:
-                return GateDecision(True, True, "VETO_BREAKOUT_MICROSHIFT_LOW", "ConsistencyGate", f"mps={mps:.3f} < {mps_min:.3f}")
-            return GateDecision(True, False, "OK", "ConsistencyGate", "")
+            if mps_min > 0.0 and mps < mps_min: return _make_res("DENY", "VETO_BREAKOUT_MICROSHIFT_LOW", {"mps": mps, "thr": mps_min})
+            return _make_res("ALLOW", "OK")
 
-        # Extreme: require stronger z by env (otherwise it is often pure noise)
         if kind_l == "extreme":
             ex_thr = _env_float("EXTREME_Z_THRESHOLD", max(3.0, z_thr * 1.5))
-            if z < ex_thr:
-                return GateDecision(True, True, "VETO_EXTREME_Z_LOW", "ConsistencyGate", f"z={z:.3f} < {ex_thr:.3f}")
-
+            if z < ex_thr: return _make_res("DENY", "VETO_EXTREME_Z_LOW", {"z": z, "thr": ex_thr})
             ex_c2t_max = _env_float("EXTREME_L3_MAX_CANCEL_TO_TRADE", 1e9)
             if ex_c2t_max < 1e9:
                 s = (side or "").strip().upper()
                 c2t_field = "cancel_to_trade_ask" if s == "LONG" else ("cancel_to_trade_bid" if s == "SHORT" else "")
                 if c2t_field:
                     c2t = _safe_float(getattr(of, c2t_field, None), 0.0) if of is not None else _safe_float(getattr(ctx, c2t_field, None), 0.0)
-                    if c2t > ex_c2t_max:
-                        return GateDecision(True, True, "VETO_EXTREME_CANCEL_TO_TRADE_HIGH", "ConsistencyGate", f"c2t={c2t:.3f} > {ex_c2t_max:.3f}")
+                    if c2t > ex_c2t_max: return _make_res("DENY", "VETO_EXTREME_CANCEL_TO_TRADE_HIGH", {"c2t": c2t, "limit": ex_c2t_max})
+            return _make_res("ALLOW", "OK")
 
-            return GateDecision(True, False, "OK", "ConsistencyGate", "")
-
-        # OBI spike: require sustained skew to avoid single-bucket blips
         if kind_l == "obi_spike":
             thr = _env_float("CRYPTO_OBI_SPIKE_THR", 0.7)
             obi_avg = _safe_float(getattr(of, "obi_avg", None), 0.0) if of is not None else _safe_float(getattr(ctx, "obi_avg", None), 0.0)
-            if abs(obi_avg) < thr:
-                return GateDecision(True, True, "VETO_OBI_SPIKE_WEAK", "ConsistencyGate", f"obi_avg={obi_avg:.3f} < thr={thr:.3f}")
-
+            if abs(obi_avg) < thr: return _make_res("DENY", "VETO_OBI_SPIKE_WEAK", {"obi_avg": obi_avg, "thr": thr})
             req_sustained = _env_bool("CONS_OBI_SPIKE_REQUIRE_SUSTAINED", _env_bool("OBI_SPIKE_REQUIRE_SUSTAINED", True))
             if req_sustained:
                 sustained = bool(getattr(of, "obi_sustained", False)) if of is not None else bool(getattr(ctx, "obi_sustained", False))
-                if not sustained:
-                    return GateDecision(True, True, "VETO_OBI_SPIKE_NOT_SUSTAINED", "ConsistencyGate", "obi_sustained=False")
-            return GateDecision(True, False, "OK", "ConsistencyGate", "")
+                if not sustained: return _make_res("DENY", "VETO_OBI_SPIKE_NOT_SUSTAINED")
+            return _make_res("ALLOW", "OK")
 
-        # Absorption: at minimum require weak_progress and sufficient z (optional touch refill requirement)
         if kind_l == "absorption":
-            if z < z_thr:
-                return GateDecision(True, True, "VETO_ABS_Z_LOW", "ConsistencyGate", f"z={z:.3f} < {z_thr:.3f}")
-            if not weak_progress:
-                return GateDecision(True, True, "VETO_ABS_WEAK_PROGRESS_FALSE", "ConsistencyGate", "weak_progress=False")
+            if z < z_thr: return _make_res("DENY", "VETO_ABS_Z_LOW", {"z": z, "thr": z_thr})
+            if not weak_progress: return _make_res("DENY", "VETO_ABS_WEAK_PROGRESS_FALSE")
             if self.absorption_require_touch_refill:
-                # Heuristic mapping (can be tuned):
-                #   SHORT absorption at resistance -> ask refill expected
-                #   LONG absorption at support    -> bid refill expected
                 s = (side or "").strip().upper()
                 want_ask = (s == "SHORT")
                 tag = str(getattr(ctx, "touch_ask_tag" if want_ask else "touch_bid_tag", "none") or "none").lower()
                 rho = _safe_float(getattr(ctx, "touch_ask_rho" if want_ask else "touch_bid_rho", None), 0.0)
-                if bool(getattr(ctx, "touch_is_stale", True)):
-                    return GateDecision(True, True, "VETO_ABS_TOUCH_STALE", "ConsistencyGate", "touch_is_stale=True")
-                if tag != "refill":
-                    return GateDecision(True, True, "VETO_ABS_NO_REFILL_TAG", "ConsistencyGate", f"tag={tag}")
+                if bool(getattr(ctx, "touch_is_stale", True)): return _make_res("DENY", "VETO_ABS_TOUCH_STALE")
+                if tag != "refill": return _make_res("DENY", "VETO_ABS_NO_REFILL_TAG", {"tag": tag})
                 if self.absorption_touch_refill_min_rho > 0.0 and rho < self.absorption_touch_refill_min_rho:
-                    return GateDecision(True, True, "VETO_ABS_REFILL_RHO_LOW", "ConsistencyGate", f"rho={rho:.3f} < {self.absorption_touch_refill_min_rho:.3f}")
-            return GateDecision(True, False, "OK", "ConsistencyGate", "")
+                    return _make_res("DENY", "VETO_ABS_REFILL_RHO_LOW", {"rho": rho, "thr": self.absorption_touch_refill_min_rho})
+            return _make_res("ALLOW", "OK")
 
-        # Unknown kind => fail-open
-        return GateDecision(True, False, "OK", "ConsistencyGate", "unknown_kind_fail_open")
+        return _make_res("ALLOW", "OK", {"msg": "unknown_kind_fail_open"})
 
 
 def _b2s(x: Any) -> str:
@@ -646,136 +590,57 @@ class SmtCoherenceGate:
         except Exception:
             return
 
-    def evaluate(self, *, ctx: Any, redis_client: Any, symbol: str, kind: str, side: str) -> GateDecision:
+    def evaluate(self, *, ctx: Any, redis_client: Any, symbol: str, kind: str, side: str) -> GateDecisionV1:
+        t0 = time.monotonic()
+        ts_dec_ms = int(time.time() * 1000)
+        ts_ev_ms = _get_epoch_ms(ctx) or 0
+        
+        def _make_res(decision: str, reason: str, notes: dict[str, Any] = None) -> GateDecisionV1:
+            latency_us = int((time.monotonic() - t0) * 1_000_000)
+            return GateDecisionV1(
+                stage="smt", gate="SmtCoherenceGate", decision=decision,
+                reason_code=reason, severity="WARN" if decision == "DENY" else "INFO",
+                profile="default", fail_policy="OPEN", ts_event_ms=ts_ev_ms,
+                ts_decision_ms=ts_dec_ms, latency_us=latency_us, inputs_hash="",
+                notes=(notes or {})
+            )
+
         if not self.enabled:
-            return GateDecision(True, False, "OK", "smt_gate_disabled")
+            return _make_res("ABSTAIN", "OK", {"msg": "disabled"})
 
         st = self._read_state(redis_client)
         now = int(math.floor(get_ny_time_millis()))
-
-        leader = ""
-        leader_dir = ""
-        leader_confirm = 0
-        coh = 0.0
-        st_ts = 0
-        stale = True
+        leader, leader_dir, leader_confirm, coh, st_ts, stale = "", "", 0, 0.0, 0, True
 
         if st is not None:
-            leader = (st.get("leader") or "")
-            leader_dir = (st.get("leader_dir") or "")
+            leader, leader_dir = st.get("leader", ""), st.get("leader_dir", "")
             leader_confirm = int(_safe_float(st.get("leader_confirm") or 0.0, 0.0))
             coh = float(_safe_float(st.get("coh") or 0.0, 0.0))
             st_ts = int(_safe_float(st.get("ts_ms") or 0.0, 0.0))
-            if st_ts > 0:
-                stale = (abs(now - st_ts) > self.state_stale_ms) if self.state_stale_ms > 0 else False
+            if st_ts > 0: stale = (abs(now - st_ts) > self.state_stale_ms) if self.state_stale_ms > 0 else False
 
-        # --- audit into ctx (never breaks protocol) ---
-        coh_hi = 1 if (math.isfinite(float(coh)) and float(coh) >= float(self.coh_min)) else 0
+        # audit into ctx
         sig_ud = (side or "").upper()
-        if sig_ud not in ("LONG", "SHORT"):
-            sig_ud = "NA"
+        if sig_ud not in ("LONG", "SHORT"): sig_ud = "NA"
         lead_ud = "LONG" if str(leader_dir).upper() == "UP" else "SHORT" if str(leader_dir).upper() == "DOWN" else "NA"
-        align = 1 if (lead_ud in ("LONG", "SHORT") and sig_ud in ("LONG", "SHORT") and sig_ud == lead_ud) else 0
-        try:
-            ctx.smt_mode = self.mode
-            ctx.smt_bundle = self.bundle_id
-            ctx.smt_leader = leader
-            ctx.smt_leader_dir = leader_dir
-            ctx.smt_leader_confirm = int(leader_confirm)
-            ctx.smt_coh = float(coh)
-            ctx.smt_coh_hi = int(coh_hi)
-            ctx.smt_align = int(align)
-            ctx.smt_state_ts_ms = int(st_ts)
-            ctx.smt_state_stale = bool(stale)
-            ctx.smt_blocked = 0
-            ctx.smt_block_reason = ""
-        except Exception:
-            pass
-
-        # fail-open: no state / stale / invalid => never veto
-        if st is None or stale or not leader_dir:
-            self._diag(redis_client, fields={
-                "event": "SMT_GATE",
-                "mode": self.mode,
-                "bundle": self.bundle_id,
-                "symbol": symbol,
-                "kind": str(kind),
-                "side": side,
-                "veto": "0",
-                "reason": "NO_STATE_OR_STALE",
-                "coh": f"{coh:.6f}",
-                "leader": leader,
-                "leader_dir": leader_dir,
-                "leader_confirm": str(int(leader_confirm)),
-                "ts_ms": str(now),
-            })
-            return GateDecision(True, False, "OK", "no_state_or_stale")
-
-        # observe mode never veto
         countertrend = (sig_ud in ("LONG", "SHORT")) and (sig_ud != lead_ud)
+        
+        try:
+            ctx.smt_leader_dir = leader_dir
+            ctx.smt_coh = float(coh)
+            ctx.smt_state_stale = bool(stale)
+        except Exception: pass
+
+        if st is None or stale or not leader_dir:
+            return _make_res("ALLOW", "OK", {"msg": "no_state_or_stale"})
+
         if self.mode == "observe":
-            self._diag(redis_client, fields={
-                "event": "SMT_GATE",
-                "mode": self.mode,
-                "bundle": self.bundle_id,
-                "symbol": symbol,
-                "kind": str(kind),
-                "side": side,
-                "veto": "0",
-                "reason": "OBSERVE_ONLY",
-                "coh": f"{coh:.6f}",
-                "leader": leader,
-                "leader_dir": leader_dir,
-                "leader_confirm": str(int(leader_confirm)),
-                "countertrend": "1" if countertrend else "0",
-                "ts_ms": str(now),
-            })
-            return GateDecision(True, False, "OK", "observe_only")
+            return _make_res("ALLOW", "OK", {"msg": "observe_only", "countertrend": countertrend})
 
-        # veto mode: only strict condition
         if countertrend and int(leader_confirm) == 1 and float(coh) >= float(self.coh_min):
-            try:
-                ctx.smt_blocked = 1
-                ctx.smt_block_reason = "COUNTERTREND_VS_CONFIRMED_LEADER"
-                ctx.smt_veto = True
-                ctx.smt_veto_reason = "COUNTERTREND_VS_CONFIRMED_LEADER"
-            except Exception:
-                pass
-            self._diag(redis_client, fields={
-                "event": "SMT_GATE",
-                "mode": self.mode,
-                "bundle": self.bundle_id,
-                "symbol": symbol,
-                "kind": str(kind),
-                "side": side,
-                "veto": "1",
-                "reason": "VETO_COUNTERTREND",
-                "coh": f"{coh:.6f}",
-                "coh_min": f"{float(self.coh_min):.6f}",
-                "leader": leader,
-                "leader_dir": leader_dir,
-                "leader_confirm": str(int(leader_confirm)),
-                "ts_ms": str(now),
-            })
-            return GateDecision(True, True, "VETO_SMT_COUNTERTREND", "countertrend_vs_confirmed_leader")
+            return _make_res("DENY", "VETO_SMT_COUNTERTREND", {"leader_dir": leader_dir, "coh": coh})
 
-        self._diag(redis_client, fields={
-            "event": "SMT_GATE",
-            "mode": self.mode,
-            "bundle": self.bundle_id,
-            "symbol": symbol,
-            "kind": str(kind),
-            "side": side,
-            "veto": "0",
-            "reason": "PASS",
-            "coh": f"{coh:.6f}",
-            "leader": leader,
-            "leader_dir": leader_dir,
-            "leader_confirm": str(int(leader_confirm)),
-            "countertrend": "1" if countertrend else "0",
-            "ts_ms": str(now),
-        })
-        return GateDecision(True, False, "OK", "pass")
+        return _make_res("ALLOW", "OK")
 
 
 @dataclass
@@ -806,44 +671,40 @@ class AtrFloorGate:
             fail_open=_env_bool("ATR_FLOOR_FAIL_OPEN", True),
         )
 
-    def evaluate(self, *, ctx: Any, symbol: str, kind: str) -> GateDecision:
-        if not self.enabled:
-            return GateDecision(apply=False, veto=False, reason_code="OK", gate="AtrFloorGate")
+    def evaluate(self, *, ctx: Any, symbol: str, kind: str) -> GateDecisionV1:
+        t0 = time.monotonic()
+        ts_dec_ms = int(time.time() * 1000)
+        ts_ev_ms = _get_epoch_ms(ctx) or 0
+        
+        def _make_res(decision: str, reason: str, notes: dict[str, Any] = None) -> GateDecisionV1:
+            latency_us = int((time.monotonic() - t0) * 1_000_000)
+            return GateDecisionV1(
+                stage="atr_floor", gate="AtrFloorGate", decision=decision,
+                reason_code=reason, severity="WARN" if decision == "DENY" else "INFO",
+                profile="default", fail_policy="OPEN", ts_event_ms=ts_ev_ms,
+                ts_decision_ms=ts_dec_ms, latency_us=latency_us, inputs_hash="",
+                notes=(notes or {})
+            )
 
-        # 1. Resolve ATR BPS from indicators (passed via ctx.indicators)
+        if not self.enabled:
+            return _make_res("ABSTAIN", "OK", {"msg": "disabled"})
+
         indicators = getattr(ctx, "indicators", {})
         atr_bps = indicators.get("atr_bps") or indicators.get("atr_bps_exec")
         if atr_bps is None:
-            if self.fail_open:
-                return GateDecision(True, False, "OK", "AtrFloorGate", "atr_missing_fail_open")
-            return GateDecision(True, True, "VETO_ATR_MISSING", "AtrFloorGate", "fail_open=False")
+            if self.fail_open: return _make_res("ALLOW", "OK", {"msg": "atr_missing_fail_open"})
+            return _make_res("DENY", "VETO_ATR_MISSING")
 
-        # 2. Resolve Threshold using deterministic policy
         regime = _get_regime(ctx)
-
-        # We need original config for tier selection overrides
-        # SignalPipeline._build_gate_ctx puts config/env context into ctx or passed alongside
         cfg = getattr(ctx, "config", {})
-
         tier, rg, threshold = compute_atr_bps_threshold(
-            regime=regime,
-            cfg=cfg,
-            t0=self.t0_bps,
-            t1=self.t1_bps,
-            t2=self.t2_bps
+            regime=regime, cfg=cfg, t0=self.t0_bps, t1=self.t1_bps, t2=self.t2_bps
         )
 
-        # 3. Compare and Veto
         if float(atr_bps) < float(threshold):
-            return GateDecision(
-                apply=True,
-                veto=True,
-                reason_code="VETO_ATR_FLOOR",
-                gate="AtrFloorGate",
-                notes=f"atr={atr_bps:.2f} < threshold={threshold:.2f} (tier={tier}, regime={rg})"
-            )
+            return _make_res("DENY", "VETO_ATR_FLOOR", {"atr": atr_bps, "thr": threshold, "tier": tier, "regime": rg})
 
-        return GateDecision(True, False, "OK", "AtrFloorGate", f"atr={atr_bps:.2f} >= {threshold:.2f}")
+        return _make_res("ALLOW", "OK")
 
 @dataclass
 class BreadthGate:
@@ -880,58 +741,60 @@ class BreadthGate:
             require_leader_confirm=_env_bool("BREADTH_REQUIRE_LEADER_CONFIRM", False),
         )
 
-    def evaluate(self, *, ctx: Any, symbol: str, kind: str, side: str) -> GateDecision:
+    def evaluate(self, *, ctx: Any, symbol: str, kind: str, side: str) -> GateDecisionV1:
+        t0 = time.monotonic()
+        ts_dec_ms = int(time.time() * 1000)
+        ts_ev_ms = _get_epoch_ms(ctx) or 0
+        
+        def _make_res(decision: str, reason: str, notes: dict[str, Any] = None) -> GateDecisionV1:
+            latency_us = int((time.monotonic() - t0) * 1_000_000)
+            return GateDecisionV1(
+                stage="breadth", gate="BreadthGate", decision=decision,
+                reason_code=reason, severity="WARN" if decision == "DENY" else "INFO",
+                profile=self.mode, fail_policy="OPEN", ts_event_ms=ts_ev_ms,
+                ts_decision_ms=ts_dec_ms, latency_us=latency_us, inputs_hash="",
+                notes=(notes or {})
+            )
+
         if self.mode == "off":
-            return GateDecision(apply=False, veto=False, reason_code="OK", gate="BreadthGate")
+            return _make_res("ABSTAIN", "OK", {"msg": "mode_off"})
 
         def _get_val(k: str) -> float:
-            if hasattr(ctx, "indicators"):
-                # It's a SignalPayload
-                return _safe_float(ctx.indicators.get(k, 0.0), 0.0)
-            if isinstance(ctx, dict):
-                return _safe_float(ctx.get(k, 0.0), 0.0)
+            if hasattr(ctx, "indicators"): return _safe_float(ctx.indicators.get(k, 0.0), 0.0)
+            if isinstance(ctx, dict): return _safe_float(ctx.get(k, 0.0), 0.0)
             return _safe_float(getattr(ctx, k, None), 0.0)
 
         ret_24h = _get_val("market_breadth_ret_24h")
         vol_z = _get_val("market_breadth_volume_z")
         leader_confirm = _get_val("leader_btc_eth_confirm")
         veto_reason = None
-        notes = ""
+        notes = {}
 
         sig_side = (side or "").upper()
         if sig_side == "LONG":
             if ret_24h < self.min_ret_24h:
-                veto_reason = "VETO_BREADTH_RET_LOW"
-                notes = f"ret={ret_24h:.2f} < {self.min_ret_24h:.2f}"
+                veto_reason, notes = "VETO_BREADTH_RET_LOW", {"ret": ret_24h, "min": self.min_ret_24h}
             elif self.require_leader_confirm and leader_confirm < 0:
-                veto_reason = "VETO_BREADTH_LEADER_DIVERGENCE"
-                notes = "leader_confirm < 0"
+                veto_reason, notes = "VETO_BREADTH_LEADER_DIVERGENCE", {"confirm": leader_confirm}
         elif sig_side == "SHORT":
             if ret_24h > -self.min_ret_24h:
-                veto_reason = "VETO_BREADTH_RET_HIGH"
-                notes = f"ret={ret_24h:.2f} > {-self.min_ret_24h:.2f}"
+                veto_reason, notes = "VETO_BREADTH_RET_HIGH", {"ret": ret_24h, "max": -self.min_ret_24h}
             elif self.require_leader_confirm and leader_confirm > 0:
-                veto_reason = "VETO_BREADTH_LEADER_DIVERGENCE"
-                notes = "leader_confirm > 0"
+                veto_reason, notes = "VETO_BREADTH_LEADER_DIVERGENCE", {"confirm": leader_confirm}
 
         if not veto_reason and vol_z < self.min_vol_z:
-            veto_reason = "VETO_BREADTH_VOL_LOW"
-            notes = f"vol_z={vol_z:.2f} < {self.min_vol_z:.2f}"
+            veto_reason, notes = "VETO_BREADTH_VOL_LOW", {"vol_z": vol_z, "min": self.min_vol_z}
 
         if veto_reason:
             if self.mode == "enforce":
-                return GateDecision(True, True, veto_reason, "BreadthGate", notes)
+                return _make_res("DENY", veto_reason, notes)
             elif self.mode == "canary":
-                sid_s = str(getattr(ctx, "signal_id", ""))
-                sticky_key = f"{symbol}|{kind}|{side}|{sid_s}"
+                sticky_key = f"{symbol}|{kind}|{side}|{str(getattr(ctx, 'signal_id', ''))}"
                 import hashlib
                 h = hashlib.sha1(sticky_key.encode("utf-8")).hexdigest()
                 u = (int(h[:8], 16) % 10_000) / 10_000.0
-                if u < self.canary_share:
-                    return GateDecision(True, True, veto_reason, "BreadthGate", notes + "|canary_enforced")
-                else:
-                    return GateDecision(True, False, veto_reason.replace("VETO_", "SHADOW_VETO_"), "BreadthGate", notes + "|canary_shadow")
-            else:
-                return GateDecision(True, False, veto_reason.replace("VETO_", "SHADOW_VETO_"), "BreadthGate", notes + "|shadow")
+                if u < self.canary_share: return _make_res("DENY", veto_reason, {**notes, "canary": True})
+                return _make_res("ALLOW", veto_reason.replace("VETO_", "SHADOW_VETO_"), {**notes, "canary_shadow": True})
+            return _make_res("ALLOW", veto_reason.replace("VETO_", "SHADOW_VETO_"), {**notes, "shadow": True})
 
-        return GateDecision(True, False, "OK", "BreadthGate", "")
+        return _make_res("ALLOW", "OK")

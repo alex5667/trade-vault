@@ -657,11 +657,11 @@ class StreamArchiver:
         self.pg = pg
 
         # Stream names
-        self.entry_stream = env("TRADE_ENTRY_AUDIT_STREAM", "stream:trade:entry_audit")
+        self.entry_stream = env("TRADE_ENTRY_AUDIT_STREAM", RS.ENTRY_AUDIT)
         self.events_stream = env("TRADE_EVENTS_STREAM", RS.EVENTS_TRADES)
-        self.conf_scores_stream = env("CONF_SCORES_STREAM", "signals:confidence:scores")
+        self.conf_scores_stream = env("CONF_SCORES_STREAM", RS.CONF_SCORES)
 
-        self.post_sl_stream = env("POST_SL_STREAM", "trades:post_sl")
+        self.post_sl_stream = env("POST_SL_STREAM", RS.TRADES_POST_SL)
         self.post_sl_liqmap_enabled = env_int("POST_SL_LIQMAP_KPI_ARCHIVE_ENABLED", 0) == 1
         self.post_sl_liqmap_cg = env("POST_SL_LIQMAP_KPI_CG", "post_sl_liqmap_kpi_archiver")
         self.post_sl_liqmap_consumer = env("POST_SL_LIQMAP_KPI_CONSUMER", "archiver_post_sl_1")
@@ -726,7 +726,7 @@ class StreamArchiver:
         self.of_gate_batch = env_int("OF_GATE_METRICS_BATCH", 5000)
         self.of_gate_block_ms = env_int("OF_GATE_METRICS_BLOCK_MS", 1000)
         self.of_gate_min_idle = env_int("OF_GATE_METRICS_MIN_IDLE_MS", 60000)
-        self.of_gate_dlq = env("OF_GATE_METRICS_DLQ_STREAM", "stream:dlq:of_gate_metrics")
+        self.of_gate_dlq = env("OF_GATE_METRICS_DLQ_STREAM", RS.DLQ_OF_GATE_METRICS)
         self.of_gate_auto_migrate = env_bool("OF_GATE_METRICS_AUTO_MIGRATE", False)
         self.of_gate_rollups_auto_migrate = env_bool("OF_GATE_METRICS_ROLLUPS_AUTO_MIGRATE", False)
 
@@ -736,7 +736,7 @@ class StreamArchiver:
         self.of_gate_q_batch = env_int("OF_GATE_QUARANTINE_BATCH", 5000)
         self.of_gate_q_block_ms = env_int("OF_GATE_QUARANTINE_BLOCK_MS", 1000)
         self.of_gate_q_min_idle = env_int("OF_GATE_QUARANTINE_MIN_IDLE_MS", 60000)
-        self.of_gate_q_dlq = env("OF_GATE_QUARANTINE_DLQ_STREAM", "stream:dlq:of_gate_quarantine")
+        self.of_gate_q_dlq = env("OF_GATE_QUARANTINE_DLQ_STREAM", RS.DLQ_OF_GATE_QUARANTINE)
         self.of_gate_q_auto_migrate = env_bool("OF_GATE_QUARANTINE_AUTO_MIGRATE", False)
 
         # P78: Redis hash keys for archiver status (Prometheus exporter reads these)
@@ -754,14 +754,14 @@ class StreamArchiver:
         self.of_gate_batch = env_int("OF_GATE_METRICS_BATCH", 5000)
         self.of_gate_block_ms = env_int("OF_GATE_METRICS_BLOCK_MS", 1000)
         self.of_gate_min_idle = env_int("OF_GATE_METRICS_MIN_IDLE_MS", 60000)
-        self.of_gate_dlq = env("OF_GATE_METRICS_DLQ_STREAM", "stream:dlq:of_gate_metrics")
+        self.of_gate_dlq = env("OF_GATE_METRICS_DLQ_STREAM", RS.DLQ_OF_GATE_METRICS)
 
         self.of_gate_quarantine_cg = env("OF_GATE_QUARANTINE_CG", "of_gate_quarantine_archiver")
         self.of_gate_quarantine_consumer = env("OF_GATE_QUARANTINE_CONSUMER", "archiver_of_gate_q_1")
         self.of_gate_quarantine_batch = env_int("OF_GATE_QUARANTINE_BATCH", 5000)
         self.of_gate_quarantine_block_ms = env_int("OF_GATE_QUARANTINE_BLOCK_MS", 1000)
         self.of_gate_quarantine_min_idle = env_int("OF_GATE_QUARANTINE_MIN_IDLE_MS", 60000)
-        self.of_gate_quarantine_dlq = env("OF_GATE_QUARANTINE_DLQ_STREAM", "stream:dlq:of_gate_quarantine")
+        self.of_gate_quarantine_dlq = env("OF_GATE_QUARANTINE_DLQ_STREAM", RS.DLQ_OF_GATE_QUARANTINE)
 
         self.of_gate_auto_migrate = env_bool("OF_GATE_METRICS_AUTO_MIGRATE", False)
         self.of_gate_quarantine_auto_migrate = env_bool("OF_GATE_QUARANTINE_AUTO_MIGRATE", False)

@@ -1295,7 +1295,7 @@ class SignalPerformanceTracker:
             claim_orphan_every_s=int(os.getenv("SIGNALS_CLAIM_ORPHAN_EVERY_S", "60")),
             min_idle_ms=int(os.getenv("SIGNALS_MIN_IDLE_MS", "60000")),
             max_attempts=int(os.getenv("SIGNALS_MAX_ATTEMPTS", "5")),
-            dlq_stream=os.getenv("SIGNALS_DLQ_STREAM", "dlq:signals"),
+            dlq_stream=os.getenv("SIGNALS_DLQ_STREAM", RS.DLQ_SIGNALS),
         )
 
         worker = StreamWorker(
@@ -1322,7 +1322,7 @@ class SignalPerformanceTracker:
             ack_mode=os.getenv("TICKS_ACK_MODE", "realtime"),
             read_count=int(os.getenv("TICKS_READ_COUNT", "200")),
             block_ms=int(os.getenv("TICKS_BLOCK_MS", "1000")),
-            dlq_stream=os.getenv("TICKS_DLQ_STREAM", "dlq:ticks"),
+            dlq_stream=os.getenv("TICKS_DLQ_STREAM", RS.DLQ_TICKS),
         )
 
         worker = StreamWorker(
@@ -1353,7 +1353,7 @@ class SignalPerformanceTracker:
             claim_orphan_every_s=int(os.getenv("EVENTS_CLAIM_ORPHAN_EVERY_S", "60")),
             min_idle_ms=int(os.getenv("EVENTS_MIN_IDLE_MS", "60000")),
             max_attempts=int(os.getenv("EVENTS_MAX_ATTEMPTS", "8")),
-            dlq_stream=os.getenv("EVENTS_DLQ_STREAM", "dlq:events"),
+            dlq_stream=os.getenv("EVENTS_DLQ_STREAM", RS.DLQ_EVENTS),
         )
 
         def build_events():

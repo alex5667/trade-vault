@@ -14,12 +14,35 @@ from .model_loader import _load_model_cached
 logger = logging.getLogger("ml_confirm_gate.facade")
 
 from utils.time_utils import get_ny_time_millis
+import time
 
-
+try:
+    from prometheus_client import Histogram, Counter
+    _GATE_LATENCY_US = Histogram(
+        "ml_confirm_latency_us",  # was "gate_latency_us" — collided with gates.py registry
+        "ML confirm gate latency in microseconds",
+        ["gate"],
+        buckets=[1000, 5000, 10000, 20000, 50000]  # 1ms to 50ms
+    )
+    _ML_CONFIRM_STATUS_TOTAL = Counter(
+        "ml_confirm_status_total",
+        "ML confirm decisions",
+        ["status", "mode", "enforce", "bucket"]
+    )
+    _ML_CONFIRM_P_MARGIN = Histogram(
+        "ml_confirm_p_margin",
+        "ML confirm p margin",
+        ["symbol"],
+        buckets=[-0.1, -0.05, 0.0, 0.05, 0.1, 0.2, 0.5]
+    )
+except ImportError:
+    _GATE_LATENCY_US = None
+    _ML_CONFIRM_STATUS_TOTAL = None
+    _ML_CONFIRM_P_MARGIN = None
 def _now_ms() -> int: return get_ny_time_millis()
 def _make_sid(symbol: str, ts_ms: int) -> str:
     sym = (symbol or "").upper()
-    try: t = int(ts_ms)
+    try: t = ts_ms
     except Exception: t = 0
     return f"crypto-of:{sym}:{t}"
 
@@ -27,7 +50,7 @@ class MLConfirmGate:
     def __init__(
         self,
         *,
-        r: redis.Redis = None,
+        r: redis.Redis | None = None,
         mode: str = "OFF",
         fail_policy: str = "OPEN",
         champion_key: str = "cfg:ml_confirm:champion",
@@ -56,8 +79,8 @@ class MLConfirmGate:
 
         self._abstain_band = 0.0
         self._conf_min = 0.0
-        self._abstain_on_missing = False
-        self._p_min_hard_floor = float(os.environ.get("ML_CONFIRM_P_MIN_HARD_FLOOR", "0.0"))
+        self._abstain_on_missing = (os.environ.get("ML_CONFIRM_ABSTAIN_ON_MISSING", "0") or "0").strip().lower() in {"1", "true", "yes", "on"}
+        self._p_min_hard_floor = float(os.environ.get("ML_CONFIRM_P_MIN_HARD_FLOOR", "0.52"))
 
         self._mode_by_symbol: dict[str, str] = {}
         self._enforce_share_by_symbol: dict[str, float] = {}
@@ -98,7 +121,8 @@ class MLConfirmGate:
             self._cfg = cfg_dict
             model_path = cfg_dict.get("model_path")
             kind = cfg_dict.get("kind", "")
-            self._model = _load_model_cached(model_path, kind, logger)
+            if model_path:
+                self._model = _load_model_cached(model_path, kind, logger)
             self._cache_loaded_ms = now
 
     def _get_effective_mode(self, symbol: str, kind: str) -> str:
@@ -150,12 +174,13 @@ class MLConfirmGate:
 
         if not self._cfg or not self._model:
             dec.error = "no_cfg"
-            if eff_mode == "ENFORCE" and eff_fail_policy == "CLOSED":
+            dec.mode = "ERR"
+            if eff_fail_policy == "CLOSED":
                 dec.allow = False
-                dec.status = "BLOCK_NO_CFG_CLOSED"
+                dec.status = "ERR_NO_CFG"
             else:
                 dec.allow = True
-                dec.status = "ALLOW_NO_CFG_OPEN"
+                dec.status = "ERR_NO_CFG"
             return dec
 
         kind = str(self._cfg.get("kind", "")).lower()
@@ -180,16 +205,39 @@ class MLConfirmGate:
         )
 
         try:
+            t_start = time.time()
             if kind == "meta_lr":
                 self.policy._decide_meta_lr(dec, model=self._model, cfg=self._cfg, **input_dto.__dict__)
             elif kind.startswith("util_mh"):
                 self.policy._decide_util_mh(dec, model=self._model, cfg=self._cfg, **input_dto.__dict__)
             elif kind == "edge_stack_v1":
                 self.policy._decide_edge_stack_v1(dec, model=self._model, cfg=self._cfg, **input_dto.__dict__)
+            elif kind == "edge_stack_mh_v1":
+                self.policy._decide_edge_stack_mh(dec, model=self._model, cfg=self._cfg, **input_dto.__dict__)
             else:
                 dec.error = f"unknown_kind:{kind}"
                 dec.status = "ALLOW_UNKNOWN_KIND"
                 dec.allow = True
+                
+            if _GATE_LATENCY_US is not None:
+                _GATE_LATENCY_US.labels(gate="ml_confirm").observe((time.time() - t_start) * 1e6)
+                
+            if _ML_CONFIRM_STATUS_TOTAL is not None:
+                # Add status metric. `dec.status`, `dec.mode`, etc.
+                mode_str = getattr(dec, "mode", "UNKNOWN")
+                enforce_str = str(getattr(dec, "enforce", False))
+                # For `bucket`, if the decision doesn't provide one directly, use 'default'
+                bucket_str = getattr(dec, "bucket", "default")
+                _ML_CONFIRM_STATUS_TOTAL.labels(
+                    status=dec.status,
+                    mode=mode_str,
+                    enforce=enforce_str,
+                    bucket=bucket_str
+                ).inc()
+                
+            if _ML_CONFIRM_P_MARGIN is not None and getattr(dec, "p_margin", None) is not None:
+                _ML_CONFIRM_P_MARGIN.labels(symbol=symbol).observe(dec.p_margin)
+
         except Exception as e:
             dec.error = str(e)
             if eff_mode == "ENFORCE" and eff_fail_policy == "CLOSED":
@@ -200,9 +248,9 @@ class MLConfirmGate:
                 dec.status = "ALLOW_ERR_OPEN"
 
         # Hard guard for P_MIN in ENFORCE mode
-        if eff_mode == "ENFORCE" and dec.p_min < 0.5:
-            logger.error(f"ML gate: CRITICAL: p_min < 0.5 ({dec.p_min}) in ENFORCE mode. Forcing to 0.5 to prevent silent open.")
-            dec.p_min = 0.5
+        if eff_mode == "ENFORCE" and dec.p_min < self._p_min_hard_floor:
+            logger.error(f"ML gate: CRITICAL: p_min < {self._p_min_hard_floor} ({dec.p_min}) in ENFORCE mode. Forcing to {self._p_min_hard_floor} to prevent silent open.")
+            dec.p_min = self._p_min_hard_floor
             # re-evaluate allow if needed based on updated p_min
             if dec.p_edge < dec.p_min:
                 dec.allow = False

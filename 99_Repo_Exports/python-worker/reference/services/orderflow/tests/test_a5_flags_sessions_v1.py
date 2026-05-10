@@ -71,7 +71,7 @@ def test_compute_a5_flags_basic() -> None:
         "vol_ratio_z": 2.1,
         "microbar_range_bps": 12.0,
         "microbar_body_bps": 2.0,
-    },
+    }
 
     out = compute_a5_flags(
         ts_ms=ts_ms,

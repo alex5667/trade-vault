@@ -16,7 +16,7 @@ class _RedisBoom:
 
 def _make_sd_minimal():
     # Avoid constructor coupling: create instance without __init__
-    from services.signal_dispatcher import SignalDispatcher
+    from services.dispatch.dispatcher_app import SignalDispatcher
 
     sd = SignalDispatcher.__new__(SignalDispatcher)
     sd.redis = _RedisBoom()

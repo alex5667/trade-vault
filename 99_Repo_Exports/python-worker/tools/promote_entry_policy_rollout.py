@@ -8,6 +8,7 @@ from typing import Any
 import redis.asyncio as aioredis
 
 from utils.time_utils import get_ny_time_millis
+from core.redis_keys import RedisStreams as RS
 
 
 def _now_ms() -> int:
@@ -80,7 +81,7 @@ async def main() -> int:
     ap.add_argument("--sid", default="latest", help="rollout sid or 'latest' to find newest rollout key")
     ap.add_argument("--rollout-prefix", default="cfg:entry_policy:rollout:")
     ap.add_argument("--overrides-key", default=os.getenv("CFG_ENTRY_POLICY_OVERRIDES_KEY", "cfg:entry_policy:overrides"))
-    ap.add_argument("--audit-stream", default=os.getenv("TRADE_ENTRY_AUDIT_STREAM", "stream:trade:entry_audit"))
+    ap.add_argument("--audit-stream", default=os.getenv("TRADE_ENTRY_AUDIT_STREAM", RS.ENTRY_AUDIT))
     ap.add_argument("--rollback", action="store_true", help="force rollback")
     args = ap.parse_args()
 

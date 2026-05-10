@@ -12,6 +12,7 @@ import redis
 
 from common.model_registry import ensure_dir, promote_version, write_versioned_model
 from utils.time_utils import get_ny_time_millis
+from core.redis_keys import RedisStreams as RS
 
 
 def now_ms() -> int:
@@ -154,9 +155,9 @@ def _passes_gates(report: dict[str, Any], args: argparse.Namespace) -> tuple[boo
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--redis_url", default=os.getenv("REDIS_URL", "redis://localhost:6379/0"))
-    ap.add_argument("--signal_stream", default=os.getenv("ML_REPLAY_STREAM", "ml_replay_inputs_v1"))
-    ap.add_argument("--closed_stream", default=os.getenv("TRADES_CLOSED_STREAM", "trades:closed"))
-    ap.add_argument("--tb_labels_stream", default=os.getenv("TB_LABELS_STREAM", "labels:tb"))
+    ap.add_argument("--signal_stream", default=os.getenv("ML_REPLAY_STREAM", RS.ML_REPLAY_INPUTS))
+    ap.add_argument("--closed_stream", default=os.getenv("TRADES_CLOSED_STREAM", RS.TRADES_CLOSED))
+    ap.add_argument("--tb_labels_stream", default=os.getenv("TB_LABELS_STREAM", RS.TB_LABELS))
     ap.add_argument("--tb_labels_field", default=os.getenv("TB_LABELS_FIELD", "payload"))
     ap.add_argument("--tb_labels_count", type=int, default=_env_int("TB_LABELS_COUNT", 200000))
     ap.add_argument("--label_source", choices=["closed", "tb_primary", "tb_util"], default=os.getenv("LABEL_SOURCE", "closed"))

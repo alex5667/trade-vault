@@ -11,6 +11,7 @@ from orderflow_services.latency_contract_deploy_lint_notifier_v1 import (
     _severity_for_event,
     _warning_policy_for_active,
 )
+from core.redis_keys import RedisStreams as RS
 
 
 def _make_cfg(**kwargs) -> Cfg:
@@ -20,8 +21,8 @@ def _make_cfg(**kwargs) -> Cfg:
         notifier_state_key='metrics:latency_contract:deploy_lint:notifier:last',
         silence_prefix='cfg:orderflow:latency_contract:deploy_lint:silence',
         ops_stream='ops:latency_contract:events:v1',
-        notify_stream='notify:telegram',
-        notify_page_stream='notify:telegram:page',
+        notify_stream=RS.NOTIFY_TELEGRAM,
+        notify_page_stream=RS.NOTIFY_TELEGRAM_PAGE,
         notify_enable=True,
         reminder_s=21600,
         state_ttl_s=172800,
@@ -99,9 +100,9 @@ class TestNotifyStreamForEvent:
     def test_page_policy_returns_page_stream(self):
         cfg = _make_cfg()
         stream = _notify_stream_for_event(cfg, 'latency_deploy_lint_persistent_drift', 'page')
-        assert stream == 'notify:telegram:page'
+        assert stream == RS.NOTIFY_TELEGRAM_PAGE
 
     def test_warn_policy_returns_notify_stream(self):
         cfg = _make_cfg()
         stream = _notify_stream_for_event(cfg, 'latency_deploy_lint_persistent_drift', 'warn')
-        assert stream == 'notify:telegram'
+        assert stream == RS.NOTIFY_TELEGRAM

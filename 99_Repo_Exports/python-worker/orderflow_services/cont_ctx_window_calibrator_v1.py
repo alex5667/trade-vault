@@ -199,9 +199,9 @@ def load_cfg() -> Cfg:
         windows = [120000, 150000, 180000, 210000, 240000]
     return Cfg(
         redis_url=_env("REDIS_URL", "redis://redis-worker-1:6379/0"),
-        capture_stream=_env("CONT_CTX_CALIB_CAPTURE_STREAM", "stream:ofc:cont_ctx_capture"),
-        shadow_stream=_env("CONT_CTX_CALIB_SHADOW_STREAM", "stream:ofc:cont_ctx_shadow_signals"),
-        closed_stream=_env("TRADES_CLOSED_STREAM", "trades:closed"),
+        capture_stream=_env("CONT_CTX_CALIB_CAPTURE_STREAM", RS.OFC_CONT_CTX_CAPTURE),
+        shadow_stream=_env("CONT_CTX_CALIB_SHADOW_STREAM", RS.OFC_CONT_CTX_SHADOW),
+        closed_stream=_env("TRADES_CLOSED_STREAM", RS.TRADES_CLOSED),
         group=_env("CONT_CTX_CALIB_CG", "cont_ctx_window_calibrator_v1"),
         consumer=_env("CONT_CTX_CALIB_CONSUMER", socket.gethostname()),
         read_count=_i(_env("CONT_CTX_CALIB_READ_COUNT", "200"), 200),

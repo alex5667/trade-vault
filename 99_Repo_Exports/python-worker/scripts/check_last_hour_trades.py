@@ -4,6 +4,7 @@ from datetime import UTC, datetime
 import redis
 
 from utils.time_utils import get_ny_time_millis
+from core.redis_keys import RedisStreams as RS
 
 # Adjust for local environment
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
@@ -23,10 +24,10 @@ def main():
 
     # 1. Check trades:closed stream
     try:
-        entries = r.xrevrange("trades:closed", min=min_id, max="+")
-        print(f"Found {len(entries)} entries in 'trades:closed' stream.")
+        entries = r.xrevrange(RS.TRADES_CLOSED, min=min_id, max="+")
+        print(f"Found {len(entries)} entries in RS.TRADES_CLOSED stream.")
     except Exception as e:
-        print(f"Error checking 'trades:closed': {e}")
+        print(f"Error checking RS.TRADES_CLOSED: {e}")
         entries = []
 
     if entries:

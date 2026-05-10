@@ -14,6 +14,7 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
 )
+from core.redis_keys import RedisStreams as RS
 logger = logging.getLogger(__name__)
 
 class DecisionsArchiver:
@@ -21,7 +22,7 @@ class DecisionsArchiver:
         self.redis_url = os.getenv("REDIS_URL", "redis://redis:6379/0")
         self.r = redis.Redis.from_url(self.redis_url, decode_responses=True)
 
-        self.stream_key = os.getenv("DECISIONS_FINAL_STREAM", "decisions:final")
+        self.stream_key = os.getenv("DECISIONS_FINAL_STREAM", RS.DECISIONS_FINAL)
         self.archive_dir = os.getenv("DECISIONS_FINAL_ARCHIVE_DIR", "/var/lib/trade/archives/decisions_final")
         self.state_key = os.getenv("DECISIONS_FINAL_ARCHIVER_STATE_KEY", "archiver:decisions_final:last_id")
 

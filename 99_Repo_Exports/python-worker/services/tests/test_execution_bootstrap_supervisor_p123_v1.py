@@ -16,6 +16,7 @@ import sys
 import threading
 import urllib.request
 from pathlib import Path
+from core.redis_keys import RedisStreams as RS
 
 # ---------------------------------------------------------------------------
 # Dynamic module loading so tests work without installing the package
@@ -121,7 +122,7 @@ def _mk_exec(redis_obj, *, inline_projection=False):
     """Build a minimal BinanceExecutor shell for test use (no API keys needed)."""
     ex = exec_mod.BinanceExecutor.__new__(exec_mod.BinanceExecutor)
     ex.r = redis_obj
-    ex.exec_stream = 'orders:exec'
+    ex.exec_stream = RS.ORDERS_EXEC
     ex.state_key_prefix = 'orders:state:'
     ex.state_ttl = 86400
     ex.exec_rehydrate_on_state_miss = True
@@ -149,7 +150,7 @@ def _mk_worker(r, owner_id, lease_key='orders:exec:projection:leader',
     lease.acquire()
     return worker_mod.ExecutionProjectionWorker(
         r,
-        exec_stream='orders:exec',
+        exec_stream=RS.ORDERS_EXEC,
         state_key_prefix='orders:state:',
         leader_lease=lease,
     )

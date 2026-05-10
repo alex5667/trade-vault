@@ -51,6 +51,7 @@ KEY_FIELDS: tuple[str, ...] = (
     "liquidity_pressure",
     "info_flow",
 )
+from core.redis_keys import RedisStreams as RS
 
 
 def _now_ms() -> int:
@@ -239,7 +240,7 @@ def main(argv: list[str] | None = None) -> None:
     ap = argparse.ArgumentParser()
 
     ap.add_argument("--redis-url", default=os.getenv("REDIS_URL", "redis://localhost:6379/0"))
-    ap.add_argument("--stream", default=os.getenv("OF_GATE_METRICS_STREAM", "metrics:of_gate"))
+    ap.add_argument("--stream", default=os.getenv("OF_GATE_METRICS_STREAM", RS.OF_GATE_METRICS))
     ap.add_argument("--out-stream", default=os.getenv("A8_SMOKE_OUT_STREAM", "sre:new_features_smoke"))
 
     ap.add_argument("--recent-s", type=int, default=int(os.getenv("A8_SMOKE_RECENT_S", "600")))

@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 
@@ -50,7 +50,7 @@ class MLConfirmDecision:
     bucket: str = "other"
     util_pred: dict[str, float] | None = None
     unc: dict[str, float] | None = None
-    missing: list[str] | None = None
+    missing: list[str] = field(default_factory=list)
 
     model_run_id: str = ""
     model_path: str = ""

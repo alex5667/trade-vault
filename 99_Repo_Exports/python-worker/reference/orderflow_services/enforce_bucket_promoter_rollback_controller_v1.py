@@ -374,7 +374,7 @@ async def run(apply: bool) -> int:
         },
         "bucket_stats": {k: vars(v) for k, v in stats.items()},
         "apply": bool(apply),
-    },
+    }
 
     if not dec.rollback:
         await r.aclose()
@@ -408,7 +408,7 @@ async def run(apply: bool) -> int:
             "rollback_ts_ms": rb_ts,
             "last_apply_ts_ms": last_apply_ts,
             "reasons": dec.reasons,
-        },
+        }
         pipe2.set(block_key, "1")
         pipe2.set(meta_key, json.dumps(meta, separators=(",", ":")))
         pipe2.set(ts_key, str(rb_ts))

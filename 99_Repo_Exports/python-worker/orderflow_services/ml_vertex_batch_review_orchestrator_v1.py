@@ -14,9 +14,10 @@ from orderflow_services.llm_recommendation_guard_v1 import guard_recommendations
 from orderflow_services.providers.vertex_genai_provider_v1_2 import VertexGenAIProviderV12, VertexProviderError
 from orderflow_services.vertex_cost_accounting_v1 import CostRecord, record_cost
 from utils.time_utils import get_ny_time_millis
+from core.redis_keys import RedisStreams as RS
 
 REQUESTS_STREAM = os.getenv("ML_ANALYSIS_BATCH_REQUESTS_STREAM", "stream:ml:analysis_batch_requests")
-RESULTS_STREAM = os.getenv("ML_ANALYSIS_RESULTS_STREAM", "stream:ml:analysis_results")
+RESULTS_STREAM = os.getenv("ML_ANALYSIS_RESULTS_STREAM", RS.ML_ANALYSIS_RESULTS)
 PROPOSALS_STREAM = os.getenv("ML_RECOMMENDATION_PROPOSALS_STREAM", "stream:ml:recommendation_proposals")
 DLQ_STREAM = os.getenv("ML_ANALYSIS_DLQ_STREAM", "stream:ml:analysis_dlq")
 GROUP = os.getenv("ML_VERTEX_BATCH_REVIEW_GROUP", "cg:ml_vertex_batch_review_v1")

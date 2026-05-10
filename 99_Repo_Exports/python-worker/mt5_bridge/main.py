@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+from core.redis_keys import RedisStreams as RS
 
 """
 MT5 Bridge Main Worker
@@ -104,7 +105,7 @@ def main():
 
         exec_publisher = ExecEventsPublisher(
             redis_dsn,
-            stream_key="stream:signals:exec_events",
+            stream_key=RS.SIGNAL_EXEC_EVENTS,
         )
         print("[mt5_bridge] ✅ Exec events publisher initialized")
 

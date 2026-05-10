@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+from core.redis_keys import RedisStreams as RS
 
 """
 check_ml_confirm_stream_health.py
@@ -180,7 +181,7 @@ def compute_health(samples: list[dict[str, Any]], now_ms: int, max_stale_ms: int
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--redis_url", default=os.getenv("REDIS_URL") or os.getenv("TB_REDIS_URL") or "redis://localhost:6379/0")
-    ap.add_argument("--stream", default=os.getenv("ML_CONFIRM_METRICS_STREAM") or "metrics:ml_confirm")
+    ap.add_argument("--stream", default=os.getenv("ML_CONFIRM_METRICS_STREAM") or RS.ML_CONFIRM_METRICS)
     ap.add_argument("--count", type=int, default=int(os.getenv("ML_CONFIRM_HEALTH_COUNT") or "500"))
     ap.add_argument("--max_stale_ms", type=int, default=int(os.getenv("ML_CONFIRM_MAX_STALE_MS") or "120000"))
     ap.add_argument("--json", action="store_true", help="print JSON (default true)")

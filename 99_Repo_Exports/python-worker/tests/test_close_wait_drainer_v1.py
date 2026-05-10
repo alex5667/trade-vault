@@ -4,6 +4,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from domain.evidence_keys import MetaKeys
+from core.redis_keys import RedisStreams as RS
 
 try:
     from tools.close_wait_drainer_v1 import (
@@ -27,11 +28,11 @@ except ImportError:
 def cfg():
     return Cfg(
         redis_url="redis://localhost:6379/0",
-        close_wait_stream="trades:close_wait",
+        close_wait_stream=RS.TRADES_CLOSE_WAIT,
         close_wait_group="group1",
         close_wait_consumer="c1",
-        trades_closed_stream="trades:closed",
-        ml_replay_inputs_stream="ml_replay_inputs_v1",
+        trades_closed_stream=RS.TRADES_CLOSED,
+        ml_replay_inputs_stream=RS.ML_REPLAY_INPUTS,
         write_ml_replay_inputs=True,
         decision_key_prefix="decision:",
         dedup_key_prefix="join:closed:",

@@ -3,13 +3,14 @@ import os
 import redis
 
 from domain.evidence_keys import MetaKeys
+from core.redis_keys import RedisStreams as RS
 
 
 def main():
     redis_url = os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
     try:
         r = redis.Redis.from_url(redis_url, decode_responses=True)
-        stream = "metrics:of_gate"
+        stream = RS.OF_GATE_METRICS
 
         print(f"Reading from {stream} (filtering for non-dn_veto)...")
         # Read last 100 messages

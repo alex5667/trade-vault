@@ -3,7 +3,7 @@ from __future__ import annotations
 import time
 from unittest.mock import Mock
 
-from services.signal_dispatcher import SignalDispatcher
+from services.dispatch.dispatcher_app import SignalDispatcher
 
 
 def test_lease_methods():

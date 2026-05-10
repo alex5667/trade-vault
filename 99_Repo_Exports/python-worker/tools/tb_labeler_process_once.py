@@ -217,7 +217,7 @@ def main() -> None:
     print(f"\n✅ Total processed: {total}")
 
     # Check results
-    tb_len = r.xlen("labels:tb")
+    tb_len = r.xlen(RS.TB_LABELS)
     jobs_len = r.zcard("tb:jobs:due")
     print(f"📊 Current state: labels:tb={tb_len}, tb:jobs:due={jobs_len}")
 

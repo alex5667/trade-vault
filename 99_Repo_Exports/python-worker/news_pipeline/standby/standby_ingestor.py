@@ -14,8 +14,9 @@ from news_pipeline.standby.sources_newsapi import fetch_newsapi_everything
 from news_pipeline.standby.sources_rss import fetch_rss
 from news_pipeline.standby.uid import UIDPolicy
 from utils.time_utils import get_ny_time_millis
+from core.redis_keys import RedisStreams as RS
 
-NEWS_RAW_STREAM = os.getenv("STREAM_NEWS_RAW", "news:raw")
+NEWS_RAW_STREAM = os.getenv("STREAM_NEWS_RAW", RS.NEWS_RAW)
 MAX_STREAM_LEN = int(os.getenv("MAX_STREAM_LEN", "200000"))
 DEDUP_PREFIX = os.getenv("NEWS_DEDUP_PREFIX", "news:dedupe:")
 DEDUP_TTL_SEC = int(os.getenv("DEDUPE_TTL_SEC", str(7 * 24 * 3600)))

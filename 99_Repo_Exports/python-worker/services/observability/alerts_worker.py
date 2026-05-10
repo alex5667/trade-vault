@@ -4,6 +4,7 @@ import os
 import time
 
 import redis
+from core.redis_keys import RedisStreams as RS
 
 try:
     from core.telegram_notify import send_telegram
@@ -59,7 +60,7 @@ def main() -> None:
             info = r.info()
             used_mb = float(info.get("used_memory", 0)) / (1024.0 * 1024.0)
 
-            legacy_key = os.getenv("MICROBAR_LEGACY_STREAM", "events:microbar_closed")
+            legacy_key = os.getenv("MICROBAR_LEGACY_STREAM", RS.EVENTS_MICROBAR_CLOSED)
             legacy_xlen = int(r.xlen(legacy_key) or 0)
 
             sample_syms = _read_set(r, "events:microbar_closed:symbols", max_n=50)

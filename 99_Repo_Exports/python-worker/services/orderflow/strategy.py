@@ -2130,7 +2130,7 @@ class OrderFlowStrategy:
             # Measure engine build latency for SRE monitoring
             t_build_ns0 = time.perf_counter_ns()
             try:
-                from services.ml_confirm_gate.concurrency import is_of_sync_build, run_bounded_of_build
+                from services.ml_confirm.concurrency import is_of_sync_build, run_bounded_of_build
             except ImportError:
                 def is_of_sync_build(): return True
 
@@ -3192,18 +3192,8 @@ class OrderFlowStrategy:
         indicators["confidence_decision"] = "pass" if confidence >= min_conf else "fail"
         indicators["confidence_cal_proof_valid"] = int(cal_proof_valid)
 
-        # Strict confidence filter
-        if confidence < min_conf:
-             disabled = _to_bool(os.getenv("DISABLE_CONFIDENCE_FILTER", os.getenv("CRYPTO_DISABLE_CONFIDENCE_FILTER", runtime.config.get("disable_confidence_filter", "false"))))
-             if disabled:
-                 self.logger.info("ℹ️ (%s) [LOW-CONF] Signal confidence %.2f%% < %.2f%% but filter is DISABLED.", runtime.symbol, confidence * 100.0, min_conf_pct)
-             else:
-                 self.low_conf_counters[runtime.symbol] = self.low_conf_counters.get(runtime.symbol, 0) + 1
-                 sampled_warning(logger, "LOW_CONF",
-                     "🛑 [LOW-CONF] (%s) Signal filtered: conf=%.2f%% < min_conf=%.2f%%. (x%d)",
-                     runtime.symbol, confidence * 100.0, min_conf_pct, self.low_conf_counters[runtime.symbol]
-                 )
-                 return None
+        # Delegation to SignalPipeline: strategy.py only annotates confidence.
+        # CONFIDENCE_GATE_OWNER = signal_pipeline
 
         # Telemetry: Hidden Divergence Usage
         if indicators.get("hidden_div_used"):

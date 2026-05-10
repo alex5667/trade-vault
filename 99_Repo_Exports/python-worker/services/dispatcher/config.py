@@ -24,11 +24,11 @@ class SignalDispatcherConfig:
         # Streams and groups
         self.outbox_stream = os.getenv("SIGNAL_OUTBOX_STREAM", RS.SIGNAL_OUTBOX)
         self.dlq_stream = os.getenv("SIGNAL_DLQ_STREAM", RS.SIGNAL_DLQ)
-        self.dlq_notify = os.getenv("SIGNAL_DLQ_NOTIFY_STREAM", "stream:signals:dlq:notify")
-        self.dlq_signal_stream = os.getenv("SIGNAL_DLQ_SIGNAL_STREAM", "stream:signals:dlq:signal_stream")
-        self.dlq_audit = os.getenv("SIGNAL_DLQ_AUDIT_STREAM", "stream:signals:dlq:audit")
-        self.dlq_manual = os.getenv("SIGNAL_DLQ_MANUAL_STREAM", "stream:signals:dlq:manual")
-        self.dlq_snapshot = os.getenv("SIGNAL_DLQ_SNAPSHOT_STREAM", "stream:signals:dlq:snapshot")
+        self.dlq_notify = os.getenv("SIGNAL_DLQ_NOTIFY_STREAM", RS.DLQ_SIGNAL_NOTIFY)
+        self.dlq_signal_stream = os.getenv("SIGNAL_DLQ_SIGNAL_STREAM", RS.DLQ_SIGNAL_STREAM)
+        self.dlq_audit = os.getenv("SIGNAL_DLQ_AUDIT_STREAM", RS.DLQ_SIGNAL_AUDIT)
+        self.dlq_manual = os.getenv("SIGNAL_DLQ_MANUAL_STREAM", RS.DLQ_SIGNAL_MANUAL)
+        self.dlq_snapshot = os.getenv("SIGNAL_DLQ_SNAPSHOT_STREAM", RS.DLQ_SIGNAL_SNAPSHOT)
 
         self.group = os.getenv("SIGNAL_OUTBOX_GROUP", "signals-outbox-group")
         self.consumer = os.getenv("SIGNAL_OUTBOX_CONSUMER", f"dispatcher-{os.getpid()}")
@@ -40,7 +40,7 @@ class SignalDispatcherConfig:
         self.done_ttl_sec = int(os.getenv("SIGNAL_OUTBOX_DONE_TTL_SEC", "86400"))
 
         # Diagnostics
-        self.diag_stream = os.getenv("SIGNAL_DIAG_STREAM", "stream:signals:diag")
+        self.diag_stream = os.getenv("SIGNAL_DIAG_STREAM", RS.SIGNAL_DIAG)
         self.diag_maxlen = int(os.getenv("SIGNAL_DIAG_MAXLEN", "20000"))
         self.diag_sample = float(os.getenv("SIGNAL_DIAG_SAMPLE", "0.05"))
         self.diag_every_sec = int(os.getenv("SIGNAL_DIAG_EVERY_SEC", "10"))

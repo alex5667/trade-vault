@@ -29,6 +29,7 @@ ENV:
 import asyncio
 import logging
 from typing import Any
+from core.redis_keys import RedisStreams as RS
 
 logger = logging.getLogger("pel_cleanup")
 
@@ -64,7 +65,7 @@ async def cleanup_zombie_consumers(
     current_consumer_id: str,
     idle_threshold_ms: int = 60_000,
     phase: str = "startup",
-    stream_prefix: str = "stream:tick_",
+    stream_prefix: str = RS.TB_TICK_PREFIX,
     group_prefix: str = "crypto-of:",
     book_stream_prefix: str = "stream:book_",
     book_group_prefix: str = "crypto-of-book:",

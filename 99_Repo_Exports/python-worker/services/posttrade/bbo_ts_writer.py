@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from utils.time_utils import get_ny_time_millis
+from core.redis_keys import RedisStreams as RS
 
 """bbo_ts_writer — Redis Stream → Timescale bbo_ts table (Phase B1).
 
@@ -199,7 +200,7 @@ class Cfg:
         host = socket.gethostname()
         return Cfg(
             redis_url=_env("REDIS_URL", "redis://redis-worker-1:6379/0"),
-            stream=_env("BBO_TS_STREAM", "events:bbo_ts"),
+            stream=_env("BBO_TS_STREAM", RS.EVENTS_BBO_TS),
             group=_env("BBO_TS_CG", "bbo_ts_writer"),
             consumer=_env("BBO_TS_CONSUMER", f"{host}:{os.getpid()}"),
             block_ms=_env_int("BBO_TS_BLOCK_MS", "5000"),

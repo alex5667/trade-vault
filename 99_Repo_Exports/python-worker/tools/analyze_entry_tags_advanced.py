@@ -19,6 +19,7 @@ import json
 import os
 
 import redis
+from core.redis_keys import RedisStreams as RS
 
 EPS = 1e-9
 NO_TAG = "__NO_TAG__"
@@ -280,7 +281,7 @@ def load_trades_from_redis(r: redis.Redis, limit: int) -> list[dict]:
     Берём последние limit записей из стрима trades:closed в обратном порядке (свежее → старое).
     """
     # xrevrange: [max, min], max='+' → хвост, count=limit
-    entries = r.xrevrange("trades:closed", max="+", min="-", count=limit)
+    entries = r.xrevrange(RS.TRADES_CLOSED, max="+", min="-", count=limit)
     trades: list[dict] = []
     for _id, fields in entries:
         if isinstance(fields, dict):

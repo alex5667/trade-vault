@@ -10,12 +10,13 @@ from unittest.mock import MagicMock
 import numpy as np
 import pytest
 
-from services.ml_confirm_gate import (
+from services.ml_confirm import (
     MLConfirmDecision,
     MLConfirmGate,
     _json_safe,
 )
 from utils.time_utils import get_ny_time_millis
+from core.redis_keys import RedisStreams as RS
 
 
 @pytest.fixture
@@ -172,7 +173,7 @@ def test_emit_metrics_enabled(gate):
     """Test _emit_metrics when enabled."""
     gate._metrics_enable = True
     gate._metrics_sample = 1.0
-    gate._metrics_stream = "metrics:ml_confirm"
+    gate._metrics_stream = RS.ML_CONFIRM_METRICS
 
     dec = MLConfirmDecision(
         mode="ENFORCE",
@@ -208,7 +209,7 @@ def test_emit_metrics_enabled(gate):
 
     assert gate.r.xadd.called
     call_args = gate.r.xadd.call_args
-    assert call_args[0][0] == "metrics:ml_confirm"
+    assert call_args[0][0] == RS.ML_CONFIRM_METRICS
     fields = call_args[0][1]
     assert fields["symbol"] == "BTCUSDT"
     assert fields["allow"] == 1
@@ -231,7 +232,7 @@ def test_capture_replay_input_enabled(gate):
     """Test _capture_replay_input when enabled."""
     gate._replay_capture = True
     gate._replay_sample = 1.0
-    gate._replay_stream = "stream:ml_confirm:inputs"
+    gate._replay_stream = RS.ML_CONFIRM_INPUTS
     gate._replay_maxlen = 200000
     gate._cfg = {
         "kind": "util_mh_v1",
@@ -268,7 +269,7 @@ def test_capture_replay_input_enabled(gate):
 
     assert gate.r.xadd.called
     call_args = gate.r.xadd.call_args
-    assert call_args[0][0] == "stream:ml_confirm:inputs"
+    assert call_args[0][0] == RS.ML_CONFIRM_INPUTS
     fields = call_args[0][1]
     assert "payload" in fields
     payload = json.loads(fields["payload"])

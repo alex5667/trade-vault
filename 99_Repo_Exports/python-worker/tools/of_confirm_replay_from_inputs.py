@@ -11,6 +11,10 @@ from typing import Any
 import contextlib
 
 
+from domain.evidence_keys import MetaKeys
+
+
+
 def _safe_loads(line: str) -> dict[str, Any] | None:
     try:
         d = json.loads(line)
@@ -119,8 +123,15 @@ def _mk_runtime(inp: dict[str, Any]) -> Any:
     base: dict[str, Any] = {}
     if isinstance(rtd, dict):
         base.update(rtd)
-        if rt_cfg is None and isinstance(rtd.get("config"), dict):
-            rt_cfg = dict(rtd.get("config"))
+        inner_cfg = rtd.get("config")
+        if isinstance(inner_cfg, dict):
+            if rt_cfg is None:
+                rt_cfg = dict(inner_cfg)
+            else:
+                # Merge: rt_cfg (runtime_config) has higher priority
+                new_cfg = dict(inner_cfg)
+                new_cfg.update(rt_cfg)
+                rt_cfg = new_cfg
 
     if rt_cfg is None:
         rt_cfg = {}
@@ -128,6 +139,7 @@ def _mk_runtime(inp: dict[str, Any]) -> Any:
     # ensure micro_tf stable
     if "micro_tf" in inp and "micro_tf" not in rt_cfg:
         rt_cfg["micro_tf"] = inp.get("micro_tf")
+
 
     # build namespace with known stable fields (avoid missing attribute branches inside engine)
     ns = SimpleNamespace(**{k: v for k, v in base.items() if k != "config"})
@@ -369,7 +381,10 @@ def replay_one(engine: Any, inp: dict[str, Any]) -> tuple[dict[str, Any], dict[s
         dbg_inputs["runtime"] = vars(dbg_inputs["runtime"])
 
     dbg = {
+        "inputs": dbg_inputs,
         "inputs_used": dbg_inputs,
+
+
         "normalized": {
             "symbol": symbol,
             "tf": tf,

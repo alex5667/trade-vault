@@ -19,6 +19,7 @@ from typing import Any
 
 import numpy as np
 import redis
+from core.redis_keys import RedisStreams as RS
 
 
 def _f(x: Any, d: float = 0.0) -> float:
@@ -73,7 +74,7 @@ def main() -> None:
     )
     ap.add_argument(
         "--stream",
-        default=os.getenv("OF_GATE_METRICS_STREAM", "metrics:of_gate"),
+        default=os.getenv("OF_GATE_METRICS_STREAM", RS.OF_GATE_METRICS),
         help="Metrics stream name (default: OF_GATE_METRICS_STREAM env or metrics:of_gate)",
     )
     ap.add_argument(

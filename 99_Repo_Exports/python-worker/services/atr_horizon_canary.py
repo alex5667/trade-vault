@@ -111,7 +111,7 @@ def should_enforce_horizon_gate(
                     reason_code="HZ_GATE_SYMBOL_FILTERED",
                 ))
             u = _stable_u01(sticky_key)
-            selected = bool(u < share)
+            selected = (u < share)
             return asdict(HorizonGateCanaryDecision(
                 mode=mode,
                 should_enforce=selected,

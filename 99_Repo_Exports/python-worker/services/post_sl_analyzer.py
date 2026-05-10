@@ -33,6 +33,7 @@ from dataclasses import dataclass, field
 from typing import Any, Union
 
 import redis
+from core.redis_keys import RedisStreams as RS
 
 # Ensure we can import from project root
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -46,9 +47,9 @@ logger = setup_logger("PostSlAnalyzer")
 REDIS_URL = os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
 
 # Streams
-TRADES_STREAM = os.getenv("TRADES_CLOSED_STREAM", "trades:closed")
-CANDLES_STREAM = os.getenv("CANDLES_STREAM", "candles:data")
-OUTPUT_STREAM = os.getenv("POST_SL_STREAM", "trades:post_sl")
+TRADES_STREAM = os.getenv("TRADES_CLOSED_STREAM", RS.TRADES_CLOSED)
+CANDLES_STREAM = os.getenv("CANDLES_STREAM", RS.CANDLES_DATA)
+OUTPUT_STREAM = os.getenv("POST_SL_STREAM", RS.TRADES_POST_SL)
 
 # Consumer Groups
 TRADES_GROUP = os.getenv("POST_SL_TRADES_GROUP", "post-sl-trades-group")
@@ -494,9 +495,14 @@ class PostSlAnalyzer:
 
         try:
             entry = float(t.get("entry_price", 0))
-            sl = float(t.get("sl_price", 0))
+            # FIX: canonical field in Redis is "sl" (from TradeClosed.sl / order:{id} hash).
+            # "sl_price" exists only in the order hash mapping (written by save_closed),
+            # "selected_sl_price" is an audit alias.  Use all three as fallback chain.
+            sl = float(t.get("sl", 0) or t.get("sl_price", 0) or t.get("selected_sl_price", 0))
             tp1 = float(t.get("tp1_price", 0))
-            atr = float(t.get("atr_entry", 0))
+            # FIX: canonical field is "atr" (from TradeClosed.atr / PositionState.atr).
+            # "atr_entry" was never written by any producer.
+            atr = float(t.get("atr", 0) or t.get("atr_entry", 0))
             exit_ts = int(t.get("exit_ts_ms", 0) or t.get("closed_time", 0))
         except (ValueError, TypeError):
             return

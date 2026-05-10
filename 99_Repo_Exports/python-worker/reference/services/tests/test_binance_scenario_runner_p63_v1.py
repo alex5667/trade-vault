@@ -79,7 +79,7 @@ def _configure_env(
         "EXEC_POLICY_DEFAULT": "MAKER_FIRST" if maker else "SAFETY_FIRST",
         "EXEC_POLICY_MAKER_ALLOWED_SYMBOLS": "BTCUSDT" if maker else "DO_NOT_USE",
         "EXEC_FORCE_SAFETY_FIRST": "0" if maker else "1",
-    },
+    }
     for k, v in values.items():
         monkeypatch.setenv(k, v)
 
@@ -120,7 +120,7 @@ def test_scripted_timeline_partial_restart_trigger_delayed_fill(monkeypatch):
             "type": "MARKET",
             "sl": 95,
             "tp_levels": [101],
-        },
+        }
 
         # Script the entry order to return PARTIAL_FILLED on first query
         mock.state.set_plain_order_script(
@@ -200,7 +200,7 @@ def test_degraded_rest_with_live_user_stream_bridge_reconciles_without_query(mon
             "type": "MARKET",
             "sl": 95,
             "tp_levels": [110],
-        },
+        }
 
         entry_cid = _make_cid(sid, "entry")
         # POST returns 503 unknown but order IS created (simulates Binance fire-and-error)

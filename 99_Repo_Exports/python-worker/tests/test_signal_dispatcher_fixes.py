@@ -28,7 +28,7 @@ class FakeRedis:
 
 
 def test_msg_done_key_is_separate_from_sid_done_key():
-    from services.signal_dispatcher import SignalDispatcher
+    from services.dispatch.dispatcher_app import SignalDispatcher
 
     sd = SignalDispatcher()
     sd.redis = FakeRedis()
@@ -41,7 +41,7 @@ def test_msg_done_key_is_separate_from_sid_done_key():
 
 
 def test_mark_outbox_done_writes_msg_done_key():
-    from services.signal_dispatcher import SignalDispatcher
+    from services.dispatch.dispatcher_app import SignalDispatcher
 
     sd = SignalDispatcher()
     sd.redis = FakeRedis()
@@ -53,7 +53,7 @@ def test_mark_outbox_done_writes_msg_done_key():
 
 
 def test_update_env_req_empty_is_fail_open():
-    from services.signal_dispatcher import SignalDispatcher
+    from services.dispatch.dispatcher_app import SignalDispatcher
 
     sd = SignalDispatcher()
     sd.redis = FakeRedis()
@@ -66,7 +66,7 @@ def test_update_env_req_empty_is_fail_open():
 
 
 def test_adapt_notify_payload_from_signal_stream_payload():
-    from services.signal_dispatcher import SignalDispatcher
+    from services.dispatch.dispatcher_app import SignalDispatcher
 
     sd = SignalDispatcher()
 

@@ -10,6 +10,7 @@ import redis
 from domain.evidence_keys import MetaKeys
 from utils.time_utils import get_ny_time_millis
 import contextlib
+from core.redis_keys import RedisStreams as RS
 
 
 def now_ms() -> int:
@@ -144,7 +145,7 @@ def atomic_promote(challenger_path: str, champion_path: str) -> tuple[bool, str]
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--redis-url", default=os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0"))
-    ap.add_argument("--stream", default=os.getenv("TRADES_CLOSED_STREAM", "trades:closed"))
+    ap.add_argument("--stream", default=os.getenv("TRADES_CLOSED_STREAM", RS.TRADES_CLOSED))
     ap.add_argument("--since-min", type=int, default=720)
     ap.add_argument("--max-scan", type=int, default=500000)
     ap.add_argument("--min-n", type=int, default=int(os.getenv("META_AB_MIN_N", "200")))

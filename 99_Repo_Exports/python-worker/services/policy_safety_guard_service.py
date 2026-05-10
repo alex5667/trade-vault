@@ -68,7 +68,7 @@ class PolicySafetyGuard:
         self.group = os.getenv("SAFETY_GUARD_GROUP", "entry-policy-safety")
         self.consumer = os.getenv("SAFETY_GUARD_CONSUMER", f"c-{os.getpid()}")
         self.active_prefix = os.getenv("ENTRY_POLICY_ACTIVE_PREFIX", "cfg:entry_policy:active_arm")
-        self.ledger_stream = os.getenv("POLICY_LEDGER_STREAM", "stream:policy:events")
+        self.ledger_stream = os.getenv("POLICY_LEDGER_STREAM", RS.POLICY_EVENTS)
         self.notify_stream = os.getenv("NOTIFY_STREAM", RS.NOTIFY_TELEGRAM)
 
         # Rolling window config (stats TTL)

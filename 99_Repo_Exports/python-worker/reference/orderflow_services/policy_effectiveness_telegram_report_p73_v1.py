@@ -142,7 +142,7 @@ def build_message(cfg: dict[str, str]) -> tuple[str, dict[str, Any]]:
             "exp_r": _f(cfg.get(f"policy_effectiveness_expectancy_r_delta_24h_{m}"), 0.0),
             "prec_top5p": _f(cfg.get(f"policy_effectiveness_precision_top5p_delta_24h_{m}"), 0.0),
             "ece": _f(cfg.get(f"policy_effectiveness_ece_delta_24h_{m}"), 0.0),
-        },
+        }
 
     def _code(x: str) -> str:
         return f"<code>{html.escape(x)}</code>"
@@ -192,7 +192,7 @@ def build_message(cfg: dict[str, str]) -> tuple[str, dict[str, Any]]:
         "total_n": total_n,
         "shares": shares,
         "deltas": deltas,
-    },
+    }
     return "\n".join(lines), meta
 
 

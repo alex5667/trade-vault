@@ -307,7 +307,7 @@ def main() -> None:
     redis_url = os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
     r = redis.Redis.from_url(redis_url, decode_responses=True)
 
-    stream = os.getenv("OF_GATE_METRICS_STREAM", "metrics:of_gate")
+    stream = os.getenv("OF_GATE_METRICS_STREAM", RS.OF_GATE_METRICS)
     window_min = float(os.getenv("EMERG_WINDOW_MIN", "10") or 10)
     max_scan = int(os.getenv("EMERG_MAX_SCAN", "250000") or 250000)
 

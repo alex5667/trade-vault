@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 
 from core.edge_stack_mh_v1 import EdgeStackMHModelV1
-from services.ml_confirm_gate import _bucket_from_scenario, _canonical_sid, _stable_sample
+from services.ml_confirm import _bucket_from_scenario, _canonical_sid, _stable_sample
 
 
 def test_canonical_sid_from_indicators():

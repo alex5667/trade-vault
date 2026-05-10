@@ -29,7 +29,7 @@ def test_compute_purpose_state_extracts_strategy_research_stats_family() -> None
         'selected_reason_code': 'strategy_research_stats:pbo_high',
         'strategy_research_stats_status': 'block',
         'strategy_research_stats_reason': 'pbo_high',
-    },
+    }
     state = compute_purpose_state('conf_score_guardrails_promote', raw, now_ms=31_000)
     assert state.selected_reason_code == 'strategy_research_stats:pbo_high'
     assert state.strategy_research_stats_reason_family == 'pbo_high'
@@ -59,7 +59,7 @@ def test_research_stats_reason_family_all_families() -> None:
         'report_stale': 'strategy_research_stats:report_stale',
         'state_missing': 'strategy_research_stats:state_missing',
         'invalid': 'strategy_research_stats:invalid',
-    },
+    }
     for expected_family, reason_code in families.items():
         assert research_stats_reason_family(reason_code) == expected_family, (
             f'Expected family {expected_family!r} for reason code {reason_code!r}'

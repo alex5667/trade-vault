@@ -59,6 +59,7 @@ from collections import deque
 from dataclasses import asdict, dataclass
 from statistics import median
 from typing import Any
+from core.redis_keys import RedisStreams as RS
 
 logger = logging.getLogger(__name__)
 
@@ -67,7 +68,7 @@ logger = logging.getLogger(__name__)
 SCHEMA_VERSION = 1
 CTX_LIQ_PREFIX = "ctx:liq:"
 
-_DEFAULT_STREAM_KEY = "stream:liq_evt"
+_DEFAULT_STREAM_KEY = RS.LIQ_EVT
 _DEFAULT_CONSUMER_GROUP = "liq_ctx_worker"
 _DEFAULT_CONSUMER_NAME = "liq_ctx_worker_1"
 _DEFAULT_WINDOW_MS = 60_000

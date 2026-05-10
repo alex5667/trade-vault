@@ -42,7 +42,7 @@ def eval_reversal(
     )
 
     # Absorption-on-level can count as one confirmation (configurable)
-    if bool(int(cfg.get("abs_lvl_enable", 1))) and bool(abs_lvl_ok):
+    if int(cfg.get("abs_lvl_enable", 1)) and abs_lvl_ok:
         mode = (cfg.get("abs_lvl_counts_as", "A")).upper()  # "A" or "C"
         if mode == "C":
             C = 1
@@ -52,7 +52,7 @@ def eval_reversal(
     need = int(cfg.get("strong_need_reversal", 2))
     have = A + B + C
     ok = have >= need
-    bits = pack_bits(bool(A), bool(B), bool(C), bool(abs_lvl_ok))
+    bits = pack_bits(bool(A), bool(B), bool(C), abs_lvl_ok)
     return StrongGateDecision(
         ok=ok,
         scenario="reversal",
@@ -60,14 +60,14 @@ def eval_reversal(
         have=have,
         a=A, b=B, c=C,
         reason="reversal_gate",
-        gate_bits=int(bits),
+        gate_bits=bits,
     )
 
 
 def hidden_trend_dir(last_div_kind: str | None) -> str | None:
     if not last_div_kind:
         return None
-    k = str(last_div_kind)
+    k = last_div_kind
     if k == "bullish_hidden":
         return "LONG"
     if k == "bearish_hidden":
@@ -99,7 +99,7 @@ def eval_continuation(
     if trend_dir is None:
         return StrongGateDecision(ok=False, scenario="continuation", need=2, have=0, a=0, b=0, c=0, reason="no_trend_dir")
 
-    is_aligned = (str(direction).upper() == str(trend_dir).upper())
+    is_aligned = (direction.upper() == trend_dir.upper())
 
     # If trend context is derived from regime/direction fallback (not hidden div),
     # we treat being robustly aligned with the HTF regime as a proxy for the context leg (A).
@@ -122,7 +122,7 @@ def eval_continuation(
     )
 
     # Optional: abs_lvl_ok can assist in continuation too
-    if bool(int(cfg.get("abs_lvl_enable", 1))) and bool(abs_lvl_ok):
+    if int(cfg.get("abs_lvl_enable", 1)) and abs_lvl_ok:
         mode = (cfg.get("abs_lvl_counts_as", "A")).upper()
         if mode == "B":
             B = 1
@@ -133,7 +133,7 @@ def eval_continuation(
     need = int(cfg.get("strong_need_continuation", 2))
     have = A + B + C
     ok = have >= need
-    bits = pack_bits(bool(A), bool(B), bool(C), bool(abs_lvl_ok))
+    bits = pack_bits(bool(A), bool(B), bool(C), abs_lvl_ok)
     return StrongGateDecision(
         ok=ok,
         scenario="continuation",
@@ -141,5 +141,5 @@ def eval_continuation(
         have=have,
         a=A, b=B, c=C,
         reason="continuation_gate",
-        gate_bits=int(bits),
+        gate_bits=bits,
     )

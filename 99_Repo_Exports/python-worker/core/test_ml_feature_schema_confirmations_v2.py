@@ -23,7 +23,7 @@ def _build_vec(schema_ver: int, indicators: dict, confirmations=None):
             "scenario_v4": "reversal",
             "indicators": indicators,
             "confirmations": confirmations,
-        },
+        }
         row = m.build_features(payload)
         return row.x, row.feature_names
 

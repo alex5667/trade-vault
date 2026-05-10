@@ -2,6 +2,7 @@
 import json
 
 import redis
+from core.redis_keys import RedisStreams as RS
 
 
 def check():
@@ -24,7 +25,7 @@ def check():
 
     print("\n--- STREAM trades:closed (Last 5) ---")
     try:
-        entries = r.xrevrange("trades:closed", max="+", count=5)
+        entries = r.xrevrange(RS.TRADES_CLOSED, max="+", count=5)
         for mid, data in entries:
             print(f"ID: {mid} Sym: {data.get('symbol')} Src: {data.get('source')} PnL: {data.get('pnl')}")
             sp = data.get('signal_payload')

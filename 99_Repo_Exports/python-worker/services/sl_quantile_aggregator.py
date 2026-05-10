@@ -19,6 +19,7 @@ from typing import Any
 
 import numpy as np
 import redis
+from core.redis_keys import RedisStreams as RS
 
 # Ensure we can import from project root
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -29,7 +30,7 @@ logger = setup_logger("SlQuantileAggregator")
 
 # --- Config ---
 REDIS_URL = os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
-INPUT_STREAM = os.getenv("POST_SL_STREAM", "trades:post_sl")
+INPUT_STREAM = os.getenv("POST_SL_STREAM", RS.TRADES_POST_SL)
 GROUP_NAME = os.getenv("SLQ_GROUP", "slq-aggregator-group")
 CONSUMER_NAME = os.getenv("SLQ_CONSUMER", "slq-worker-1")
 

@@ -5,6 +5,7 @@ import psycopg2
 import redis
 
 from utils.time_utils import get_ny_time_millis
+from core.redis_keys import RedisStreams as RS
 
 
 def now_ms(): return get_ny_time_millis()
@@ -108,8 +109,8 @@ for row in rows:
         "source": "postgres_backfill"
     }
 
-    r.xadd("trades:closed", {"payload": json.dumps(trades_closed_payload)}, maxlen=50000)
-    r.xadd("ml_replay_inputs_v1", {"payload": json.dumps(replay_payload)}, maxlen=50000)
+    r.xadd(RS.TRADES_CLOSED, {"payload": json.dumps(trades_closed_payload)}, maxlen=50000)
+    r.xadd(RS.ML_REPLAY_INPUTS, {"payload": json.dumps(replay_payload)}, maxlen=50000)
     count += 1
 
 print(f"Successfully published {count} items to trades:closed and ml_replay_inputs_v1.")

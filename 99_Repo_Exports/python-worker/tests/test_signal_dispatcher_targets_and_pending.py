@@ -53,10 +53,10 @@ class _FakeHelper:
 
 def _mk_sd():
     # Mock Redis connection before creating instance
-    import services.signal_dispatcher
-    from services.signal_dispatcher import SignalDispatcher
-    original_get_redis = services.signal_dispatcher.get_redis
-    services.signal_dispatcher.get_redis = lambda: _FakeRedis()
+    import services.dispatch.dispatcher_app
+    from services.dispatch.dispatcher_app import SignalDispatcher
+    original_get_redis = services.dispatch.dispatcher_app.get_redis
+    services.dispatch.dispatcher_app.get_redis = lambda: _FakeRedis()
 
     try:
         sd = SignalDispatcher()
@@ -78,7 +78,7 @@ def _mk_sd():
         sd._r = lambda: sd.redis
         return sd
     finally:
-        services.signal_dispatcher.get_redis = original_get_redis
+        services.dispatch.dispatcher_app.get_redis = original_get_redis
 
 
 def test_handle_read_messages_processes_messages_correctly():

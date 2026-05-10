@@ -10,6 +10,7 @@ import redis.asyncio as aioredis
 
 from utils.time_utils import get_ny_time_millis
 import contextlib
+from core.redis_keys import RedisStreams as RS
 
 
 def _now_ms() -> int:
@@ -122,7 +123,7 @@ class EntryPolicyABReportService:
 
     def __init__(self, *, redis_url: str) -> None:
         self.r = aioredis.from_url(redis_url, decode_responses=True, socket_connect_timeout=10, socket_timeout=30)
-        self.audit_stream = os.getenv("AB_AUDIT_STREAM", "stream:trade:entry_audit")
+        self.audit_stream = os.getenv("AB_AUDIT_STREAM", RS.ENTRY_AUDIT)
         self.group = os.getenv("AB_AUDIT_GROUP", "ab-report")
         self.consumer = os.getenv("AB_AUDIT_CONSUMER", f"ab-report-{os.getpid()}")
         self.block_ms = int(os.getenv("AB_READ_BLOCK_MS", "1000"))

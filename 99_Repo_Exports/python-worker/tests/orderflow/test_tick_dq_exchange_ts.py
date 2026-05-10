@@ -12,7 +12,7 @@ Coverage:
 
 import unittest
 
-from services.orderflow.tick_processor import _msgid_to_ms, coerce_event_ts_ms
+from services.orderflow.components.tick_time_policy import _msgid_to_ms, coerce_event_ts_ms
 
 
 class TestCoerceEventTsMs(unittest.TestCase):

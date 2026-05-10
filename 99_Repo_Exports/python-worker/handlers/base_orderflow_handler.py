@@ -20,6 +20,7 @@ from typing import TYPE_CHECKING, Any
 
 from common.resiliency import safe_call_fail_open as _safe_call_fail_open
 from utils.time_utils import get_ny_time_millis
+from core.redis_keys import RedisStreams as RS
 
 if TYPE_CHECKING:
     from core.htf_levels import HTFLevelsProvider
@@ -214,7 +215,7 @@ class BaseOrderFlowHandler(ABC):
     """
 
     DLQ_STREAM_ENV = "ORDERFLOW_DLQ_STREAM"
-    DLQ_DEFAULT = "stream:dlq:orderflow"
+    DLQ_DEFAULT = RS.DLQ_ORDERFLOW
 
     def __init__(
         self,

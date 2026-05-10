@@ -5,6 +5,7 @@ import logging
 import os
 from functools import lru_cache
 from typing import Any
+from core.redis_keys import RedisStreams as RS
 
 logger = logging.getLogger(__name__)
 
@@ -16,8 +17,8 @@ def _env_cfg() -> dict[str, Any]:
         "split": os.getenv("MICROBAR_SPLIT_STREAMS_ENABLE", "0").strip().lower() in {"1", "true", "yes"},
         "dual": os.getenv("MICROBAR_SPLIT_DUAL_WRITE", "1").strip().lower() in {"1", "true", "yes"},
         "per_prefix": os.getenv("MICROBAR_PER_SYMBOL_PREFIX", "events:microbar_closed:"),
-        "majors_stream": os.getenv("MICROBAR_MAJORS_STREAM", "events:microbar_closed:majors"),
-        "legacy_stream": os.getenv("MICROBAR_LEGACY_STREAM", "events:microbar_closed"),
+        "majors_stream": os.getenv("MICROBAR_MAJORS_STREAM", RS.EVENTS_MICROBAR_MAJORS),
+        "legacy_stream": os.getenv("MICROBAR_LEGACY_STREAM", RS.EVENTS_MICROBAR_CLOSED),
         "symbols_set": os.getenv("MICROBAR_SYMBOLS_SET", "events:microbar_closed:symbols"),
         "per_maxlen": int(os.getenv("MICROBAR_PER_SYMBOL_MAXLEN", "5000")),
         "legacy_maxlen": int(os.getenv("MICROBAR_LEGACY_MAXLEN", "10000")),

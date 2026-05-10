@@ -372,7 +372,7 @@ class TestBuildRelaxOps:
         relax_caps = {
             "meta_enforce_share_trend": 0.25,
             "meta_enforce_share_range": 0.15,
-        },
+        }
 
         ops = build_relax_ops_from_clamp_audit(clamp_audit, relax_caps)
 
@@ -405,7 +405,7 @@ class TestBuildRelaxOps:
         relax_caps = {
             "meta_enforce_share_trend": 0.25,
             "meta_enforce_share_news": 0.00,
-        },
+        }
 
         ops = build_relax_ops_from_clamp_audit(clamp_audit, relax_caps)
 

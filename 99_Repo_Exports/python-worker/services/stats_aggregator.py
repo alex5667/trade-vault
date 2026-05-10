@@ -30,163 +30,6 @@ EMP_LEVELS_BUF_TTL_SEC = int(os.getenv("LEVELS_EMPIRICAL_BUF_TTL_SEC", "2592000"
 EMP_LEVELS_USE_REGIME_DIM = os.getenv("LEVELS_EMPIRICAL_USE_REGIME_DIM", "1").strip().lower() in {"1","true","yes","on"}
 
 
-def _env_bool(name: str, default: bool) -> bool:
-    v = (os.getenv(name, "1" if default else "0") or "").strip().lower()
-    return v in {"1", "true", "yes", "on"}
-
-def _parse_csv_ints(s: str) -> tuple[int, ...]:
-    out = []
-    for part in (s or "").split(","):
-        p = part.strip()
-        if not p:
-            continue
-        with contextlib.suppress(Exception):
-            out.append(int(p))
-    return tuple(out)
-
-def _emp_buckets_ms_from_env() -> tuple[int, ...]:
-    mins = _parse_csv_ints(os.getenv("EMP_TIME_BUCKETS_MINUTES", "1,2,3,5,8,13,21,34,45"))
-    ms = sorted([m * 60_000 for m in mins if m and m > 0])
-    return tuple(int(x) for x in ms)
-
-def _extract_timebucket_pnls(trade_closed: dict[str, Any], buckets_ms: tuple[int, ...]) -> dict[int, tuple[float | None, float | None]]:
-    """
-    Extract per-bucket (mfe_pnl, mae_pnl) from TradeClosed mapping.
-    Missing keys are returned as (None, None).
-    """
-    out: dict[int, tuple[float | None, float | None]] = {}
-    for b in buckets_ms:
-        mfe_k = f"mfe_pnl_t{b}"
-        mae_k = f"mae_pnl_t{b}"
-        mfe = trade_closed.get(mfe_k)
-        mae = trade_closed.get(mae_k)
-        try:
-            mfe_f = float(mfe) if mfe is not None else None
-        except Exception:
-            mfe_f = None
-        try:
-            mae_f = float(mae) if mae is not None else None
-        except Exception:
-            mae_f = None
-        out[int(b)] = (mfe_f, mae_f)
-    return out
-
-def _estimate_bps_from_pnl(
-    pnl: float,
-    *,
-    entry_price: float | None,
-    qty: float | None,
-    notional: float | None,
-) -> float | None:
-    """
-    Convert PnL (quote currency) into bps using notional ~= |qty|*entry_price.
-    (This helper already exists in your file; keep a single definition. If you
-    already have it, remove this duplicate block and reuse the existing one.)
-    """
-    pnl_f = float(pnl)
-    nt = notional or (abs(float(qty)) * float(entry_price) if qty and entry_price else None)
-    if nt is None or float(nt) <= STATS_EPS:
-        return None
-    bps = abs(pnl_f) / float(nt) * 10_000.0
-    if not math.isfinite(bps) or bps <= 0:
-        return None
-    return float(bps)
-
-def extract_timebucket_bps(
-    trade_closed: dict[str, Any],
-    *,
-    buckets_ms: tuple[int, ...],
-) -> dict[int, tuple[float | None, float | None]]:
-    """
-    Convert per-bucket pnl snapshots into per-bucket (mfe_bps, mae_bps).
-    """
-    entry_price = None
-    qty = None
-    notional = None
-    try:
-        entry_price = float(trade_closed.get("entry_price") or 0.0) or None
-    except Exception:
-        entry_price = None
-    try:
-        qty = float(trade_closed.get("lot") or 0.0) or None
-    except Exception:
-        qty = None
-    try:
-        notional = float(trade_closed.get("notional_usd") or 0.0) or None
-    except Exception:
-        notional = None
-
-    pnls = _extract_timebucket_pnls(trade_closed, buckets_ms)
-    out: dict[int, tuple[float | None, float | None]] = {}
-    for b, (mfe_pnl, mae_pnl) in pnls.items():
-        mfe_bps = _estimate_bps_from_pnl(mfe_pnl, entry_price=entry_price, qty=qty, notional=notional) if mfe_pnl is not None else None
-        mae_bps = _estimate_bps_from_pnl(mae_pnl, entry_price=entry_price, qty=qty, notional=notional) if mae_pnl is not None else None
-        out[int(b)] = (mfe_bps, mae_bps)
-    return out
-
-def write_timebucket_buffers(
-    redis_client: Any,
-    *,
-    kind: str,
-    symbol: str,
-    tf: str,
-    regime: str,
-    duration_ms: int,
-    buckets_ms: tuple[int, ...],
-    bps_by_bucket: dict[int, tuple[float | None, float | None]],
-) -> None:
-    """
-    Persist time-bucket buffers and survival counters.
-
-    Keys:
-      statsbuf:{kind}:{symbol}:{tf}:{regime}:mfe_bps_t{bucket_ms}  (LIST)
-      statsbuf:{kind}:{symbol}:{tf}:{regime}:mae_bps_t{bucket_ms}  (LIST)
-      statscnt:{kind}:{symbol}:{tf}:{regime}:survival              (HASH)
-        - total
-        - alive_t{bucket_ms}
-    """
-    if not buckets_ms:
-        return
-    if redis_client is None:
-        return
-
-    buf_max = int(os.getenv("EMP_LEVELS_BUF_MAX", "300") or "300")
-    ttl_sec = int(os.getenv("EMP_LEVELS_BUF_TTL_SEC", "604800") or "604800")  # 7d default
-
-    kd = (kind or "").strip().lower()
-    sym = (symbol or "").strip().upper()
-    tf_s = (tf or "").strip().lower() or "1m"
-    rg = (regime or "").strip().lower() or "na"
-
-    surv_key = f"statscnt:{kd}:{sym}:{tf_s}:{rg}:survival"
-    # Pipeline is enough here (best-effort). Main stats are already atomic via Lua.
-    pipe = redis_client.pipeline(transaction=False)
-    pipe.hincrby(surv_key, "total", 1)
-    if ttl_sec > 0:
-        pipe.expire(surv_key, ttl_sec)
-
-    dur = int(duration_ms or 0)
-    for b in buckets_ms:
-        b = int(b)
-        if b <= 0:
-            continue
-        if dur >= b:
-            pipe.hincrby(surv_key, f"alive_t{b}", 1)
-        mfe_bps, mae_bps = bps_by_bucket.get(b, (None, None))
-        if mfe_bps is not None and float(mfe_bps) > 0:
-            k_mfe = f"statsbuf:{kd}:{sym}:{tf_s}:{rg}:mfe_bps_t{b}"
-            pipe.lpush(k_mfe, f"{float(mfe_bps):.8f}")
-            pipe.ltrim(k_mfe, 0, max(buf_max, 1) - 1)
-            if ttl_sec > 0:
-                pipe.expire(k_mfe, ttl_sec)
-        if mae_bps is not None and float(mae_bps) > 0:
-            k_mae = f"statsbuf:{kd}:{sym}:{tf_s}:{rg}:mae_bps_t{b}"
-            pipe.lpush(k_mae, f"{float(mae_bps):.8f}")
-            pipe.ltrim(k_mae, 0, max(buf_max, 1) - 1)
-            if ttl_sec > 0:
-                pipe.expire(k_mae, ttl_sec)
-    pipe.execute()
-
 
 def _env_bool(name: str, default: bool) -> bool:
     v = (os.getenv(name, "1" if default else "0") or "").strip().lower()
@@ -274,16 +117,16 @@ def _estimate_notional(
     """
     nt = None
     try:
-        if notional is not None and float(notional) > STATS_EPS:
-            nt = float(notional)
+        if notional is not None and notional > STATS_EPS:
+            nt = notional
     except Exception:
         nt = None
     if nt is not None:
         return nt
     try:
         if qty is not None and entry_price is not None:
-            q = abs(float(qty))
-            e = float(entry_price)
+            q = abs(qty)
+            e = entry_price
             if q > STATS_EPS and e > STATS_EPS:
                 return q * e
     except Exception:
@@ -297,13 +140,13 @@ def _pnl_to_bps(pnl: float, *, entry_price: float | None, qty: float | None, not
     bps = |pnl| / notional * 10000
     """
     try:
-        pnl_f = float(pnl)
+        pnl_f = pnl
         nt = _estimate_notional(entry_price=entry_price, qty=qty, notional=notional)
         if nt is None or nt <= STATS_EPS:
             return None
-        bps = abs(pnl_f) / float(nt) * 10_000.0
+        bps = abs(pnl_f) / nt * 10_000.0
         if math.isfinite(bps) and bps > 0:
-            return float(bps)
+            return bps
     except Exception:
         pass
     return None
@@ -393,7 +236,7 @@ def _write_timebucket_buffers(
             bps = _pnl_to_bps(mfe_pnl_t[b], entry_price=entry_price, qty=qty, notional=notional)
             if bps is not None and bps > 0:
                 k = f"statsbuf:{strategy}:{symbol}:{tf}:{regime_key}:mfe_bps_t{b}"
-                pipe.lpush(k, str(float(bps)))
+                pipe.lpush(k, str(bps))
                 pipe.ltrim(k, 0, max(buf_max, 1) - 1)
                 if buf_ttl and buf_ttl > 0:
                     pipe.expire(k, buf_ttl)
@@ -401,7 +244,7 @@ def _write_timebucket_buffers(
             bps = _pnl_to_bps(mae_pnl_t[b], entry_price=entry_price, qty=qty, notional=notional)
             if bps is not None and bps > 0:
                 k = f"statsbuf:{strategy}:{symbol}:{tf}:{regime_key}:mae_bps_t{b}"
-                pipe.lpush(k, str(float(bps)))
+                pipe.lpush(k, str(bps))
                 pipe.ltrim(k, 0, max(buf_max, 1) - 1)
                 if buf_ttl and buf_ttl > 0:
                     pipe.expire(k, buf_ttl)
@@ -455,7 +298,7 @@ def _estimate_bps_from_pnl(pnl: float, *, entry_price: float | None, qty: float 
     If notional is missing and qty/entry are missing -> returns None (fail-open).
     """
     try:
-        pnl_f = float(pnl)
+        pnl_f = pnl
         if not math.isfinite(pnl_f):
             return None
         nt = _first_positive_float(notional)
@@ -464,11 +307,11 @@ def _estimate_bps_from_pnl(pnl: float, *, entry_price: float | None, qty: float 
             q = _first_nonzero_float(qty)
             if ep is None or q is None:
                 return None
-            nt = abs(float(q)) * float(ep)
+            nt = abs(q) * ep
         if nt <= STATS_EPS:
             return None
-        bps = abs(pnl_f) / float(nt) * 10_000.0
-        return float(bps) if math.isfinite(bps) and bps > 0 else None
+        bps = abs(pnl_f) / nt * 10_000.0
+        return bps if math.isfinite(bps) and bps > 0 else None
     except Exception:
         return None
 
@@ -548,7 +391,7 @@ def extract_empirical_triplet(trade_closed: dict[str, Any]) -> dict[str, Any]:
     # If tp1_hit and we have timestamps: tp1_hit_ts - entry_ts
     ttd_tp1_ms = 0
     try:
-        tp1_hit = int(_safe_int(trade_closed.get("tp1_hit") or 0))
+        tp1_hit = _safe_int(trade_closed.get("tp1_hit") or 0)
         if tp1_hit:
             tp1_ts = _safe_int(trade_closed.get("tp1_hit_ts_ms") or trade_closed.get("tp1_ts_ms") or 0)
             entry_ts = _safe_int(
@@ -559,7 +402,7 @@ def extract_empirical_triplet(trade_closed: dict[str, Any]) -> dict[str, Any]:
                 or 0
             )
             if tp1_ts > 0 and entry_ts > 0 and tp1_ts >= entry_ts:
-                ttd_tp1_ms = int(tp1_ts - entry_ts)
+                ttd_tp1_ms = tp1_ts - entry_ts
     except Exception:
         ttd_tp1_ms = 0
 
@@ -567,9 +410,9 @@ def extract_empirical_triplet(trade_closed: dict[str, Any]) -> dict[str, Any]:
         # IMPORTANT: entry regime, not exit regime
         # (otherwise your online calibration learns "wrong buckets" when regime flips mid-trade)
         "regime": _pick_entry_regime(trade_closed),
-        "mfe_bps": float(mfe_bps) if mfe_bps is not None else None,
-        "mae_bps": float(mae_bps) if mae_bps is not None else None,
-        "ttd_tp1_ms": int(ttd_tp1_ms) if ttd_tp1_ms > 0 else 0,
+        "mfe_bps": mfe_bps if mfe_bps is not None else None,
+        "mae_bps": mae_bps if mae_bps is not None else None,
+        "ttd_tp1_ms": ttd_tp1_ms if ttd_tp1_ms > 0 else 0,
     }
 
 
@@ -581,18 +424,18 @@ def _to_str(v) -> str:
     return str(v)
 
 
-def _safe_int(v) -> int:
+def _safe_int(v, default: int = 0) -> int:
     try:
         return int(float(v))
     except Exception:
-        return 0
+        return default
 
 
-def _safe_float(v) -> float:
+def _safe_float(v, default: float = 0.0) -> float:
     try:
         return float(v)
     except Exception:
-        return 0.0
+        return default
 
 
 def _boolish(v) -> bool:
@@ -978,10 +821,10 @@ class StatsAggregator:
 
                 # --- Tail ARGV: empirical buffers control & values ---
                 # Keep these at the end and read from Lua via ARGV[#ARGV-k] to avoid index fragility.
-                str(regime_key),
+                regime_key,
                 "1" if EMP_LEVELS_BUF_ENABLED else "0",
-                str(int(max(10, EMP_LEVELS_BUF_MAX))),
-                str(int(max(0, EMP_LEVELS_BUF_TTL_SEC))),
+                str(max(10, EMP_LEVELS_BUF_MAX)),
+                str(max(0, EMP_LEVELS_BUF_TTL_SEC)),
                 str(emp.get("mfe_bps") if emp.get("mfe_bps") is not None else ""),
                 str(emp.get("mae_bps") if emp.get("mae_bps") is not None else ""),
                 str(int(emp.get("ttd_tp1_ms") or 0)),
@@ -1134,13 +977,13 @@ class StatsAggregator:
                     # entry_ts_ms is epoch ms in this pipeline; harden anyway.
                     entry_ts = 0
                     try:
-                        entry_ts = int(normalize_epoch_ms_strict(trade_closed.get("entry_ts_ms") or pos.get("entry_ts_ms") or 0))
+                        entry_ts = normalize_epoch_ms_strict(trade_closed.get("entry_ts_ms") or pos.get("entry_ts_ms") or 0)
                     except Exception:
                         entry_ts = 0
                     sess = "na"
                     if entry_ts > 0:
                         try:
-                            sess = str(session_from_ts_ms(int(entry_ts)))
+                            sess = session_from_ts_ms(entry_ts)
                         except Exception:
                             sess = "na"
 
@@ -1149,9 +992,9 @@ class StatsAggregator:
                         redis_client,
                         cfg=sp_cfg,
                         symbol=symbol,
-                        venue=str(venue),
-                        session=str(sess),
-                        tf=str(tf2),
+                        venue=venue,
+                        session=sess,
+                        tf=tf2,
                         kind=(knd or "na"),
                         now_ms=now_ms2,
                         realized_spread_bps=trade_closed.get("realized_spread_bps") or trade_closed.get("realized_spread") or 0.0,
@@ -1178,33 +1021,22 @@ class StatsAggregator:
             # ------------------------------------------------------------------
             try:
                 from services.reliability_calibrator import (
-                    ReliabilityCalConfig,
-                    extract_dims_for_calibration,
-                    outcome_hit_from_closed,
-                    update_reliability_curve,
+                    RelCalConfig,
+                    update_reliability_curves,
                 )
 
                 # Avoid env parsing on each aggregation tick: cache config on self.
-                rcfg = getattr(self, "_rel_cal_cfg", None)
+                rcfg = getattr(StatsAggregator, "_rel_cal_cfg", None)
                 if rcfg is None:
-                    rcfg = ReliabilityCalConfig.from_env()
-                    self._rel_cal_cfg = rcfg
+                    rcfg = RelCalConfig.from_env()
+                    StatsAggregator._rel_cal_cfg = rcfg
                 if rcfg.enabled:
-                    symbol2, kind2, regime2, tf2, conf_pct2, ts2 = extract_dims_for_calibration(
-                        pos=pos if isinstance(pos, dict) else {},
-                        closed=trade_closed if isinstance(trade_closed, dict) else {},
-                    )
-                    hit2 = outcome_hit_from_closed(cfg=rcfg, closed=trade_closed if isinstance(trade_closed, dict) else {})
-                    update_reliability_curve(
+                    update_reliability_curves(
                         redis_client,
                         cfg=rcfg,
-                        symbol=symbol2,
-                        kind=kind2,
-                        regime=regime2,
-                        tf=tf2,
-                        conf_pct=float(conf_pct2),
-                        hit=int(hit2),
-                        ts_ms=int(ts2),
+                        pos=pos if isinstance(pos, dict) else {},
+                        trade_closed=trade_closed if isinstance(trade_closed, dict) else {},
+                        now_ms=None,
                     )
             except Exception:
                 pass
@@ -1344,14 +1176,14 @@ class StatsAggregator:
                         update_slippage_ema(
                             redis_client,
                             cfg=cfg_s,
-                            symbol=str(sym),
-                            venue=str(venue),
-                            session=str(sess),
-                            tf=str(tf_key),
-                            kind=str(kind_key) if kind_key is not None else None,
+                            symbol=sym,
+                            venue=venue,
+                            session=sess,
+                            tf=tf_key,
+                            kind=kind_key if kind_key is not None else None,
                             now_ms=now_ms,
-                            realized_slippage_bps=float(slip_bps),
-                            realized_spread_bps=float(spr_bps),
+                            realized_slippage_bps=slip_bps,
+                            realized_spread_bps=spr_bps,
                         )
             except Exception:
                 pass
@@ -1433,7 +1265,7 @@ class StatsAggregator:
                     giveback = _safe_float(trade_closed.get("giveback") or 0.0, 0.0)
                     giveback_r = 0.0
                     if one_r > STATS_EPS:
-                        giveback_r = max(0.0, float(giveback) / float(one_r))
+                        giveback_r = max(0.0, giveback / one_r)
 
                     trailing_stop_flag = 1 if close_bucket == "TRAILING_STOP" else 0
                     update_trail_giveback_ema(
@@ -1443,9 +1275,9 @@ class StatsAggregator:
                         symbol=symbol,
                         tf=tf,
                         regime=regime_key,
-                        giveback_r=float(giveback_r),
-                        trailing_stop=int(trailing_stop_flag),
-                        now_ms=int(now_ms),
+                        giveback_r=giveback_r,
+                        trailing_stop=trailing_stop_flag,
+                        now_ms=now_ms,
                     )
             except Exception:
                 pass
@@ -1514,11 +1346,11 @@ class StatsAggregator:
                     update_tp1_hit_ema(
                         redis_client,
                         cfg=ev_cfg,
-                        kind=str(kind),
+                        kind=kind,
                         symbol=symbol,
                         tf=tf,
-                        regime=str(regime),
-                        tp1_hit=int(tp1_hit),
+                        regime=regime,
+                        tp1_hit=tp1_hit,
                     )
             except Exception:
                 pass
@@ -1625,6 +1457,105 @@ class StatsAggregator:
                 update_reliability_curve(redis_client, closed=trade_closed, pos=pos if isinstance(pos, dict) else None)
             except Exception:
                 pass
+
+    # ------------------------------------------------------------------
+    # Read helpers — mirror the key schema written by update_stats / Lua.
+    # ------------------------------------------------------------------
+
+    @classmethod
+    def get_all_strategies(cls, redis_client) -> list[str]:
+        try:
+            raw = redis_client.smembers("stats:strategies")
+            return [v.decode() if isinstance(v, bytes) else str(v) for v in raw]
+        except Exception:
+            return []
+
+    @classmethod
+    def get_strategy_symbols(cls, redis_client, strategy: str) -> list[str]:
+        try:
+            raw = redis_client.smembers(f"stats:symbols:{strategy}")
+            return [v.decode() if isinstance(v, bytes) else str(v) for v in raw]
+        except Exception:
+            return []
+
+    @classmethod
+    def get_strategy_timeframes(cls, redis_client, strategy: str, symbol: str) -> list[str]:
+        try:
+            raw = redis_client.smembers(f"stats:tfs:{strategy}:{symbol}")
+            return [v.decode() if isinstance(v, bytes) else str(v) for v in raw]
+        except Exception:
+            return []
+
+    @classmethod
+    def get_strategy_sources(cls, redis_client, strategy: str, symbol: str, tf: str) -> list[str]:
+        try:
+            raw = redis_client.smembers(f"stats:sources:{strategy}:{symbol}:{tf}")
+            return [v.decode() if isinstance(v, bytes) else str(v) for v in raw]
+        except Exception:
+            return []
+
+    @classmethod
+    def get_stats_by_source(cls, redis_client, strategy: str, symbol: str, tf: str, source: str) -> dict[str, Any]:
+        try:
+            raw = redis_client.hgetall(f"stats:{strategy}:{symbol}:{tf}:{source}")
+            return {
+                (k.decode() if isinstance(k, bytes) else str(k)): (v.decode() if isinstance(v, bytes) else str(v))
+                for k, v in raw.items()
+            }
+        except Exception:
+            return {}
+
+    @classmethod
+    def get_stats(cls, redis_client, strategy: str, symbol: str, tf: str) -> dict[str, Any]:
+        try:
+            raw = redis_client.hgetall(f"stats:{strategy}:{symbol}:{tf}")
+            return {
+                (k.decode() if isinstance(k, bytes) else str(k)): (v.decode() if isinstance(v, bytes) else str(v))
+                for k, v in raw.items()
+            }
+        except Exception:
+            return {}
+
+    @classmethod
+    def get_strategy_summary(cls, redis_client, strategy: str) -> dict[str, Any]:
+        summary: dict[str, Any] = {}
+        try:
+            for symbol in cls.get_strategy_symbols(redis_client, strategy):
+                for tf in cls.get_strategy_timeframes(redis_client, strategy, symbol):
+                    s = cls.get_stats(redis_client, strategy, symbol, tf)
+                    if not s:
+                        continue
+                    for k, v in s.items():
+                        if k in summary:
+                            try:
+                                summary[k] = str(float(summary[k]) + float(v))
+                            except Exception:
+                                pass
+                        else:
+                            summary[k] = v
+        except Exception:
+            pass
+        return summary
+
+    @classmethod
+    def get_all_stats(cls, redis_client) -> dict[str, dict[str, Any]]:
+        result: dict[str, dict[str, Any]] = {}
+        try:
+            for strategy in cls.get_all_strategies(redis_client):
+                for symbol in cls.get_strategy_symbols(redis_client, strategy):
+                    for tf in cls.get_strategy_timeframes(redis_client, strategy, symbol):
+                        key = f"{strategy}:{symbol}:{tf}"
+                        try:
+                            raw = redis_client.hgetall(f"stats:{strategy}:{symbol}:{tf}")
+                            result[key] = {
+                                (k.decode() if isinstance(k, bytes) else str(k)): (v.decode() if isinstance(v, bytes) else str(v))
+                                for k, v in raw.items()
+                            }
+                        except Exception:
+                            pass
+        except Exception:
+            pass
+        return result
 
 
 def _post_applied_hooks(redis_client: Any, pos: dict[str, Any], trade_closed: dict[str, Any]) -> None:

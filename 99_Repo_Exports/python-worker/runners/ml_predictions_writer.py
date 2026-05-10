@@ -6,6 +6,7 @@ import socket
 import time
 from dataclasses import dataclass
 from typing import Any
+from core.redis_keys import RedisStreams as RS
 
 try:
     import redis.asyncio as aioredis  # type: ignore
@@ -205,7 +206,7 @@ class Cfg:
         host = socket.gethostname()
         return Cfg(
             redis_url=_env("REDIS_URL", "redis://redis-worker-1:6379/0"),
-            stream=_env("ML_PREDICTIONS_STREAM", "metrics:ml_confirm"),
+            stream=_env("ML_PREDICTIONS_STREAM", RS.ML_CONFIRM_METRICS),
             group=_env("ML_PREDICTIONS_CG", "ml_persistence_cg"),
             consumer=_env("ML_PREDICTIONS_CONSUMER", f"{host}:{os.getpid()}"),
             block_ms=_env_int("ML_PREDICTIONS_BLOCK_MS", 5000),

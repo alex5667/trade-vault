@@ -515,7 +515,7 @@ class SignalDispatcher:
                 "envelope": envelope,
                 "ts": get_ny_time_millis(),
                 "consumer": self.consumer,
-            },
+            }
             self.redis.xadd(self.dlq_stream, {"data": json.dumps(payload)}, maxlen=_STREAM_RETENTION.get(self.dlq_stream, 10_000))
         except Exception as dlq_err:
             # True silent loss: message couldn't be written to DLQ either.

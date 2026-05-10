@@ -190,11 +190,11 @@ def check_closed_trades(r: redis.Redis, count: int = 1000) -> dict[str, Any]:
     print("-" * 80)
 
     try:
-        stream_length = check_stream_length(r, "trades:closed")
+        stream_length = check_stream_length(r, RS.TRADES_CLOSED)
         print(f"  📊 Всего записей в trades:closed: {stream_length}")
 
         # Read recent entries
-        entries = read_recent_entries(r, "trades:closed", count=count, filter_symbol=SYMBOL)
+        entries = read_recent_entries(r, RS.TRADES_CLOSED, count=count, filter_symbol=SYMBOL)
 
         # Filter by source
         xauusdt_trades = []

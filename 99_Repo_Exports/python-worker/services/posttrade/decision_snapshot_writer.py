@@ -73,6 +73,7 @@ from typing import Any
 
 from utils.task_manager import safe_create_task
 from utils.time_utils import get_ny_time_millis
+from core.redis_keys import RedisStreams as RS
 
 try:
     import redis.asyncio as aioredis  # type: ignore
@@ -134,7 +135,7 @@ def _now_ms() -> int:
 class DecisionSnapshotWriterConfig:
     # Redis stream
     redis_url: str = _env("REDIS_URL", "redis://redis-worker-1:6379/0")
-    stream: str = _env("DECISION_SNAPSHOT_STREAM", "events:decision_snapshot")
+    stream: str = _env("DECISION_SNAPSHOT_STREAM", RS.DECISION_SNAPSHOT)
     group: str = _env("DECISION_SNAPSHOT_CG", "decision_snapshot_writer")
     consumer: str = _consumer_id()
     block_ms: int = _env_int("DECISION_SNAPSHOT_XREAD_BLOCK_MS", 2000)
@@ -157,7 +158,7 @@ class DecisionSnapshotWriterConfig:
 
     # DLQ
     dlq_enable: bool = _env_bool("DECISION_SNAPSHOT_DLQ_ENABLE", True)
-    dlq_stream: str = _env("DECISION_SNAPSHOT_DLQ_STREAM", "stream:decision_snapshot:dlq")
+    dlq_stream: str = _env("DECISION_SNAPSHOT_DLQ_STREAM", RS.DECISION_SNAPSHOT_DLQ)
     dlq_maxlen: int = _env_int("DECISION_SNAPSHOT_DLQ_MAXLEN", 200000)
     dlq_payload_max_bytes: int = _env_int("DECISION_SNAPSHOT_DLQ_PAYLOAD_MAX_BYTES", 8192)
 

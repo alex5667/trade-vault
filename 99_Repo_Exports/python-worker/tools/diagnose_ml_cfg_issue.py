@@ -90,7 +90,7 @@ def main():
     # 6. Тест через MLConfirmGate
     print("\n6. MLConfirmGate Test:")
     try:
-        from services.ml_confirm_gate import MLConfirmGate
+        from services.ml_confirm import MLConfirmGate
 
         gate = MLConfirmGate.from_env()
         print(f"   ✅ Gate created (mode: {gate.mode})")

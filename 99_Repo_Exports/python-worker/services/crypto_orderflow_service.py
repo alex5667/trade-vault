@@ -77,7 +77,7 @@ from services.orderflow.burst_flusher import BurstFlusher
 from services.orderflow.redis_pools import RedisPoolSet
 from services.orderflow.service_config import ServiceConfig
 from services.orderflow.signal_gate import SignalGate
-from services.orderflow.tick_processor import TickProcessor
+from services.orderflow.components.tick_processor import TickProcessor
 import contextlib
 
 try:
@@ -369,7 +369,7 @@ class CryptoOrderflowService:
         # ML gate + OFConfirmEngine (P0: fail-open on import error)
         _ml_gate = None
         try:
-            from services.ml_confirm_gate import MLConfirmGate  # noqa: PLC0415
+            from services.ml_confirm import MLConfirmGate  # noqa: PLC0415
             _ml_gate = MLConfirmGate.from_env()
         except ImportError as _imp_err:
             if os.getenv("ML_CONFIRM_MODE", "OFF").upper() == "ENFORCE" and os.getenv("ML_CONFIRM_FAIL_POLICY", "OPEN").upper() == "CLOSED":

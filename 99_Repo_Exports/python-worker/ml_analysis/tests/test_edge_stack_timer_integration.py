@@ -25,7 +25,7 @@ def test_dataset_report_json_structure():
 
     report = {
         "signal_stream": RS.OF_INPUTS,
-        "closed_stream": "trades:closed",
+        "closed_stream": RS.TRADES_CLOSED,
         "signals_raw": 1000,
         "signals_parsed": 950,
         "closes_raw": 1000,
@@ -38,7 +38,7 @@ def test_dataset_report_json_structure():
         "r_mult_p95": 0.45,
         "drop": drop.to_dict(),
         "generated_ms": 1700000000000,
-    },
+    }
 
     # Validate structure
     assert "joined" in report
@@ -103,7 +103,7 @@ def test_quarantine_jsonl_structure():
         q.write(
             "close",
             "close_invalid_risk",
-            stream="trades:closed",
+            stream=RS.TRADES_CLOSED,
             msg_id="2-0",
             data={"sid": "test", "risk_usd": 0.0},
         )
@@ -147,7 +147,7 @@ def test_report_drop_diagnostics():
                 {"sid_close": "test-1", "nearest_signal_sid": "test-2", "delta_ms": 500}
             ],
         },
-    },
+    }
 
     # Diagnosis checks
     signal_parse_count = report["drop"]["counts"].get("signal_parse_none", 0)

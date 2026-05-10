@@ -18,6 +18,7 @@ from typing import Any
 import pytest
 
 from news_pipeline.p6_dto import stable_event_uuid
+from core.redis_keys import RedisStreams as RS
 
 # ── Minimal fakes ──────────────────────────────────────────────────────────────
 
@@ -78,7 +79,7 @@ async def _handle_doc(
     model_id: str,
     redis: _FakeRedis,
     pool: _FakePool,
-    stream_events: str = "news:analysis",
+    stream_events: str = RS.NEWS_ANALYSIS,
 ) -> bool:
     """Simulates reasoner's insert+emit logic.
 

@@ -8,6 +8,7 @@ import numpy as np
 import redis.asyncio as aioredis
 
 from utils.time_utils import get_ny_time_millis
+from core.redis_keys import RedisStreams as RS
 
 # Configuration
 SYMBOLS = ["BTCUSDT", "ETHUSDT"]
@@ -67,7 +68,7 @@ async def analyze_symbol(r_main, r_ticks, symbol):
     # Split-stream aware: read from per-symbol stream if available, else legacy
     stream_template = os.getenv("MICROBAR_PER_SYMBOL_STREAM_TEMPLATE", "events:microbar_closed:{sym}")
     symbols_set = os.getenv("MICROBAR_SYMBOLS_SET", "events:microbar_closed:symbols")
-    legacy_key = os.getenv("MICROBAR_LEGACY_STREAM", "events:microbar_closed")
+    legacy_key = os.getenv("MICROBAR_LEGACY_STREAM", RS.EVENTS_MICROBAR_CLOSED)
 
     all_microbars = []
     # Try per-symbol stream first

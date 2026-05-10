@@ -5,6 +5,7 @@ import os
 import re
 
 from core.redis_keys import RS  # canonical stream key constants
+from core.redis_keys import RedisStreams as RS
 
 
 def _normalize_pattern_key(label: str) -> str:
@@ -109,7 +110,7 @@ BINANCE_STREAMS: list = os.getenv(
 # ===== XAU/MT5 Configuration =====
 
 # XAU tick stream configuration
-XAU_TICK_STREAM: str = os.getenv("XAU_TICK_STREAM", "stream:tick_")
+XAU_TICK_STREAM: str = os.getenv("XAU_TICK_STREAM", RS.TB_TICK_PREFIX)
 XAU_TICK_STREAM_MAXLEN: int = int(os.getenv("XAU_TICK_STREAM_MAXLEN", "10000"))
 
 # XAU book stream configuration

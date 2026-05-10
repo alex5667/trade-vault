@@ -86,7 +86,7 @@ def train_exec_cost_model(rows_jsonl: str, *, out_model_json: str, out_report_js
             'cost_p50_bps': float(_quantile(vals, 0.50)),
             'cost_p90_bps': float(_quantile(vals, 0.90)),
             'exec_risk_ref_bps_ctx': float(max(_quantile(vals, 0.75), global_p50, 1e-9)),
-        },
+        }
 
     model = {
         'kind': 'ofc_exec_cost_v1',

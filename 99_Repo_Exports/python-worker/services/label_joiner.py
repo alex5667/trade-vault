@@ -190,7 +190,7 @@ class LabelJoinerService:
             "label": metrics,
             "trace_id": trace_id,
         }
-        self.redis.xadd("ml_replay_inputs_v1", {"json": json.dumps(data)}, maxlen=200000, approximate=True)
+        self.redis.xadd(RS.ML_REPLAY_INPUTS, {"json": json.dumps(data)}, maxlen=200000, approximate=True)
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)

@@ -80,7 +80,7 @@ async def test_publish_signal_bookkeeping_happens_at_end():
         "signal_id": "test_sig",
         "confidence": 0.8,
         "indicators": {"of_confirm_ok": 1, "delta_z": 3.0} # Real dict
-    },
+    }
 
     # Mocking external calls in SignalPipeline
     with patch("services.orderflow.signal_pipeline.preprocess_signal_for_publish"), \

@@ -27,6 +27,7 @@ import redis
 from domain.evidence_keys import MetaKeys
 from utils.time_utils import get_ny_time_millis
 import contextlib
+from core.redis_keys import RedisStreams as RS
 
 
 def now_ms() -> int:
@@ -130,11 +131,11 @@ def load_cfg() -> Cfg:
     consumer = env_str("CLOSE_WAIT_CONSUMER", f"drainer-{os.getpid()}")
     return Cfg(
         redis_url=env_str("REDIS_URL", "redis://localhost:6379/0"),
-        close_wait_stream=env_str("CLOSE_WAIT_STREAM", "trades:close_wait"),
+        close_wait_stream=env_str("CLOSE_WAIT_STREAM", RS.TRADES_CLOSE_WAIT),
         close_wait_group=env_str("CLOSE_WAIT_GROUP", "close_wait_drainer_v1"),
         close_wait_consumer=consumer,
-        trades_closed_stream=env_str("TRADES_CLOSED_STREAM", "trades:closed"),
-        ml_replay_inputs_stream=env_str("ML_REPLAY_INPUTS_STREAM", "ml_replay_inputs_v1"),
+        trades_closed_stream=env_str("TRADES_CLOSED_STREAM", RS.TRADES_CLOSED),
+        ml_replay_inputs_stream=env_str("ML_REPLAY_INPUTS_STREAM", RS.ML_REPLAY_INPUTS),
         write_ml_replay_inputs=env_bool("WRITE_ML_REPLAY_INPUTS", "1"),
         decision_key_prefix=env_str("DECISION_KEY_PREFIX", "decision:"),
         dedup_key_prefix=env_str("DEDUP_KEY_PREFIX", "join:closed:"),

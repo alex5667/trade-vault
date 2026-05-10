@@ -35,7 +35,7 @@ _SCOPE_TO_ENV = {
     "edge": "EDGE_EXEC_HEALTH_MODE",
     "pipeline": "PIPELINE_EXEC_HEALTH_MODE",
     "entry_policy": "ENTRY_EXEC_HEALTH_MODE",
-},
+}
 
 
 def _f(x: Any, d: float = 0.0) -> float:

@@ -57,6 +57,7 @@ import redis
 from prometheus_client import Counter, Gauge, Histogram, start_http_server
 
 from utils.time_utils import get_ny_time_millis
+from core.redis_keys import RedisStreams as RS
 
 # Bootstrap import paths (works for both repo-root/services and tick_flow_full/services copies)
 
@@ -162,7 +163,7 @@ def _now_ms() -> int:
 class LiquidationMapService:
     def __init__(self) -> None:
         # Streams
-        self.stream_in = os.getenv("LIQ_EVT_STREAM", "stream:liq_evt")
+        self.stream_in = os.getenv("LIQ_EVT_STREAM", RS.LIQ_EVT)
         self.group = os.getenv("LIQMAP_GROUP", "liqmap_group")
         self.consumer = os.getenv("LIQMAP_CONSUMER") or f"{socket.gethostname()}:{os.getpid()}"
 
@@ -201,7 +202,9 @@ class LiquidationMapService:
         # Optional snapshot stream
         self.publish_stream_enabled = os.getenv("LIQMAP_PUBLISH_STREAM_ENABLED", "0") == "1"
         self.snapshot_stream_prefix = os.getenv("LIQMAP_SNAPSHOT_STREAM_PREFIX", "stream:liqmap_snapshot")
-        self.snapshot_stream_maxlen = int(os.getenv("LIQMAP_SNAPSHOT_STREAM_MAXLEN", "20000"))
+        # 500 entries/stream × 4 windows × ~250 symbols × ~1 KB ≈ 500 MB total.
+        # Old default (20000) caused ~10 GB on worker-2 → OOM swap fill (2026-05-09).
+        self.snapshot_stream_maxlen = int(os.getenv("LIQMAP_SNAPSHOT_STREAM_MAXLEN", "500"))
 
         # Runner
         self.r = get_redis()

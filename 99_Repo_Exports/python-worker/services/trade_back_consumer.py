@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from services.trade_closed_hydrator import hydrate_trade_closed
+from core.redis_keys import RedisStreams as RS
 
 
 class TradeBackConsumer:
@@ -14,7 +15,7 @@ class TradeBackConsumer:
 
     def poll_recent(self, cutoff_ms: int, limit: int = 2000):
         min_id = f"{cutoff_ms}-0"
-        entries = self.redis.xrevrange("trades:closed", max="+", min=min_id, count=limit) or []
+        entries = self.redis.xrevrange(RS.TRADES_CLOSED, max="+", min=min_id, count=limit) or []
         out = []
         for _id, fields in entries:
             t = self._norm_map(fields or {})

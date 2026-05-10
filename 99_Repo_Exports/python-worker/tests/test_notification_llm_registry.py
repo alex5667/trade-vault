@@ -136,7 +136,7 @@ def test_sanitize_parses_payload_json_and_preserves_identity():
         "payload_json": '{"post_n":17,"post_lcb_r":-0.42}',
         "severity": "critical",
         "junk": "drop-me",
-    },
+    }
     out = sanitize_payload("rollback_alert", payload)
     assert out["symbol"] == "BTCUSDT"
     assert out["sid"] == "abc"

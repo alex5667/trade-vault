@@ -457,7 +457,7 @@ async def run() -> bool:
         return False
     db_url = os.getenv("DATABASE_URL", "postgresql://trading:trading@scanner-postgres:5432/scanner_analytics")
     redis_url = os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
-    stream = os.getenv("OF_GATE_METRICS_STREAM", "metrics:of_gate")
+    stream = os.getenv("OF_GATE_METRICS_STREAM", RS.OF_GATE_METRICS)
 
     lookback_h = _env_int("PROMOTE_LOOKBACK_HOURS", "24")
     max_scan = _env_int("PROMOTE_MAX_SCAN", "200000")

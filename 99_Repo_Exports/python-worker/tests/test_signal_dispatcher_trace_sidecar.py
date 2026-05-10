@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from services.signal_dispatcher import SignalDispatcher
+from services.dispatch.dispatcher_app import SignalDispatcher
 
 
 class FakeRedis:

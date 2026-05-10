@@ -20,7 +20,9 @@ import html
 import json
 import os
 from datetime import datetime
-from typing import Any
+from typing import Any, cast
+
+from redis import Redis  # type: ignore
 
 from common.log import setup_logger
 from core.redis_client import get_redis
@@ -52,8 +54,9 @@ class ReportingService:
         self.logger = setup_logger("ReportingService")
 
         # Redis клиент
+        self.redis: Redis
         if redis_url:
-            import redis as redis_lib
+            import redis as redis_lib  # type: ignore
             self.redis = redis_lib.from_url(redis_url, decode_responses=True)
         else:
             self.redis = get_redis()
@@ -135,7 +138,7 @@ class ReportingService:
         risk = abs(entry - sl)
         if risk <= 1e-12:
             return 0.0
-        if str(direction).upper() == "LONG":
+        if direction.upper() == "LONG":
             reward = exit_price - entry
         else:
             reward = entry - exit_price
@@ -188,7 +191,7 @@ class ReportingService:
                 # Агрегация по всем TF для данного символа (С ПОЛНЫМИ метриками)
                 tfs = StatsAggregator.get_strategy_timeframes(self.redis, strategy, symbol)
 
-                combined = {
+                combined: dict[str, Any] = {
                     "strategy": strategy,
                     "symbol": symbol,
                     "total_trades": 0,
@@ -261,34 +264,93 @@ class ReportingService:
                     combined["tp2_then_sl"] += self._to_int(s.get("tp2_then_sl"))
                     combined["tp3_then_sl"] += self._to_int(s.get("tp3_then_sl"))
 
-                total = combined["total_trades"]
+                total = self._to_float(combined["total_trades"])
                 if total > 0:
-                    combined["winrate"] = round(combined["wins"] / total * 100.0, 2)
-                    combined["avg_pnl"] = round(combined["total_pnl"] / total, 2)
-                    combined["avg_r"] = round(combined["sum_r"] / total, 4)
-                    combined["avg_duration_ms"] = round(combined["sum_duration_ms"] / total, 0)
+                    combined["winrate"] = round(self._to_float(combined["wins"]) / total * 100.0, 2)
+                    combined["avg_pnl"] = round(self._to_float(combined["total_pnl"]) / total, 2)
+                    combined["avg_r"] = round(self._to_float(combined["sum_r"]) / total, 4)
+                    combined["avg_duration_ms"] = round(self._to_float(combined["sum_duration_ms"]) / total, 0)
                     combined["profit_factor"] = round(
-                        self._safe_div(combined["gross_profit"], combined["gross_loss"], 0.0), 3
+                        self._safe_div(self._to_float(combined["gross_profit"]), self._to_float(combined["gross_loss"]), 0.0), 3
                     )
-                    if combined["missed_profit_trades"] > 0:
+                    missed_trades = self._to_float(combined["missed_profit_trades"])
+                    if missed_trades > 0:
                         combined["missed_profit_avg"] = round(
-                            combined["missed_profit_total"] / combined["missed_profit_trades"], 2
+                            self._to_float(combined["missed_profit_total"]) / missed_trades, 2
                         )
                     else:
                         combined["missed_profit_avg"] = 0.0
 
                 combined["trailing_effectiveness"] = round(
-                    self._safe_div(combined["trailing_stop_hits"], combined["trailing_started"], 0.0) * 100.0, 2
+                    self._safe_div(self._to_float(combined["trailing_stop_hits"]), self._to_float(combined["trailing_started"]), 0.0) * 100.0, 2
                 )
 
                 return combined
             else:
                 # Общая сводка по стратегии
-                return StatsAggregator.get_strategy_summary(self.redis, strategy)
+                return self._get_strategy_summary(strategy)
 
         except Exception as e:
             self.logger.error(f"❌ Ошибка получения отчёта: {e}", exc_info=True)
             return {}
+
+    def _get_strategy_summary(self, strategy: str) -> dict[str, Any]:
+        """Внутренний метод для агрегации сводки по стратегии."""
+        from services.stats_aggregator import StatsAggregator
+        
+        symbols = StatsAggregator.get_strategy_symbols(self.redis, strategy)
+        combined: dict[str, Any] = {
+            "strategy": strategy,
+            "total_trades": 0, "wins": 0, "losses": 0, "breakevens": 0,
+            "total_pnl": 0.0, "total_pnl_gross": 0.0, "total_fees": 0.0,
+            "gross_profit": 0.0, "gross_loss": 0.0,
+            "sum_r": 0.0, "sum_duration_ms": 0.0,
+            "missed_profit_total": 0.0, "missed_profit_trades": 0, "giveback_total": 0.0,
+            "trailing_started": 0, "trailing_stop_hits": 0, "trailing_moves_total": 0.0,
+        }
+        for sym in symbols:
+            s = self.get_strategy_report(strategy, sym, include_sources=False)
+            if not s:
+                continue
+            combined["total_trades"] += self._to_int(s.get("total_trades"))
+            combined["wins"] += self._to_int(s.get("wins"))
+            combined["losses"] += self._to_int(s.get("losses"))
+            combined["breakevens"] += self._to_int(s.get("breakevens"))
+            combined["total_pnl"] += self._to_float(s.get("total_pnl"))
+            combined["total_pnl_gross"] += self._to_float(s.get("total_pnl_gross"))
+            combined["total_fees"] += self._to_float(s.get("total_fees"))
+            combined["gross_profit"] += self._to_float(s.get("gross_profit"))
+            combined["gross_loss"] += self._to_float(s.get("gross_loss"))
+            combined["sum_r"] += self._to_float(s.get("sum_r"))
+            combined["sum_duration_ms"] += self._to_float(s.get("sum_duration_ms"))
+            combined["missed_profit_total"] += self._to_float(s.get("missed_profit_total"))
+            combined["missed_profit_trades"] += self._to_int(s.get("missed_profit_trades"))
+            combined["giveback_total"] += self._to_float(s.get("giveback_total"))
+            combined["trailing_started"] += self._to_int(s.get("trailing_started"))
+            combined["trailing_stop_hits"] += self._to_int(s.get("trailing_stop_hits"))
+            combined["trailing_moves_total"] += self._to_float(s.get("trailing_moves_total"))
+
+        total = self._to_float(combined["total_trades"])
+        if total > 0:
+            combined["winrate"] = round(self._to_float(combined["wins"]) / total * 100.0, 2)
+            combined["avg_pnl"] = round(self._to_float(combined["total_pnl"]) / total, 2)
+            combined["avg_r"] = round(self._to_float(combined["sum_r"]) / total, 4)
+            combined["avg_duration_ms"] = round(self._to_float(combined["sum_duration_ms"]) / total, 0)
+            combined["profit_factor"] = round(
+                self._safe_div(self._to_float(combined["gross_profit"]), self._to_float(combined["gross_loss"]), 0.0), 3
+            )
+            missed_trades = self._to_float(combined["missed_profit_trades"])
+            if missed_trades > 0:
+                combined["missed_profit_avg"] = round(
+                    self._to_float(combined["missed_profit_total"]) / missed_trades, 2
+                )
+            else:
+                combined["missed_profit_avg"] = 0.0
+
+        combined["trailing_effectiveness"] = round(
+            self._safe_div(self._to_float(combined["trailing_stop_hits"]), self._to_float(combined["trailing_started"]), 0.0) * 100.0, 2
+        )
+        return combined
 
     def get_all_strategies_report(self) -> dict[str, Any]:
         """
@@ -300,9 +362,10 @@ class ReportingService:
         from services.stats_aggregator import StatsAggregator
 
         try:
-            strategies = StatsAggregator.get_all_strategies(self.redis)
+            raw_strategies = cast(Any, self.redis.smembers("stats:strategies"))
+            strategies = [v.decode() if isinstance(v, bytes) else str(v) for v in raw_strategies] if raw_strategies else []
 
-            result = {
+            result: dict[str, Any] = {
                 "timestamp": get_ny_time_millis(),
                 "strategies": {},
                 "total_trades": 0,
@@ -312,7 +375,7 @@ class ReportingService:
             }
 
             for strategy in strategies:
-                summary = StatsAggregator.get_strategy_summary(self.redis, strategy)
+                summary = self._get_strategy_summary(strategy)
                 if summary:
                     result["strategies"][strategy] = summary
                     result["total_trades"] += int(summary.get("total_trades", 0))
@@ -367,14 +430,16 @@ class ReportingService:
 
             trade_ids = self.redis.lrange(list_key, start, end)
 
-            # Переворачиваем, чтобы новые были первыми
+            # Приводим к списку на случай если это Awaitable (в тестах) и переворачиваем
+            if not isinstance(trade_ids, list):
+                trade_ids = list(trade_ids)  # type: ignore[arg-type]
             trade_ids.reverse()
 
             # Получаем детали каждой сделки
             trades = []
             for trade_id in trade_ids:
                 order_data = self.redis.hgetall(f"order:{trade_id}")
-                if order_data:
+                if order_data and isinstance(order_data, dict):
                     trades.append(order_data)
 
             return trades
@@ -395,7 +460,7 @@ class ReportingService:
         """
         try:
             order_data = self.redis.hgetall(f"order:{order_id}")
-            if not order_data:
+            if not order_data or not isinstance(order_data, dict):
                 return None
 
             signal_id = (
@@ -407,11 +472,15 @@ class ReportingService:
 
             signal_data = {}
             if signal_id:
-                signal_data = self.redis.hgetall(f"signal:{signal_id}") or {}
+                sig_raw = self.redis.hgetall(f"signal:{signal_id}")
+                if isinstance(sig_raw, dict):
+                    signal_data = sig_raw
 
             closed_summary = {}
             if signal_id:
-                closed_summary = self.redis.hgetall(f"trades:closed:{signal_id}") or {}
+                closed_raw = self.redis.hgetall(f"trades:closed:{signal_id}")
+                if isinstance(closed_raw, dict):
+                    closed_summary = closed_raw
 
             events = self._get_trade_events(order_id)
 
@@ -428,7 +497,7 @@ class ReportingService:
     def _get_trade_events(self, order_id: str, limit: int = 1000) -> list[dict[str, Any]]:
         """Получение событий по сделке из потока events:trades"""
         try:
-            events = self.redis.xrevrange(RS.EVENTS_TRADES, count=int(limit))
+            events = cast(Any, self.redis.xrevrange(RS.EVENTS_TRADES, count=limit))
 
             trade_events = []
             for event_id, event_data in events:
@@ -464,30 +533,29 @@ class ReportingService:
         - dedup_key: дедупликация на стороне gateway/бота
         - meta: JSON с контекстом (для логов/аналитики)
         """
+        notify_stream = os.getenv("NOTIFY_STREAM", RS.NOTIFY_TELEGRAM)
         try:
-            notify_stream = os.getenv("NOTIFY_STREAM", RS.NOTIFY_TELEGRAM)
-
             # Recommendation C: Circuit Breaker for Telegram notifications
             try:
                 q_len = self.redis.xlen(notify_stream)
-                if q_len > 10000:
+                if isinstance(q_len, int) and q_len > 10000:
                     self.logger.error(f"🔥 Telegram stream overloaded (>{q_len}). Dropping message to prevent cascading failure.")
                     return False
             except Exception as e:
                 self.logger.warning(f"⚠️ Circuit breaker check failed: {e}")
                 # continue if redis check fails but ping was okay previously
 
-            message_data: dict[str, str] = {
+            message_data: dict[str, Any] = {
                 "type": "report",
                 "text": text,
                 "parse_mode": parse_mode,
                 "source": "ReportingService",
-                "severity": str(severity),
+                "severity": severity,
                 "timestamp": str(get_ny_time_millis()),
             }
 
             if tags:
-                message_data["tags"] = ",".join([str(t).strip() for t in tags if str(t).strip()])
+                message_data["tags"] = ",".join([t.strip() for t in tags if t.strip()])
 
             if dedup_key:
                 # Recommendation F: server-side dedup before xadd
@@ -497,7 +565,7 @@ class ReportingService:
                     self.logger.info(f"⏭️ Dedup hit for reporting: {dedup_key}, skip xadd")
                     return True # already processed
 
-                message_data["dedup_key"] = str(dedup_key)
+                message_data["dedup_key"] = dedup_key
 
             if meta:
                 try:
@@ -505,7 +573,7 @@ class ReportingService:
                 except Exception:
                     message_data["meta"] = "{}"
 
-            msg_id = self.redis.xadd(notify_stream, message_data, maxlen=STREAM_RETENTION.get(notify_stream, STREAM_RETENTION[RS.NOTIFY_TELEGRAM]))
+            msg_id = self.redis.xadd(notify_stream, cast(dict[Any, Any], message_data), maxlen=STREAM_RETENTION.get(notify_stream, STREAM_RETENTION[RS.NOTIFY_TELEGRAM]))
             self.logger.info(f"✅ Отчет опубликован в {notify_stream}: msg_id={msg_id}, type={message_data.get('type')}, text_len={len(text)}")
 
             # Дополнительная проверка: убеждаемся, что сообщение попало в stream
@@ -542,7 +610,7 @@ class ReportingService:
             summary = None
             if order_id:
                 order = self.redis.hgetall(f"order:{order_id}")
-                if order:
+                if order and isinstance(order, dict):
                     summary = self._build_trade_summary_from_order(order)
             if summary is None:
                 summary = self._build_trade_summary_from_order(dict(trade_summary))
@@ -580,7 +648,7 @@ class ReportingService:
                 f"<b>TP достигнуто:</b> {tp_count}/3",
             ]
             if order_id:
-                lines.append(f"<b>Order ID:</b> <code>{html.escape(str(order_id))}</code>")
+                lines.append(f"<b>Order ID:</b> <code>{html.escape(order_id)}</code>")
 
             lines += [
                 "",
@@ -645,7 +713,7 @@ class ReportingService:
 
             for key, st in all_stats.items():
                 # key format: "{strategy}:{symbol}:{tf}"
-                parts = str(key).split(":")
+                parts = key.split(":")
                 if len(parts) < 3:
                     continue
                 strat = parts[0]
@@ -695,7 +763,7 @@ class ReportingService:
                 avg_pnl_strat = self._to_float(acc.get("avg_pnl"), 0.0)
 
                 lines.append(
-                    f"• <b>{html.escape(str(strat))}</b>: {t} | WR {self._to_float(acc.get('winrate'), 0.0):.1f}% | "
+                    f"• <b>{html.escape(strat)}</b>: {t} | WR {self._to_float(acc.get('winrate'), 0.0):.1f}% | "
                     f"Net {net:+.2f} (Avg {avg_pnl_strat:+.2f}) | PF {self._to_float(acc.get('profit_factor'), 0.0):.2f} | AvgR {self._to_float(acc.get('avg_r'), 0.0):+.3f}"
                 )
 
@@ -712,7 +780,7 @@ class ReportingService:
                         net = self._to_float(acc.get("total_pnl"), 0.0)
 
                         lines.append(
-                            f"• <b>{html.escape(str(src))}</b>: {t} | WR {self._to_float(acc.get('winrate'), 0.0):.1f}% | "
+                            f"• <b>{html.escape(src)}</b>: {t} | WR {self._to_float(acc.get('winrate'), 0.0):.1f}% | "
                             f"Net {net:+.2f} | PF {self._to_float(acc.get('profit_factor'), 0.0):.2f} | AvgR {self._to_float(acc.get('avg_r'), 0.0):+.3f}"
                         )
 
@@ -816,7 +884,7 @@ class ReportingService:
                 pnl_net = self._to_float(s.get("total_pnl"))
                 pf = self._to_float(s.get("profit_factor"))
                 ar = self._to_float(s.get("avg_r"))
-                msg.append(f"• <b>{html.escape(str(src))}</b>: {t} | WR {wr:.1f}% | Net {pnl_net:+.2f} | PF {pf:.2f} | AvgR {ar:+.4f}")
+                msg.append(f"• <b>{html.escape(src)}</b>: {t} | WR {wr:.1f}% | Net {pnl_net:+.2f} | PF {pf:.2f} | AvgR {ar:+.4f}")
 
         self.send_telegram_message(
             "\n".join(msg),
@@ -876,7 +944,7 @@ class ReportingService:
                         total_pnl = data.get("total_pnl", 0.0)
 
                         message_lines.append(
-                            f"• <b>{html.escape(str(strat))}:</b> {total} сделок, "
+                            f"• <b>{html.escape(strat)}:</b> {total} сделок, "
                             f"WR {winrate:.1f}%, P/L {total_pnl:+.2f}"
                         )
 
@@ -899,7 +967,7 @@ class ReportingService:
 
                 for source, source_stats in sources_summary.items():
                     message_lines.append(
-                        f"  • <b>{html.escape(str(source))}:</b> "
+                        f"  • <b>{html.escape(source)}:</b> "
                         f"{source_stats.get('total_trades', 0)} сделок, "
                         f"WR {source_stats.get('winrate', 0):.1f}%, "
                         f"P/L {source_stats.get('total_pnl', 0):+.2f}"
@@ -941,13 +1009,13 @@ class ReportingService:
         """
         try:
             list_key = f"closed:{strategy}:{symbol}:{tf}"
-            trade_ids = self.redis.lrange(list_key, 0, -1)
+            trade_ids = cast(Any, self.redis.lrange(list_key, 0, -1))
 
             trades_out: list[dict[str, Any]] = []
 
             for order_id in trade_ids:
                 order = self.redis.hgetall(f"order:{order_id}")
-                if not order:
+                if not order or not isinstance(order, dict):
                     continue
 
                 out: dict[str, Any] = {"order_id": order_id, "order": order}
@@ -955,10 +1023,14 @@ class ReportingService:
                 # signal (пытаемся по двум ключам)
                 if include_signal:
                     sig = self.redis.hgetall(f"signal:{order_id}")
+                    if not isinstance(sig, dict):
+                        sig = None
                     if not sig:
                         signal_id = order.get("signal_id") or order.get("sid") or order.get("signalId")
                         if signal_id:
                             sig = self.redis.hgetall(f"signal:{signal_id}")
+                            if not isinstance(sig, dict):
+                                sig = None
                     if sig:
                         out["signal"] = sig
 
@@ -1074,7 +1146,8 @@ class ReportingService:
         Ожидаемые новые поля (если есть): pnl_gross, pnl_net, fees, r, duration_ms, mae, mfe,
         giveback, missed_profit, trailing_started, trailing_moves, trailing_stop_hit.
         """
-        direction = (order.get("direction", order.get("side", "LONG"))).upper()
+        raw_dir = order.get("direction") or order.get("side") or "LONG"
+        direction = str(raw_dir).upper()
 
         entry = order.get("entry") or order.get("entry_price")
         sl = order.get("sl")
@@ -1150,8 +1223,9 @@ class ReportingService:
 
         try:
             sources_summary: dict[str, dict[str, Any]] = {}
-            strategies = StatsAggregator.get_all_strategies(self.redis)
-
+            raw_strategies = cast(Any, self.redis.smembers("stats:strategies"))
+            strategies = [v.decode() if isinstance(v, bytes) else str(v) for v in raw_strategies] if raw_strategies else []
+            
             for strategy in strategies:
                 symbols = StatsAggregator.get_strategy_symbols(self.redis, strategy)
                 for symbol in symbols:

@@ -294,7 +294,7 @@ class SyncRedisStreamHelper:
 
     def __init__(
         self,
-        client: redis.Redis,
+        client: Any,
         group: str,
         consumer: str,
         *,
@@ -1092,7 +1092,7 @@ class AsyncRedisStreamHelper:
 
     def __init__(
         self,
-        client: aioredis.Redis,
+        client: Any,
         group: str,
         consumer: str,
         *,
@@ -1160,10 +1160,10 @@ class AsyncRedisStreamHelper:
                 continue
         raise RuntimeError(f"Redis unavailable or still loading after {max_retries} attempts")
 
-    async def ensure_groups(self, streams: Iterable[str], *, recreate: bool = False) -> None:
+    async def ensure_groups(self, streams: Iterable[str], *, recreate: bool = False, start_id: str = "$") -> None:
         """Ensures consumer groups exist for all provided streams."""
         for stream in streams:
-            await self.ensure_group(stream, recreate=recreate)
+            await self.ensure_group(stream, recreate=recreate, start_id=start_id)
 
     async def read(
         self,
@@ -1227,7 +1227,7 @@ class AsyncRedisStreamHelper:
             except Exception:
                 pass
 
-            if is_cancelled:
+            if is_cancelled and isinstance(exc.__cause__, BaseException):
                 raise exc.__cause__
             raise TimeoutError(
                 f"xreadgroup socket timeout (block={block}ms, group={self.group})"
@@ -1270,7 +1270,7 @@ class AsyncRedisStreamHelper:
                 except Exception:
                     pass
 
-                if is_cancelled:
+                if is_cancelled and isinstance(exc.__cause__, BaseException):
                     raise exc.__cause__
                 raise TimeoutError(
                     f"xreadgroup (post-NOGROUP) socket timeout (group={self.group})"

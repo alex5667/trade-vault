@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 
 from orderflow_services.exec_health_slo_autoguard_v1 import AutoGuard, GuardCfg
+from core.redis_keys import RedisStreams as RS
 
 
 class FakeAsyncRedis:
@@ -55,8 +56,8 @@ def _cfg() -> GuardCfg:
         state_key='metrics:exec_health:slo:autoguard:state',
         freeze_key='cfg:orderflow:exec_health:auto_freeze:v1',
         control_key='cfg:orderflow:exec_health:freeze_control:v1',
-        notify_stream='notify:telegram',
-        event_stream='ops:exec_health:freeze_events:v1',
+        notify_stream=RS.NOTIFY_TELEGRAM,
+        event_stream=RS.EXEC_HEALTH_FREEZE_EVENTS,
         loop_s=30,
         mode_mismatch_minutes=0,   # instant trigger
         drift_minutes=10,
@@ -111,7 +112,7 @@ def test_autoguard_emits_latch_event_to_stream() -> None:
 
     asyncio.run(g.run_once())
 
-    events = g.r.streams.get('ops:exec_health:freeze_events:v1', [])
+    events = g.r.streams.get(RS.EXEC_HEALTH_FREEZE_EVENTS, [])
     assert len(events) >= 1
     latch_events = [e for e in events if (e.get('kind', '')) == 'autoguard_freeze_latch']
     assert len(latch_events) >= 1

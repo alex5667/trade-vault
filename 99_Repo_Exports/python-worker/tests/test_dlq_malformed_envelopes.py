@@ -7,7 +7,7 @@ Tests that bad envelopes are properly quarantined without breaking the pipeline.
 """
 import json
 
-from services.signal_dispatcher import SignalDispatcher
+from services.dispatch.dispatcher_app import SignalDispatcher
 
 
 class TestDLQMalformedEnvelopes:

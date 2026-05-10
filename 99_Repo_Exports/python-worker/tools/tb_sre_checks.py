@@ -60,7 +60,7 @@ def check_tb_health(
     *,
     redis_url: str | None = None,
     input_stream: str = RS.OF_INPUTS,
-    labels_stream: str = "labels:tb",
+    labels_stream: str = RS.TB_LABELS,
     group: str | None = None,
     max_input_lag_ms: int = 120_000,
     max_label_stale_ms: int = 300_000,

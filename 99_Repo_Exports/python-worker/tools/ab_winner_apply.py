@@ -8,6 +8,7 @@ import redis.asyncio as aioredis
 
 from utils.time_utils import get_ny_time_millis
 import contextlib
+from core.redis_keys import RedisStreams as RS
 
 
 def _now_ms() -> int:
@@ -151,7 +152,7 @@ async def main() -> int:
 
     # best-effort audit stream (optional)
     try:
-        audit_stream = os.getenv("CFG_APPLY_AUDIT_STREAM", "stream:trade:entry_audit")
+        audit_stream = os.getenv("CFG_APPLY_AUDIT_STREAM", RS.ENTRY_AUDIT)
         msg = {
             "type": "cfg_apply_active_arm",
             "ts_ms": str(_now_ms()),

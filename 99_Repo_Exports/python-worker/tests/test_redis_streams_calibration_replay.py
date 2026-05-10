@@ -21,6 +21,7 @@ from local_calibration.calibrate_local_thresholds import (
 # Test imports
 from tools.calib_replay_from_inputs import _to_str, load_payload_redis_streams
 from tools.replay.replay_runner import iter_ctx_redis_streams
+from core.redis_keys import RedisStreams as RS
 
 
 class TestToStr:
@@ -62,7 +63,7 @@ class TestLoadPayloadRedisStreams:
         # Mock xread response: single stream, no {sym}
         mock_redis.xread.return_value = [
             (
-                "events:microbar_closed",
+                RS.EVENTS_MICROBAR_CLOSED,
                 [
                     ("1000-0", {"payload": json.dumps({"symbol": "BTCUSDT", "ts_ms": 1000})}),
                     ("1001-0", {"symbol": "ETHUSDT", "ts_ms": 1001}),
@@ -72,7 +73,7 @@ class TestLoadPayloadRedisStreams:
 
         result = load_payload_redis_streams(
             redis_url="redis://localhost:6379/0",
-            stream="events:microbar_closed",
+            stream=RS.EVENTS_MICROBAR_CLOSED,
             symbols_set="events:microbar_closed:symbols",
             start_id="0-0",
             count=1000,
@@ -135,7 +136,7 @@ class TestLoadPayloadRedisStreams:
 
         mock_redis.xread.return_value = [
             (
-                "events:microbar_closed",
+                RS.EVENTS_MICROBAR_CLOSED,
                 [
                     ("1000-0", {"symbol": "BTCUSDT", "ts_ms": "1000", "regime": "trend"}),
                 ],
@@ -144,7 +145,7 @@ class TestLoadPayloadRedisStreams:
 
         result = load_payload_redis_streams(
             redis_url="redis://localhost:6379/0",
-            stream="events:microbar_closed",
+            stream=RS.EVENTS_MICROBAR_CLOSED,
             symbols_set="events:microbar_closed:symbols",
             start_id="0-0",
             count=1000,
@@ -168,7 +169,7 @@ class TestIterCtxRedisStreams:
 
         mock_redis.xread.return_value = [
             (
-                "events:microbar_closed",
+                RS.EVENTS_MICROBAR_CLOSED,
                 [
                     ("1000-0", {"payload": json.dumps({"symbol": "BTCUSDT", "ts_ms": 1000})}),
                 ],
@@ -178,7 +179,7 @@ class TestIterCtxRedisStreams:
         ctxs = list(
             iter_ctx_redis_streams(
                 redis_url="redis://localhost:6379/0",
-                stream="events:microbar_closed",
+                stream=RS.EVENTS_MICROBAR_CLOSED,
                 symbols_set="events:microbar_closed:symbols",
                 start_id="0-0",
                 count=500,
@@ -236,7 +237,7 @@ class TestLoadSignalsFromRedis:
 
         mock_redis.xread.return_value = [
             (
-                "trades:closed",
+                RS.TRADES_CLOSED,
                 [
                     (
                         "1000-0",
@@ -262,7 +263,7 @@ class TestLoadSignalsFromRedis:
         ]
 
         with patch("local_calibration.calibrate_local_thresholds.REDIS_URL", "redis://localhost:6379/0"), \
-             patch("local_calibration.calibrate_local_thresholds.TRADES_CLOSED_STREAM", "trades:closed"), \
+             patch("local_calibration.calibrate_local_thresholds.TRADES_CLOSED_STREAM", RS.TRADES_CLOSED), \
              patch("local_calibration.calibrate_local_thresholds.TRADES_CLOSED_START_ID", "0-0"):
             result = load_signals_from_redis()
 
@@ -284,7 +285,7 @@ class TestLoadSignalsFromRedis:
 
         mock_redis.xread.return_value = [
             (
-                "trades:closed",
+                RS.TRADES_CLOSED,
                 [
                     ("1000-0", {"event_type": "POSITION_OPENED", "symbol": "BTCUSDT"}),
                     ("1001-0", {"event_type": "POSITION_CLOSED", "symbol": "ETHUSDT", "r_multiple": "1.5"}),
@@ -293,7 +294,7 @@ class TestLoadSignalsFromRedis:
         ]
 
         with patch("local_calibration.calibrate_local_thresholds.REDIS_URL", "redis://localhost:6379/0"), \
-             patch("local_calibration.calibrate_local_thresholds.TRADES_CLOSED_STREAM", "trades:closed"), \
+             patch("local_calibration.calibrate_local_thresholds.TRADES_CLOSED_STREAM", RS.TRADES_CLOSED), \
              patch("local_calibration.calibrate_local_thresholds.TRADES_CLOSED_START_ID", "0-0"):
             result = load_signals_from_redis()
 
@@ -308,7 +309,7 @@ class TestLoadSignalsFromRedis:
 
         mock_redis.xread.return_value = [
             (
-                "trades:closed",
+                RS.TRADES_CLOSED,
                 [
                     (
                         "1000-0",
@@ -324,7 +325,7 @@ class TestLoadSignalsFromRedis:
         ]
 
         with patch("local_calibration.calibrate_local_thresholds.REDIS_URL", "redis://localhost:6379/0"), \
-             patch("local_calibration.calibrate_local_thresholds.TRADES_CLOSED_STREAM", "trades:closed"), \
+             patch("local_calibration.calibrate_local_thresholds.TRADES_CLOSED_STREAM", RS.TRADES_CLOSED), \
              patch("local_calibration.calibrate_local_thresholds.TRADES_CLOSED_START_ID", "0-0"):
             result = load_signals_from_redis()
 

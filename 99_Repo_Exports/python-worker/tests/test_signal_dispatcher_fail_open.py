@@ -19,7 +19,7 @@ def test_signal_dispatcher_fail_open_common_markers(monkeypatch):
     Ensures key methods do not crash when Redis operations fail.
     Test is resilient to method renames (self-adapting discovery).
     """
-    from services.signal_dispatcher import SignalDispatcher
+    from services.dispatch.dispatcher_app import SignalDispatcher
 
     sd = SignalDispatcher.__new__(SignalDispatcher)
     sd.redis = _RedisBoom()

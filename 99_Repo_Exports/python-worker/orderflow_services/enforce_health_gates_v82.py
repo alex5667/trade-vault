@@ -31,6 +31,7 @@ Return shape:
 import os
 import time
 from typing import Any
+from core.redis_keys import RedisStreams as RS
 
 
 def _now_s() -> int:
@@ -235,7 +236,7 @@ def run_staleness_gates(
 
     max_redis_age = _env_int("ENFORCE_MAX_REDIS_STREAM_AGE_SEC", 900)
     min_redis_events = _env_int("ENFORCE_MIN_REDIS_EVENTS", 50)
-    redis_stream = _env_str("ENFORCE_REDIS_STREAM", "metrics:of_gate")
+    redis_stream = _env_str("ENFORCE_REDIS_STREAM", RS.OF_GATE_METRICS)
     redis_scan = _env_int("ENFORCE_REDIS_STREAM_SCAN", 2000)
 
     max_db_age = _env_int("ENFORCE_MAX_DB_VIEW_AGE_SEC", 1800)

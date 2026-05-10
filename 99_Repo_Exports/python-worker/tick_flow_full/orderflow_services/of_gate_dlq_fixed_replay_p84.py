@@ -442,7 +442,7 @@ def triage(args: argparse.Namespace) -> int:
 
 def replay(args: argparse.Namespace) -> int:
     r = _connect_redis()
-    source = args.source or env("OF_GATE_DLQ_SOURCE", "stream:dlq:of_gate_metrics")
+    source = args.source or env("OF_GATE_DLQ_SOURCE", RS.DLQ_OF_GATE_METRICS)
     max_n = int(args.max)
     commit = bool(args.commit)
     delete_after = bool(args.delete_after_replay)
@@ -477,7 +477,7 @@ def replay(args: argparse.Namespace) -> int:
             ok_replayed += 1
             tgt = target_override or (e.src_stream or "")
             if not tgt:
-                tgt = "metrics:of_gate"
+                tgt = RS.OF_GATE_METRICS
 
             if commit:
                 fields = dict(fixed)
@@ -598,7 +598,7 @@ def auto(args: argparse.Namespace) -> int:
             # Replay to original stream by default
             tgt = target_override or (e.src_stream or "")
             if not tgt:
-                tgt = "metrics:of_gate"
+                tgt = RS.OF_GATE_METRICS
 
             fields = dict(fixed)
             fields["replay"] = 1

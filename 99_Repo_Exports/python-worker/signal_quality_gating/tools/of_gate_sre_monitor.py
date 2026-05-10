@@ -359,7 +359,7 @@ class AlertManager:
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--redis-url", default=os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0"))
-    ap.add_argument("--metrics-stream", default=os.getenv("OF_GATE_METRICS_STREAM", "metrics:of_gate"))
+    ap.add_argument("--metrics-stream", default=os.getenv("OF_GATE_METRICS_STREAM", RS.OF_GATE_METRICS))
     ap.add_argument("--notify-stream", default=os.getenv("NOTIFY_TELEGRAM_STREAM", RS.NOTIFY_TELEGRAM))
     ap.add_argument("--state-key", default=os.getenv("SRE_OF_GATE_STATE_KEY", "sre:of_gate:last_stats"))
     ap.add_argument("--alert-state-key", default=os.getenv("SRE_OF_GATE_ALERT_STATE_KEY", "sre:of_gate:alert_state"))

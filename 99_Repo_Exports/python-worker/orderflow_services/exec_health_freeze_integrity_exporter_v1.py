@@ -2,6 +2,7 @@ from __future__ import annotations
 
 #!/usr/bin/env python3
 from utils.time_utils import get_ny_time_millis
+from core.redis_keys import RedisStreams as RS
 
 """P8 ExecHealth Freeze Integrity Exporter.
 
@@ -72,7 +73,7 @@ def main() -> None:
     redis_url = os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
     control_key = os.getenv("EXEC_HEALTH_FREEZE_CONTROL_KEY", "cfg:orderflow:exec_health:freeze_control:v1")
     state_key = os.getenv("EXEC_HEALTH_SLO_AUTOGUARD_STATE_KEY", "metrics:exec_health:slo:autoguard:state")
-    event_stream = os.getenv("EXEC_HEALTH_FREEZE_EVENT_STREAM", "ops:exec_health:freeze_events:v1")
+    event_stream = os.getenv("EXEC_HEALTH_FREEZE_EVENT_STREAM", RS.EXEC_HEALTH_FREEZE_EVENTS)
     # P10: append-only request log stream
     request_stream = os.getenv("EXEC_HEALTH_FREEZE_REQUEST_STREAM", DEFAULT_REQUEST_STREAM)
     port = int(os.getenv("EXEC_HEALTH_FREEZE_INTEGRITY_EXPORTER_PORT", "9828"))

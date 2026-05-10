@@ -109,14 +109,14 @@ async def refresh_disabled_state(
     - Otherwise, we derive until_ms from PTTL.
     """
     try:
-        last = int(getattr(runtime, "of_inputs_v3_cb_last_refresh_ts_ms", 0) or 0)
-        if last > 0 and (now_ms - last) < int(refresh_every_ms):
-            until_ms = int(getattr(runtime, "of_inputs_v3_disabled_until_ms", 0) or 0)
-            rsn = str(getattr(runtime, "of_inputs_v3_disabled_reason", "") or "")
+        last = getattr(runtime, "of_inputs_v3_cb_last_refresh_ts_ms", 0) or 0
+        if last > 0 and (now_ms - last) < refresh_every_ms:
+            until_ms = getattr(runtime, "of_inputs_v3_disabled_until_ms", 0) or 0
+            rsn = getattr(runtime, "of_inputs_v3_disabled_reason", "") or ""
             return (until_ms > now_ms, until_ms, rsn)
 
-        runtime.of_inputs_v3_cb_last_refresh_ts_ms = int(now_ms)
-        sym = str(getattr(runtime, "symbol", "") or "")
+        runtime.of_inputs_v3_cb_last_refresh_ts_ms = now_ms
+        sym = getattr(runtime, "symbol", "") or ""
         if not sym:
             return (False, 0, "")
 
@@ -163,28 +163,28 @@ async def refresh_disabled_state(
             until_ms = 0
             rsn = ""
 
-        if int(hard_until_ms or 0) <= 0:
-            hard_until_ms = int(until_ms)
-        runtime.of_inputs_v3_disabled_until_ms = int(until_ms)
-        runtime.of_inputs_v3_disabled_hard_until_ms = int(hard_until_ms or until_ms or 0)
+        if (hard_until_ms or 0) <= 0:
+            hard_until_ms = until_ms
+        runtime.of_inputs_v3_disabled_until_ms = until_ms
+        runtime.of_inputs_v3_disabled_hard_until_ms = (hard_until_ms or until_ms or 0)
         runtime.of_inputs_v3_disabled_reason = (rsn or "")
 
         # Phase: hard vs cooldown. We remain disabled until `until_ms`.
         phase = ""
         try:
-            hu = int(hard_until_ms or until_ms or 0)
-            if hu > 0 and int(now_ms) < hu:
+            hu = (hard_until_ms or until_ms or 0)
+            if hu > 0 and now_ms < hu:
                 phase = "hard"
-            elif int(until_ms or 0) > 0 and hu > 0 and int(now_ms) < int(until_ms) and hu < int(until_ms):
+            elif (until_ms or 0) > 0 and hu > 0 and now_ms < until_ms and hu < until_ms:
                 phase = "cooldown"
         except Exception:
             phase = ""
         runtime.of_inputs_v3_disabled_phase = phase
 
-        return (int(until_ms) > now_ms, int(until_ms), (rsn or ""))
+        return (until_ms > now_ms, until_ms, (rsn or ""))
 
     except Exception:
-        return (False, int(getattr(runtime, "of_inputs_v3_disabled_until_ms", 0) or 0), str(getattr(runtime, "of_inputs_v3_disabled_reason", "") or ""))
+        return (False, getattr(runtime, "of_inputs_v3_disabled_until_ms", 0) or 0, getattr(runtime, "of_inputs_v3_disabled_reason", "") or "")
 
 
 async def record_downgrade_and_maybe_trip(
@@ -217,56 +217,56 @@ async def record_downgrade_and_maybe_trip(
 
         # Add member with deterministic seq
         seq = await redis.incr(seq_key)
-        member = f"{int(now_ms)}:{int(seq)}"
+        member = f"{now_ms}:{seq}"
 
         # Maintain window
-        lo = int(now_ms) - int(window_ms)
+        lo = now_ms - window_ms
         pipe = redis.pipeline(transaction=False)
-        pipe.zadd(key, {member: int(now_ms)})
+        pipe.zadd(key, {member: now_ms})
         pipe.zremrangebyscore(key, 0, lo - 1)
-        pipe.zcount(key, lo, int(now_ms))
+        pipe.zcount(key, lo, now_ms)
         _, _, count = await pipe.execute()
 
         try:
-            c = int(count)
+            c = count
         except Exception:
             c = 0
 
-        if c < int(max_downgrades_in_window):
+        if c < max_downgrades_in_window:
             return {"tripped": 0, "count": c, "disabled_until_ms": 0}
 
         # Trip
-        hard_until_ms = int(now_ms) + int(disable_ms)
-        cd_ms = int(cooldown_ms) if int(cooldown_ms) > 0 else 0
-        until_ms = int(hard_until_ms) + int(cd_ms)
+        hard_until_ms = now_ms + disable_ms
+        cd_ms = cooldown_ms if cooldown_ms > 0 else 0
+        until_ms = hard_until_ms + cd_ms
         disable_key = _cfg_disabled_key(sym_s)
         payload = {
-            "until_ms": int(until_ms),
-            "hard_until_ms": int(hard_until_ms),
-            "cooldown_ms": int(cd_ms),
-            "reason": str(rsn),
-            "trip_ts_ms": int(now_ms),
-            "count": int(c),
-            "window_ms": int(window_ms),
+            "until_ms": until_ms,
+            "hard_until_ms": hard_until_ms,
+            "cooldown_ms": cd_ms,
+            "reason": rsn,
+            "trip_ts_ms": now_ms,
+            "count": c,
+            "window_ms": window_ms,
         }
 
         pipe2 = redis.pipeline(transaction=False)
-        ttl_ms = max(1, int(until_ms) - int(now_ms))
-        pipe2.set(disable_key, _json_dumps(payload), px=int(ttl_ms))
+        ttl_ms = max(1, until_ms - now_ms)
+        pipe2.set(disable_key, _json_dumps(payload), px=ttl_ms)
 
-        if bool(block_auto_apply):
+        if block_auto_apply:
             gk = _auto_apply_global_key(auto_apply_reason)
             sk = _auto_apply_sym_key(sym_s, auto_apply_reason)
-            pipe2.set(gk, _json_dumps({"ts_ms": int(now_ms), "reason": str(auto_apply_reason), "src": "of_inputs_v3_circuit"}), px=int(ttl_ms))
-            pipe2.set(sk, _json_dumps({"ts_ms": int(now_ms), "symbol": sym_s, "reason": str(auto_apply_reason), "src": "of_inputs_v3_circuit"}), px=int(ttl_ms))
+            pipe2.set(gk, _json_dumps({"ts_ms": now_ms, "reason": auto_apply_reason, "src": "of_inputs_v3_circuit"}), px=ttl_ms)
+            pipe2.set(sk, _json_dumps({"ts_ms": now_ms, "symbol": sym_s, "reason": auto_apply_reason, "src": "of_inputs_v3_circuit"}), px=ttl_ms)
 
         await pipe2.execute()
         return {
             "tripped": 1,
             "count": c,
-            "disabled_until_ms": int(until_ms),
-            "hard_until_ms": int(hard_until_ms),
-            "cooldown_ms": int(cd_ms),
+            "disabled_until_ms": until_ms,
+            "hard_until_ms": hard_until_ms,
+            "cooldown_ms": cd_ms,
         }
 
     except Exception:

@@ -84,7 +84,7 @@ def test_external_sl_hit_closes_and_marks_sid_closed(monkeypatch):
             close_reason="CLOSE",
             close_reason_raw=str(close_reason_raw),
         )
-    monkeypatch.setattr(tm, "finalize_trade", _finalize_stub)
+    monkeypatch.setattr("services.trade_monitor._monolith.finalize_trade", _finalize_stub)
 
     # analytics no-op
     import services.analytics_db as adb
@@ -100,6 +100,8 @@ def test_external_sl_hit_closes_and_marks_sid_closed(monkeypatch):
         direction="LONG",
         entry_price=100.0,
         entry_ts_ms=get_ny_time_millis(),
+        qty=1.0,
+        quantity=1.0,
         lot=1.0,
         remaining_qty=1.0,
         sl=99.0,
@@ -111,6 +113,7 @@ def test_external_sl_hit_closes_and_marks_sid_closed(monkeypatch):
         svc.open_positions[pos.id] = pos
         svc.pos_by_sid[pos.sid] = pos.id
         svc.open_by_symbol.setdefault(pos.symbol, set()).add(pos.id)
+        svc.shards.setdefault(pos.symbol, {})[pos.id] = pos
 
     ok = svc.apply_external_sl_hit(signal_id="sid1", price=95.0, timestamp=get_ny_time_millis(), event_id="e1")
     assert ok is True

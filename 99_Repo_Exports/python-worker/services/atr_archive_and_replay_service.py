@@ -40,8 +40,8 @@ class ATRArchiveAndReplayService:
         """Classify a data source into one of the artifact classes."""
         mapping = {
             RS.CRYPTO_RAW: "signal",
-            "orders:queue": "dispatch",
-            "orders:queue:mt5": "dispatch",
+            RS.ORDERS_QUEUE: "dispatch",
+            RS.ORDERS_QUEUE_MT5: "dispatch",
             "fills": "execution",
             "order_payloads": "execution",
             "protective_transitions": "protective",

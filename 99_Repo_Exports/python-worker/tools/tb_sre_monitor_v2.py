@@ -37,7 +37,7 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--redis_url", default=os.getenv("REDIS_URL") or os.getenv("TB_REDIS_URL"))
     ap.add_argument("--input_stream", default=os.getenv("TB_INPUT_STREAM") or RS.OF_INPUTS)
-    ap.add_argument("--labels_stream", default=os.getenv("TB_LABELS_STREAM") or "labels:tb")
+    ap.add_argument("--labels_stream", default=os.getenv("TB_LABELS_STREAM") or RS.TB_LABELS)
     ap.add_argument("--group", default=os.getenv("OF_INPUTS_GROUP"))
     ap.add_argument("--max_input_lag_ms", type=int, default=int(os.getenv("TB_MAX_INPUT_LAG_MS") or "120000"))
     ap.add_argument("--max_label_stale_ms", type=int, default=int(os.getenv("TB_MAX_LABEL_STALE_MS") or "300000"))

@@ -13,6 +13,7 @@ from core.smt_symbol_snapshot import SymbolSnapshot
 from news_pipeline.enricher_sync import NewsEnricherSync
 from services.smt_logic import decide_smt
 from utils.time_utils import get_ny_time_millis
+from core.redis_keys import RedisStreams as RS
 
 
 def _i(x: Any, d: int = 0) -> int:
@@ -242,7 +243,7 @@ class SmtBundleAggregator:
                 self._rets.setdefault(s, deque(maxlen=max(32, self.cfg.window_n)))
 
         # publish targets
-        self.smt_setup_stream = os.getenv("SMT_SETUP_STREAM", "stream:smt:setup")
+        self.smt_setup_stream = os.getenv("SMT_SETUP_STREAM", RS.SMT_SETUP)
 
         self._enricher = NewsEnricherSync(redis=self.redis)
         self._news = NewsGate(

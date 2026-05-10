@@ -11,12 +11,13 @@ from news_pipeline.grade import compute_horizon_sec, compute_news_grade_id
 from news_pipeline.postgres_writer import NewsPostgresWriter
 from news_pipeline.stream_worker import StreamWorker
 from utils.time_utils import get_ny_time_millis
+from core.redis_keys import RedisStreams as RS
 
 log = logging.getLogger("news_feature_store")
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
 
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
-NEWS_ANALYSIS_STREAM = os.getenv("NEWS_ANALYSIS_STREAM", "news:analysis")
+NEWS_ANALYSIS_STREAM = os.getenv("NEWS_ANALYSIS_STREAM", RS.NEWS_ANALYSIS)
 GROUP = os.getenv("NEWS_FEATURE_GROUP", "news-feature-store")
 CONSUMER = os.getenv("NEWS_FEATURE_CONSUMER", os.getenv("HOSTNAME", "news-feature-1"))
 DLQ = os.getenv("NEWS_ANALYSIS_DLQ", "news:analysis:dlq")

@@ -2,6 +2,7 @@ import importlib.util
 import json
 import sys
 from pathlib import Path
+from core.redis_keys import RedisStreams as RS
 
 exec_mod_path = Path(__file__).parent.parent / 'binance_executor.py'
 exec_spec = importlib.util.spec_from_file_location('binance_executor_p121', exec_mod_path)
@@ -64,7 +65,7 @@ class FakeRedis:
 def _mk_exec(redis_obj, *, inline_projection=False):
     ex = exec_mod.BinanceExecutor.__new__(exec_mod.BinanceExecutor)
     ex.r = redis_obj
-    ex.exec_stream = 'orders:exec'
+    ex.exec_stream = RS.ORDERS_EXEC
     ex.state_key_prefix = 'orders:state:'
     ex.state_ttl = 86400
     ex.exec_rehydrate_on_state_miss = True
@@ -94,7 +95,7 @@ def test_executor_does_not_materialize_cache_inline_when_projection_worker_is_en
     assert r.get(f'orders:state:{sid}') in (None, '')
 
     # Projection worker materialises state from stream
-    worker = worker_mod.ExecutionProjectionWorker(r, exec_stream='orders:exec', state_key_prefix='orders:state:')
+    worker = worker_mod.ExecutionProjectionWorker(r, exec_stream=RS.ORDERS_EXEC, state_key_prefix='orders:state:')
     processed = worker.run_until_idle()
     assert processed >= 1
     state = json.loads(r.get(f'orders:state:{sid}'))
@@ -122,9 +123,9 @@ def test_save_order_state_emits_state_patch_and_worker_applies_it_in_order():
     ex._save_order_state(sid, {'trail_algo_id': 701, 'trail_client_algo_id': 'trail-a', 'symbol': 'ETHUSDT'})
     # No inline cache write
     assert r.get(f'orders:state:{sid}') in (None, '')
-    assert [row[1]['event_type'] for row in r.streams['orders:exec']] == ['state_transition', 'state_patch']
+    assert [row[1]['event_type'] for row in r.streams[RS.ORDERS_EXEC]] == ['state_transition', 'state_patch']
 
-    worker = worker_mod.ExecutionProjectionWorker(r, exec_stream='orders:exec', state_key_prefix='orders:state:')
+    worker = worker_mod.ExecutionProjectionWorker(r, exec_stream=RS.ORDERS_EXEC, state_key_prefix='orders:state:')
     worker.run_until_idle()
     state = json.loads(r.get(f'orders:state:{sid}'))
     assert state['fsm_state'] == 'PROTECTED'
@@ -148,7 +149,7 @@ def test_projection_worker_cursor_makes_repeated_runs_idempotent():
     })
     worker = worker_mod.ExecutionProjectionWorker(
         r,
-        exec_stream='orders:exec',
+        exec_stream=RS.ORDERS_EXEC,
         state_key_prefix='orders:state:',
         cursor_key='orders:exec:projection:cursor',
     )

@@ -24,12 +24,13 @@ from typing import Any
 import psycopg2
 import redis
 from psycopg2.extras import execute_batch
+from core.redis_keys import RedisStreams as RS
 
 # Configuration
 REDIS_URL = os.getenv("REDIS_URL")
 PG_DSN = os.getenv("ANALYTICS_DSN")
 
-CANDLES_STREAM = "candles:data"
+CANDLES_STREAM = RS.CANDLES_DATA
 ARCHIVE_GROUP = os.getenv("ARCHIVE_GROUP", "candles-archiver-group")
 ARCHIVE_CONSUMER = os.getenv("ARCHIVE_CONSUMER", "archiver-1")
 BATCH_SIZE = int(os.getenv("ARCHIVE_BATCH_SIZE", "1000"))

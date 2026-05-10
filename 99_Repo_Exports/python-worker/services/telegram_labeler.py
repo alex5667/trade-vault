@@ -18,10 +18,11 @@ This enables offline analysis and calibration based on actual trader decisions.
 import os
 
 import redis
+from core.redis_keys import RedisStreams as RS
 
 # Configuration
 REDIS_URL = os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
-CALLBACKS_STREAM = os.getenv("CALLBACKS_STREAM", "bot:callbacks")
+CALLBACKS_STREAM = os.getenv("CALLBACKS_STREAM", RS.BOT_CALLBACKS)
 LABELS_STREAM = os.getenv("LABELS_STREAM", "labels:trades")
 GROUP = os.getenv("LABELS_GROUP", "labels-group")
 CONSUMER = os.getenv("LABELS_CONSUMER", "labels-consumer-1")

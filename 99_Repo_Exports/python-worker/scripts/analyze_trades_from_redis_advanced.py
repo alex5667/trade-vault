@@ -26,6 +26,7 @@ import math
 from dataclasses import dataclass
 
 import redis  # pip install redis
+from core.redis_keys import RedisStreams as RS
 
 # ----------------------------
 # Модели и утилиты
@@ -495,7 +496,7 @@ def main() -> None:
         description="Advanced analysis of trades:closed from Redis (managed vs baseline, per entry_tag)."
     )
     parser.add_argument("--redis-url", default="redis://localhost:6379/0", help="Redis DSN (default: redis://localhost:6379/0)")
-    parser.add_argument("--stream", default="trades:closed", help="Redis stream key (default: trades:closed)")
+    parser.add_argument("--stream", default=RS.TRADES_CLOSED, help="Redis stream key (default: trades:closed)")
     parser.add_argument("--count", type=int, default=1000, help="How many latest trades to read (default: 1000)")
     parser.add_argument("--source", default=None, help="Filter by source (e.g. CryptoOrderFlow)")
     parser.add_argument("--symbol", default=None, help="Filter by symbol (e.g. ETHUSDT)")

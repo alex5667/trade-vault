@@ -76,8 +76,8 @@ def normalize_pivots_input(pivots: None | dict[str, float] | dict[str, Any]) -> 
                     continue
                 # Keep only sane positive levels
                 if fv > 0.0:
-                    out[str(k)] = fv
-        return out, int(pivots_ts_ms), str(pivots_date)
+                    out[k] = fv
+        return out, pivots_ts_ms, pivots_date
     except Exception:
         return {}, 0, ""
 
@@ -94,12 +94,12 @@ def nearest_pivot(price: float, pivots_dict: dict[str, float]) -> tuple[str, flo
         best_v = 0.0
         best_d = 1e100
         for k, v in pivots_dict.items():
-            d = abs(price - float(v))
+            d = abs(price - v)
             if d < best_d:
                 best_d = d
-                best_k = str(k)
-                best_v = float(v)
-        return best_k, float(best_v)
+                best_k = k
+                best_v = v
+        return best_k, best_v
     except Exception:
         return "", 0.0
 
@@ -305,7 +305,7 @@ class OrderFlowDataProcessor:
                 env_tf_s = 0
             if env_tf_s > 0:
                 tf_ms = env_tf_s * 1000
-        self._bar_tf_ms = int(max(tf_ms, 1000))  # hard floor 1s
+        self._bar_tf_ms = max(tf_ms, 1000)  # hard floor 1s
 
         self._bar_id: int | None = None
         self._bar_open: float = 0.0
@@ -332,7 +332,7 @@ class OrderFlowDataProcessor:
             env_hist = 0
         if env_hist > 0:
             hist_len = env_hist
-        self._bar_range_stats = RollingRobustZ(window=int(max(hist_len, 10)))
+        self._bar_range_stats = RollingRobustZ(window=max(hist_len, 10))
 
 
         # Market Regime Service (optional; keep system robust across config variants)
@@ -370,9 +370,9 @@ class OrderFlowDataProcessor:
         self._regime_delta_alpha = float(getattr(config, "regime_delta_ema_alpha", 0.05))
 
         self._regime_last_side = 0
-        self._regime_cross_hist: deque[int] = deque(maxlen=int(getattr(config, "regime_cross_hist", 30)))
+        self._regime_cross_hist: deque[int] = deque(maxlen=getattr(config, "regime_cross_hist", 30))
         self._regime_hold_ema = 0.0
-        self._regime_hold_alpha = float(getattr(config, "regime_hold_ema_alpha", 0.10))
+        self._regime_hold_alpha = getattr(config, "regime_hold_ema_alpha", 0.10)
         self._regime_atr_q = 0.5  # fallback, will be computed from quantiles
 
         # Regime quantiles store (optional, fail-open)
@@ -389,9 +389,9 @@ class OrderFlowDataProcessor:
         self._rq_min_samples = int(getattr(config, "regime_q_min_samples", 300) or 300)
 
         # Redis regime publishing (optional)
-        self._regime_redis_ttl_sec = int(getattr(config, "regime_redis_ttl_sec", 30) or 30)
+        self._regime_redis_ttl_sec = getattr(config, "regime_redis_ttl_sec", 30) or 30
         self._regime_last_pub_ms: int = 0
-        self._regime_pub_gap_ms = int(getattr(config, "regime_redis_pub_gap_ms", 500) or 500)
+        self._regime_pub_gap_ms = getattr(config, "regime_redis_pub_gap_ms", 500) or 500
 
         # Robust stats for P1 features
         # Spread (tick-based) - window ~300 ticks
@@ -411,14 +411,14 @@ class OrderFlowDataProcessor:
         """
         st = self._bucket_state
         return {
-            "obi": float(getattr(st, "obi", 0.0) or 0.0),
-            "obi_avg": float(getattr(st, "obi_avg", 0.0) or 0.0),
-            "obi_sustained": bool(getattr(st, "obi_sustained", False)),
+            "obi": getattr(st, "obi", 0.0),
+            "obi_avg": getattr(st, "obi_avg", 0.0),
+            "obi_sustained": getattr(st, "obi_sustained", False),
 
-            "obi20": float(getattr(st, "obi_20", 0.0) or 0.0),
-            "obi20_avg": float(getattr(st, "obi_avg_20", 0.0) or 0.0),
-            "obi20_sustained": bool(getattr(st, "obi_sustained_20", False)),
-            "obi20_valid": bool(getattr(st, "obi_20_valid", False)),
+            "obi20": getattr(st, "obi_20", 0.0),
+            "obi20_avg": getattr(st, "obi_avg_20", 0.0),
+            "obi20_sustained": getattr(st, "obi_sustained_20", False),
+            "obi20_valid": getattr(st, "obi_20_valid", False),
         }
 
     def _get_rq(self, symbol: str, now_ms: int) -> Any | None:
@@ -432,7 +432,7 @@ class OrderFlowDataProcessor:
             return None
 
         # Check cache freshness
-        last = int(self._rq_last_fetch_ms.get(sym, 0) or 0)
+        last = self._rq_last_fetch_ms.get(sym, 0) or 0
         if now_ms - last < self._rq_fetch_gap_ms:
             return self._rq_cache.get(sym)
 
@@ -452,7 +452,7 @@ class OrderFlowDataProcessor:
                 return self._rq_cache.get(sym)
 
             rq = parse_rq(raw)
-            if rq is None or int(getattr(rq, "sample_size", 0) or 0) < self._rq_min_samples:
+            if rq is None or getattr(rq, "sample_size", 0) < self._rq_min_samples:
                 return self._rq_cache.get(sym)
 
             self._rq_cache[sym] = rq
@@ -488,7 +488,7 @@ class OrderFlowDataProcessor:
             return 0.0
         # buyer is maker, значит taker SELL -> дельта отрицательная
         sign = -1.0 if tick.is_buyer_maker else 1.0
-        vol = float(getattr(tick, "volume", 1.0) or 1.0)
+        vol = getattr(tick, "volume", 1.0) or 1.0
         return sign * vol
 
     def _taker_side(self, tick: Tick) -> int:
@@ -506,7 +506,7 @@ class OrderFlowDataProcessor:
         st = self._bucket_state
         # st.current_delta += delta  # REMOVED: Doubled increment (already done in update_from_tick_inplace)
 
-        bucket_ms = int(getattr(self.config, "delta_bucket_ms", 1000) or 1000)
+        bucket_ms = getattr(self.config, "delta_bucket_ms", 1000) or 1000
         if bucket_ms <= 0:
             return None
 
@@ -526,12 +526,12 @@ class OrderFlowDataProcessor:
             if self.l3_queue:
                 l3_stats = self.l3_queue.on_bucket_advance(bucket_id=old)
                 if l3_stats:
-                    st.taker_buy_qty_bucket = float(l3_stats.taker_buy_qty)
-                    st.taker_sell_qty_bucket = float(l3_stats.taker_sell_qty)
-                    st.taker_buy_rate_ema = float(l3_stats.taker_buy_rate_ema)
-                    st.taker_sell_rate_ema = float(l3_stats.taker_sell_rate_ema)
-                    st.cancel_bid_rate_ema = float(l3_stats.cancel_bid_rate_ema)
-                    st.cancel_ask_rate_ema = float(l3_stats.cancel_ask_rate_ema)
+                    st.taker_buy_qty_bucket = l3_stats.taker_buy_qty
+                    st.taker_sell_qty_bucket = l3_stats.taker_sell_qty
+                    st.taker_buy_rate_ema = l3_stats.taker_buy_rate_ema
+                    st.taker_sell_rate_ema = l3_stats.taker_sell_rate_ema
+                    st.cancel_bid_rate_ema = l3_stats.cancel_bid_rate_ema
+                    st.cancel_ask_rate_ema = l3_stats.cancel_ask_rate_ema
 
                     # P1: Update OFI
                     self._update_ofi(l3_stats)
@@ -539,7 +539,7 @@ class OrderFlowDataProcessor:
             self._bucket_id = cur
             self._bucket_sum = 0.0
             self._last_bucket_value = bucket_value
-            return int(old)
+            return old
 
         return None
 
@@ -549,12 +549,12 @@ class OrderFlowDataProcessor:
         Формат сохранён: (obi, obi_avg, obi_sustained, obi_avg_20, obi_sustained_20, invalid_flag)
         """
         st = self._bucket_state
-        obi = float(getattr(st, "obi", 0.0) or 0.0)
-        obi_avg = float(getattr(st, "obi_avg", 0.0) or 0.0)
-        obi_sust = bool(getattr(st, "obi_sustained", False))
-        obi_avg_20 = float(getattr(st, "obi_avg_20", 0.0) or 0.0)
-        obi_sust_20 = bool(getattr(st, "obi_sustained_20", False))
-        invalid = not bool(getattr(st, "obi_20_valid", False))
+        obi = getattr(st, "obi", 0.0) or 0.0
+        obi_avg = getattr(st, "obi_avg", 0.0) or 0.0
+        obi_sust = getattr(st, "obi_sustained", False)
+        obi_avg_20 = getattr(st, "obi_avg_20", 0.0) or 0.0
+        obi_sust_20 = getattr(st, "obi_sustained_20", False)
+        invalid = not getattr(st, "obi_20_valid", False)
         return obi, obi_avg, obi_sust, obi_avg_20, obi_sust_20, invalid
 
     def _update_ofi(self, bucket_stats: Any) -> None:
@@ -576,7 +576,7 @@ class OrderFlowDataProcessor:
         # Store in state (persists until next bucket update)
         st = self._bucket_state
         st.ofi_val = ofi
-        st.ofi_z = float(z)
+        st.ofi_z = z
 
 
     def _update_bar_range(self, price: float, ts: int) -> None:
@@ -604,7 +604,7 @@ class OrderFlowDataProcessor:
             if self._bar_last_ts_ms > 0 and t + 500 < self._bar_last_ts_ms:
                 # Out-of-order tick (older than last by > 500ms). Ignore for bar stats.
                 st.bar_time_backwards_cnt += 1
-                st.bar_time_backwards_ms = int(self._bar_last_ts_ms - t)
+                st.bar_time_backwards_ms = self._bar_last_ts_ms - t
                 st.bar_time_backwards_flag = True
                 return
             self._bar_last_ts_ms = t
@@ -619,9 +619,9 @@ class OrderFlowDataProcessor:
                 self._bar_low = p
             else:
                 # If we jumped forward to a new bar: finalize previous bar into history
-                if bar_id != int(self._bar_id):
+                if bar_id != self._bar_id:
                     # forward gap detection
-                    gap = int(bar_id - int(self._bar_id))
+                    gap = bar_id - self._bar_id
                     if gap > 1:
                         st.bar_gap_bars = gap - 1
                         st.bar_gap_flag = True
@@ -680,8 +680,8 @@ class OrderFlowDataProcessor:
             st.bar_low = l
             st.bar_range = rng
             st.bar_range_bps = rng_bps
-            st.bar_range_bps_ema = float(self._bar_range_bps_ema)
-            st.bar_range_z = float(z)
+            st.bar_range_bps_ema = self._bar_range_bps_ema
+            st.bar_range_z = z
         except Exception:
             # fail-open: never break tick processing
             return
@@ -700,11 +700,11 @@ class OrderFlowDataProcessor:
             return
         try:
             st = self._bucket_state
-            l2_age_ms = float(getattr(st, "l2_age_ms", 0.0) or 0.0)
+            l2_age_ms = (getattr(st, "l2_age_ms", 0.0) or 0.0)
             # Некоторые реализации BucketState имеют l2_age_ms_tick, если нет — используем l2_age_ms
-            l2_age_ms_tick = float(getattr(st, "l2_age_ms_tick", l2_age_ms) or l2_age_ms)
-            l2_is_stale = bool(getattr(st, "l2_is_stale", True))
-            l2_is_stale_now = bool(getattr(st, "l2_is_stale_now", l2_is_stale))
+            l2_age_ms_tick = (getattr(st, "l2_age_ms_tick", l2_age_ms) or l2_age_ms)
+            l2_is_stale = (getattr(st, "l2_is_stale", True))
+            l2_is_stale_now = (getattr(st, "l2_is_stale_now", l2_is_stale))
             hm.on_tick(
                 symbol=self.symbol,
                 l2_age_ms=l2_age_ms,
@@ -755,12 +755,12 @@ class OrderFlowDataProcessor:
         st.update_from_tick_inplace(tick, ts_ms, delta_classifier=lambda _t: delta)
 
         # Обновление CVD
-        atr_val = float(getattr(st, 'atr_14_raw', 0.0) or getattr(st, 'atr', 1.0))
+        atr_val = (getattr(st, 'atr_14_raw', 0.0) or getattr(st, 'atr', 1.0))
         if atr_val <= 0:
             atr_val = 1.0
         self.cvd_tracker.update(ts_ms, delta, atr_val)
-        st.cvd_5m = float(self.cvd_tracker.cvd)
-        st.cvd_divergence = float(self.cvd_tracker.divergence)
+        st.cvd_5m = self.cvd_tracker.cvd
+        st.cvd_divergence = self.cvd_tracker.divergence
 
         # Передача в бакет
         completed_bucket = self._feed_delta_bucket(delta, ts_ms)
@@ -775,11 +775,11 @@ class OrderFlowDataProcessor:
             if ts_ms > 0 and self._signal_bucket_ms > 0:
                 bid = ts_ms // self._signal_bucket_ms
                 if self._signal_bucket_id is None:
-                    self._signal_bucket_id = int(bid)
-                elif int(bid) != int(self._signal_bucket_id):
+                    self._signal_bucket_id = bid
+                elif bid != self._signal_bucket_id:
                     # закрыли предыдущий bucket; ts_end = start(next_bucket)
-                    closed_bucket_ts_ms = int(bid) * int(self._signal_bucket_ms)
-                    self._signal_bucket_id = int(bid)
+                    closed_bucket_ts_ms = bid * self._signal_bucket_ms
+                    self._signal_bucket_id = bid
         except Exception:
             # bucket — best-effort, не валим обработку тиков
             closed_bucket_ts_ms = None
@@ -812,8 +812,8 @@ class OrderFlowDataProcessor:
                  med, _, _ = self._spread_stats.median_mad()
                  z = self._spread_stats.z(sbps)
                  st.spread_bps = sbps
-                 st.spread_bps_mean = float(med)
-                 st.spread_bps_z = float(z)
+                 st.spread_bps_mean = med
+                 st.spread_bps_z = z
 
 
         # Обновление regime engine данными тика
@@ -848,8 +848,8 @@ class OrderFlowDataProcessor:
 
         # RegimeEngine предоставляет базовый score/label (всегда доступен в этом пайплайне)
         rs = self._regime.compute(ts_ms, price)
-        base_score = float(getattr(rs, "score", 0.0) or 0.0)
-        base_label = str(getattr(rs, "label", "mixed") or "mixed")
+        base_score = (getattr(rs, "score", 0.0) or 0.0)
+        base_label = (getattr(rs, "label", "mixed") or "mixed")
 
         # --- Обновление фич Market Regime Service (тик) ---
         ts = ts_ms # use normalized
@@ -873,7 +873,7 @@ class OrderFlowDataProcessor:
 
             # EMA потока дельты
             a = self._regime_delta_alpha
-            self._regime_delta_ema = a * float(delta) + (1.0 - a) * self._regime_delta_ema
+            self._regime_delta_ema = a * delta + (1.0 - a) * self._regime_delta_ema
 
             # сторона относительно VWAP
             side = 0
@@ -889,7 +889,7 @@ class OrderFlowDataProcessor:
 
             # EMA удержания
             ha = self._regime_hold_alpha
-            self._regime_hold_ema = ha * float(side) + (1.0 - ha) * self._regime_hold_ema
+            self._regime_hold_ema = ha * side + (1.0 - ha) * self._regime_hold_ema
 
             cross_rate = (sum(self._regime_cross_hist) / max(len(self._regime_cross_hist), 1)) if self._regime_cross_hist else 0.0
 
@@ -906,17 +906,17 @@ class OrderFlowDataProcessor:
                     # Compute ATR% ratio: atr_value / price
                     atr_val = 0.0
                     if self.atr_calculator and hasattr(self.atr_calculator, 'value'):
-                        atr_val = float(getattr(self.atr_calculator, 'value', 0.0) or 0.0)
+                        atr_val = (getattr(self.atr_calculator, 'value', 0.0) or 0.0)
                     elif hasattr(st, 'atr'):
-                        atr_val = float(getattr(st, 'atr', 0.0) or 0.0)
+                        atr_val = (getattr(st, 'atr', 0.0) or 0.0)
 
                     atrp = (atr_val / price) if (price > 0 and atr_val > 0) else 0.0
 
                     if atrp > 0:
-                        q25 = float(getattr(rq, "atrp_p25", 0.0) or 0.0)
-                        q50 = float(getattr(rq, "atrp_p50", 0.0) or 0.0)
-                        q75 = float(getattr(rq, "atrp_p75", 0.0) or 0.0)
-                        atr_q = approx_quantile_3pt(float(atrp), q25, q50, q75)
+                        q25 = (getattr(rq, "atrp_p25", 0.0) or 0.0)
+                        q50 = (getattr(rq, "atrp_p50", 0.0) or 0.0)
+                        q75 = (getattr(rq, "atrp_p75", 0.0) or 0.0)
+                        atr_q = approx_quantile_3pt(atrp, q25, q50, q75)
             except Exception:
                 pass  # fail-open: use fallback
 
@@ -954,13 +954,13 @@ class OrderFlowDataProcessor:
                 pass  # fail-open: use fallback
 
             f = RegimeFeatures(
-                atr_q=float(atr_q),
-                adx_q=float(adx_q),
-                delta_ema=float(self._regime_delta_ema),
-                hold_side_score=float(self._regime_hold_ema),
-                vwap_cross_rate=float(cross_rate),
-                vwap=float(self._regime_vwap),
-                open_day=float(self._regime_open_day),
+                atr_q=atr_q,
+                adx_q=adx_q,
+                delta_ema=self._regime_delta_ema,
+                hold_side_score=self._regime_hold_ema,
+                vwap_cross_rate=cross_rate,
+                vwap=self._regime_vwap,
+                open_day=self._regime_open_day,
             )
             self.regime_service.update_regime(f)
             regime_state = self.regime_service.get_current_regime()
@@ -976,22 +976,22 @@ class OrderFlowDataProcessor:
                     final_score = base_score
             if hasattr(regime_state, "regime"):
                 try:
-                    final_label = str(getattr(regime_state, "regime", base_label) or base_label)
+                    final_label = (getattr(regime_state, "regime", base_label) or base_label)
                 except Exception:
                     final_label = base_label
 
-            st.regime_score = float(final_score)
-            st.regime_label = str(final_label)
+            st.regime_score = final_score
+            st.regime_label = final_label
 
             # --- Publish regime:{symbol} for tick-centric services (CryptoOrderflowService / SMT) ---
             try:
                 # Throttle publishing (e.g., once per 500ms)
-                if ts_ms - int(self._regime_last_pub_ms or 0) >= self._regime_pub_gap_ms:
-                    sym = str(self.symbol or "").upper()
+                if ts_ms - (self._regime_last_pub_ms or 0) >= self._regime_pub_gap_ms:
+                    sym = (self.symbol or "").upper()
                     if sym and hasattr(self, 'parser') and hasattr(self.parser, 'redis'):
                         redis_client = getattr(self.parser, 'redis', None)
                         if redis_client:
-                            redis_client.set(f"regime:{sym}", str(final_label), ex=self._regime_redis_ttl_sec)
+                            redis_client.set(f"regime:{sym}", final_label, ex=self._regime_redis_ttl_sec)
                             self._regime_last_pub_ms = ts_ms
             except Exception:
                 pass  # fail-open: regime publishing is best-effort
@@ -1042,14 +1042,14 @@ class OrderFlowDataProcessor:
             spread_bps = 0.0
 
         # --- nearest pivot: deterministic, based on best available ref price ---
-        ref_price = float(mid if mid > 0.0 else getattr(st, "price", 0.0) or 0.0)
+        ref_price = (mid if mid > 0.0 else getattr(st, "price", 0.0) or 0.0)
         npk, npp = nearest_pivot(ref_price, pivots_dict)
         try:
             st.nearest_pivot_key = (npk or "")
         except Exception:
             st.nearest_pivot_key = ""
         try:
-            st.nearest_pivot_price = float(npp or 0.0)
+            st.nearest_pivot_price = (npp or 0.0)
         except Exception:
             st.nearest_pivot_price = 0.0
 
@@ -1066,9 +1066,9 @@ class OrderFlowDataProcessor:
             spread_bps = 0.0
 
         # --- L2 freshness (единый источник истины: BucketState) ---
-        l2_ts = int(getattr(st, "l2_ts", 0) or 0)
-        l2_age_ms = int(getattr(st, "l2_age_ms", 10**9) or 10**9)
-        l2_is_stale = bool(getattr(st, "l2_is_stale", True))
+        l2_ts = (getattr(st, "l2_ts", 0) or 0)
+        l2_age_ms = (getattr(st, "l2_age_ms", 10**9) or 10**9)
+        l2_is_stale = getattr(st, "l2_is_stale", True)
 
         # --- OBI validity: строго из st.obi_20_valid ---
         obi_20_valid = bool(getattr(st, "obi_20_valid", False))
@@ -1079,10 +1079,10 @@ class OrderFlowDataProcessor:
         spread_ok = (not spread_known) or (spread_bps >= 0.0 and spread_bps <= spread_max)
 
         # --- walls ---
-        wall_bid_persist = float(getattr(st, "wall_bid_persist_ratio", 0.0) or 0.0)
-        wall_ask_persist = float(getattr(st, "wall_ask_persist_ratio", 0.0) or 0.0)
-        wall_bid_susp = bool(getattr(st, "wall_bid_suspicious", False))
-        wall_ask_susp = bool(getattr(st, "wall_ask_suspicious", False))
+        wall_bid_persist = (getattr(st, "wall_bid_persist_ratio", 0.0) or 0.0)
+        wall_ask_persist = (getattr(st, "wall_ask_persist_ratio", 0.0) or 0.0)
+        wall_bid_susp = getattr(st, "wall_bid_suspicious", False)
+        wall_ask_susp = getattr(st, "wall_ask_suspicious", False)
 
         # Golden L2
         golden_l2 = (
@@ -1187,32 +1187,32 @@ class OrderFlowDataProcessor:
             price=float(getattr(st, "price", 0.0) or 0.0),
 
             # config metadata
-            family=str(getattr(self.config, "family", "crypto_orderflow")),
-            venue=str(getattr(self.config, "venue", "binance_futures")),
-            timeframe_s=int(getattr(self.config, "timeframe_s", 60)),
+            family=getattr(self.config, "family", "crypto_orderflow"),
+            venue=getattr(self.config, "venue", "binance_futures"),
+            timeframe_s=getattr(self.config, "timeframe_s", 60),
 
             # core
-            z_delta=float(getattr(st, "z_delta", 0.0) or 0.0),
+            z_delta=(getattr(st, "z_delta", 0.0) or 0.0),
 
             # OBI short/long
-            obi=float(getattr(st, "obi", 0.0) or 0.0),
-            obi_avg=float(getattr(st, "obi_avg", 0.0) or 0.0),
-            obi_sustained=bool(getattr(st, "obi_sustained", False)),
+            obi=(getattr(st, "obi", 0.0) or 0.0),
+            obi_avg=(getattr(st, "obi_avg", 0.0) or 0.0),
+            obi_sustained=getattr(st, "obi_sustained", False),
 
-            obi_20=float(getattr(st, "obi_20", 0.0) or 0.0),
-            obi_avg_20=float(getattr(st, "obi_avg_20", 0.0) or 0.0),
+            obi_20=(getattr(st, "obi_20", 0.0) or 0.0),
+            obi_avg_20=(getattr(st, "obi_avg_20", 0.0) or 0.0),
             obi_sustained_20=obi_sust_20,
-            obi_20_valid=bool(obi_20_valid),
+            obi_20_valid=obi_20_valid,
 
             # depths/slopes/microprice
-            depth_bid_5=float(getattr(st, "depth_bid_5", 0.0) or 0.0),
-            depth_ask_5=float(getattr(st, "depth_ask_5", 0.0) or 0.0),
-            depth_bid_20=float(getattr(st, "depth_bid_20", 0.0) or 0.0),
-            depth_ask_20=float(getattr(st, "depth_ask_20", 0.0) or 0.0),
-            slope_bid_20=float(getattr(st, "slope_bid_20", 0.0) or 0.0),
-            slope_ask_20=float(getattr(st, "slope_ask_20", 0.0) or 0.0),
-            microprice_shift_bps_20=float(getattr(st, "microprice_shift_bps_20", 0.0) or 0.0),
-            microprice=float(getattr(st, "microprice", 0.0) or 0.0),
+            depth_bid_5=(getattr(st, "depth_bid_5", 0.0) or 0.0),
+            depth_ask_5=(getattr(st, "depth_ask_5", 0.0) or 0.0),
+            depth_bid_20=(getattr(st, "depth_bid_20", 0.0) or 0.0),
+            depth_ask_20=(getattr(st, "depth_ask_20", 0.0) or 0.0),
+            slope_bid_20=(getattr(st, "slope_bid_20", 0.0) or 0.0),
+            slope_ask_20=(getattr(st, "slope_ask_20", 0.0) or 0.0),
+            microprice_shift_bps_20=(getattr(st, "microprice_shift_bps_20", 0.0) or 0.0),
+            microprice=(getattr(st, "microprice", 0.0) or 0.0),
 
             # spread
             spread_bps=float(spread_bps),
@@ -1275,28 +1275,28 @@ class OrderFlowDataProcessor:
             obi_event_age_ms=int(now_ts - int(getattr(st, "last_obi_spike_ts", 0) or 0)) if getattr(st, "last_obi_spike_ts", 0) > 0 else -1,
 
             # touch-level
-            touch_bid_tag=str(getattr(st, "touch_bid_tag", "none") or "none"),
-            touch_ask_tag=str(getattr(st, "touch_ask_tag", "none") or "none"),
-            touch_bid_rho=float(getattr(st, "touch_bid_rho", 0.0) or 0.0),
-            touch_ask_rho=float(getattr(st, "touch_ask_rho", 0.0) or 0.0),
-            touch_bid_traded_w=float(getattr(st, "touch_bid_traded_w", 0.0) or 0.0),
-            touch_ask_traded_w=float(getattr(st, "touch_ask_traded_w", 0.0) or 0.0),
-            touch_bid_drop_w=float(getattr(st, "touch_bid_drop_w", 0.0) or 0.0),
-            touch_ask_drop_w=float(getattr(st, "touch_ask_drop_w", 0.0) or 0.0),
-            touch_is_stale=bool(getattr(st, "touch_is_stale", True)),
+            touch_bid_tag=(getattr(st, "touch_bid_tag", "none") or "none"),
+            touch_ask_tag=(getattr(st, "touch_ask_tag", "none") or "none"),
+            touch_bid_rho=(getattr(st, "touch_bid_rho", 0.0) or 0.0),
+            touch_ask_rho=(getattr(st, "touch_ask_rho", 0.0) or 0.0),
+            touch_bid_traded_w=(getattr(st, "touch_bid_traded_w", 0.0) or 0.0),
+            touch_ask_traded_w=(getattr(st, "touch_ask_traded_w", 0.0) or 0.0),
+            touch_bid_drop_w=(getattr(st, "touch_bid_drop_w", 0.0) or 0.0),
+            touch_ask_drop_w=(getattr(st, "touch_ask_drop_w", 0.0) or 0.0),
+            touch_is_stale=getattr(st, "touch_is_stale", True),
 
             # burstiness
-            burst_trade_count_bucket=int(getattr(st, "burst_trade_count_bucket", 0) or 0),
-            burst_rate_short=float(getattr(st, "burst_rate_short", 0.0) or 0.0),
-            burst_rate_long=float(getattr(st, "burst_rate_long", 0.0) or 0.0),
-            burst_ratio=float(getattr(st, "burst_ratio", 0.0) or 0.0),
-            burst_cv_dt=float(getattr(st, "burst_cv_dt", 0.0) or 0.0),
-            burst_fano_counts=float(getattr(st, "burst_fano_counts", 0.0) or 0.0),
-            burst_flip_ratio=float(getattr(st, "burst_flip_ratio", 0.0) or 0.0),
+            burst_trade_count_bucket=(getattr(st, "burst_trade_count_bucket", 0) or 0),
+            burst_rate_short=(getattr(st, "burst_rate_short", 0.0) or 0.0),
+            burst_rate_long=(getattr(st, "burst_rate_long", 0.0) or 0.0),
+            burst_ratio=(getattr(st, "burst_ratio", 0.0) or 0.0),
+            burst_cv_dt=(getattr(st, "burst_cv_dt", 0.0) or 0.0),
+            burst_fano_counts=(getattr(st, "burst_fano_counts", 0.0) or 0.0),
+            burst_flip_ratio=(getattr(st, "burst_flip_ratio", 0.0) or 0.0),
 
             # regime (если добавили в BucketState; иначе останется дефолт)
-            regime_score=float(getattr(st, "regime_score", 0.0) or 0.0),
-            regime_label=str(getattr(st, "regime_label", "mixed") or "mixed"),
+            regime_score=(getattr(st, "regime_score", 0.0) or 0.0),
+            regime_label=(getattr(st, "regime_label", "mixed") or "mixed"),
 
             # pivots
             pivots=pivots_dict,
@@ -1331,10 +1331,10 @@ class OrderFlowDataProcessor:
             bar_late_tick_ignored=bar_late_tick_ignored,
 
             # Pivots meta (strictly from BucketState)
-            pivots_ts_ms=int(getattr(st, "pivots_ts_ms", 0) or 0),
-            pivots_date=str(getattr(st, "pivots_date", "") or ""),
-            nearest_pivot_key=str(getattr(st, "nearest_pivot_key", "") or ""),
-            nearest_pivot_price=float(getattr(st, "nearest_pivot_price", 0.0) or 0.0),
+            pivots_ts_ms=(getattr(st, "pivots_ts_ms", 0) or 0),
+            pivots_date=(getattr(st, "pivots_date", "") or ""),
+            nearest_pivot_key=(getattr(st, "nearest_pivot_key", "") or ""),
+            nearest_pivot_price=(getattr(st, "nearest_pivot_price", 0.0) or 0.0),
 
             # Fail-open telemetry flags
             data_quality_flags=dq0,
@@ -1346,10 +1346,10 @@ class OrderFlowDataProcessor:
 
         # thresholds
         thr = OrderflowSignalThresholds(
-            min_bucket_trades=int(getattr(self.config, "min_bucket_trades", 0)),
-            min_bucket_notional_usd=float(getattr(self.config, "min_bucket_notional_usd", 0.0)),
-            min_delta_z=float(getattr(self.config, "min_delta_z", 0.0)),
-            min_obi_z=float(getattr(self.config, "min_obi_z", 0.0)),
+            min_bucket_trades=getattr(self.config, "min_bucket_trades", 0),
+            min_bucket_notional_usd=getattr(self.config, "min_bucket_notional_usd", 0.0),
+            min_delta_z=getattr(self.config, "min_delta_z", 0.0),
+            min_obi_z=getattr(self.config, "min_obi_z", 0.0),
         )
         ctx.thresholds = thr
 
@@ -1361,16 +1361,16 @@ class OrderFlowDataProcessor:
 
         l2_ok = (not ctx.l2_is_stale) and bool(ctx.obi_20_valid)
 
-        trades = int(getattr(st, "burst_trade_count_bucket", 0) or 0)  # fallback если нет trades_count
-        notional = float(getattr(st, "notional_usd", 0.0) or 0.0)       # если у вас есть такое поле
+        trades = (getattr(st, "burst_trade_count_bucket", 0) or 0)  # fallback если нет trades_count
+        notional = (getattr(st, "notional_usd", 0.0) or 0.0)       # если у вас есть такое поле
         bucket_ok = True
         if thr.min_bucket_trades > 0:
             bucket_ok = bucket_ok and (trades >= thr.min_bucket_trades)
         if thr.min_bucket_notional_usd > 0.0:
             bucket_ok = bucket_ok and (notional >= thr.min_bucket_notional_usd)
 
-        ctx.passes_thresholds = bool(delta_ok and obi_ok and l2_ok and bucket_ok and spread_ok)
-        ctx.golden_l2 = bool(golden_l2)
+        ctx.passes_thresholds = (delta_ok and obi_ok and l2_ok and bucket_ok and spread_ok)
+        ctx.golden_l2 = golden_l2
 
         # metrics/calibrated — безопасно только если вы добавили поля и weak_progress вычислен
         try:

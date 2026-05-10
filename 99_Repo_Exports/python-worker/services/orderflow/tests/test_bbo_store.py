@@ -1,5 +1,6 @@
 import asyncio
 import unittest
+from core.redis_keys import RedisStreams as RS
 
 
 class DummyPublisher:
@@ -43,7 +44,7 @@ class TestBBOStore(unittest.TestCase):
         rt = DummyRuntime()
         cfg = BBOStoreCfg(
             enabled=True,
-            stream="events:bbo_ts",
+            stream=RS.EVENTS_BBO_TS,
             stream_maxlen=100,
             schema_version=1,
             min_interval_ms=100,
@@ -67,7 +68,7 @@ class TestBBOStore(unittest.TestCase):
         rt = DummyRuntime()
         cfg = BBOStoreCfg(
             enabled=False,
-            stream="events:bbo_ts",
+            stream=RS.EVENTS_BBO_TS,
             stream_maxlen=100,
             schema_version=1,
             min_interval_ms=100,
@@ -90,7 +91,7 @@ class TestBBOStore(unittest.TestCase):
         rt.symbol = "ETHUSDT"
         cfg = BBOStoreCfg(
             enabled=True,
-            stream="events:bbo_ts",
+            stream=RS.EVENTS_BBO_TS,
             stream_maxlen=100,
             schema_version=1,
             min_interval_ms=100,

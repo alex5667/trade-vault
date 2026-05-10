@@ -134,7 +134,7 @@ class UnifiedSignalGenerator:
             'weak_progress': weak_progress,
             'iceberg_detected': iceberg_detected,
             'atr': atr,
-        },
+        }
 
         # Логика генерации сигнала
         signal_type, confidence, reason = self._evaluate_signal(

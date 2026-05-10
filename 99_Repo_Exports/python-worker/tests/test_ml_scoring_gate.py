@@ -66,6 +66,9 @@ class TestMLScoringGateFeatureExtraction:
         from services.ml_scoring_gate import _NUMERIC_FEATURE_ATTRS, MLScoringGate
 
         gate = MLScoringGate(model_path="/nonexistent/path")
+        # Simulate v2 model loaded (23 features) — routes to legacy extractor
+        gate._feature_names = [f"f_{i}" for i in range(len(_NUMERIC_FEATURE_ATTRS) + 6)]
+        gate._scaler_params = {}
 
         ctx = SimpleNamespace(
             conf_score=0.85,
@@ -99,6 +102,9 @@ class TestMLScoringGateFeatureExtraction:
         from services.ml_scoring_gate import _NUMERIC_FEATURE_ATTRS, MLScoringGate
 
         gate = MLScoringGate(model_path="/nonexistent/path")
+        # Simulate v2 model loaded — routes to legacy extractor with known layout
+        gate._feature_names = [f"f_{i}" for i in range(len(_NUMERIC_FEATURE_ATTRS) + 6)]
+        gate._scaler_params = {}
         ctx = SimpleNamespace()
 
         features_long = gate._extract_features(ctx, "LONG")

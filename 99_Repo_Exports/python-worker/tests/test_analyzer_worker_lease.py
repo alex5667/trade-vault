@@ -7,6 +7,7 @@ Tests for analyzer_worker lease-based idempotency.
 from unittest.mock import Mock
 
 from news_pipeline.analyzer_worker import NewsAnalyzerWorker
+from core.redis_keys import RedisStreams as RS
 
 
 class MockRedis:
@@ -87,14 +88,14 @@ def test_analyzer_lease_prevents_duplicate_processing():
     assert lease_key not in r.data  # Should be cleaned up
 
     # Verify stream emission
-    assert "news:analysis" in r.streams
-    assert len(r.streams["news:analysis"]) == 1
+    assert RS.NEWS_ANALYSIS in r.streams
+    assert len(r.streams[RS.NEWS_ANALYSIS]) == 1
 
     # Second call with same UID should be skipped
     worker.handle_message("msg-2", fields2)
 
     # Should still have only one stream entry
-    assert len(r.streams["news:analysis"]) == 1
+    assert len(r.streams[RS.NEWS_ANALYSIS]) == 1
 
 
 def test_analyzer_lease_allows_different_uids():
@@ -143,8 +144,8 @@ def test_analyzer_lease_allows_different_uids():
     assert "news:analysis:test-uid-2" in r.data
 
     # Verify stream emissions
-    assert "news:analysis" in r.streams
-    assert len(r.streams["news:analysis"]) == 2
+    assert RS.NEWS_ANALYSIS in r.streams
+    assert len(r.streams[RS.NEWS_ANALYSIS]) == 2
 
 
 def test_analyzer_lease_cleanup_on_error():
@@ -179,7 +180,7 @@ def test_analyzer_lease_cleanup_on_error():
     assert lease_key not in r.data  # Lease cleaned up in finally
 
     # No stream emissions
-    assert "news:analysis" not in r.streams or len(r.streams["news:analysis"]) == 0
+    assert RS.NEWS_ANALYSIS not in r.streams or len(r.streams[RS.NEWS_ANALYSIS]) == 0
 
 
 def test_analyzer_lease_blocks_concurrent_processing():
@@ -234,5 +235,5 @@ def test_analyzer_lease_blocks_concurrent_processing():
     worker2.handle_message("msg-concurrent-2", fields)
 
     # Should still have only one stream entry
-    stream_entries = r.streams.get("news:analysis", [])
+    stream_entries = r.streams.get(RS.NEWS_ANALYSIS, [])
     assert len(stream_entries) == 1

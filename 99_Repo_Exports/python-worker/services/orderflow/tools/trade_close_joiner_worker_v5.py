@@ -330,10 +330,10 @@ async def main() -> None:
         start_http_server(http_port)
 
     trade_events_stream = _env("TRADE_EVENTS_STREAM", RS.EVENTS_TRADES)
-    trades_closed_stream = _env("TRADES_CLOSED_STREAM", "trades:closed")
+    trades_closed_stream = _env("TRADES_CLOSED_STREAM", RS.TRADES_CLOSED)
     trades_closed_maxlen = _env_int("TRADES_CLOSED_MAXLEN", "200000")
     decision_prefix = _env("DECISION_KEY_PREFIX", "decision:")
-    close_wait_stream = _env("CLOSE_WAIT_STREAM", "trades:close_wait")
+    close_wait_stream = _env("CLOSE_WAIT_STREAM", RS.TRADES_CLOSE_WAIT)
     close_wait_maxlen = _env_int("CLOSE_WAIT_MAXLEN", "200000")
     dedup_ttl_sec = _env_int("TRADES_CLOSED_DEDUP_TTL_SEC", str(3 * 24 * 3600))
 
@@ -343,7 +343,7 @@ async def main() -> None:
     block_ms = _env_int("TRADE_CLOSE_JOINER_BLOCK_MS", "2000")
 
     write_ml_replay = _env("WRITE_ML_REPLAY_INPUTS", "1").strip() in ("1", "true", "yes", "on")
-    ml_replay_stream = _env("ML_REPLAY_INPUTS_STREAM", "ml_replay_inputs_v1")
+    ml_replay_stream = _env("ML_REPLAY_INPUTS_STREAM", RS.ML_REPLAY_INPUTS)
     ml_replay_maxlen = _env_int("ML_REPLAY_INPUTS_MAXLEN", "200000")
 
     # OF inputs stream for enriching ML replay with original feature snapshots (Commit 10).

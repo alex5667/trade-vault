@@ -8,7 +8,7 @@ Tests the critical invariants for delivery markers and idempotent operations.
 import json
 import time
 
-from services.signal_dispatcher import SignalDispatcher
+from services.dispatch.dispatcher_app import SignalDispatcher
 
 
 class TestDispatcherExactlyOnce:

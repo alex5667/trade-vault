@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+from core.redis_keys import RedisStreams as RS
 
 """P58 wrapper: archive trades:closed stream to NDJSON.
 
@@ -21,7 +22,7 @@ from ml_analysis.tools import stream_archiver_ndjson_v1
 
 
 def main(argv: list[str] | None = None) -> int:
-    os.environ.setdefault("ARCHIVE_STREAM", os.environ.get("TRADES_CLOSED_STREAM", "trades:closed"))
+    os.environ.setdefault("ARCHIVE_STREAM", os.environ.get("TRADES_CLOSED_STREAM", RS.TRADES_CLOSED))
     os.environ.setdefault(
         "ARCHIVE_DIR",
         os.environ.get("TRADES_CLOSED_ARCHIVE_DIR", "/var/lib/trade/archives/trades_closed"),

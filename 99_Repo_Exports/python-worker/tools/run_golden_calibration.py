@@ -44,7 +44,7 @@ async def main():
 
     # 1. Capture Data
     inputs = await capture_stream(r, RS.OF_INPUTS, duration)
-    calib = await capture_stream(r, "signals:calib:effq", duration)
+    calib = await capture_stream(r, RS.CALIB_AUDIT, duration)
 
     # Save raw captures
     tmp_inputs = "/tmp/of_inputs.ndjson"

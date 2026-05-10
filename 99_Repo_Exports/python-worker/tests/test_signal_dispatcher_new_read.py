@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import services.signal_dispatcher as sd_mod
-from services.signal_dispatcher import PendingMsg, SignalDispatcher
+import services.dispatch.dispatcher_app as sd_mod
+from services.dispatch.dispatcher_app import PendingMsg, SignalDispatcher
 from core.redis_keys import RedisStreams as RS
 
 

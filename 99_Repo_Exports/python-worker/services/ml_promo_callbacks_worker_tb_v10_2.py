@@ -9,6 +9,7 @@ import redis
 
 from utils.time_utils import get_ny_time_millis
 import contextlib
+from core.redis_keys import RedisStreams as RS
 
 
 def _safe_loads(s: Any) -> dict[str, Any]:
@@ -30,7 +31,7 @@ def main() -> None:
     redis_url = os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
     r = redis.Redis.from_url(redis_url, decode_responses=True)
 
-    callbacks_stream = os.getenv("BOT_CALLBACKS_STREAM", "bot:callbacks")
+    callbacks_stream = os.getenv("BOT_CALLBACKS_STREAM", RS.BOT_CALLBACKS)
     group = os.getenv("ML_PROMO_GROUP", "ml-promo")
     consumer = os.getenv("ML_PROMO_CONSUMER", "c1")
 

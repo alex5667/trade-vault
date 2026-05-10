@@ -2,6 +2,7 @@ from __future__ import annotations
 
 #!/usr/bin/env python3
 from utils.time_utils import get_ny_time_millis
+from core.redis_keys import RedisStreams as RS
 
 """Operator CLI for ExecHealth dual-control override / thaw workflow (P9).
 
@@ -102,7 +103,7 @@ class OverrideController:
         self.control_key = os.getenv("EXEC_HEALTH_FREEZE_CONTROL_KEY", "cfg:orderflow:exec_health:freeze_control:v1")
         self.state_key = os.getenv("EXEC_HEALTH_SLO_AUTOGUARD_STATE_KEY", "metrics:exec_health:slo:autoguard:state")
         self.freeze_key = os.getenv("EXEC_HEALTH_AUTO_FREEZE_KEY", "cfg:orderflow:exec_health:auto_freeze:v1")
-        self.event_stream = os.getenv("EXEC_HEALTH_FREEZE_EVENT_STREAM", "ops:exec_health:freeze_events:v1")
+        self.event_stream = os.getenv("EXEC_HEALTH_FREEZE_EVENT_STREAM", RS.EXEC_HEALTH_FREEZE_EVENTS)
         # P10: append-only request log stream (source of truth for thaw workflow)
         self.request_stream = os.getenv("EXEC_HEALTH_FREEZE_REQUEST_STREAM", DEFAULT_REQUEST_STREAM)
         self.r = redis.Redis.from_url(self.redis_url, decode_responses=True)

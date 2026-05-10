@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from utils.time_utils import get_ny_time_millis
+from core.redis_keys import RedisStreams as RS
 
 """news_pipeline.standby_ingestor
 
@@ -141,7 +142,7 @@ def write_heartbeat(r: redis.Redis, *, kind: str, ok: bool, err: str = "", added
             "err": (err or ""),
             "added": int(added),
             "instance": instance,
-        },
+        }
         raw = json.dumps(obj, separators=(",", ":")),
         r.set(f"hb:{kind}", raw, ex=int(ttl_sec)),
         # history stream
@@ -654,8 +655,8 @@ def run() -> None:
     lock_value = f"python:{time.time_ns()}"
     lock = LeaderLock(r, leader_key, ttl_ms, lock_value)
 
-    news_stream = os.getenv("NEWS_RAW_STREAM", "news:raw")
-    cal_stream = os.getenv("CALENDAR_EVENTS_STREAM", "calendar:events")
+    news_stream = os.getenv("NEWS_RAW_STREAM", RS.NEWS_RAW)
+    cal_stream = os.getenv("CALENDAR_EVENTS_STREAM", RS.CALENDAR_EVENTS)
     news_maxlen = _env_int("NEWS_RAW_MAXLEN", 200000)
     cal_maxlen = _env_int("CALENDAR_EVENTS_MAXLEN", 200000)
     dedupe_ttl_sec = _env_int("DEDUPE_TTL_SEC", 6 * 3600)  # 6h default per request

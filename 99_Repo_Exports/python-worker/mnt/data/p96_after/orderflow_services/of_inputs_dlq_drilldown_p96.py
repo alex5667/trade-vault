@@ -21,6 +21,7 @@ from collections import Counter
 from typing import Any
 
 import redis.asyncio as aioredis
+from core.redis_keys import RedisStreams as RS
 
 
 def _json_loads(s: str) -> dict[str, Any]:
@@ -56,7 +57,7 @@ async def main() -> None:
     if not redis_url:
         raise SystemExit('REDIS_URL is required')
 
-    dlq_stream = os.environ.get('OF_INPUTS_DLQ_STREAM', 'stream:dlq:of_inputs')
+    dlq_stream = os.environ.get('OF_INPUTS_DLQ_STREAM', RS.DLQ_OF_INPUTS)
     q_stream = os.environ.get('OF_INPUTS_QUARANTINE_STREAM', 'quarantine:signals:of:inputs')
 
     r = aioredis.from_url(redis_url, decode_responses=True)

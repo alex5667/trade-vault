@@ -7,7 +7,7 @@ import pytest
 from hypothesis import strategies as st
 from hypothesis.stateful import RuleBasedStateMachine, initialize, invariant, rule
 
-from services.signal_dispatcher import SignalDispatcher
+from services.dispatch.dispatcher_app import SignalDispatcher
 
 # -----------------------------
 # Test doubles (no Redis needed)
@@ -67,7 +67,7 @@ ALL_TARGETS = ["notify", "signal_stream", "audit", "manual"]
 
 
 def _mk_dispatcher(monkeypatch: pytest.MonkeyPatch) -> SignalDispatcher:
-    import services.signal_dispatcher as mod
+    import services.dispatch.dispatcher_app as mod
 
     monkeypatch.setattr(mod, "is_transient_error", lambda e: isinstance(e, TransientError))
     monkeypatch.setattr(mod, "trace_enabled", lambda: False)

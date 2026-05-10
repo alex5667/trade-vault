@@ -754,7 +754,7 @@ class TickProcessor:
                         "good_ms": int(cached.get("good_ms", 0) or 0) if isinstance(cached, dict) else 0,
                         "snap_ts_ms": int(cached.get("snap_ts_ms", 0) or 0) if isinstance(cached, dict) else 0,
                         "feats": defaults,
-                    },
+                    }
                     # Prom: mark missing snapshot.
                     try:
                         liqmap_snapshot_age_ms_gauge.labels(symbol=sym, window=wnd).set(-1.0)
@@ -791,7 +791,7 @@ class TickProcessor:
                         "good_ms": now_ms,
                         "snap_ts_ms": int(getattr(snap, "ts_ms", 0) or 0),
                         "feats": feats,
-                    },
+                    }
 
                     # Prom: snapshot age.
                     try:
@@ -829,7 +829,7 @@ class TickProcessor:
                         "good_ms": int(cached.get("good_ms", 0) or 0) if isinstance(cached, dict) else 0,
                         "snap_ts_ms": int(cached.get("snap_ts_ms", 0) or 0) if isinstance(cached, dict) else 0,
                         "feats": defaults,
-                    },
+                    }
 
         except Exception:
             # Absolute fail-open: do not let any LiqMap bug break tick processing.
@@ -890,7 +890,7 @@ class TickProcessor:
                 # some extractors look for top-level confidence/score too
                 "confidence": float(indicators.get("confidence", 0.0) or 0.0),
                 "score": float(indicators.get("rule_score", indicators.get("score", 0.0)) or 0.0),
-            },
+            }
 
             f = extract_fields_best_effort(stub)
             bind = recommend_binding(
@@ -1127,7 +1127,7 @@ class TickProcessor:
                     "good_ms": now_ms,
                     "snap_ts_ms": int(getattr(snap, "ts_ms", 0) or 0),
                     "feats": dict(feats),
-                },
+                }
             except Exception:
                 # Compute failure → fail-open.
                 try:
@@ -1200,7 +1200,7 @@ class TickProcessor:
                 "age_ms": str(int(meta.get("age_ms", 0) or 0)),
                 "back_ms": str(int(meta.get("back_ms", 0) or 0)),
                 "skew_ms": str(int(meta.get("skew_ms", 0) or 0)),
-            },
+            }
             await self.redis.xadd(
                 self.tick_time_stream_key,
                 fields,
@@ -1781,7 +1781,7 @@ class TickProcessor:
                                 "book_health_ok": str(int(indicators.get("book_health_ok", 1) or 1)),
                                 "source_consistency_ok": str(int(indicators.get("source_consistency_ok", 1) or 1)),
                                 "missing_legs": "[]",
-                            },
+                            }
                             payload = enrich_schema_fields(payload)
                             async def _emit_ok_metrics(_payload: dict) -> None:
                                 try:
@@ -1830,7 +1830,7 @@ class TickProcessor:
                 "direction": direction,
                 "delta": float(delta_event.get("delta", 0.0)),
                 "delta_z": float(delta_event.get("z", 0.0))
-            },
+            }
             if absorption_feat: spike_out["absorption"] = absorption_feat
 
             now_ms = int(tick_ts)
@@ -3785,7 +3785,7 @@ class TickProcessor:
             "signal_id": str(signal_id),
             "entry_tag": str(primary_reason),
             "is_virtual": bool(int(indicators.get("is_virtual", 0) or 0)),
-        },
+        }
 
         # Attach Pressure Snapshot to Payload
         # ...
@@ -3929,7 +3929,7 @@ class TickProcessor:
                         "cfg": cfg_safe,
                         "fp_eff_quote": _f(getattr(runtime.last_bar, "fp_eff_quote", 0.0) if runtime.last_bar else 0.0, 0.0),
                         "fp_quote_delta": _f(getattr(runtime.last_bar, "fp_quote_delta", 0.0) if runtime.last_bar else 0.0, 0.0),
-                    },
+                    }
 
                     if emit_v2:
                         ofi_kwargs["ofi"] = _f(indicators.get("ofi", 0.0), 0.0)
@@ -4122,7 +4122,7 @@ class TickProcessor:
                                             "missing_fields": list(missing_fields),
                                             "book_age_ms": int(book_age_ms),
                                             "stream": stream_inputs,
-                                        },
+                                        }
                                         try:
                                             of_inputs_quarantined_total.labels(
                                                 symbol=str(runtime.symbol),
@@ -4228,7 +4228,7 @@ class TickProcessor:
                                     "err_prefix": str(type(e).__name__),
                                     "err": str(e)[:512],
                                     "payload": payload_str,
-                                },
+                                }
                                 await self.redis.xadd(
                                     dlq_stream,
                                     fields={"payload": _json.dumps(ctx, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str)},
@@ -4354,7 +4354,7 @@ class TickProcessor:
                 "ETHUSDT": 4.0,
                 "BNBUSDT": 0.5,
                 "SOLUSDT": 0.3,
-            },
+            }
             atr = symbol_fallbacks.get(runtime.symbol, entry * 0.0003)
             indicators["atr_src"] = "fallback-symbol"
             indicators["atr_sanity_reason"] = "no_valid_atr_found"
@@ -4672,7 +4672,7 @@ class TickProcessor:
                 "meta_recommended": meta_rec,
                 "meta_recommended_soft": str(int(meta_rec_soft)),
                 "ml_state": ml_state,
-            },
+            }
 
             # Enrich + validate (producer-side).
             enrich_schema_fields(fields)
@@ -4756,7 +4756,7 @@ class TickProcessor:
                 "confidence": float(confidence),
                 "score": float(getattr(ofc, "score", 0.0) or 0.0),
                 "evidence": ev,
-            },
+            }
 
             # Use shared extraction logic
             f = extract_fields_best_effort(stub)

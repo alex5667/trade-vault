@@ -29,6 +29,7 @@ import sys
 import time
 
 from utils.time_utils import get_ny_time_millis
+from core.redis_keys import RedisStreams as RS
 
 log = logging.getLogger("news_agent_timer")
 logging.basicConfig(
@@ -62,8 +63,8 @@ BUDGET_USD_LIMIT = float(_env("NEWS_LLM_BUDGET_DAILY_USD", "10.0"))
 
 # Streams to monitor for XLEN lag (format: news:raw as used in this project)
 STREAMS: list[str] = [
-    _env("NEWS_STREAM_RAW",     "news:raw"),
-    _env("NEWS_STREAM_ANALYSIS","news:analysis"),
+    _env("NEWS_STREAM_RAW",     RS.NEWS_RAW),
+    _env("NEWS_STREAM_ANALYSIS",RS.NEWS_ANALYSIS),
     _env("NEWS_STREAM_DLQ",     "news:raw:dlq"),
 ]
 

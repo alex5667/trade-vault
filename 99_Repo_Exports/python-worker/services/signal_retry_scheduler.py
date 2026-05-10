@@ -72,7 +72,7 @@ class SignalRetryScheduler:
         self.redis_url = os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
         self.redis = redis.from_url(self.redis_url, decode_responses=True, socket_connect_timeout=5, socket_timeout=15)
 
-        self.retry_schedule_zset = os.getenv("SIGNAL_OUTBOX_RETRY_ZSET", "signals:outbox:retry:schedule")
+        self.retry_schedule_zset = os.getenv("SIGNAL_OUTBOX_RETRY_ZSET", RS.SIGNAL_OUTBOX_RETRY_SCHEDULE)
         self.outbox_stream = os.getenv("SIGNAL_OUTBOX_STREAM", RS.SIGNAL_OUTBOX)
         self.outbox_maxlen = int(os.getenv("SIGNAL_OUTBOX_MAXLEN", "20000"))
         self.retry_lease_prefix = os.getenv("SIGNAL_OUTBOX_RETRY_LEASE_PREFIX", "signals:outbox:retry:lease")

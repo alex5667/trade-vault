@@ -15,7 +15,7 @@ import time
 
 import pytest
 
-from services.signal_dispatcher import SignalDispatcher
+from services.dispatch.dispatcher_app import SignalDispatcher
 
 
 @pytest.mark.integration
@@ -271,7 +271,7 @@ class TestDispatcherAtomicity:
         """
         Verify that missing prerequisites cause PermanentDeliveryError (no silent loss).
         """
-        from services.signal_dispatcher import PermanentDeliveryError
+        from services.dispatch.dispatcher_app import PermanentDeliveryError
 
         d = SignalDispatcher()
         d.redis = redis_client

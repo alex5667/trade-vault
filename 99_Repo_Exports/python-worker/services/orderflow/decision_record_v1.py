@@ -30,6 +30,7 @@ import zlib
 from typing import Any
 
 from utils.time_utils import get_ny_time_millis
+from core.redis_keys import RedisStreams as RS
 
 _SAFE_SYMBOLS_CACHE: set = set()
 _SAFE_STAGES_CACHE: set = set()
@@ -60,7 +61,7 @@ def _env_float(name: str, default: str) -> float:
     try:
         return float(os.getenv(name, default))
     except Exception:
-        return default
+        return float(default)
 
 
 def _env_int(name: str, default: str) -> int:
@@ -223,15 +224,15 @@ def build_decision_record_v1(
     # Keep record compact: store essentials + a pointer to heavy snapshots
     out: dict[str, Any] = {
         "version": 1,
-        "ts_ms": int(ts_ms),
+        "ts_ms": ts_ms,
         "sid": sid,
         "symbol": symbol,
-        "direction": str(signal.get("direction") or signal.get("side") or "").upper(),
-        "stage": str(stage),
-        "final_actual": str(final_actual),
+        "direction": (signal.get("direction") or signal.get("side") or "").upper(),
+        "stage": stage,
+        "final_actual": final_actual,
         "final_veto_reason": (veto_reason or ""),
         "final_recommended": rec.get("action"),
-        "final_recommended_soft": int(rec.get("soft", 0) or 0),
+        "final_recommended_soft": (rec.get("soft", 0) or 0),
         "final_recommended_source": rec.get("source"),
         "final_recommended_reason_code": rec.get("reason_code"),
         "dq_state": dq_state,
@@ -246,7 +247,7 @@ def build_decision_record_v1(
         "rule": {
             "ok": rule_ok,
             "ok_soft": rule_ok_soft,
-            "score": float(rule_score),
+            "score": rule_score,
             "scenario": scenario,
             "scenario_v4": scenario_v4,
             "reason": rule_reason[:160],
@@ -378,7 +379,7 @@ async def maybe_write_decision_record_v1(
     if not _env_bool("DECISION_RECORD_ENABLE", "1"):
         return
 
-    sid = str(signal.get("sid") or signal.get("signal_id") or "").strip()
+    sid = (signal.get("sid") or signal.get("signal_id") or "").strip()
     if not sid:
         return
 
@@ -401,7 +402,7 @@ async def maybe_write_decision_record_v1(
 
     ttl = _env_int("DECISION_TTL_SEC", "1209600")  # 14d
     maxlen = _env_int("DECISIONS_FINAL_MAXLEN", "200000")
-    stream = os.getenv("DECISIONS_FINAL_STREAM", "decisions:final")
+    stream = os.getenv("DECISIONS_FINAL_STREAM", RS.DECISIONS_FINAL)
 
     record = build_decision_record_v1(
         runtime=runtime,
@@ -421,10 +422,10 @@ async def maybe_write_decision_record_v1(
         pipe.xadd(
             stream,
             fields={
-                "sid": str(record["sid"]),
-                "symbol": str(record["symbol"]),
+                "sid": record["sid"],
+                "symbol": record["symbol"],
                 "ts_ms": str(record["ts_ms"]),
-                "stage": str(record["stage"]),
+                "stage": record["stage"],
                 "reason_code": (record.get("final_recommended_reason_code") or ""),
                 "payload": payload
             },
@@ -446,10 +447,10 @@ async def maybe_write_decision_record_v1(
             await r.xadd(
                 stream,
                 fields={
-                    "sid": str(record["sid"]),
-                    "symbol": str(record["symbol"]),
+                    "sid": record["sid"],
+                    "symbol": record["symbol"],
                     "ts_ms": str(record["ts_ms"]),
-                    "stage": str(record["stage"]),
+                    "stage": record["stage"],
                     "reason_code": (record.get("final_recommended_reason_code") or ""),
                     "payload": payload
                 },
@@ -468,7 +469,7 @@ async def maybe_write_decision_record_v1(
         decision_record_written_total.labels(
             symbol=_safe_symbol(record.get("symbol")),
             stage=_safe_stage(stage),
-            result=str(final_actual),
+            result=final_actual,
         ).inc()
     except Exception:
         pass
@@ -578,7 +579,7 @@ def extract_fields_best_effort(stub: dict[str, Any]) -> dict[str, Any]:
         "rule_score": rule_score,
         "rule_ok": rule_ok,
         "rule_soft": rule_soft,
-        "rule_reason_code_top1": str(_g("rule_reason_code_top1", "NA")),
+        "rule_reason_code_top1": _g("rule_reason_code_top1", "NA"),
         "ml_enabled": bool(ml),
         "ml_state": ml_state,
         "ml_p_cal": None, # complex to extract without full signal
@@ -592,17 +593,17 @@ def extract_fields_best_effort(stub: dict[str, Any]) -> dict[str, Any]:
         "meta_enforce_cov_bucket": meta_bucket,
         "meta_enforce_applied": meta_applied,
         # P68: policy fields (fail-open)
-        "policy_ver": str(_g("policy_ver", "")),
-        "policy_regime": str(_g("policy_regime", "")),
-        "policy_reason": str(_g("policy_reason", "")),
+        "policy_ver": _g("policy_ver", ""),
+        "policy_regime": _g("policy_regime", ""),
+        "policy_reason": _g("policy_reason", ""),
         "policy_force_rule_strong_only": bool(int(_g("policy_force_rule_strong_only", 0) or 0)),
         "policy_disable_ml_enforce": bool(int(_g("policy_disable_ml_enforce", 0) or 0)),
-        "policy_dq_state": str(_g("policy_dq_state", _g("dq_state", ""))),
-        "policy_drift_state": str(_g("policy_drift_state", _g("drift_state", ""))),
+        "policy_dq_state": _g("policy_dq_state", _g("dq_state", "")),
+        "policy_drift_state": _g("policy_drift_state", _g("drift_state", "")),
         # P69
-        "policy_raw_mode": str(_g("policy_raw_mode", "")),
-        "policy_effective_mode": str(_g("policy_effective_mode", "")),
-        "policy_hysteresis_debug": str(_g("policy_hysteresis_debug", "")),
+        "policy_raw_mode": _g("policy_raw_mode", ""),
+        "policy_effective_mode": _g("policy_effective_mode", ""),
+        "policy_hysteresis_debug": _g("policy_hysteresis_debug", ""),
         "policy_changed": bool(int(_g("policy_changed", 0) or 0)),
         "ctx_enabled": bool(int(ev.get(CtxKeys.ENABLE, 0) or 0)),
         "ctx_mode": (ev.get(CtxKeys.MODE, "off") or "off"),
@@ -630,7 +631,7 @@ async def write_decision_record(redis_client: Any, record: DecisionRecordV1) -> 
 
         ttl = _env_int("DECISION_TTL_SEC", "1209600")
         maxlen = _env_int("DECISIONS_FINAL_MAXLEN", "200000")
-        stream = os.getenv("DECISIONS_FINAL_STREAM", "decisions:final")
+        stream = os.getenv("DECISIONS_FINAL_STREAM", RS.DECISIONS_FINAL)
 
         sid = record.get("sid", "unknown")
         key = f"decision:{sid}"
@@ -640,7 +641,7 @@ async def write_decision_record(redis_client: Any, record: DecisionRecordV1) -> 
 
         # We use a reduced field set for the stream to save bandwidth/storage
         stream_fields = {
-            "sid": str(sid),
+            "sid": sid,
             "symbol": (record.get("symbol", "")),
             "ts_ms": (record.get("decision_ts_ms", 0)),
             "stage": "early_veto", # or extract from record if present

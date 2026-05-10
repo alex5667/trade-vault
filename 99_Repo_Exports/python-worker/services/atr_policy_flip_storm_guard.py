@@ -31,10 +31,11 @@ import psycopg2
 import psycopg2.extras
 import redis
 from prometheus_client import Counter
+from core.redis_keys import RedisStreams as RS
 
 logger = logging.getLogger(__name__)
 
-STREAM_ESC = "stream:atr_policy:escalations"
+STREAM_ESC = RS.ATR_POLICY_ESCALATIONS
 
 # ── Prometheus ────────────────────────────────────────────────────────────────
 

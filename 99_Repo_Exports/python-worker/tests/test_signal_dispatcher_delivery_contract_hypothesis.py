@@ -8,7 +8,7 @@ from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
 # ВАЖНО: импортируем реальный класс из вашего проекта.
-from services.signal_dispatcher import SignalDispatcher
+from services.dispatch.dispatcher_app import SignalDispatcher
 
 # -----------------------------
 # Test doubles (no Redis needed)
@@ -76,7 +76,7 @@ def _mk_dispatcher(monkeypatch: pytest.MonkeyPatch) -> SignalDispatcher:
     Create a SignalDispatcher instance without running its real __init__.
     We patch only the exact surface used by _deliver_targets_with_retry.
     """
-    import services.signal_dispatcher as mod
+    import services.dispatch.dispatcher_app as mod
 
     # Make classification deterministic for the test.
     monkeypatch.setattr(mod, "is_transient_error", lambda e: isinstance(e, TransientError))

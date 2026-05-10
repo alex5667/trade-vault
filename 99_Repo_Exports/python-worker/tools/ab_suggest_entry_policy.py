@@ -157,7 +157,7 @@ def main() -> int:
     )
 
     # Optional breadcrumb stream
-    out_stream = os.getenv("AB_SUGGEST_STREAM", "stream:ab:suggestions")
+    out_stream = os.getenv("AB_SUGGEST_STREAM", RS.AB_SUGGESTIONS)
     retry_redis_operation(
         operation=lambda: r.xadd(out_stream, {"payload": json.dumps(suggestion, ensure_ascii=False, separators=(",", ":"))}, maxlen=20000, approximate=True),
         operation_name="xadd suggestion",

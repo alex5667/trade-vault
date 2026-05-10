@@ -5,7 +5,7 @@ from __future__ import annotations
 This defines the *interface* between:
   - dataset builders (ml_analysis.tools.build_edge_stack_dataset_from_redis)
   - trainers (ml_analysis.tools.train_edge_stack_v1_oof)
-  - inference (tick_flow_full.services.ml_confirm_gate)
+  - inference (tick_flow_full.services.ml_confirm)
 
 The contract is intentionally simple:
 - a *set/order* of `feature_cols` used to build the ML feature vector

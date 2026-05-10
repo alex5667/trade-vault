@@ -77,6 +77,36 @@ class LiquidityRegimeEvent:
     spread_bps: float
     depth_min_5_usd: float
     book_rate_hz: float
+    book_stale_ms: int = 0
+    why: str = ""
+
+    @property
+    def liq_score(self) -> float:
+        return self.score
+
+    @property
+    def liq_regime(self) -> str:
+        return self.regime
+
+    @property
+    def depth_usd_min_5(self) -> float:
+        return self.depth_min_5_usd
+
+    @property
+    def book_rate_ema_hz(self) -> float:
+        return self.book_rate_hz
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "ts_ms": self.ts_ms,
+            "liq_score": self.score,
+            "liq_regime": self.regime,
+            "spread_bps": self.spread_bps,
+            "depth_usd_min_5": self.depth_min_5_usd,
+            "book_rate_ema_hz": self.book_rate_hz,
+            "book_stale_ms": self.book_stale_ms,
+            "why": self.why,
+        }
 
 
 class LiquidityRegimeService:
@@ -91,6 +121,29 @@ class LiquidityRegimeService:
 
     def last(self) -> LiquidityRegimeEvent | None:
         return self._last
+
+    def score(
+        self,
+        *,
+        symbol: str,
+        ts_ms: int,
+        spread_bps: float,
+        depth_usd_min_5: float,
+        book_rate_ema_hz: float,
+        book_stale_ms: int,
+    ) -> LiquidityRegimeEvent:
+        """
+        Backward-compat alias for update().
+        Matches older OrderFlowStrategy signature.
+        """
+        import dataclasses
+        ev = self.update(
+            ts_ms=ts_ms,
+            spread_bps=spread_bps,
+            depth_min_5_usd=depth_usd_min_5,
+            book_rate_hz=book_rate_ema_hz,
+        )
+        return dataclasses.replace(ev, book_stale_ms=book_stale_ms)
 
     def update(
         self,

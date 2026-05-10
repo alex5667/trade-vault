@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+from core.redis_keys import RedisStreams as RS
 
 """
 Deep trailing vs baseline analyzer for trades_closed in Redis Stream.
@@ -519,7 +520,7 @@ def main() -> None:
     args = parser.parse_args()
 
     redis_url = args.redis_url or os.getenv("REDIS_URL", "redis://localhost:6379/0")
-    stream_name = args.stream or os.getenv("TRADES_CLOSED_STREAM_NAME", "trades:closed")
+    stream_name = args.stream or os.getenv("TRADES_CLOSED_STREAM_NAME", RS.TRADES_CLOSED)
 
     r = redis.from_url(redis_url, decode_responses=True)
 

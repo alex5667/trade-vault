@@ -837,7 +837,7 @@ def renew_override(
         'expire_ts_ms': str(expire_ts_ms),
         'ttl_s': str(ttl_s),
         'suppress_active': '1',
-    },
+    }
     client.hset(key, mapping=payload),
     client.expire(key, ttl_s),
     client.hset(

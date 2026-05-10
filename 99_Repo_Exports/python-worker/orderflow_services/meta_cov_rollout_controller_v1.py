@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from domain.evidence_keys import MetaKeys
+from core.redis_keys import RedisStreams as RS
 
 #!/usr/bin/env python3
 """meta_cov_rollout_controller_v1.py
@@ -175,7 +176,7 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--redis-url", default=os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0"))
     ap.add_argument("--cfg2-key", default=os.getenv("DYN_CFG_KEY", "settings:dynamic_cfg"))
-    ap.add_argument("--stream", default=os.getenv("META_COV_SOURCE_STREAM", os.getenv("ML_CONFIRM_METRICS_STREAM", os.getenv("OF_GATE_METRICS_STREAM", "metrics:of_gate"))))
+    ap.add_argument("--stream", default=os.getenv("META_COV_SOURCE_STREAM", os.getenv("ML_CONFIRM_METRICS_STREAM", os.getenv("OF_GATE_METRICS_STREAM", RS.OF_GATE_METRICS))))
     ap.add_argument("--lookback-min", type=int, default=int(os.getenv("META_COV_ROLLOUT_LOOKBACK_MIN", "60") or 60))
     ap.add_argument("--max-scan", type=int, default=int(os.getenv("META_COV_ROLLOUT_MAX_SCAN", "50000") or 50000))
     ap.add_argument("--apply", type=int, default=0, help="1=write cfg2, 0=print only")

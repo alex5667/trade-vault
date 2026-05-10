@@ -14,6 +14,7 @@ from unittest.mock import Mock, patch
 import pytest
 
 from core.champion_cfg_validator import CfgError, validate_champion_cfg
+from core.redis_keys import RedisStreams as RS
 
 
 class TestChampionCfgValidation:
@@ -208,7 +209,7 @@ class TestMLConfirmSREPoller:
 
         poller = MLConfirmSREPoller(
             r=mock_r,
-            labels_stream="labels:tb",
+            labels_stream=RS.TB_LABELS,
             poll_interval_sec=60,
             champion_key="cfg:ml_confirm:champion",
         )
@@ -245,7 +246,7 @@ class TestMLConfirmSREPoller:
 
         poller = MLConfirmSREPoller(
             r=mock_r,
-            labels_stream="labels:tb",
+            labels_stream=RS.TB_LABELS,
             poll_interval_sec=60,
             champion_key="cfg:ml_confirm:champion",
         )

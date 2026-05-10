@@ -26,7 +26,7 @@ import contextlib
 
 DEFAULT_GATE_KEY = 'cfg:orderflow:exec_health:reconnect_smoke:rollout_gate:v1'
 DEFAULT_STATE_KEY = 'metrics:exec_health:freeze_reconnect_smoke:gate:last'
-DEFAULT_EVENT_STREAM = 'ops:exec_health:freeze_events:v1'
+DEFAULT_EVENT_STREAM = RS.EXEC_HEALTH_FREEZE_EVENTS
 DEFAULT_NOTIFY_STREAM = RS.NOTIFY_TELEGRAM
 DEFAULT_NOTIFY_COOLDOWN_KEY = 'state:exec_health:freeze_reconnect_smoke:last_notify_ts_ms'
 DEFAULT_ACK_SERVICE = 'exec_health_freeze_reconnect_rollout_gate_v1'

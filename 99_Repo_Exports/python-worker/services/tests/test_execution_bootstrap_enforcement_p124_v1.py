@@ -13,6 +13,7 @@ import json
 import socket
 import sys
 from pathlib import Path
+from core.redis_keys import RedisStreams as RS
 
 sys.path.insert(0, str(Path(__file__).parents[2]))
 
@@ -134,7 +135,7 @@ def _mk_worker(redis_obj):
     )
     return worker_mod.ExecutionProjectionWorker(
         redis_obj,
-        exec_stream='orders:exec',
+        exec_stream=RS.ORDERS_EXEC,
         state_key_prefix='orders:state:',
         leader_lease=lease,
     )

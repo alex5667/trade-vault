@@ -8,6 +8,7 @@ from typing import Any
 import redis
 
 from utils.time_utils import get_ny_time_millis
+from core.redis_keys import RedisStreams as RS
 
 
 def _now_ms() -> int:
@@ -36,7 +37,7 @@ def _save_state(path: str, st: dict[str, Any]) -> None:
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--redis-url", default=os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0"))
-    ap.add_argument("--stream", default=os.getenv("ML_REPLAY_INPUTS_STREAM", "stream:ml_confirm:inputs"))
+    ap.add_argument("--stream", default=os.getenv("ML_REPLAY_INPUTS_STREAM", RS.ML_CONFIRM_INPUTS))
     ap.add_argument("--field", default="payload")
     ap.add_argument("--since-hours", type=float, default=float(os.getenv("ML_REPLAY_SINCE_HOURS", "24")))
     ap.add_argument("--max-records", type=int, default=int(os.getenv("ML_REPLAY_MAX_RECORDS", "250000")))

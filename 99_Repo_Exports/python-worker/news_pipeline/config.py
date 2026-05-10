@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from core.redis_keys import RedisStreams as RS
 
 
 def env(name: str, default: str) -> str:
@@ -8,9 +9,9 @@ def env(name: str, default: str) -> str:
     return v if v is not None and v != "" else default
 
 # Streams
-NEWS_RAW_STREAM = env("NEWS_RAW_STREAM", "news:raw")
-NEWS_ANALYSIS_STREAM = env("NEWS_ANALYSIS_STREAM", "news:analysis")
-CALENDAR_EVENTS_STREAM = env("CALENDAR_EVENTS_STREAM", "calendar:events")
+NEWS_RAW_STREAM = env("NEWS_RAW_STREAM", RS.NEWS_RAW)
+NEWS_ANALYSIS_STREAM = env("NEWS_ANALYSIS_STREAM", RS.NEWS_ANALYSIS)
+CALENDAR_EVENTS_STREAM = env("CALENDAR_EVENTS_STREAM", RS.CALENDAR_EVENTS)
 
 # DLQ Streams
 NEWS_RAW_DLQ = env("NEWS_RAW_DLQ", "news:raw:dlq")

@@ -462,7 +462,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             "ts_utc": _utc_now_iso(),
             "gate_pass": 0,
             "reasons": [f"not_enough_data_after_split train={len(split.train_idx)} val={len(split.val_idx)}"],
-        },
+        }
         _write_json(mp, m2)
         print(f"not enough data after split: train={len(split.train_idx)} val={len(split.val_idx)}")
         return 2
@@ -533,7 +533,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         "mcc_drop_max": float(args.mcc_drop_max),
         "worst_group_auc_drop_max": float(args.worst_group_auc_drop_max),
         "min_group_rows": int(args.min_group_rows),
-    },
+    }
 
     gate_pass = True
     reasons: list[str] = []
@@ -614,7 +614,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             },
         },
         "gate": {"pass": int(gate_pass), "reasons": reasons, "thresholds": gate},
-    },
+    }
 
     rep_json = out_dir / f"ab_report_{tag}.json"
     rep_md = out_dir / f"ab_report_{tag}.md"
@@ -662,7 +662,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         "model": model_kind,
         "metrics": report["metrics"],
         "thresholds": gate,
-    },
+    }
 
     _write_json(mp, m2)
 

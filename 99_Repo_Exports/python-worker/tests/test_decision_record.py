@@ -3,6 +3,7 @@ import json
 
 from core.decision_record import DecisionRecord
 from core.decision_store import DecisionStore
+from core.redis_keys import RedisStreams as RS
 
 
 class TestDecisionRecord:
@@ -102,7 +103,7 @@ class TestDecisionStore:
 
         assert r.xadd.called
         args, kwargs = r.xadd.call_args
-        assert args[0] == "decisions:final"
+        assert args[0] == RS.DECISIONS_FINAL
         # payload is typically the second arg
         payload = args[1]
         assert payload["sid"] == "S2"

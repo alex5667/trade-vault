@@ -36,7 +36,7 @@ def _sha1(s: str) -> str:
 class AlertCfg:
     # capture
     duration_sec: int = 900             # 15 min default
-    stream: str = "stream:trade:entry_candidate"
+    stream: str = RS.ENTRY_CANDIDATE
     snap_prefix: str = "smt:snap:"
     bundle_prefix: str = "smt:bundle:v1:"
     start_id: str = "$"
@@ -54,7 +54,7 @@ class AlertCfg:
     max_delta_allow_pp: float = 7.0    # percentage points vs yesterday
 
     # publish alerts
-    alerts_stream: str = "stream:trade:alerts"
+    alerts_stream: str = RS.TRADE_ALERTS
 
     # scheduling
     run_at_hour: int = 3
@@ -65,7 +65,7 @@ class AlertCfg:
     def from_env() -> AlertCfg:
         return AlertCfg(
             duration_sec=int(os.getenv("EP_CAPTURE_DURATION_SEC", "900")),
-            stream=os.getenv("SMT_ENTRY_STREAM", "stream:trade:entry_candidate"),
+            stream=os.getenv("SMT_ENTRY_STREAM", RS.ENTRY_CANDIDATE),
             snap_prefix=os.getenv("SMT_SNAP_PREFIX", "smt:snap:"),
             bundle_prefix=os.getenv("SMT_BUNDLE_PREFIX", "smt:bundle:v1:"),
             start_id=os.getenv("EP_CAPTURE_START_ID", "$"),
@@ -77,7 +77,7 @@ class AlertCfg:
             min_allow_rate=float(os.getenv("EP_ALERT_MIN_ALLOW_RATE", "0.3")),
             max_allow_rate=float(os.getenv("EP_ALERT_MAX_ALLOW_RATE", "50.0")),
             max_delta_allow_pp=float(os.getenv("EP_ALERT_MAX_DELTA_ALLOW_PP", "7.0")),
-            alerts_stream=os.getenv("EP_ALERTS_STREAM", "stream:trade:alerts"),
+            alerts_stream=os.getenv("EP_ALERTS_STREAM", RS.TRADE_ALERTS),
             run_at_hour=int(os.getenv("EP_RUN_AT_HOUR", "3")),
             run_at_minute=int(os.getenv("EP_RUN_AT_MINUTE", "10")),
             enable_direct_notify=bool(int(os.getenv("EP_ENABLE_DIRECT_NOTIFY", "1"))),

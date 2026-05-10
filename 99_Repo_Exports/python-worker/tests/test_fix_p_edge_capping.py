@@ -3,14 +3,14 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from core.meta_model_lr import MetaModelLR
-from services.ml_confirm_gate import MLConfirmGate
+from services.ml_confirm import MLConfirmGate
 
 
 class TestFixPEdgeCapping:
     @pytest.fixture
     def gate(self):
         # minimal mock logic
-        with patch("services.ml_confirm_gate.redis.Redis") as MockRedis:
+        with patch("services.ml_confirm.gate.redis.Redis") as MockRedis:
             r = MagicMock()
             MockRedis.return_value = r
             # Correct init signature

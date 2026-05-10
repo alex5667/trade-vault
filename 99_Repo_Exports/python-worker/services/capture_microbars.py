@@ -6,6 +6,7 @@ import time
 from datetime import UTC, datetime
 
 import redis.asyncio as aioredis
+from core.redis_keys import RedisStreams as RS
 
 # Configuration
 # Internal redis URL for the container
@@ -13,7 +14,7 @@ REDIS_URL = os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
 # Split streams support: use per-symbol streams instead of legacy shared stream
 STREAM_TEMPLATE = os.getenv("MICROBAR_PER_SYMBOL_STREAM_TEMPLATE", "events:microbar_closed:{sym}")
 SYMBOLS_SET = os.getenv("MICROBAR_SYMBOLS_SET", "events:microbar_closed:symbols")
-LEGACY_STREAM = os.getenv("MICROBAR_LEGACY_STREAM", "events:microbar_closed")
+LEGACY_STREAM = os.getenv("MICROBAR_LEGACY_STREAM", RS.EVENTS_MICROBAR_CLOSED)
 # Write to logs dir which is mapped to host
 OUTPUT_FILE = "logs/microbar_closed_slice.ndjson"
 DURATION_SEC = 15 * 60  # 15 minutes

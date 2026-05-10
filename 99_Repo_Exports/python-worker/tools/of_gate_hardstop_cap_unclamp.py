@@ -86,7 +86,7 @@ def read_metrics_window(r: redis.Redis, stream: str, since_ms: int, max_scan: in
     
     Args:
         r: Redis client
-        stream: Stream name (e.g., "metrics:of_gate")
+        stream: Stream name (e.g., RS.OF_GATE_METRICS)
         since_ms: Start timestamp (epoch ms)
         max_scan: Maximum number of messages to scan
         
@@ -327,7 +327,7 @@ def main() -> None:
         return
 
     # health window
-    metrics_stream = os.getenv("OF_GATE_METRICS_STREAM", "metrics:of_gate")
+    metrics_stream = os.getenv("OF_GATE_METRICS_STREAM", RS.OF_GATE_METRICS)
     window_min = float(os.getenv("META_HARDSTOP_WINDOW_MIN", "30") or 30)
     max_scan = int(os.getenv("META_HARDSTOP_METRICS_MAX_SCAN", "200000") or 200000)
     since_ms = now_ms() - int(window_min * 60_000)

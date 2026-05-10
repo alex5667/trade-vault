@@ -4,6 +4,7 @@ import importlib.util
 import json
 import sys
 from pathlib import Path
+from core.redis_keys import RedisStreams as RS
 
 ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
@@ -33,7 +34,7 @@ def _mk_exec():
     ex.exec_blocked_action_reason = 'operator_risk_hold'
     ex.exec_blocked_action_state_write = True
     ex.r = FakeRedis()
-    ex.exec_stream = 'orders:exec'
+    ex.exec_stream = RS.ORDERS_EXEC
     ex.allowlist = set()
     ex.saved = []
     ex.acked = []
@@ -67,6 +68,6 @@ def test_process_one_acknowledges_blocked_modify_without_dlq():
     assert ex.acked == [raw]
     assert ex.r.stream
     key, event = ex.r.stream[-1]
-    assert key == 'orders:exec'
+    assert key == RS.ORDERS_EXEC
     assert event['status'] == 'blocked'
     assert event['action'] == 'modify'

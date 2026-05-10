@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.util
 import sys
 from pathlib import Path
+from core.redis_keys import RedisStreams as RS
 
 root = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(root))
@@ -71,11 +72,11 @@ def test_notifier_publishes_and_then_dedupes():
     r = FakeRedis()
     diag = DummyDiag()
     policy = policy_mod.ActiveSymbolGuardIncidentPolicyEngine(r, diag)
-    notifier = notifier_mod.ActiveSymbolGuardIncidentNotifier(r, diag, policy, notify_stream='notify:telegram')
+    notifier = notifier_mod.ActiveSymbolGuardIncidentNotifier(r, diag, policy, notify_stream=RS.NOTIFY_TELEGRAM)
     first = notifier.run_once()
     assert first['sent']
-    assert 'notify:telegram' not in r.streams
+    assert RS.NOTIFY_TELEGRAM not in r.streams
     second = notifier.run_once()
     assert not second['sent']
     assert second['skipped']
-    assert 'notify:telegram' not in r.streams
+    assert RS.NOTIFY_TELEGRAM not in r.streams

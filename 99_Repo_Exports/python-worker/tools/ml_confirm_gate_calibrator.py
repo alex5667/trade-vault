@@ -206,8 +206,8 @@ def _collect_analytics(
       pass_r_sum         - sum of r_mult for passed trades (allow=1)
       pass_count         - events where allow=1 with outcome
     """
-    ml_stream = os.getenv("ML_CONFIRM_METRICS_STREAM", "metrics:ml_confirm")
-    trades_stream = os.getenv("ML_OUTCOME_STREAM", "trades:closed")
+    ml_stream = os.getenv("ML_CONFIRM_METRICS_STREAM", RS.ML_CONFIRM_METRICS)
+    trades_stream = os.getenv("ML_OUTCOME_STREAM", RS.TRADES_CLOSED)
 
     since_ms = _now_ms() - int(hours * 3600 * 1000)
     logger.info(f"Reading {ml_stream} since {hours}h ago | max_scan={max_scan}")

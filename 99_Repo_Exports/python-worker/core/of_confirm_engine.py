@@ -102,6 +102,7 @@ from core_snapshot.policy_snapshot_v1 import build_dq_policy_snapshot, build_fea
 from domain.evidence_keys import CtxKeys, HzGateKeys, MetaKeys, MLKeys
 from utils.time_utils import get_ny_time_millis
 import contextlib
+from core.redis_keys import RedisStreams as RS
 
 # Optional gates (may live in the full repo). Keep engine importable even in
 # partial archives; engine remains functional with graceful degradation.
@@ -110,7 +111,7 @@ try:
 except Exception:  # pragma: no cover
     CancellationSpikeGate = None  # type: ignore
 try:
-    from services.ml_confirm_gate import MLConfirmGate  # type: ignore
+    from services.ml_confirm import MLConfirmGate  # type: ignore
 except Exception:  # pragma: no cover
     MLConfirmGate = None  # type: ignore
 
@@ -361,7 +362,7 @@ def _emit_cont_ctx_calib_capture_v1(
         stream = str(
             cfg2.get("cont_ctx_calib_capture_stream")
             or os.getenv("CONT_CTX_CALIB_CAPTURE_STREAM")
-            or "stream:ofc:cont_ctx_capture"
+            or RS.OFC_CONT_CTX_CAPTURE
         ).strip()
         maxlen = int(cfg2.get("cont_ctx_calib_capture_maxlen", os.getenv("CONT_CTX_CALIB_CAPTURE_MAXLEN", str(MAXLEN_GLOBAL))) or MAXLEN_GLOBAL)
 
@@ -512,8 +513,8 @@ class OFConfirmEngine:
         score_min: float,
         now_ts: int,
     ) -> dict[str, float]:
-        dt_h = int((int(now_ts) // 1000) // 3600 % 24)
-        dt_d = int((int(now_ts) // 1000) // 86400 + 3) % 7  # stable UTC weekday proxy
+        dt_h = int((now_ts // 1000) // 3600 % 24)
+        dt_d = int((now_ts // 1000) // 86400 + 3) % 7  # stable UTC weekday proxy
         h_ang = (2.0 * math.pi * float(dt_h)) / 24.0
         d_ang = (2.0 * math.pi * float(dt_d)) / 7.0
         out: dict[str, float] = {
@@ -739,8 +740,8 @@ class OFConfirmEngine:
           2) indicators['now_ts_ms'] (if >0)
           3) deterministic _now_ms() (prod: wall clock, replay: frozen)
         """
-        if int(tick_ts_ms or 0) > 0:
-            return int(tick_ts_ms)
+        if tick_ts_ms > 0:
+            return tick_ts_ms
         v = self._i(indicators.get("now_ts_ms", 0), 0)
         if v > 0:
             return int(v)
@@ -900,7 +901,7 @@ class OFConfirmEngine:
         )
         iceberg_dir_ok, iceberg_strict, iceberg_refresh, iceberg_duration = compute_iceberg_flags(
             direction=direction,
-            price=float(price),
+            price=price,
             now_ts_ms=now_ts,
             last_event=getattr(runtime, "last_iceberg_event", None),
             cfg=cfg,
@@ -920,7 +921,7 @@ class OFConfirmEngine:
 
         # Optional: stamp now_ts used (useful for replay/debug)
         with contextlib.suppress(Exception):
-            indicators["now_ts_ms_used"] = int(now_ts)
+            indicators["now_ts_ms_used"] = now_ts
 
         # --- Book health gate for book-based evidences (OBI/Iceberg/OFI) ---
         book_ok = _i(indicators.get("book_health_ok", 1), 1)
@@ -1003,7 +1004,7 @@ class OFConfirmEngine:
 
                 # P1-10: Strict time scoping. Delta is an indicator, must not be newer than signal!
                 evidence_ts = int(indicators.get("ts_ms", indicators.get("event_ts", 0)) or 0)
-                signal_ts = int(now_ts)  # now_ts is the tick_ts_ms for the current signal
+                signal_ts = now_ts  # now_ts is the tick_ts_ms for the current signal
                 time_ok = True
                 if evidence_ts > 0 and signal_ts > 0 and evidence_ts > signal_ts:
                     time_ok = False
@@ -1042,7 +1043,7 @@ class OFConfirmEngine:
 
         fp_edge_ok, fp_edge_strength, fp_edge_rng, fp_edge_bias = compute_fp_edge_absorb(
             direction=direction,
-            now_ts_ms=int(now_ts),
+            now_ts_ms=now_ts,
             last_edge=_get_attr_or_key(runtime, 'last_fp_edge', None),
             cfg=cfg,
             indicators=indicators,
@@ -1129,7 +1130,7 @@ class OFConfirmEngine:
         # proxy: news/vol shock
         news_flag = int(indicators.get("news_risk", 0) or indicators.get("calendar_risk", 0) or 0)
         reg = str(getattr(runtime, "last_regime", "") or "").lower()
-        vol_shock = bool(news_flag == 1 or ("news" in reg) or ("shock" in reg))
+        vol_shock = (news_flag == 1 or ("news" in reg) or ("shock" in reg))
 
         # proxy: saw/chop/spoof-ish
         # churn_hi: keep simple + safe (NO getattr with >3 args)
@@ -1140,7 +1141,7 @@ class OFConfirmEngine:
                 churn_hi = bool(int(getattr(runtime, "book_churn_hi", 0) or 0))
             except Exception:
                 churn_hi = False
-        saw_chop = bool(int(indicators.get("saw_chop", 0) or 0) == 1 or churn_hi)
+        saw_chop = (int(indicators.get("saw_chop", 0) or 0) == 1 or churn_hi)
 
         if vol_shock:
             scenario_v4 = "vol_shock_news_proxy"
@@ -1167,15 +1168,15 @@ class OFConfirmEngine:
                         bar=bar,
                         direction=direction,
                         delta_z=float(delta_z),
-                        weak_progress=bool(wp_any),
-                        iceberg_strict=bool(iceberg_strict),
-                        reclaim_recent=bool(reclaim_recent),
+                        weak_progress=wp_any,
+                        iceberg_strict=iceberg_strict,
+                        reclaim_recent=reclaim_recent,
                         cfg=cfg,
                     )
-                    abs_lvl_ok = bool(abs_lvl.ok)
+                    abs_lvl_ok = abs_lvl.ok
                     abs_lvl_score = float(abs_lvl.score)
                     abs_lvl_bias = str(abs_lvl.bias)
-                    abs_lvl_dir_match = bool(abs_lvl.dir_match)
+                    abs_lvl_dir_match = abs_lvl.dir_match
 
                     indicators["abs_lvl_ok"] = int(abs_lvl_ok)
                     indicators["abs_lvl_score"] = abs_lvl_score
@@ -1188,13 +1189,13 @@ class OFConfirmEngine:
             pass
 
         # --- FP edge absorb (A2) - derive from abs_lvl if not provided ---
-        fp_edge_absorb = bool(fp_edge_ok)
+        fp_edge_absorb = fp_edge_ok
         # optional derive from abs_lvl if not provided
-        if (not fp_edge_absorb) and bool(abs_lvl_ok):
+        if (not fp_edge_absorb) and abs_lvl_ok:
             try:
-                poc_edge = bool(int(indicators.get("abs_lvl_poc_edge", 0) or 0) == 1)
+                poc_edge = (int(indicators.get("abs_lvl_poc_edge", 0) or 0) == 1)
                 score_min = float(cfg.get("fp_edge_abs_lvl_score_min", 0.55) or 0.55)
-                fp_edge_absorb = bool(poc_edge and float(abs_lvl_score) >= score_min and bool(abs_lvl_dir_match))
+                fp_edge_absorb = (poc_edge and float(abs_lvl_score) >= score_min and abs_lvl_dir_match)
             except Exception:
                 pass
 
@@ -1251,18 +1252,18 @@ class OFConfirmEngine:
         # pressure_hi: deterministic sources only (no runtime.pressure calls => replayable)
         try:
             if "pressure_hi" in indicators:
-                pressure_hi = bool(int(indicators.get("pressure_hi", 0) or 0) == 1)
+                pressure_hi = (int(indicators.get("pressure_hi", 0) or 0) == 1)
             elif isinstance(dyn, dict) and "pressure_hi" in dyn:
-                pressure_hi = bool(int(dyn.get("pressure_hi", 0) == 1))
+                pressure_hi = (int(dyn.get("pressure_hi", 0) == 1))
             else:
                 ph = getattr(runtime, "pressure_hi", None)
                 if ph is not None:
                     try:
-                        pressure_hi = bool(int(ph or 0) == 1) if not isinstance(ph, bool) else bool(ph)
+                        pressure_hi = (int(ph or 0) == 1) if not isinstance(ph, bool) else ph
                     except Exception:
                         pressure_hi = bool(ph)
                 else:
-                    pressure_hi = bool(runtime.pressure.is_pressure_hi(int(now_ts), float(cfg2.get("pressure_hi_per_min", 4.0))))
+                    pressure_hi = runtime.pressure.is_pressure_hi(now_ts, float(cfg2.get("pressure_hi_per_min", 4.0)))
         except Exception:
             pressure_hi = False
         try:
@@ -1275,7 +1276,7 @@ class OFConfirmEngine:
             pressure_hi=pressure_hi,
             churn_hi=churn_hi,
             regime=str(regime),
-            unstable=bool(unstable),
+            unstable=unstable,
             cfg=cfg2,
         )
         # Apply need overrides into cfg2 for eval_* (same-tick)
@@ -1285,7 +1286,7 @@ class OFConfirmEngine:
 
         if scenario == "reversal":
             # C1: OFI substitutes OBI stability for the microstructure leg (safe: does not increase have count).
-            ofi_leg = bool(ofi_dir_ok and ofi_stable)
+            ofi_leg = (ofi_dir_ok and ofi_stable)
             # No longer need implicit OR substitution because eval_reversal now handles ofi_leg natively.
             # But we keep explicit params clean.
 
@@ -1367,20 +1368,20 @@ class OFConfirmEngine:
             indicators["hidden_ctx_recent"] = int(hidden_ctx_recent)
             indicators["cont_ctx_recent"] = int(cont_ctx_recent)
 
-            ofi_leg = bool(ofi_dir_ok and ofi_stable)
+            ofi_leg = (ofi_dir_ok and ofi_stable)
 
             from core.compat_utils import _filter_kwargs_for_callable
 
             continuation_kwargs = {
                 "direction": direction,
                 "trend_dir": trend_dir,
-                "hidden_ctx_recent": bool(hidden_ctx_recent),
-                "iceberg_strict": bool(iceberg_strict),
-                "obi_stable": bool(obi_stable),
-                "cont_ctx_recent": bool(cont_ctx_recent),
-                "abs_lvl_ok": bool(abs_lvl_ok),
-                "ofi_leg": bool(ofi_leg),
-                "fp_edge_absorb": bool(fp_edge_absorb),
+                "hidden_ctx_recent": hidden_ctx_recent,
+                "iceberg_strict": iceberg_strict,
+                "obi_stable": obi_stable,
+                "cont_ctx_recent": cont_ctx_recent,
+                "abs_lvl_ok": abs_lvl_ok,
+                "ofi_leg": ofi_leg,
+                "fp_edge_absorb": fp_edge_absorb,
                 "cfg": cfg2,
                 "trend_dir_source": (indicators.get("trend_dir_source", "none")),
                 "delta_z": float(delta_z),
@@ -1461,7 +1462,7 @@ class OFConfirmEngine:
         # Fill-prob / ETA proxy (L3-lite) -> exec penalty term + indicators
         try:
             fp = compute_fill_prob_proxy(
-                direction=str(direction),
+                direction=direction,
                 cancel_to_trade_bid=float(indicators.get("cancel_to_trade_bid", 0.0) or 0.0),
                 cancel_to_trade_ask=float(indicators.get("cancel_to_trade_ask", 0.0) or 0.0),
                 eta_fill_bid_sec=float(indicators.get("eta_fill_bid_sec", 0.0) or 0.0),
@@ -1516,7 +1517,7 @@ class OFConfirmEngine:
         _add("absorption", 1.0 if abs_ok else 0.0, _f(cfg.get("w_abs", 0.05), 0.05))
 
         # OFI (normalized)
-        ofi_leg = bool(ofi_dir_ok and ofi_stable)
+        ofi_leg = (ofi_dir_ok and ofi_stable)
         ofi_z_ref = _f(cfg.get("ofi_z_ref", 3.0), 3.0)
         ofi_z_norm = _clamp01(abs(float(ofi_z)) / max(1e-9, ofi_z_ref))
         ofi_stab_norm = _clamp01(float(ofi_stability_score))
@@ -1717,7 +1718,7 @@ class OFConfirmEngine:
             # Evaluate unconditionally if implementation is available.
             # The gate itself decides OFF/SHADOW/ENFORCE based on cfg2.
             if evaluate_liqmap_gate_v1 is not None:
-                lm = evaluate_liqmap_gate_v1(direction=str(direction), indicators=indicators, cfg2=cfg2)
+                lm = evaluate_liqmap_gate_v1(direction=direction, indicators=indicators, cfg2=cfg2)
                 liqmap_shadow_veto = int(getattr(lm, "shadow_veto", 0) or 0)
                 liqmap_veto = int(getattr(lm, "veto", 0) or 0)
                 liqmap_soft = int(getattr(lm, "soft", 0) or 0)
@@ -1769,7 +1770,7 @@ class OFConfirmEngine:
                 _ng = self._news_gate
 
             ndec = _ng.decide(
-                now_ts_ms=int(now_ts),
+                now_ts_ms=now_ts,
                 symbols=(symbol,),
                 news_risk=indicators.get("news_risk"),
                 news_grade_id=indicators.get("news_grade_id"),
@@ -1839,8 +1840,8 @@ class OFConfirmEngine:
         ctx_mode = (cfg2.get("ofc_ctx_mode", "off") or "off").lower()
         ctx = build_ofc_context(
             symbol=symbol,
-            direction=str(direction),
-            ts_ms=int(now_ts),
+            direction=direction,
+            ts_ms=now_ts,
             indicators=indicators,
             runtime=runtime,
             scenario_base=str(scenario),
@@ -1858,7 +1859,7 @@ class OFConfirmEngine:
             spread_bps=float(spread_bps),
             slip_bps=float(slip_bps),
             score_min=float(cfg2.get("of_score_min", 0.40) or 0.40),
-            now_ts=int(now_ts),
+            now_ts=now_ts,
         )
         indicators[CtxKeys.KEY] = str(ctx_key)
         indicators["ctx_session"] = str(ctx.session)
@@ -2952,8 +2953,8 @@ class OFConfirmEngine:
             else:
                 ml_dec = self._ml_gate.check(
                     symbol=symbol,
-                    ts_ms=int(now_ts),
-                    direction=str(direction),
+                    ts_ms=now_ts,
+                    direction=direction,
                     scenario=str(ml_scenario),
                     indicators=indicators_with_v4,
                     rule_score=float(score),
@@ -3451,16 +3452,16 @@ class OFConfirmEngine:
                 evidence["golden_replay_inputs_v1"] = {
                     "symbol": symbol,
                     "tf": tf,
-                    "direction": str(direction),
-                    "tick_ts_ms": int(tick_ts_ms),
-                    "price": float(price),
+                    "direction": direction,
+                    "tick_ts_ms": tick_ts_ms,
+                    "price": price,
                     "delta_z": float(delta_z),
                     "dq_policy_hash": (indicators.get("dq_policy_hash") or ""),
                     "dq_policy_feature_manifest_hash_v1": (indicators.get("dq_policy_feature_manifest_hash_v1") or ""),
                     "runtime_snapshot": OFConfirmEngine.export_runtime_snapshot(runtime, indicators),
                 }
 
-        legacy_reason = str(final_reason)
+        legacy_reason = final_reason
         score_veto_family = {
             "score_veto",
             "vol_shock_score_veto",
@@ -3485,8 +3486,8 @@ class OFConfirmEngine:
         ofc = OFConfirmV3(
             v=3,
             symbol=symbol,
-            ts_ms=int(now_ts),
-            direction=str(direction),
+            ts_ms=now_ts,
+            direction=direction,
             scenario=str(getattr(dec, "scenario", scenario) if dec else scenario),
             ok=int(ok),
             score=float(score),
@@ -3524,7 +3525,7 @@ class OFConfirmEngine:
             try:
                 _rt = locals().get("runtime") or getattr(self, "runtime", None)
                 _ind = locals().get("indicators") or locals().get("ind") or {}
-                _ts = locals().get("now_ts_ms") or locals().get("ts_ms") or int(now_ts)
+                _ts = locals().get("now_ts_ms") or locals().get("ts_ms") or now_ts
                 _emit_cont_ctx_calib_capture_v1(runtime=_rt, indicators=_ind, cfg2=cfg2, ofc=ofc, dec=dec, now_ts_ms=int(_ts))
             except Exception:
                 pass
@@ -3746,88 +3747,6 @@ class OFConfirmEngine:
             pass
 
         return snap
-
-    @staticmethod
-    def runtime_snapshot_schema() -> dict[str, Any]:
-        """Schema for runtime_snapshot (contract).
-
-        Used by tools/tests to detect drift when engine starts reading new fields.
-        """
-        return {
-            "schema": 3,
-            "required_top": [
-                "schema",
-                "dynamic_cfg",
-                "last_regime",
-                "liq_regime",
-                "book_churn_hi",
-                "cont_ctx_ts_ms",
-                "pressure_hi",
-                "last_bar",
-                "last_obi_event",
-                "last_iceberg_event",
-                "last_ofi_event",
-                "last_sweep",
-                "last_reclaim",
-                "last_wp",
-                "last_div",
-                "last_fp_edge",
-                "now_ts_ms_used",
-            ],
-            "required_nested": {
-                "last_bar": [
-                    "end_ts_ms", "open", "high", "low", "close",
-                    "fp_enabled",
-                    "fp_absorption_bias",
-                    "fp_ladder_low_len", "fp_ladder_high_len",
-                    "fp_poc_on_edge",
-                    "fp_eff_quote", "fp_eff_delta",
-                    "fp_quote_delta",
-                    "fp_n_buckets",
-                    "fp_max_imbalance",
-                    "fp_absorb_score",
-                    "fp_progress",
-                    "fp_peak_delta",
-                    "fp_bucket_px",
-                ],
-                "last_div": ["ts_ms", "kind"],
-            },
-        }
-
-    @staticmethod
-    def validate_runtime_snapshot_contract(snap: dict[str, Any]) -> tuple[bool, list[str]]:
-        """Validate snapshot keys presence. Fail-open; returns (ok, missing_paths)."""
-        missing: list[str] = []
-        sch = OFConfirmEngine.runtime_snapshot_schema()
-        top = sch.get("required_top", [])
-        for k in top:
-            if k not in snap:
-                missing.append(f"runtime_snapshot.{k}")
-        nested = sch.get("required_nested", {}) or {}
-        for parent, keys in nested.items():
-            if parent not in snap:
-                continue
-            obj = snap.get(parent)
-            if obj is None:
-                continue
-            if not isinstance(obj, dict):
-                missing.append(f"runtime_snapshot.{parent}:not_dict")
-                continue
-            for k in keys:
-                if k not in obj:
-                    missing.append(f"runtime_snapshot.{parent}.{k}")
-        return (len(missing) == 0), missing
-
-    def validate_runtime_snapshot(self, snap: dict[str, Any]) -> list[str]:
-        """Validate snapshot has required fields. Returns list of missing keys."""
-        missing: list[str] = []
-        if not isinstance(snap, dict):
-            return ['snap_not_dict']
-        for k in ('schema', 'symbol', 'dynamic_cfg', 'last_regime', 'liq_regime', 'book_churn_hi', 'pressure_hi', 'cont_ctx_ts_ms'):
-            if k not in snap:
-                missing.append(k)
-        return missing
-
 
     @staticmethod
     def _json_sanitize(obj: Any, *, max_depth: int = 6, max_items: int = 2000) -> Any:

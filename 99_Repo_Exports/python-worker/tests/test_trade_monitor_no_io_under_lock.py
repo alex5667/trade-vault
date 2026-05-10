@@ -2,6 +2,7 @@
 Tests for TradeMonitorService: no I/O under global _lock.
 """
 import types
+from tests.trade_monitor_test_utils import create_mock_trade_monitor
 
 
 class DummyRepo:
@@ -41,32 +42,12 @@ def test_on_tick_repo_io_outside_global_lock(monkeypatch):
     from services.trade_monitor import TradeMonitorService
 
     # Prevent real RedisTradeRepository init
-    monkeypatch.setattr(tm, "RedisTradeRepository", lambda redis, health_provider=None: types.SimpleNamespace(load_open_positions=lambda limit=5000: []))
+    monkeypatch.setattr("services.trade_monitor._monolith.RedisTradeRepository", lambda redis, health_provider=None: types.SimpleNamespace(load_open_positions=lambda limit=5000: []))
 
     # Fake analytics DB
-    monkeypatch.setattr(tm.analytics_db, "save_trade_closed", lambda closed: None)
+    monkeypatch.setattr("services.trade_monitor._monolith.analytics_db.save_trade_closed", lambda closed: None)
 
-    svc = TradeMonitorService.__new__(TradeMonitorService)
-    svc._lock = type('MockLock', (), {'_is_owned': lambda: False, '__enter__': lambda self: None, '__exit__': lambda self, *a: None})()
-    svc._lock_is_owned = lambda: False
-    svc._use_symbol_locks = False
-    svc._symbol_locks_guard = type('MockLock', (), {})()
-    svc._symbol_locks = {}
-    svc._get_symbol_lock = lambda self, symbol: type('MockLock', (), {'__enter__': lambda: None, '__exit__': lambda *a: None})()
-    svc._update_last_price = lambda tick: None
-    svc._housekeep_expired_positions = lambda ts_ms: None
-    svc._run_io_tasks = lambda tasks: [t.fn() for t in tasks]
-    svc.open_positions = {}
-    svc.pos_by_sid = {}
-    svc.open_by_symbol = {}
-    svc._last_price_by_symbol = {}
-    svc.tp_ratios = (0.3, 0.35, 0.35)
-    svc.fill_policy = "level"
-    svc._index_remove = lambda pos: None
-    svc.regime_guard = None
-    svc._attach_health_on_close = False
-    svc._IOTask = lambda fn, desc: types.SimpleNamespace(fn=fn, desc=desc)
-    svc._dedup_acquire = lambda key, event_id: True  # no-op dedup
+    svc = create_mock_trade_monitor()
     svc.repo = DummyRepo(svc)
 
     # Stub spec
@@ -74,7 +55,7 @@ def test_on_tick_repo_io_outside_global_lock(monkeypatch):
 
     # Stub build_tick
     tick = types.SimpleNamespace(symbol="BTCUSDT", ts_ms=1_700_000_000_000, mid=100.0)
-    monkeypatch.setattr(tm, "build_tick", lambda raw: tick)
+    monkeypatch.setattr("services.trade_monitor._monolith.build_tick", lambda raw: tick)
 
     # Create a position
     pos = types.SimpleNamespace(
@@ -101,18 +82,19 @@ def test_on_tick_repo_io_outside_global_lock(monkeypatch):
         svc.open_positions[pos.id] = pos
         svc.pos_by_sid[pos.sid] = pos.id
         svc.open_by_symbol.setdefault(pos.symbol, set()).add(pos.id)
+        svc.shards.setdefault(pos.symbol, {})[pos.id] = pos
 
     # process_tick returns one TP_HIT event + closed trade
     ev_tp = types.SimpleNamespace(event_type="TP_HIT", payload={"tp_level": 1, "fill_price": 110.0, "closed_qty": 0.3, "pnl_part_gross": 1.0})
     closed = types.SimpleNamespace(symbol="BTCUSDT", close_reason_raw="TP1", close_reason="TP1", pnl_net=1.0)
 
-    monkeypatch.setattr(tm, "process_tick", lambda pos, tick, spec, tp_ratios, fill_policy: ([ev_tp], closed))
+    monkeypatch.setattr("services.trade_monitor._monolith.process_tick", lambda pos, tick, spec, tp_ratios, fill_policy: ([ev_tp], closed))
 
     svc.on_tick({"symbol": "BTCUSDT", "ts_ms": tick.ts_ms, "mid": 100.0})
 
     # Ensure I/O happened and did not assert
     assert ("append_event", "TP_HIT") in svc.repo.calls
-    assert ("save_tp_hit_fast", 1) in svc.repo.calls
+    assert ("save_tp_hit", 1) in svc.repo.calls
     assert ("save_closed", "BTCUSDT") in svc.repo.calls
 
 
@@ -120,30 +102,10 @@ def test_external_sl_hit_repo_io_outside_global_lock(monkeypatch):
     import services.trade_monitor as tm
     from services.trade_monitor import TradeMonitorService
 
-    monkeypatch.setattr(tm, "RedisTradeRepository", lambda redis, health_provider=None: types.SimpleNamespace(load_open_positions=lambda limit=5000: []))
-    monkeypatch.setattr(tm.analytics_db, "save_trade_closed", lambda closed: None)
+    monkeypatch.setattr("services.trade_monitor._monolith.RedisTradeRepository", lambda redis, health_provider=None: types.SimpleNamespace(load_open_positions=lambda limit=5000: []))
+    monkeypatch.setattr("services.trade_monitor._monolith.analytics_db.save_trade_closed", lambda closed: None)
 
-    svc = TradeMonitorService.__new__(TradeMonitorService)
-    svc._lock = type('MockLock', (), {'_is_owned': lambda: False, '__enter__': lambda self: None, '__exit__': lambda self, *a: None})()
-    svc._lock_is_owned = lambda: False
-    svc._use_symbol_locks = False
-    svc._symbol_locks_guard = type('MockLock', (), {})()
-    svc._symbol_locks = {}
-    svc._get_symbol_lock = lambda self, symbol: type('MockLock', (), {'__enter__': lambda: None, '__exit__': lambda *a: None})()
-    svc._update_last_price = lambda tick: None
-    svc._housekeep_expired_positions = lambda ts_ms: None
-    svc._run_io_tasks = lambda tasks: [t.fn() for t in tasks]
-    svc.open_positions = {}
-    svc.pos_by_sid = {}
-    svc.open_by_symbol = {}
-    svc._last_price_by_symbol = {}
-    svc.tp_ratios = (0.3, 0.35, 0.35)
-    svc.fill_policy = "level"
-    svc._index_remove = lambda pos: None
-    svc.regime_guard = None
-    svc._attach_health_on_close = False
-    svc._IOTask = lambda fn, desc: types.SimpleNamespace(fn=fn, desc=desc)
-    svc._dedup_acquire = lambda key, event_id: True  # no-op dedup
+    svc = create_mock_trade_monitor()
     svc.repo = DummyRepo(svc)
 
     # stub spec and finalize_trade
@@ -151,7 +113,7 @@ def test_external_sl_hit_repo_io_outside_global_lock(monkeypatch):
         def pnl_money(self, entry, exit, qty, direction, symbol=None):
             return 1.0
     monkeypatch.setattr(tm.TradeMonitorService, "_get_spec", lambda self, symbol: Spec())
-    monkeypatch.setattr(tm, "finalize_trade", lambda pos, spec, exit_price, exit_ts_ms, close_reason_raw, tp_ratios: types.SimpleNamespace(
+    monkeypatch.setattr("services.trade_monitor._monolith.finalize_trade", lambda pos, spec, exit_price, exit_ts_ms, close_reason_raw, tp_ratios: types.SimpleNamespace(
         symbol=pos.symbol, close_reason_raw=close_reason_raw, close_reason="SL", pnl_net=0.1
     ))
 
@@ -176,6 +138,7 @@ def test_external_sl_hit_repo_io_outside_global_lock(monkeypatch):
         svc.open_positions[pos.id] = pos
         svc.pos_by_sid[pos.sid] = pos.id
         svc.open_by_symbol.setdefault(pos.symbol, set()).add(pos.id)
+        svc.shards.setdefault(pos.symbol, {})[pos.id] = pos
 
     ok = svc.apply_external_sl_hit(signal_id="sidSL", price=95.0, timestamp=1_700_000_000_000, event_id="e1")
     assert ok is True

@@ -22,6 +22,7 @@ from pathlib import Path
 
 import numpy as np
 import redis
+from core.redis_keys import RedisStreams as RS
 
 
 def _resolve_regime_worker_path() -> str:
@@ -42,7 +43,7 @@ from adx_atr import WilderState, update_adx_atr  # type: ignore  # noqa: E402
 
 # Configuration
 REDIS_URL = os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
-CANDLES_STREAM = os.getenv("CANDLES_STREAM", "candles:data")
+CANDLES_STREAM = os.getenv("CANDLES_STREAM", RS.CANDLES_DATA)
 GROUP = os.getenv("ATR_GROUP", "atr-worker-group")
 CONSUMER = os.getenv("ATR_CONSUMER", "atr-worker-1")
 PERIOD = int(os.getenv("ATR_PERIOD", "14"))

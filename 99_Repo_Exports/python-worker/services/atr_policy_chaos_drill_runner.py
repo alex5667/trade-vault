@@ -30,6 +30,7 @@ import time
 from typing import Any
 
 import redis
+from core.redis_keys import RedisStreams as RS
 
 try:
     from core.redis_client import get_atr_redis
@@ -39,7 +40,7 @@ from prometheus_client import Counter
 
 logger = logging.getLogger(__name__)
 
-STREAM_ESC = "stream:atr_policy:escalations"
+STREAM_ESC = RS.ATR_POLICY_ESCALATIONS
 
 VALID_SCENARIOS = {
     "TELEGRAM_CALLBACK_BLACKHOLE",

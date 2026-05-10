@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+from core.redis_keys import RedisStreams as RS
 
 """Report most frequent missing legs directly from metrics:of_gate.
 
@@ -57,7 +58,7 @@ def _parse_missing_legs(payload: dict[str, Any]) -> list[str]:
 async def main_async() -> None:
     ap = argparse.ArgumentParser(description="Report top missing legs from OF gate metrics stream")
     ap.add_argument("--redis-url", default=os.getenv("REDIS_URL", os.getenv("REDIS_MAIN_URL", "redis://localhost:6379/0")), help="Redis URL")
-    ap.add_argument("--stream", default=os.getenv("OF_GATE_METRICS_STREAM", "metrics:of_gate"), help="Metrics stream name")
+    ap.add_argument("--stream", default=os.getenv("OF_GATE_METRICS_STREAM", RS.OF_GATE_METRICS), help="Metrics stream name")
     ap.add_argument("--limit", type=int, default=int(os.getenv("OF_GATE_MISS_LIMIT", "8000") or 8000), help="How many last entries to scan")
     ap.add_argument("--only-veto", action="store_true", help="Count only ok=0 entries")
     ap.add_argument("--top", type=int, default=15, help="Top-N legs to print")

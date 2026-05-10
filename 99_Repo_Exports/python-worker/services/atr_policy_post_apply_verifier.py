@@ -25,11 +25,12 @@ from typing import Any
 
 import redis
 from prometheus_client import Counter
+from core.redis_keys import RedisStreams as RS
 
 logger = logging.getLogger(__name__)
 
-STREAM_VERIFY = "stream:atr_policy:verify_results"
-STREAM_ESC = "stream:atr_policy:escalations"
+STREAM_VERIFY = RS.ATR_POLICY_VERIFY
+STREAM_ESC = RS.ATR_POLICY_ESCALATIONS
 
 VALID_MODES = {"shadow", "canary", "live"}
 REQUIRED_FIELDS = [

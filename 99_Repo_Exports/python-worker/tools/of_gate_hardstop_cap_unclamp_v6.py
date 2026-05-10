@@ -832,7 +832,7 @@ def main() -> None:
         )
 
     # -------- global health (30m + 2h + 12h) --------
-    metrics_stream = os.getenv("OF_GATE_METRICS_STREAM", "metrics:of_gate")
+    metrics_stream = os.getenv("OF_GATE_METRICS_STREAM", RS.OF_GATE_METRICS)
     max_scan = int(os.getenv("META_HARDSTOP_METRICS_MAX_SCAN", "200000") or 200000)
 
     w30 = int(os.getenv("META_UNCLAMP_SHORT_WINDOW_MIN", "30") or 30)

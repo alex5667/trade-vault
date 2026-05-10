@@ -14,14 +14,15 @@ from news_pipeline.stream_worker import StreamWorker
 from news_pipeline.tags import pick_primary_tag, tags_to_mask
 from utils.time_utils import get_ny_time_millis
 import contextlib
+from core.redis_keys import RedisStreams as RS
 
 log = logging.getLogger("news_analyzer")
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
 
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 
-NEWS_RAW_STREAM = os.getenv("NEWS_RAW_STREAM", "news:raw")
-NEWS_ANALYSIS_STREAM = os.getenv("NEWS_ANALYSIS_STREAM", "news:analysis")
+NEWS_RAW_STREAM = os.getenv("NEWS_RAW_STREAM", RS.NEWS_RAW)
+NEWS_ANALYSIS_STREAM = os.getenv("NEWS_ANALYSIS_STREAM", RS.NEWS_ANALYSIS)
 
 GROUP = os.getenv("NEWS_ANALYZER_GROUP", "news-analyzer")
 CONSUMER = os.getenv("NEWS_ANALYZER_CONSUMER", os.getenv("HOSTNAME", "news-analyzer-1"))

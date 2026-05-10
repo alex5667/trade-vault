@@ -2,6 +2,7 @@ import asyncio
 import unittest
 
 from services.orderflow.decision_snapshot import build_decision_snapshot_event, publish_decision_snapshot
+from core.redis_keys import RedisStreams as RS
 
 
 class _DummyPublisher:
@@ -51,5 +52,5 @@ class DecisionSnapshotSmokeTests(unittest.TestCase):
     def test_publish_smoke(self):
         pub = _DummyPublisher()
         evt = {"sid": "sid-3", "symbol": "BTCUSDT", "decision_ts_ms": 1}
-        asyncio.run(publish_decision_snapshot(publisher=pub, stream="events:decision_snapshot", maxlen=10, symbol="BTCUSDT", evt=evt))
+        asyncio.run(publish_decision_snapshot(publisher=pub, stream=RS.DECISION_SNAPSHOT, maxlen=10, symbol="BTCUSDT", evt=evt))
         self.assertTrue(pub.calls)

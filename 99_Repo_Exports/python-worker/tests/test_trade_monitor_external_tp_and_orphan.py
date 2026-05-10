@@ -3,6 +3,7 @@ Tests for apply_external_tp_hit and orphan close: no I/O under global _lock.
 """
 import inspect
 import types
+from tests.trade_monitor_test_utils import create_mock_trade_monitor
 
 
 class DummyRepo:
@@ -49,7 +50,7 @@ def test_external_tp_hit_no_io_under_global_lock(monkeypatch):
     from services.trade_monitor import TradeMonitorService
 
     # Create minimal service instance
-    svc = TradeMonitorService.__new__(TradeMonitorService)
+    svc = create_mock_trade_monitor()
 
     # Check that method accepts universal signature
     try:
@@ -72,30 +73,10 @@ def test_orphan_housekeep_no_io_under_global_lock(monkeypatch):
     import services.trade_monitor as tm
     from services.trade_monitor import TradeMonitorService
 
-    monkeypatch.setattr(tm, "RedisTradeRepository", lambda redis, health_provider=None: types.SimpleNamespace(load_open_positions=lambda limit=5000: []))
-    monkeypatch.setattr(tm.analytics_db, "save_trade_closed", lambda closed: None)
+    monkeypatch.setattr("services.trade_monitor._monolith.RedisTradeRepository", lambda redis, health_provider=None: types.SimpleNamespace(load_open_positions=lambda limit=5000: []))
+    monkeypatch.setattr("services.trade_monitor._monolith.analytics_db.save_trade_closed", lambda closed: None)
 
-    svc = TradeMonitorService.__new__(TradeMonitorService)
-    svc._lock = type('MockLock', (), {'_is_owned': lambda: False, '__enter__': lambda self: None, '__exit__': lambda self, *a: None})()
-    svc._lock_is_owned = lambda: False
-    svc._use_symbol_locks = False
-    svc._symbol_locks_guard = type('MockLock', (), {})()
-    svc._symbol_locks = {}
-    svc._get_symbol_lock = lambda self, symbol: type('MockLock', (), {'__enter__': lambda: None, '__exit__': lambda *a: None})()
-    svc._update_last_price = lambda tick: None
-    svc._housekeep_expired_positions = lambda ts_ms: None
-    svc._run_io_tasks = lambda tasks: [t.fn() for t in tasks]
-    svc.open_positions = {}
-    svc.pos_by_sid = {}
-    svc.open_by_symbol = {}
-    svc._last_price_by_symbol = {}
-    svc.tp_ratios = (0.3, 0.35, 0.35)
-    svc.fill_policy = "level"
-    svc._index_remove = lambda pos: None
-    svc.regime_guard = None
-    svc._attach_health_on_close = False
-    svc._IOTask = lambda fn, desc: types.SimpleNamespace(fn=fn, desc=desc)
-    svc._dedup_acquire = lambda key, event_id: True  # no-op dedup
+    svc = create_mock_trade_monitor()
     svc._peek_pos_and_symbol_by_sid = lambda sid: ("p_tp", "BTCUSDT") if sid == "sidTP" else ("p_orph", "ETHUSDT") if sid == "sidO" else (None, None)
     svc._symbol_lock_ctx = lambda self, symbol: type('MockLock', (), {'__enter__': lambda: None, '__exit__': lambda *a: None})()
     svc._stamp_closed_trade_meta = lambda self, pos, closed, raw: None
@@ -114,7 +95,7 @@ def test_orphan_housekeep_no_io_under_global_lock(monkeypatch):
         def pnl_money(self, entry, exit, qty, direction, symbol=None):
             return 1.0
     monkeypatch.setattr(TradeMonitorService, "_get_spec", lambda self, symbol: Spec())
-    monkeypatch.setattr(tm, "finalize_trade", lambda pos, spec, exit_price, exit_ts_ms, close_reason_raw, tp_ratios: types.SimpleNamespace(
+    monkeypatch.setattr("services.trade_monitor._monolith.finalize_trade", lambda pos, spec, exit_price, exit_ts_ms, close_reason_raw, tp_ratios: types.SimpleNamespace(
         symbol=pos.symbol, close_reason_raw=close_reason_raw, close_reason="ORPHAN", pnl_net=0.5
     ))
 

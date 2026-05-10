@@ -61,7 +61,7 @@ class TilesService:
         signals_patterns = os.getenv("TILES_SIGNALS", "signals:orderflow:*,signals:ta:*")
         self.signals_patterns = [p.strip() for p in signals_patterns.split(",")]
 
-        self.closed_trades_stream = os.getenv("TILES_CLOSED_TRADES", "trades:closed")
+        self.closed_trades_stream = os.getenv("TILES_CLOSED_TRADES", RS.TRADES_CLOSED)
         self.trade_events_stream = os.getenv("TILES_TRADE_EVENTS", RS.EVENTS_TRADES)
 
         # Параметры батчинга

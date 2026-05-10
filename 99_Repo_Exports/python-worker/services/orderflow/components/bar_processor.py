@@ -9,6 +9,7 @@ from typing import Any
 
 from utils.task_manager import safe_create_task
 from utils.time_utils import get_ny_time_millis
+from core.redis_keys import RedisStreams as RS
 
 try:
     from handlers.regime_service import MarketRegimeService, RegimeConfig, RegimeFeatures
@@ -1401,7 +1402,7 @@ class BarProcessor:
                  }
 
                  pl_json = json.dumps(payload, default=str, ensure_ascii=False)
-                 stream = os.getenv("SMT_SNAPSHOT_STREAM", "stream:smt_snap")
+                 stream = os.getenv("SMT_SNAPSHOT_STREAM", RS.SMT_SNAPSHOT)
                  await self.redis.xadd(stream, {"payload": pl_json}, maxlen=20000)
 
         except Exception:

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+from core.redis_keys import RedisStreams as RS
 
 """
 Signal Quality KPI Worker V1
@@ -538,7 +539,7 @@ def _connect_redis_with_retry(redis_url: str, max_retries: int = 5) -> redis.Red
 
 def run_once() -> int:
     redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
-    trades_stream = os.getenv("TRADES_CLOSED_STREAM", "trades:closed")
+    trades_stream = os.getenv("TRADES_CLOSED_STREAM", RS.TRADES_CLOSED)
 
     r = _connect_redis_with_retry(redis_url)
     rows = _load_rows_from_stream(

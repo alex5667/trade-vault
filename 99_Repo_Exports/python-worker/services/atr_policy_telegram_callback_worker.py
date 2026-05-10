@@ -40,6 +40,7 @@ from services.atr_policy_telegram_summary_service import (
 from services.atr_policy_workflow import proposal_key, record_decision
 from services.atr_rollback_control_service import approve_rollback, get_rollback
 import contextlib
+from core.redis_keys import RedisStreams as RS
 
 _redis_instance: redis.Redis | None = None
 
@@ -622,7 +623,7 @@ def handle_event(evt: dict[str, Any]) -> bool:
 
 def run_forever() -> None:
     r = _redis()
-    stream = os.getenv("ATR_POLICY_TELEGRAM_CALLBACK_STREAM", "bot:callbacks")
+    stream = os.getenv("ATR_POLICY_TELEGRAM_CALLBACK_STREAM", RS.BOT_CALLBACKS)
     group = os.getenv("ATR_POLICY_TELEGRAM_CALLBACK_GROUP", "atr_policy_ops")
     consumer = os.getenv("ATR_POLICY_TELEGRAM_CALLBACK_CONSUMER", f"cb-{int(time.time())}")
     block_ms = int(os.getenv("ATR_POLICY_TELEGRAM_CALLBACK_BLOCK_MS", "5000") or 5000)

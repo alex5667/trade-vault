@@ -111,7 +111,7 @@ def _clamp01(x: float) -> float:
         return 0.0
     if x >= 1.0:
         return 1.0
-    return float(x)
+    return x
 
 @dataclass
 class _CtrlState:
@@ -132,14 +132,14 @@ class ProofStateController:
         self.proof_path = proof_path
         self.state_path = state_path
         self.status_path, self.status_path_reason = _probe_status_path(self.reports_dir)
-        self.min_good_runs = max(1, int(min_good_runs))
-        self.min_bad_runs = max(1, int(min_bad_runs))
-        self.max_live_age_sec = max(60, int(max_live_age_sec))
-        self.canary_enable = bool(canary_enable)
-        self.canary_start = _clamp01(float(canary_start))
-        self.canary_step = _clamp01(float(canary_step))
-        self.canary_max = _clamp01(float(canary_max))
-        self.canary_bump_min_sec = max(60, int(canary_bump_min_sec))
+        self.min_good_runs = max(1, min_good_runs)
+        self.min_bad_runs = max(1, min_bad_runs)
+        self.max_live_age_sec = max(60, max_live_age_sec)
+        self.canary_enable = canary_enable
+        self.canary_start = _clamp01(canary_start)
+        self.canary_step = _clamp01(canary_step)
+        self.canary_max = _clamp01(canary_max)
+        self.canary_bump_min_sec = max(60, canary_bump_min_sec)
         self.state = _CtrlState()
         self._load_state()
 
@@ -206,22 +206,22 @@ class ProofStateController:
             self.state.canary_share = 1.0
             return
         if self.state.canary_share <= 0.0:
-            self.state.canary_share = float(self.canary_start)
-            self.state.ramp_started_ts = int(now_sec)
-            self.state.last_bump_ts = int(now_sec)
+            self.state.canary_share = self.canary_start
+            self.state.ramp_started_ts = now_sec
+            self.state.last_bump_ts = now_sec
             return
         if self.state.canary_share >= self.canary_max:
-            self.state.canary_share = float(self.canary_max)
+            self.state.canary_share = self.canary_max
             return
-        if (now_sec - int(self.state.last_bump_ts)) < int(self.canary_bump_min_sec):
+        if (now_sec - self.state.last_bump_ts) < self.canary_bump_min_sec:
             return
-        nxt = min(float(self.canary_max), float(self.state.canary_share) + float(self.canary_step))
-        self.state.canary_share = float(nxt)
-        self.state.last_bump_ts = int(now_sec)
+        nxt = min(self.canary_max, self.state.canary_share + self.canary_step)
+        self.state.canary_share = nxt
+        self.state.last_bump_ts = now_sec
 
     def step(self, *, now_ms: int | None = None) -> dict[str, Any]:
-        now_ms = int(now_ms) if now_ms is not None else _now_ms()
-        now_sec = int(now_ms // 1000)
+        now_ms = now_ms if now_ms is not None else _now_ms()
+        now_sec = now_ms // 1000
         if not os.path.isfile(self.status_path):
             self.status_path, self.status_path_reason = _probe_status_path(self.reports_dir)
         status = _load_json(self.status_path)
@@ -231,7 +231,7 @@ class ProofStateController:
             return proof
         age_sec = self._status_age_sec(status, now_ms)
         if age_sec > float(self.max_live_age_sec):
-            proof = self._emit_proof(now_sec, reason=f"status_stale>{int(self.max_live_age_sec)}s",
+            proof = self._emit_proof(now_sec, reason=f"status_stale>{self.max_live_age_sec}s",
                                      status=status, status_age_sec=age_sec)
             self._save_state(now_sec)
             return proof
@@ -246,17 +246,17 @@ class ProofStateController:
             outcome = "bad"
         elif guard_fail is False and guard_passed is True:
             outcome = "good"
-        prev_valid = bool(self.state.valid)
+        prev_valid = self.state.valid
         if outcome == "good":
             self.state.good_streak += 1
             self.state.bad_streak = 0
             if self.state.good_streak >= self.min_good_runs:
                 if not prev_valid:
                     self.state.valid = True
-                    self.state.evidence_ts = int(now_sec)
+                    self.state.evidence_ts = now_sec
                     self.state.canary_share = 0.0
-                    self.state.ramp_started_ts = int(now_sec)
-                    self.state.last_bump_ts = int(now_sec)
+                    self.state.ramp_started_ts = now_sec
+                    self.state.last_bump_ts = now_sec
                 self._maybe_bump_canary(now_sec)
         elif outcome == "bad":
             self.state.bad_streak += 1
@@ -287,7 +287,7 @@ class ProofStateController:
         status_ts_ms = _as_int(status.get("ts_ms"), 0) if isinstance(status, dict) else 0
         if status_age_sec is None:
             try:
-                status_age_sec = float(self._status_age_sec(status or {}, int(now_sec * 1000))) if isinstance(status, dict) else float("inf")
+                status_age_sec = self._status_age_sec(status or {}, now_sec * 1000) if isinstance(status, dict) else float("inf")
             except Exception:
                 status_age_sec = float("inf")
         proof: dict[str, Any] = {
@@ -295,15 +295,15 @@ class ProofStateController:
             "evidence_ts": self.state.evidence_ts,
             "valid": self.state.valid,
             "reason": reason,
-            "canary_share": float(_clamp01(float(self.state.canary_share))) if self.state.valid else 0.0,
+            "canary_share": _clamp01(self.state.canary_share) if self.state.valid else 0.0,
             "source": {
                 "status_path": self.status_path,
                 "status_path_reason": self.status_path_reason,
-                "status_ts_ms": int(status_ts_ms),
-                "status_age_sec": float(status_age_sec),
+                "status_ts_ms": status_ts_ms,
+                "status_age_sec": status_age_sec,
             },
-            "streaks": {"good": int(self.state.good_streak), "bad": int(self.state.bad_streak)},
-            "last": {"guard_passed": guard_passed, "skipped": bool(skipped), "skip_reason": skip_reason},
+            "streaks": {"good": self.state.good_streak, "bad": self.state.bad_streak},
+            "last": {"guard_passed": guard_passed, "skipped": skipped, "skip_reason": skip_reason},
         }
         _write_json_atomic(self.proof_path, proof)
         return proof

@@ -5,6 +5,7 @@ from typing import Any
 from core.redis_client import get_redis
 from services.stream_worker import StreamWorker, WorkerPolicy
 import contextlib
+from core.redis_keys import RedisStreams as RS
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +29,7 @@ class SignalQualityService:
             client=self.redis,
             group="scanner-signal-quality",
             consumer="worker-1",
-            build_streams=lambda: ["trades:closed"],
+            build_streams=lambda: [RS.TRADES_CLOSED],
             process=self.process_closed_trade,
             policy=self.policy,
             logger=logger

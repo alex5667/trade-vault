@@ -736,7 +736,7 @@ class BarProcessor:
                                 pass
 
                             # 5. Payload
-                            direction_map = {"UP": "LONG", "DOWN": "SHORT"},
+                            direction_map = {"UP": "LONG", "DOWN": "SHORT"}
                             direction = direction_map.get(eff_bias, "NONE"),
 
                             if direction in ("LONG", "SHORT"):

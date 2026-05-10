@@ -26,6 +26,7 @@ from orderflow_services.decision_coverage_kpi_worker_v1 import (
     load_cfg,
 )
 from utils.time_utils import get_ny_time_millis
+from core.redis_keys import RedisStreams as RS
 
 # ---------------------------------------------------------------------------
 # Helpers / Fixtures
@@ -35,7 +36,7 @@ def _make_cfg(**overrides) -> Cfg:
     """Build a Cfg with test-friendly defaults."""
     defaults = dict(
         redis_url="redis://localhost:6379/0",
-        stream="decisions:final",
+        stream=RS.DECISIONS_FINAL,
         group="decision_coverage_kpi_v1",
         consumer="test-consumer",
         block_ms=100,
@@ -268,7 +269,7 @@ class TestLoadCfg:
         cfg = load_cfg()
         assert cfg.window_minutes == 1440
         assert cfg.bucket_ttl_s == 86400 * 3
-        assert cfg.stream == "decisions:final"
+        assert cfg.stream == RS.DECISIONS_FINAL
         assert cfg.state_key == "metrics:decision_coverage:state"
         assert cfg.rebuild_gap_minutes == 10  # worker Cfg has no port — that's on the exporter Cfg
 

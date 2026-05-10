@@ -30,10 +30,11 @@ from typing import Any
 
 import redis
 from prometheus_client import Counter, Gauge
+from core.redis_keys import RedisStreams as RS
 
 logger = logging.getLogger(__name__)
 
-STREAM_ESC = "stream:atr_policy:escalations"
+STREAM_ESC = RS.ATR_POLICY_ESCALATIONS
 
 KEY_LAST_NOTIFY = "atr_policy:telegram:last_notify_ts_ms"
 KEY_LAST_CALLBACK = "atr_policy:telegram:last_callback_ts_ms"

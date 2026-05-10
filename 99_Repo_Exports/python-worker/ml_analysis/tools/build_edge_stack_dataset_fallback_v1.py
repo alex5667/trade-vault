@@ -100,7 +100,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Edge Stack Dataset Builder with Fallback")
     parser.add_argument("--redis_url", default="redis://localhost:6379/0")
     parser.add_argument("--signal_stream", default=RS.OF_INPUTS)
-    parser.add_argument("--closed_stream", default="trades:closed")
+    parser.add_argument("--closed_stream", default=RS.TRADES_CLOSED)
     parser.add_argument("--archive_dir", help="Directory with Replay Input archives")
     parser.add_argument("--signals_count", type=int, default=200000)
     parser.add_argument("--closes_count", type=int, default=200000)

@@ -80,7 +80,7 @@ def main() -> None:
         return
 
     # health gate
-    ml_confirm_stream = os.getenv("ML_CONFIRM_METRICS_STREAM", "metrics:ml_confirm")
+    ml_confirm_stream = os.getenv("ML_CONFIRM_METRICS_STREAM", RS.ML_CONFIRM_METRICS)
     max_scan_h = int(os.getenv("ML_PROMO_HEALTH_MAX_SCAN", "200000") or 200000)
     h30 = agg_health_ml_confirm(read_recent_stream(r, ml_confirm_stream, now_ms() - 30 * 60_000, max_scan_h))
     h120 = agg_health_ml_confirm(read_recent_stream(r, ml_confirm_stream, now_ms() - 120 * 60_000, max_scan_h))
@@ -96,7 +96,7 @@ def main() -> None:
         return
 
     # outcome short window
-    out_stream = os.getenv("ML_OUTCOME_METRICS_STREAM", "metrics:ml_outcome")
+    out_stream = os.getenv("ML_OUTCOME_METRICS_STREAM", RS.ML_OUTCOME_METRICS)
     max_scan_o = int(os.getenv("ML_THRESH_MAX_SCAN_OUTCOME", "700000") or 700000)
     short_h = float(os.getenv("ML_ROLLBACK_SHORT_HOURS", "24") or 24)
     rows_short_all = read_recent_stream(r, out_stream, now_ms() - int(short_h * 3600_000), max_scan_o)

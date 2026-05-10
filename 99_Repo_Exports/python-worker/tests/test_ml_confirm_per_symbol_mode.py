@@ -20,6 +20,7 @@ from core.champion_cfg_validator import (
     _validate_mode_overrides,
     validate_champion_cfg,
 )
+from core.redis_keys import RedisStreams as RS
 
 # ---------------------------------------------------------------------------
 # champion_cfg_validator: mode_overrides
@@ -180,7 +181,7 @@ class TestMLConfirmGatePerSymbolMode(unittest.TestCase):
     def _make_gate(self, mode="SHADOW", cfg=None, mode_overrides=None):
         """Create a minimal MLConfirmGate with mocked internals."""
         # We need to import here because the module has heavy imports
-        from services.ml_confirm_gate import MLConfirmGate
+        from services.ml_confirm import MLConfirmGate
 
         r = MagicMock()
         r.get.return_value = None
@@ -211,7 +212,7 @@ class TestMLConfirmGatePerSymbolMode(unittest.TestCase):
         gate._cfg_key_used = "cfg:ml_confirm:champion"
         gate._cfg_raw_len = 100
         gate._cfg_parse_err = ""
-        gate._metrics_stream = "metrics:ml_confirm"
+        gate._metrics_stream = RS.ML_CONFIRM_METRICS
         gate._metrics_enable = False
         gate._metrics_sample = 1.0
         gate._abstain_band = 0.0
@@ -219,7 +220,7 @@ class TestMLConfirmGatePerSymbolMode(unittest.TestCase):
         gate._abstain_on_missing = False
         gate._p_min_hard_floor = 0.0
         gate._replay_capture = False
-        gate._replay_stream = "stream:ml_confirm:inputs"
+        gate._replay_stream = RS.ML_CONFIRM_INPUTS
         gate._replay_sample = 0.01
         gate._replay_maxlen = 200000
         gate._calibrator = None
@@ -368,7 +369,7 @@ class TestRefreshSelectiveKnobsModeOverrides(unittest.TestCase):
     """Test that _refresh_selective_knobs_from_cfg parses mode_overrides."""
 
     def test_parses_overrides_from_cfg(self):
-        from services.ml_confirm_gate import MLConfirmGate
+        from services.ml_confirm import MLConfirmGate
 
         gate = MLConfirmGate.__new__(MLConfirmGate)
         gate._cfg = {
@@ -400,7 +401,7 @@ class TestRefreshSelectiveKnobsModeOverrides(unittest.TestCase):
         self.assertNotIn("XRPUSDT", gate._enforce_share_by_symbol)  # out of range
 
     def test_empty_cfg_clears_overrides(self):
-        from services.ml_confirm_gate import MLConfirmGate
+        from services.ml_confirm import MLConfirmGate
 
         gate = MLConfirmGate.__new__(MLConfirmGate)
         gate._mode_by_symbol = {"BTCUSDT": "ENFORCE"}

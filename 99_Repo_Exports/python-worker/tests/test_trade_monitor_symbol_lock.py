@@ -44,11 +44,6 @@ def test_symbol_lock_serializes_tick_and_external(monkeypatch):
     r = FakeRedis()
 
     svc = TradeMonitorService(redis_client=r, repo=repo)
-    svc._use_symbol_locks = True
-    svc.tp_ratios = (0.3, 0.35, 0.35)
-    svc.fill_policy = "level"
-    svc._update_last_price = lambda tick: None
-    svc._housekeep_expired_positions = lambda ts_ms: None
 
     # Minimal open position registered
     pos = PositionState(
@@ -61,6 +56,8 @@ def test_symbol_lock_serializes_tick_and_external(monkeypatch):
         direction="LONG",
         entry_price=100.0,
         entry_ts_ms=get_ny_time_millis(),
+        qty=1.0,
+        quantity=1.0,
         lot=1.0,
         remaining_qty=1.0,
         sl=99.0,
@@ -71,6 +68,7 @@ def test_symbol_lock_serializes_tick_and_external(monkeypatch):
         svc.open_positions[pos.id] = pos
         svc.pos_by_sid[pos.sid] = pos.id
         svc.open_by_symbol.setdefault(pos.symbol, set()).add(pos.id)
+        svc.shards.setdefault(pos.symbol, {})[pos.id] = pos
 
     started = threading.Event()
     allow_finish = threading.Event()
@@ -89,11 +87,11 @@ def test_symbol_lock_serializes_tick_and_external(monkeypatch):
         external_entered.set()
         return None
 
-    monkeypatch.setattr("services.trade_monitor.build_tick", fake_build_tick)
-    monkeypatch.setattr("services.trade_monitor.process_tick", fake_process_tick)
-    monkeypatch.setattr("services.trade_monitor.apply_trailing_update", fake_apply_trailing_update)
-    monkeypatch.setattr("services.trade_monitor.get_symbol_info", lambda *a, **k: {})
-    monkeypatch.setattr("services.trade_monitor.spec_from_symbol_info", lambda *a, **k: SimpleNamespace())
+    monkeypatch.setattr("services.trade_monitor._monolith.build_tick", fake_build_tick)
+    monkeypatch.setattr("services.trade_monitor._monolith.process_tick", fake_process_tick)
+    monkeypatch.setattr("services.trade_monitor._monolith.apply_trailing_update", fake_apply_trailing_update)
+    monkeypatch.setattr("services.trade_monitor._monolith.get_symbol_info", lambda *a, **k: {})
+    monkeypatch.setattr("services.trade_monitor._monolith.spec_from_symbol_info", lambda *a, **k: SimpleNamespace())
 
     t_tick = threading.Thread(target=lambda: svc.on_tick({"symbol": "ETHUSDT"}), daemon=True)
     t_tick.start()

@@ -220,7 +220,7 @@ class TestRelaxBuildsTargets:
             "meta_enforce_share_range": 0.15,
             "meta_enforce_share_news": 0.00,
             "meta_enforce_share_other": 0.00,
-        },
+        }
 
         restores = []
         for a in audit:
@@ -379,7 +379,7 @@ class TestMain:
 
     @patch.dict(os.environ, {
         "REDIS_URL": "redis://localhost:6379/0",
-        "OF_GATE_METRICS_STREAM": "metrics:of_gate",
+        "OF_GATE_METRICS_STREAM": RS.OF_GATE_METRICS,
         "META_HARDSTOP_WINDOW_MIN": "30",
         "META_CLAMP_ACTIVE_KEY": "meta:hardstop:clamp:active",
         "META_CLAMP_STAGE_KEY": "meta:hardstop:clamp:stage",
@@ -405,7 +405,7 @@ class TestMain:
 
     @patch.dict(os.environ, {
         "REDIS_URL": "redis://localhost:6379/0",
-        "OF_GATE_METRICS_STREAM": "metrics:of_gate",
+        "OF_GATE_METRICS_STREAM": RS.OF_GATE_METRICS,
         "META_HARDSTOP_WINDOW_MIN": "30",
         "META_CLAMP_ACTIVE_KEY": "meta:hardstop:clamp:active",
         "META_CLAMP_STAGE_KEY": "meta:hardstop:clamp:stage",

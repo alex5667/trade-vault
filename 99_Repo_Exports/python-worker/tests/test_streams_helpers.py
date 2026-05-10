@@ -11,6 +11,7 @@ from core.streams import (
     microbar_stream_for_symbol,
     microbar_symbols_set,
 )
+from core.redis_keys import RedisStreams as RS
 
 
 def test_microbar_stream_for_symbol():
@@ -22,7 +23,7 @@ def test_microbar_stream_for_symbol():
 
 def test_microbar_legacy_stream():
     """Test legacy stream name."""
-    assert microbar_legacy_stream() == "events:microbar_closed"
+    assert microbar_legacy_stream() == RS.EVENTS_MICROBAR_CLOSED
     with patch.dict(os.environ, {"MICROBAR_LEGACY_STREAM": "custom:legacy"}):
         assert microbar_legacy_stream() == "custom:legacy"
 
@@ -36,7 +37,7 @@ def test_microbar_per_symbol_prefix():
 
 def test_microbar_majors_stream():
     """Test majors stream name."""
-    assert microbar_majors_stream() == "events:microbar_closed:majors"
+    assert microbar_majors_stream() == RS.EVENTS_MICROBAR_MAJORS
     with patch.dict(os.environ, {"MICROBAR_MAJORS_STREAM": "custom:majors"}):
         assert microbar_majors_stream() == "custom:majors"
 

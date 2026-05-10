@@ -3,6 +3,7 @@ import json
 import os
 
 import redis
+from core.redis_keys import RedisStreams as RS
 
 # Default to localhost if not set
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
@@ -19,7 +20,7 @@ def connect_redis():
 def inspect_trades_stream(r):
     print("\n--- Inspecting trades:closed STREAM (Last 5) ---")
     try:
-        entries = r.xrevrange("trades:closed", max="+", count=5)
+        entries = r.xrevrange(RS.TRADES_CLOSED, max="+", count=5)
         if not entries:
             print("No entries found in trades:closed.")
             return

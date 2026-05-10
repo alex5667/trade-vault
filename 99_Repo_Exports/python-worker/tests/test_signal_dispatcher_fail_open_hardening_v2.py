@@ -23,7 +23,7 @@ class _BoomRedis:
 
 def _mk_sd_without_init():
     # robust to __init__ changes
-    from services.signal_dispatcher import SignalDispatcher
+    from services.dispatch.dispatcher_app import SignalDispatcher
 
     sd = SignalDispatcher.__new__(SignalDispatcher)
     sd.logger = None

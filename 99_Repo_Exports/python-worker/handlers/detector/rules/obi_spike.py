@@ -27,10 +27,10 @@ class ObiSpikeRule:
             Candidate(
                 kind="obi_spike",
                 side=side,
-                raw_score=float(raw),
+                raw_score=raw,
                 level_price=None,
                 level_key=None,
                 reasons=["obi_spike"],
-                meta={"obi": float(obi), "obi_sustained": bool(sust)},
+                meta={"obi": obi, "obi_sustained": sust},
             )
         ]

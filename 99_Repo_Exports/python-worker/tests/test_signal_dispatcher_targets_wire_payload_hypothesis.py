@@ -29,7 +29,7 @@ json_value = st.recursive(
 
 
 def _mk_sd():
-    from services.signal_dispatcher import SignalDispatcher
+    from services.dispatch.dispatcher_app import SignalDispatcher
 
     sd = object.__new__(SignalDispatcher)
     # clients are only checked for non-None, no real redis needed

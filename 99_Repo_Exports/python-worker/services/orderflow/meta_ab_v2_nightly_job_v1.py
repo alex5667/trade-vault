@@ -19,12 +19,7 @@ Exit codes:
 
 from utils.time_utils import get_ny_time_millis
 
-try:
-    from core.redis_keys import RedisStreams as RS
-except Exception:  # pragma: no cover
-    class _RS:
-        NOTIFY_TELEGRAM = RS.NOTIFY_TELEGRAM
-    RS = _RS()
+from core.redis_keys import RedisStreams as RS
 
 import json
 import os

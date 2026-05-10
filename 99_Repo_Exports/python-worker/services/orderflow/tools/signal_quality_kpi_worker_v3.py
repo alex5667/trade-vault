@@ -34,6 +34,7 @@ import redis
 from prometheus_client import Counter
 
 from utils.time_utils import get_ny_time_millis
+from core.redis_keys import RedisStreams as RS
 
 _runs_total = Counter("signal_quality_kpi_v3_runs_total", "KPI v3 runs", ["result"])
 
@@ -155,7 +156,7 @@ def _write_hash(cli: redis.Redis, key: str, mapping: dict[str, str]) -> None:
 
 def compute_once() -> None:
     redis_url = _env("REDIS_URL", "redis://localhost:6379/0")
-    stream = _env("TRADES_CLOSED_STREAM", "trades:closed")
+    stream = _env("TRADES_CLOSED_STREAM", RS.TRADES_CLOSED)
     lookback_h = _env_float("SIGNAL_QUALITY_LOOKBACK_H", "24")
     max_scan = _env_int("SIGNAL_QUALITY_MAX_SCAN", "200000")
     min_n = _env_int("SIGNAL_QUALITY_MIN_N", "30")

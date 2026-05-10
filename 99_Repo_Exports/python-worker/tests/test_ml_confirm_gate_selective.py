@@ -2,7 +2,7 @@ import pytest
 
 pytest.importorskip("redis")
 
-from services.ml_confirm_gate import MLConfirmGate
+from services.ml_confirm import MLConfirmGate
 
 
 class DummyRedis:

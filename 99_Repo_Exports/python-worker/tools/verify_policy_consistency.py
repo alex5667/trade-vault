@@ -7,6 +7,7 @@ import sys
 from typing import Any
 
 import redis.asyncio as aioredis
+from core.redis_keys import RedisStreams as RS
 
 
 async def main() -> None:
@@ -32,7 +33,7 @@ async def main() -> None:
 
     # 2. Fetch Audit Stream from Redis
     redis_url = os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
-    audit_stream = os.getenv("TRADE_ENTRY_AUDIT_STREAM", "stream:trade:entry_audit")
+    audit_stream = os.getenv("TRADE_ENTRY_AUDIT_STREAM", RS.ENTRY_AUDIT)
 
     r = aioredis.from_url(redis_url, decode_responses=True)
 

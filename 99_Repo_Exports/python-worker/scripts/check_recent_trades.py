@@ -3,6 +3,7 @@
 from datetime import datetime, timedelta
 
 import redis
+from core.redis_keys import RedisStreams as RS
 
 # Connect to Redis
 r = redis.Redis(host='localhost', port=6379, db=0, decode_responses=True)
@@ -17,7 +18,7 @@ print(f"Checking trades since: {hour_ago} (timestamp: {hour_ago_ms})")
 print("=" * 80)
 
 # Read last 100 entries from trades:closed
-entries = r.xrevrange('trades:closed', '+', '-', count=100)
+entries = r.xrevrange(RS.TRADES_CLOSED, '+', '-', count=100)
 
 recent_trades = []
 total_checked = 0

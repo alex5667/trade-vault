@@ -1,6 +1,6 @@
 from unittest.mock import MagicMock
 
-from services.ml_confirm_gate import MLConfirmDecision
+from services.ml_confirm import MLConfirmDecision
 from services.orderflow.decision_record_v1 import build_decision_record_v1
 
 

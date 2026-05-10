@@ -10,6 +10,7 @@ import redis
 from common.redis_errors import retry_redis_operation
 from core.telegram_notify import send_telegram
 from utils.time_utils import get_ny_time_millis
+from core.redis_keys import RedisStreams as RS
 
 
 def _now() -> int:
@@ -223,8 +224,8 @@ def _report_cvd(r: redis.Redis, top_n: int) -> tuple[str, int]:
 
 def _report_streams(r: redis.Redis, top_n: int) -> tuple[str, int]:
     streams_top_n = int(os.getenv("STREAMS_REPORT_TOP_N", "15"))
-    legacy_key = os.getenv("MICROBAR_LEGACY_STREAM", "events:microbar_closed")
-    majors_key = os.getenv("MICROBAR_MAJORS_STREAM", "events:microbar_closed:majors")
+    legacy_key = os.getenv("MICROBAR_LEGACY_STREAM", RS.EVENTS_MICROBAR_CLOSED)
+    majors_key = os.getenv("MICROBAR_MAJORS_STREAM", RS.EVENTS_MICROBAR_MAJORS)
     tpl = os.getenv("MICROBAR_PER_SYMBOL_STREAM_TEMPLATE", "events:microbar_closed:{sym}")
 
     try:

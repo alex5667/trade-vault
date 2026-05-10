@@ -8,6 +8,7 @@ import redis
 
 from core.telegram_notify import send_telegram
 import contextlib
+from core.redis_keys import RedisStreams as RS
 
 
 def _decode(x) -> str:
@@ -92,7 +93,7 @@ def main():
 
     symbols_set = os.getenv("MICROBAR_SYMBOLS_SET", "events:microbar_closed:symbols")
     tpl = os.getenv("MICROBAR_PER_SYMBOL_STREAM_TEMPLATE", "events:microbar_closed:{sym}")
-    legacy_key = os.getenv("MICROBAR_LEGACY_STREAM", "events:microbar_closed")
+    legacy_key = os.getenv("MICROBAR_LEGACY_STREAM", RS.EVENTS_MICROBAR_CLOSED)
 
     # Check if split streams are enabled
     split_streams = os.getenv("MICROBAR_SPLIT_STREAMS_ENABLE", "0").strip().lower() in {"1", "true", "yes"}

@@ -81,13 +81,13 @@ def bundle_ok(bundle: dict[str, Any], symbol: str, cfg: EntryPolicyCfg) -> tuple
 def need_extra_confirm(snap: dict[str, Any]) -> bool:
     regime = _s(snap.get("regime", "na")).lower()
     unstable = _i(snap.get("abs_lvl_th_unstable", 0), 0)
-    return bool(regime in ("thin", "news", "illiquid") or unstable == 1)
+    return (regime in ("thin", "news", "illiquid") or unstable == 1)
 
 
 def extra_confirm_ok(snap: dict[str, Any], cfg: EntryPolicyCfg) -> bool:
     obi = _f(snap.get("obi_stable_sec", 0.0), 0.0)
     ice = _i(snap.get("iceberg_strict", 0), 0)
-    return bool(obi >= float(cfg.obi_min_sec) or ice == 1)
+    return (obi >= float(cfg.obi_min_sec) or ice == 1)
 
 
 def zone_bp_thr(snap: dict[str, Any], cfg: EntryPolicyCfg) -> float:

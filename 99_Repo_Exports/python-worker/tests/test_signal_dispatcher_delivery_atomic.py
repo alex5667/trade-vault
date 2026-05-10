@@ -40,7 +40,7 @@ class _FakeRedis:
 
 
 def _mk_sd():
-    from services.signal_dispatcher import SignalDispatcher
+    from services.dispatch.dispatcher_app import SignalDispatcher
 
     # Create instance without calling __init__ to avoid Redis connection
     sd = SignalDispatcher.__new__(SignalDispatcher)

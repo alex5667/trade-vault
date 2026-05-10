@@ -1,4 +1,5 @@
 from __future__ import annotations
+from tests.trade_monitor_test_utils import create_mock_trade_monitor
 
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -13,7 +14,7 @@ def _mk_monitor() -> TradeMonitorService:
     """
     Minimal TradeMonitorService instance for causality testing.
     """
-    mon = TradeMonitorService.__new__(TradeMonitorService)
+    mon = create_mock_trade_monitor()
     # Mocking SymbolSpec dependency
     mon._get_spec = lambda symbol: _SpecStub()
     mon.last_warnings = []
@@ -39,7 +40,7 @@ def _mk_monitor() -> TradeMonitorService:
     mon._max_tick_ts_ms = 0
     return mon
 
-@patch("services.trade_monitor.get_ny_time_millis")
+@patch("services.trade_monitor._monolith.get_ny_time_millis")
 def test_trade_monitor_causality_grace_period(mock_now):
     mon = _mk_monitor()
 
@@ -81,7 +82,7 @@ def test_trade_monitor_causality_grace_period(mock_now):
     assert sig_3.entry_ts_ms == T + 300 # CLAMPED to wall clock
     assert any("Clock skew detected" in m for m in mon.last_warnings)
 
-@patch("services.trade_monitor.get_ny_time_millis")
+@patch("services.trade_monitor._monolith.get_ny_time_millis")
 def test_trade_monitor_market_lag_warning_explicit(mock_now):
     mon = _mk_monitor()
 

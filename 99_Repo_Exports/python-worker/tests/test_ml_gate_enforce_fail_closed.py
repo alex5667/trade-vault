@@ -19,7 +19,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from services.ml_confirm_gate import MLConfirmDecision, MLConfirmGate
+from services.ml_confirm import MLConfirmDecision, MLConfirmGate
 
 # ─────────────────────────────── helpers ────────────────────────────────────
 
@@ -185,7 +185,7 @@ def test_G_import_error_gate_results_in_none_ml_gate():
     original_import = __builtins__["__import__"] if isinstance(__builtins__, dict) else __import__
 
     def _patched_import(name, *args, **kwargs):
-        if name == "services.ml_confirm_gate":
+        if name == "services.ml_confirm":
             _import_error_raised.append(True)
             raise ImportError("Симулированный SyntaxError в ml_confirm_gate")
         return original_import(name, *args, **kwargs)

@@ -99,7 +99,7 @@ def main() -> None:
 
     cfg = r.hgetall(cfg_key) or {}
 
-    stream = os.getenv("ML_CONFIRM_METRICS_STREAM", "metrics:ml_confirm")
+    stream = os.getenv("ML_CONFIRM_METRICS_STREAM", RS.ML_CONFIRM_METRICS)
     max_scan = int(os.getenv("ML_GUARD_MAX_SCAN", "200000") or 200000)
 
     h30 = agg_health_ml_confirm(read_recent_stream(r, stream, now_ms() - 30 * 60_000, max_scan))

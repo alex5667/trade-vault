@@ -7,6 +7,7 @@ from domain.evidence_keys import MetaKeys
 
 # Mocking parts of the worker to test _handle_close
 from services.orderflow.tools.trade_close_joiner_worker_v5 import _handle_close
+from core.redis_keys import RedisStreams as RS
 
 
 class TestJoinerV5(unittest.TestCase):
@@ -14,9 +15,9 @@ class TestJoinerV5(unittest.TestCase):
     def setUp(self):
         self.r = AsyncMock()
         self.decision_prefix = "decision:"
-        self.trades_closed_stream = "trades:closed"
-        self.close_wait_stream = "trades:close_wait"
-        self.ml_replay_stream = "ml_replay_inputs_v1"
+        self.trades_closed_stream = RS.TRADES_CLOSED
+        self.close_wait_stream = RS.TRADES_CLOSE_WAIT
+        self.ml_replay_stream = RS.ML_REPLAY_INPUTS
 
     def test_handle_close_success(self):
         sid = "sid_123"

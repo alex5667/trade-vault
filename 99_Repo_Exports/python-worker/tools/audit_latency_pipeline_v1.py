@@ -57,7 +57,7 @@ async def audit():
     streams = [
         "events:delta_spike",      # Go -> Redis (Ingest Stage)
         RS.CRYPTO_RAW,      # Python -> Redis (Feature/Emit Stage)
-        "events:decision_snapshot" # Decision Persistence
+        RS.DECISION_SNAPSHOT # Decision Persistence
     ]
 
     for stream in streams:

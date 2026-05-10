@@ -1081,7 +1081,7 @@ class OrderFlowConfig:
 
             # Risk: сначала per-instrument, затем глобальные, затем base
             stop_mode=_env_first([f"{prefix}_STOP_MODE", "STOP_MODE"], str, base_cfg.stop_mode),
-            stop_atr_mult=_env_first([f"{prefix}_STOP_ATR_MULT", "STOP_ATR_MULT"], float, base_cfg.stop_atr_mult),
+            stop_atr_mult=_env_one(f"{prefix}_STOP_ATR_MULT", float, base_cfg.stop_atr_mult),
             stop_pct=_env_first([f"{prefix}_STOP_PCT", "STOP_PCT"], float, base_cfg.stop_pct),
             stop_points=_env_first([f"{prefix}_STOP_POINTS", "STOP_POINTS"], float, base_cfg.stop_points),
 
@@ -1288,7 +1288,7 @@ BTCUSD_CONFIG = OrderFlowConfig(
     dist_atr_threshold=0.4,
     min_signal_interval_sec=20,     # BTC_MIN_SIGNAL_INTERVAL=20
     stop_mode="ATR",                # BTC_STOP_MODE=ATR
-    stop_atr_mult=1.2,              # BTC_STOP_ATR_MULT=0.8
+    stop_atr_mult=1.2,              # BTC_STOP_ATR_MULT=1.2 (aligned with code default)
     tp_mode="RR",
     tp_rr="1.5,2.5,3.5",             # BTC_TP_RR=1.5,2.5,3.5  (min 1.5R to cover fees)
     tp_atr_mults="0.9,1.5,2.1",

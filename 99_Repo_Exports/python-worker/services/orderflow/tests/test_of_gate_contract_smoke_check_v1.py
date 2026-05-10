@@ -23,6 +23,7 @@ import sys
 from unittest.mock import MagicMock, patch
 
 import pytest
+from core.redis_keys import RedisStreams as RS
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -107,7 +108,7 @@ class TestFormatMsg:
         w = _reload_worker(worker_mod)
         payload = {
             "n": 1234, "bad": 3, "bad_share": 0.0024,
-            "stream": "metrics:of_gate",
+            "stream": RS.OF_GATE_METRICS,
             "top_bad_reasons": [{"k": "missing_ts_ms", "n": 2}, {"k": "schema_err", "n": 1}],
         }
         stdout = f"prefix text\n{json.dumps(payload)}\n"
@@ -135,7 +136,7 @@ class TestFormatMsg:
     def test_top_bad_reasons_capped(self, worker_mod):
         w = _reload_worker(worker_mod)
         payload = {
-            "n": 10, "bad": 10, "bad_share": 1.0, "stream": "metrics:of_gate",
+            "n": 10, "bad": 10, "bad_share": 1.0, "stream": RS.OF_GATE_METRICS,
             "top_bad_reasons": [{"k": f"reason_{i}", "n": i} for i in range(10)],
         }
         msg = w._format_of_gate_contract_smoke_msg(json.dumps(payload), "", rc=2)
@@ -235,7 +236,7 @@ class TestRunSmokeCheck:
         w = _reload_worker(worker_mod)
         payload = json.dumps({
             "n": 100, "bad": 1, "bad_share": 0.01,
-            "stream": "metrics:of_gate", "top_bad_reasons": [],
+            "stream": RS.OF_GATE_METRICS, "top_bad_reasons": [],
         })
         fake = MagicMock(returncode=2, stdout=payload, stderr="")
         notify_calls = []

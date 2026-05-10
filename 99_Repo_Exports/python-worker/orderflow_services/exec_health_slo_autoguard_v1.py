@@ -90,7 +90,7 @@ class GuardCfg:
             freeze_key=os.getenv("EXEC_HEALTH_AUTO_FREEZE_KEY", "cfg:orderflow:exec_health:auto_freeze:v1"),
             control_key=os.getenv("EXEC_HEALTH_FREEZE_CONTROL_KEY", "cfg:orderflow:exec_health:freeze_control:v1"),
             notify_stream=os.getenv("EXEC_HEALTH_AUTOGUARD_NOTIFY_STREAM", RS.NOTIFY_TELEGRAM),
-            event_stream=os.getenv("EXEC_HEALTH_FREEZE_EVENT_STREAM", "ops:exec_health:freeze_events:v1"),
+            event_stream=os.getenv("EXEC_HEALTH_FREEZE_EVENT_STREAM", RS.EXEC_HEALTH_FREEZE_EVENTS),
             loop_s=max(5, _i(os.getenv("EXEC_HEALTH_AUTOGUARD_CHECK_EVERY_S", "30"), 30)),
             mode_mismatch_minutes=max(1, _i(os.getenv("EXEC_HEALTH_AUTOGUARD_MODE_MISMATCH_MINUTES", "5"), 5)),
             drift_minutes=max(1, _i(os.getenv("EXEC_HEALTH_AUTOGUARD_DRIFT_MINUTES", "10"), 10)),

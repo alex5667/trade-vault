@@ -10,6 +10,7 @@ import sys
 import redis  # pip install redis
 
 from utils.time_utils import get_ny_time_millis
+from core.redis_keys import RedisStreams as RS
 
 logger = logging.getLogger(__name__)
 
@@ -698,7 +699,7 @@ def main(argv: list[str] | None = None) -> int:
         description="Рекомендатор размера трейлинг-стопа по trades:closed из Redis",
     )
     parser.add_argument("--redis-url", default=os.getenv("REDIS_URL", "redis://localhost:6379/0"))
-    parser.add_argument("--stream", default=os.getenv("TRAILING_AUTOTUNE_STREAM", "trades:closed"))
+    parser.add_argument("--stream", default=os.getenv("TRAILING_AUTOTUNE_STREAM", RS.TRADES_CLOSED))
     parser.add_argument("--limit", type=int, default=int(os.getenv("TRAILING_AUTOTUNE_LIMIT", "2000")))
     parser.add_argument("--source", default=os.getenv("TRAILING_AUTOTUNE_SOURCE", "CryptoOrderFlow"))
     parser.add_argument(
@@ -1049,7 +1050,7 @@ def build_trailing_report_markdown_from_env(r: redis.Redis | None = None) -> str
     Используется Telegram-воркером.
     """
     redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
-    stream = os.getenv("TRAILING_AUTOTUNE_STREAM", "trades:closed")
+    stream = os.getenv("TRAILING_AUTOTUNE_STREAM", RS.TRADES_CLOSED)
     limit = int(os.getenv("TRAILING_AUTOTUNE_LIMIT", "2000"))
     source = os.getenv("TRAILING_AUTOTUNE_SOURCE", "CryptoOrderFlow")
     symbols_env = os.getenv("TRAILING_AUTOTUNE_SYMBOLS", "")

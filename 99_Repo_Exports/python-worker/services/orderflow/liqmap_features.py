@@ -128,7 +128,7 @@ def compute_liqmap_features_from_snapshot(
     total_usd = tot_long_usd + tot_short_usd
     if total_usd > 0:
         # bias > 0.5 means more shorts are liquidated (bullish overall positioning)
-        feats["squeeze_bias"] = float(tot_short_usd / total_usd)
+        feats["squeeze_bias"] = tot_short_usd / total_usd
 
     feats["long_peak_price"] = best_long_liq_px if best_long_liq_px > 0 else 0.0
     feats["long_peak_usd"] = best_long_liq_usd if best_long_liq_usd > 0 else 0.0
@@ -339,8 +339,8 @@ def apply_liqmap_tp_sl_adjustment(
                 cand = up_px * (1.0 - buf)  # front-run: TP just before the peak
                 if cand > entry_px:
                     new_tp1_px = cand
-                    out["liqmap_tp1_anchor_price"] = float(up_px)
-                    out["liqmap_tp1_anchor_usd"] = float(up_usd)
+                    out["liqmap_tp1_anchor_price"] = up_px
+                    out["liqmap_tp1_anchor_usd"] = up_usd
                     reasons.append("tp1_before_peak")
         else:
             # SHORT: favorable peak is BELOW entry.
@@ -349,8 +349,8 @@ def apply_liqmap_tp_sl_adjustment(
                 cand = dn_px * (1.0 - buf)  # "after" cluster: go a bit beyond (lower)
                 if cand < entry_px:
                     new_tp1_px = cand
-                    out["liqmap_tp1_anchor_price"] = float(dn_px)
-                    out["liqmap_tp1_anchor_usd"] = float(dn_usd)
+                    out["liqmap_tp1_anchor_price"] = dn_px
+                    out["liqmap_tp1_anchor_usd"] = dn_usd
                     reasons.append("tp1_after_peak")
 
     # ────────────────────────────────────────────────
@@ -372,8 +372,8 @@ def apply_liqmap_tp_sl_adjustment(
                         cap_applied = True
                     else:
                         new_sl_px = cand
-                    out["liqmap_sl_anchor_price"] = float(dn_px)
-                    out["liqmap_sl_anchor_usd"] = float(dn_usd)
+                    out["liqmap_sl_anchor_price"] = dn_px
+                    out["liqmap_sl_anchor_usd"] = dn_usd
                     reasons.append("sl_behind_peak")
         else:
             # SHORT: adverse peak is ABOVE entry.
@@ -388,8 +388,8 @@ def apply_liqmap_tp_sl_adjustment(
                         cap_applied = True
                     else:
                         new_sl_px = cand
-                    out["liqmap_sl_anchor_price"] = float(up_px)
-                    out["liqmap_sl_anchor_usd"] = float(up_usd)
+                    out["liqmap_sl_anchor_price"] = up_px
+                    out["liqmap_sl_anchor_usd"] = up_usd
                     reasons.append("sl_behind_peak")
 
     # ---- export adjustments (bps) ----
@@ -397,9 +397,9 @@ def apply_liqmap_tp_sl_adjustment(
     new_stop_bps = _sl_bps(entry_px, new_sl_px, s_side)
 
     if abs(new_tp1_px - base_tp1_px) > 1e-12:
-        out["liqmap_tp1_adj_bps"] = float(new_tp_bps - base_tp_bps)
+        out["liqmap_tp1_adj_bps"] = new_tp_bps - base_tp_bps
     if abs(new_sl_px - base_sl_px) > 1e-12:
-        out["liqmap_sl_adj_bps"] = float(new_stop_bps - base_stop_bps)
+        out["liqmap_sl_adj_bps"] = new_stop_bps - base_stop_bps
 
     applied = (abs(new_tp1_px - base_tp1_px) > 1e-12) or (abs(new_sl_px - base_sl_px) > 1e-12)
     out["liqmap_levels_applied"] = 1.0 if applied else 0.0

@@ -25,6 +25,7 @@ from typing import Any
 
 from common.log import setup_logger
 from utils.time_utils import get_ny_time_millis
+from core.redis_keys import RedisStreams as RS
 
 logger = setup_logger("TrailPostAnalyzer")
 
@@ -285,7 +286,7 @@ class TrailPostAnalyzer:
 
         while total_scanned < MAX_SCAN:
             try:
-                entries = self.redis.xrevrange("trades:closed", max=last_id, min=min_id, count=CHUNK)
+                entries = self.redis.xrevrange(RS.TRADES_CLOSED, max=last_id, min=min_id, count=CHUNK)
             except Exception as e:
                 logger.error("Redis error reading trades:closed: %s", e)
                 break

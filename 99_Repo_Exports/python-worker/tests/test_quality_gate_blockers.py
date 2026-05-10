@@ -152,14 +152,14 @@ class TestMLExecutorSingleton:
 
     def test_executor_is_singleton(self):
         """_get_ml_executor() должен возвращать один и тот же объект при повторных вызовах."""
-        from services.ml_confirm_gate import _get_ml_executor
+        from services.ml_confirm import _get_ml_executor
         ex1 = _get_ml_executor()
         ex2 = _get_ml_executor()
         assert ex1 is ex2, "executor ДОЛЖЕН быть singleton (один объект на процесс)"
 
     def test_executor_thread_name_prefix(self):
         """ThreadPoolExecutor создан с правильным именем потоков."""
-        from services.ml_confirm_gate import _get_ml_executor
+        from services.ml_confirm import _get_ml_executor
         ex = _get_ml_executor()
         assert ex is not None
         # Проверяем через внутренний атрибут (CPython)
@@ -168,7 +168,7 @@ class TestMLExecutorSingleton:
 
     def test_executor_concurrent_calls_same_object(self):
         """_get_ml_executor() безопасен при конкурентных вызовах из нескольких потоков."""
-        from services.ml_confirm_gate import _get_ml_executor
+        from services.ml_confirm import _get_ml_executor
         results = []
 
         def _get():
@@ -194,24 +194,24 @@ class TestSyncBuildKillSwitch:
         """По умолчанию OF_SYNC_BUILD=0 → is_of_sync_build() возвращает False."""
         with patch.dict(os.environ, {}, clear=False):
             os.environ.pop("OF_SYNC_BUILD", None)
-            from services.ml_confirm_gate import is_of_sync_build
+            from services.ml_confirm import is_of_sync_build
             assert is_of_sync_build() is False
 
     def test_sync_build_enabled_by_env(self):
         """OF_SYNC_BUILD=1 → is_of_sync_build() возвращает True."""
         with patch.dict(os.environ, {"OF_SYNC_BUILD": "1"}):
-            from services.ml_confirm_gate import is_of_sync_build
+            from services.ml_confirm import is_of_sync_build
             assert is_of_sync_build() is True
 
     def test_sync_build_zero_disabled(self):
         """OF_SYNC_BUILD=0 → is_of_sync_build() возвращает False."""
         with patch.dict(os.environ, {"OF_SYNC_BUILD": "0"}):
-            from services.ml_confirm_gate import is_of_sync_build
+            from services.ml_confirm import is_of_sync_build
             assert is_of_sync_build() is False
 
     def test_shutdown_function_exists(self):
         """_shutdown_ml_executor функция должна существовать."""
-        from services.ml_confirm_gate import _shutdown_ml_executor
+        from services.ml_confirm import _shutdown_ml_executor
         assert callable(_shutdown_ml_executor)
 
 

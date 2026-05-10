@@ -70,7 +70,7 @@ def test_on_tick_does_not_do_repo_io_under_lock(monkeypatch):
 
     # stub build_tick
     tick = types.SimpleNamespace(symbol="BTCUSDT", ts_ms=1700000000000, mid=100.0, last=100.0, price=100.0)
-    monkeypatch.setattr(tm, "build_tick", lambda raw: tick)
+    monkeypatch.setattr("services.trade_monitor._monolith.build_tick", lambda raw: tick)
 
     # stub process_tick (pure)
     class Ev:
@@ -84,8 +84,8 @@ def test_on_tick_does_not_do_repo_io_under_lock(monkeypatch):
         evs = [Ev("TP_HIT", {"tp_level": 1, "fill_price": 101.0, "closed_qty": 0.1, "pnl_part_gross": 0.5})]
         return evs, closed
 
-    monkeypatch.setattr(tm, "process_tick", fake_process_tick)
-    monkeypatch.setattr(tm, "analytics_db", types.SimpleNamespace(save_trade_closed=lambda c: None))
+    monkeypatch.setattr("services.trade_monitor._monolith.process_tick", fake_process_tick)
+    monkeypatch.setattr("services.trade_monitor._monolith.analytics_db.save_trade_closed", lambda c: None)
 
     # Construct service with injected repo
     lock = TrackingLock()

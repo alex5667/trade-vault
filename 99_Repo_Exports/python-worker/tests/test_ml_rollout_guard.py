@@ -14,6 +14,7 @@ from tools.ml_rollout_guard import (
     sign,
     summarize,
 )
+from core.redis_keys import RedisStreams as RS
 
 
 def test_sign():
@@ -83,7 +84,7 @@ def test_read_metrics():
         ("2000-0", {"ts_ms": "2000", "p_edge": "0.7"}),
     ]
 
-    rows = read_metrics(mock_redis, "metrics:ml_confirm", since_ms=0, max_scan=100)
+    rows = read_metrics(mock_redis, RS.ML_CONFIRM_METRICS, since_ms=0, max_scan=100)
     assert len(rows) == 2
     assert rows[0]["ts_ms"] == "1000"
 
@@ -125,7 +126,7 @@ def test_guard_freeze_condition():
         # This would normally call main(), but we'll test the logic directly
         from tools.ml_rollout_guard import read_metrics, summarize
 
-        rows = read_metrics(mock_redis, "metrics:ml_confirm", since_ms=now_ms() - 60000, max_scan=1000)
+        rows = read_metrics(mock_redis, RS.ML_CONFIRM_METRICS, since_ms=now_ms() - 60000, max_scan=1000)
         sm = summarize(rows)
 
         # Check hard_bad condition
@@ -161,7 +162,7 @@ def test_guard_unfreeze_condition():
     with patch("tools.ml_rollout_guard.propose") as mock_propose:
         from tools.ml_rollout_guard import read_metrics, summarize
 
-        rows = read_metrics(mock_redis, "metrics:ml_confirm", since_ms=now_ms() - 60000, max_scan=1000)
+        rows = read_metrics(mock_redis, RS.ML_CONFIRM_METRICS, since_ms=now_ms() - 60000, max_scan=1000)
         sm = summarize(rows)
 
         # Check day_good condition

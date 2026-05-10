@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+from core.redis_keys import RedisStreams as RS
 
 """Offline report for tick time distributions from Redis stream.
 
@@ -87,7 +88,7 @@ def fetch_stream(
 def main() -> None:
     ap = argparse.ArgumentParser(description="Report tick time quantiles from Redis stream metrics:tick_time")
     ap.add_argument("--redis-url", default=os.getenv("REDIS_URL", os.getenv("REDIS_TICKS_URL", "redis://localhost:6379/0")))
-    ap.add_argument("--stream", default=os.getenv("TICK_TIME_STREAM_KEY", "metrics:tick_time"))
+    ap.add_argument("--stream", default=os.getenv("TICK_TIME_STREAM_KEY", RS.TICK_TIME))
     ap.add_argument("--n", type=int, default=int(os.getenv("N", "50000") or 50000), help="Number of last entries to scan")
     ap.add_argument("--symbol", default=os.getenv("SYMBOL", ""), help="Optional: filter by symbol")
     ap.add_argument("--json", action="store_true", help="Output JSON only")

@@ -18,6 +18,7 @@ import pytest
 
 from services.crypto_orderflow_service import CryptoOrderflowService
 import contextlib
+from core.redis_keys import RedisStreams as RS
 
 
 @pytest.fixture
@@ -300,7 +301,7 @@ class TestPelSweeper:
             'CRYPTO_OF_PEL_COUNT': '200',
             'CRYPTO_OF_PEL_QUARANTINE': 'true'
         }):
-            service.quarantine_stream = "stream:of:quarantine"
+            service.quarantine_stream = RS.OF_QUARANTINE
             task = asyncio.create_task(service._pel_sweeper_loop())
             await asyncio.sleep(0.15)
             task.cancel()
@@ -310,7 +311,7 @@ class TestPelSweeper:
         # Проверяем что сообщения были помещены в карантин
         assert service.ticks.xadd.called, "Expected quarantine stream to receive messages"
         call_args = service.ticks.xadd.call_args
-        assert call_args[0][0] == "stream:of:quarantine"
+        assert call_args[0][0] == RS.OF_QUARANTINE
         assert "symbol" in call_args[0][1]
         assert "reason" in call_args[0][1]
 

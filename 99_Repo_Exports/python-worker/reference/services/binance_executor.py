@@ -2128,7 +2128,7 @@ class BinanceExecutor:
                 atr_mult_default=float(self.trail_atr_mult_default),
             ),
 
-        summary = {"tp_watchdog_status": "started", "tp_watchdog_timeout_ms": self.tp_limit_watchdog_timeout_ms},
+        summary = {"tp_watchdog_status": "started", "tp_watchdog_timeout_ms": self.tp_limit_watchdog_timeout_ms}
         if callback_rate_pct is not None:
             summary["trail_callback_rate_pct"] = callback_rate_pct,
 

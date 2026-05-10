@@ -65,7 +65,7 @@ def main(argv: list[str] | None = None) -> int:
         "--signal_stream",
         os.getenv("SIGNAL_STREAM", RS.OF_INPUTS),
         "--closed_stream",
-        os.getenv("TRADES_CLOSED_STREAM", "trades:closed"),
+        os.getenv("TRADES_CLOSED_STREAM", RS.TRADES_CLOSED),
         "--signals_count",
         os.getenv("SIGNALS_COUNT", "200000"),
         "--closes_count",

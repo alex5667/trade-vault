@@ -12,10 +12,11 @@ try:  # pragma: no cover
 except Exception:  # pragma: no cover
     redis = None  # type: ignore
 
+import contextlib
+
 from prometheus_client import Counter, Gauge, Histogram, start_http_server
 
 from core.redis_stream_consumer import AsyncRedisStreamHelper
-import contextlib
 
 APPLY_REQUESTS_STREAM = os.getenv(
     "ML_COMMIT_POLICY_INPUT_STREAM",
@@ -365,7 +366,7 @@ async def main() -> None:  # pragma: no cover
                     action_type = _s(payload.get("action_type", "unknown"))
                     risk_level = _s(payload.get("risk_level", "unknown"))
                     replay_status = _s(payload.get("replay_status", "UNKNOWN"))
-                    approvals = _i(payload.get("approvals", 0), 0)
+                    approvals = _i(payload.get("approved_count", payload.get("approvals", 0)), 0)
                     global_cfg = await _load_hash(r, GLOBAL_POLICY_KEY)
                     action_cfg = await _load_hash(r, f"{ACTION_POLICY_PREFIX}{action_type}")
                     last_commit_ts_ms, commits_last_hour = await _get_state(r, action_type)

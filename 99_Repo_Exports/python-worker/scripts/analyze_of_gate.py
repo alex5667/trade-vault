@@ -3,11 +3,12 @@ from collections import Counter
 from datetime import datetime
 
 import redis
+from core.redis_keys import RedisStreams as RS
 
 
 def analyze_metrics():
     r = redis.Redis(host='localhost', port=6379, decode_responses=True)
-    stream_name = "metrics:of_gate"
+    stream_name = RS.OF_GATE_METRICS
 
     # Fetch last 500 events
     events = r.xrevrange(stream_name, count=500)

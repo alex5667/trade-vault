@@ -40,6 +40,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from utils.time_utils import get_ny_time_millis
+from core.redis_keys import RedisStreams as RS
 
 
 def env(name: str, default: str) -> str:
@@ -384,7 +385,7 @@ def build_parser() -> argparse.ArgumentParser:
     pt.set_defaults(fn=cmd_top)
 
     psm = sub.add_parser("sample", help="print sample messages")
-    psm.add_argument("--source", default="stream:dlq:of_gate_metrics")
+    psm.add_argument("--source", default=RS.DLQ_OF_GATE_METRICS)
     psm.add_argument("--limit", type=int, default=5000)
     psm.add_argument("--n", type=int, default=10)
     psm.add_argument("--dq-code", dest="dq_code", default="")
@@ -393,8 +394,8 @@ def build_parser() -> argparse.ArgumentParser:
     psm.set_defaults(fn=cmd_sample)
 
     pr = sub.add_parser("replay", help="replay DLQ entries into a target stream")
-    pr.add_argument("--source", default="stream:dlq:of_gate_metrics")
-    pr.add_argument("--target", default="metrics:of_gate")
+    pr.add_argument("--source", default=RS.DLQ_OF_GATE_METRICS)
+    pr.add_argument("--target", default=RS.OF_GATE_METRICS)
     pr.add_argument("--max", type=int, default=100)
     pr.add_argument("--start-id", default="-")
     pr.add_argument("--dq-code", dest="dq_code", default="")
@@ -407,7 +408,7 @@ def build_parser() -> argparse.ArgumentParser:
     pr.set_defaults(fn=cmd_replay)
 
     pp = sub.add_parser("purge", help="delete ids or trim stream")
-    pp.add_argument("--source", default="stream:dlq:of_gate_metrics")
+    pp.add_argument("--source", default=RS.DLQ_OF_GATE_METRICS)
     pp.add_argument("--ids", default="")
     pp.add_argument("--maxlen", type=int, default=None)
     pp.add_argument("--yes", action="store_true", default=False)

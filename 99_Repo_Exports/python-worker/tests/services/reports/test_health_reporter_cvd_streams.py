@@ -17,6 +17,7 @@ from services.reports.health_reporter import (
     _report_cvd,
     _report_streams,
 )
+from core.redis_keys import RedisStreams as RS
 
 
 @pytest.fixture
@@ -157,8 +158,8 @@ class TestStreamsHealthReporting:
     def test_report_streams_with_legacy_and_majors(self, mock_redis):
         """Test streams report with legacy and majors streams."""
         mock_redis.xlen.side_effect = lambda key: {
-            "events:microbar_closed": 1000,
-            "events:microbar_closed:majors": 500,
+            RS.EVENTS_MICROBAR_CLOSED: 1000,
+            RS.EVENTS_MICROBAR_MAJORS: 500,
         }.get(key, 0)
         mock_redis.scard.return_value = 10
         mock_redis.sscan.return_value = (0, [])
@@ -175,8 +176,8 @@ class TestStreamsHealthReporting:
         symbols = ["BTCUSDT", "ETHUSDT", "SOLUSDT"]
         mock_redis.sscan.return_value = (0, symbols)
         mock_redis.xlen.side_effect = lambda key: {
-            "events:microbar_closed": 1000,
-            "events:microbar_closed:majors": 500,
+            RS.EVENTS_MICROBAR_CLOSED: 1000,
+            RS.EVENTS_MICROBAR_MAJORS: 500,
             "events:microbar_closed:BTCUSDT": 200,
             "events:microbar_closed:ETHUSDT": 50,
             "events:microbar_closed:SOLUSDT": 5000

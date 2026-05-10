@@ -272,7 +272,7 @@ def test_health_gate_low_n(mock_redis, monkeypatch):
     # Add only 100 metrics (below min_n=200)
     for i in range(100):
         mock_redis.xadd(
-            "metrics:of_gate",
+            RS.OF_GATE_METRICS,
             {
                 "ts_ms": str(current_ms - (100 - i) * 1000),
                 "ok": "1",
@@ -289,7 +289,7 @@ def test_health_gate_low_n(mock_redis, monkeypatch):
     monkeypatch.setenv("BASELINE_PROPOSE_MAX_AGE_HOURS", "30")
     monkeypatch.setenv("BASELINE_PROPOSE_HEALTH_WINDOW_HOURS", "24")
     monkeypatch.setenv("BASELINE_PROPOSE_MIN_N", "200")
-    monkeypatch.setenv("OF_GATE_METRICS_STREAM", "metrics:of_gate")
+    monkeypatch.setenv("OF_GATE_METRICS_STREAM", RS.OF_GATE_METRICS)
     monkeypatch.setenv("BASELINE_PROPOSE_NOTIFY_ON_SKIP", "0")
     monkeypatch.setenv("REDIS_URL", "redis://localhost:6379/0")
 
@@ -323,7 +323,7 @@ def test_health_gate_high_latency(mock_redis, monkeypatch):
     for i in range(300):
         lat = 5000.0 if i >= 297 else 1000.0  # p99 will be 5000
         mock_redis.xadd(
-            "metrics:of_gate",
+            RS.OF_GATE_METRICS,
             {
                 "ts_ms": str(current_ms - (300 - i) * 1000),
                 "ok": "1",
@@ -341,7 +341,7 @@ def test_health_gate_high_latency(mock_redis, monkeypatch):
     monkeypatch.setenv("BASELINE_PROPOSE_HEALTH_WINDOW_HOURS", "24")
     monkeypatch.setenv("BASELINE_PROPOSE_MIN_N", "200")
     monkeypatch.setenv("BASELINE_PROPOSE_LAT_P99_US_MAX", "4000")
-    monkeypatch.setenv("OF_GATE_METRICS_STREAM", "metrics:of_gate")
+    monkeypatch.setenv("OF_GATE_METRICS_STREAM", RS.OF_GATE_METRICS)
     monkeypatch.setenv("BASELINE_PROPOSE_NOTIFY_ON_SKIP", "0")
     monkeypatch.setenv("REDIS_URL", "redis://localhost:6379/0")
 
@@ -375,7 +375,7 @@ def test_health_gate_high_exec_risk(mock_redis, monkeypatch):
     for i in range(300):
         exec_risk = 0.90 if i >= 270 else 0.5  # p90 will be 0.90
         mock_redis.xadd(
-            "metrics:of_gate",
+            RS.OF_GATE_METRICS,
             {
                 "ts_ms": str(current_ms - (300 - i) * 1000),
                 "ok": "1",
@@ -393,7 +393,7 @@ def test_health_gate_high_exec_risk(mock_redis, monkeypatch):
     monkeypatch.setenv("BASELINE_PROPOSE_HEALTH_WINDOW_HOURS", "24")
     monkeypatch.setenv("BASELINE_PROPOSE_MIN_N", "200")
     monkeypatch.setenv("BASELINE_PROPOSE_EXEC_P90_MAX", "0.85")
-    monkeypatch.setenv("OF_GATE_METRICS_STREAM", "metrics:of_gate")
+    monkeypatch.setenv("OF_GATE_METRICS_STREAM", RS.OF_GATE_METRICS)
     monkeypatch.setenv("BASELINE_PROPOSE_NOTIFY_ON_SKIP", "0")
     monkeypatch.setenv("REDIS_URL", "redis://localhost:6379/0")
 
@@ -427,7 +427,7 @@ def test_health_gate_high_soft_rate(mock_redis, monkeypatch):
     for i in range(300):
         ok_soft = "1" if i < 120 else "0"  # 40% soft fails
         mock_redis.xadd(
-            "metrics:of_gate",
+            RS.OF_GATE_METRICS,
             {
                 "ts_ms": str(current_ms - (300 - i) * 1000),
                 "ok": "1",
@@ -445,7 +445,7 @@ def test_health_gate_high_soft_rate(mock_redis, monkeypatch):
     monkeypatch.setenv("BASELINE_PROPOSE_HEALTH_WINDOW_HOURS", "24")
     monkeypatch.setenv("BASELINE_PROPOSE_MIN_N", "200")
     monkeypatch.setenv("BASELINE_PROPOSE_SOFT_RATE_MAX", "0.35")
-    monkeypatch.setenv("OF_GATE_METRICS_STREAM", "metrics:of_gate")
+    monkeypatch.setenv("OF_GATE_METRICS_STREAM", RS.OF_GATE_METRICS)
     monkeypatch.setenv("BASELINE_PROPOSE_NOTIFY_ON_SKIP", "0")
     monkeypatch.setenv("REDIS_URL", "redis://localhost:6379/0")
 
@@ -479,7 +479,7 @@ def test_health_gate_low_ok_rate(mock_redis, monkeypatch):
     for i in range(300):
         ok = "1" if i < 45 else "0"  # 15% ok
         mock_redis.xadd(
-            "metrics:of_gate",
+            RS.OF_GATE_METRICS,
             {
                 "ts_ms": str(current_ms - (300 - i) * 1000),
                 "ok": ok,
@@ -497,7 +497,7 @@ def test_health_gate_low_ok_rate(mock_redis, monkeypatch):
     monkeypatch.setenv("BASELINE_PROPOSE_HEALTH_WINDOW_HOURS", "24")
     monkeypatch.setenv("BASELINE_PROPOSE_MIN_N", "200")
     monkeypatch.setenv("BASELINE_PROPOSE_OK_RATE_MIN", "0.20")
-    monkeypatch.setenv("OF_GATE_METRICS_STREAM", "metrics:of_gate")
+    monkeypatch.setenv("OF_GATE_METRICS_STREAM", RS.OF_GATE_METRICS)
     monkeypatch.setenv("BASELINE_PROPOSE_NOTIFY_ON_SKIP", "0")
     monkeypatch.setenv("REDIS_URL", "redis://localhost:6379/0")
 
@@ -531,7 +531,7 @@ def test_health_gate_scenario_max_share(mock_redis, monkeypatch):
     for i in range(300):
         scenario = "range" if i < 270 else "vol_shock"  # 90% range
         mock_redis.xadd(
-            "metrics:of_gate",
+            RS.OF_GATE_METRICS,
             {
                 "ts_ms": str(current_ms - (300 - i) * 1000),
                 "ok": "1",
@@ -549,7 +549,7 @@ def test_health_gate_scenario_max_share(mock_redis, monkeypatch):
     monkeypatch.setenv("BASELINE_PROPOSE_HEALTH_WINDOW_HOURS", "24")
     monkeypatch.setenv("BASELINE_PROPOSE_MIN_N", "200")
     monkeypatch.setenv("BASELINE_PROPOSE_SCEN_MAX_SHARE", "0.85")
-    monkeypatch.setenv("OF_GATE_METRICS_STREAM", "metrics:of_gate")
+    monkeypatch.setenv("OF_GATE_METRICS_STREAM", RS.OF_GATE_METRICS)
     monkeypatch.setenv("BASELINE_PROPOSE_NOTIFY_ON_SKIP", "0")
     monkeypatch.setenv("REDIS_URL", "redis://localhost:6379/0")
 
@@ -582,7 +582,7 @@ def test_health_gate_sre_stats_scenario_l1(mock_redis, monkeypatch):
     current_ms = now_ms()
     for i in range(300):
         mock_redis.xadd(
-            "metrics:of_gate",
+            RS.OF_GATE_METRICS,
             {
                 "ts_ms": str(current_ms - (300 - i) * 1000),
                 "ok": "1",
@@ -610,7 +610,7 @@ def test_health_gate_sre_stats_scenario_l1(mock_redis, monkeypatch):
         "drift": {
             "scenario_l1": 0.40,  # Above 0.30 cap
         },
-    },
+    }
     mock_redis.set("sre:of_gate:last_stats", json.dumps(sre_stats))
 
     monkeypatch.setenv("BASELINE_PROPOSE_MIN_STREAK", "3")
@@ -620,7 +620,7 @@ def test_health_gate_sre_stats_scenario_l1(mock_redis, monkeypatch):
     monkeypatch.setenv("BASELINE_PROPOSE_REQUIRE_SRE_STATS", "1")
     monkeypatch.setenv("BASELINE_PROPOSE_SCEN_L1_MAX", "0.30")
     monkeypatch.setenv("SRE_PREV_KEY", "sre:of_gate:last_stats")
-    monkeypatch.setenv("OF_GATE_METRICS_STREAM", "metrics:of_gate")
+    monkeypatch.setenv("OF_GATE_METRICS_STREAM", RS.OF_GATE_METRICS)
     monkeypatch.setenv("BASELINE_PROPOSE_NOTIFY_ON_SKIP", "0")
     monkeypatch.setenv("REDIS_URL", "redis://localhost:6379/0")
 
@@ -653,7 +653,7 @@ def test_health_gate_passes(mock_redis, monkeypatch):
     # Add 300 metrics with all healthy values
     for i in range(300):
         mock_redis.xadd(
-            "metrics:of_gate",
+            RS.OF_GATE_METRICS,
             {
                 "ts_ms": str(current_ms - (300 - i) * 1000),
                 "ok": "1",
@@ -675,7 +675,7 @@ def test_health_gate_passes(mock_redis, monkeypatch):
     monkeypatch.setenv("BASELINE_PROPOSE_SOFT_RATE_MAX", "0.35")
     monkeypatch.setenv("BASELINE_PROPOSE_OK_RATE_MIN", "0.20")
     monkeypatch.setenv("BASELINE_PROPOSE_SCEN_MAX_SHARE", "0.85")
-    monkeypatch.setenv("OF_GATE_METRICS_STREAM", "metrics:of_gate")
+    monkeypatch.setenv("OF_GATE_METRICS_STREAM", RS.OF_GATE_METRICS)
     monkeypatch.setenv("BASELINE_PROPOSE_NOTIFY_ON_SKIP", "0")
     monkeypatch.setenv("REDIS_URL", "redis://localhost:6379/0")
     monkeypatch.setenv("OF_INPUTS_STREAM", RS.OF_INPUTS)

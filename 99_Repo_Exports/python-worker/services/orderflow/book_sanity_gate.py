@@ -17,18 +17,11 @@ The gate is designed to be fail-open and should never throw.
 """
 
 import os
-from dataclasses import dataclass
+import time
 from typing import Any
+from core.signal_payload import GateDecisionV1
 
 
-@dataclass
-class BookSanityDecision:
-    apply: bool
-    veto: bool
-    gate: str
-    reason_code: str
-    flags: list[str]
-    notes: str = ""
 
 
 def _profile() -> str:
@@ -70,9 +63,33 @@ class BookSanityGate:
             return "veto" if p == "hard" else "monitor"
         return "monitor"
 
-    def evaluate(self, *, indicators: dict[str, Any], symbol: str) -> BookSanityDecision:
+    def evaluate(self, *, indicators: dict[str, Any], symbol: str) -> GateDecisionV1:
+        t0 = time.monotonic()
+        ts_dec_ms = int(time.time() * 1000)
+        ts_ev_ms = int(indicators.get("ts_ms", 0) or 0)
+        
+        def _make_res(decision: str, reason: str, flags: list[str], notes: dict[str, Any] = None) -> GateDecisionV1:
+            latency_us = int((time.monotonic() - t0) * 1_000_000)
+            return GateDecisionV1(
+                stage="dq_integrity",
+                gate="BookSanityGate",
+                decision=decision,
+                reason_code=reason,
+                severity="CRITICAL" if decision == "DENY" else "INFO",
+                profile=_profile(),
+                fail_policy="OPEN",
+                ts_event_ms=ts_ev_ms,
+                ts_decision_ms=ts_dec_ms,
+                latency_us=latency_us,
+                inputs_hash="", # computed by orchestrator if needed
+                notes={
+                    "flags": flags,
+                    **(notes or {})
+                }
+            )
+
         if not self.enabled:
-            return BookSanityDecision(apply=False, veto=False, gate="BookSanityGate", reason_code="", flags=[])
+            return _make_res("ABSTAIN", "DISABLED", [], {"msg": "gate_disabled"})
 
         flags = []
         try:
@@ -80,25 +97,21 @@ class BookSanityGate:
             if isinstance(raw, list):
                 flags = [str(x) for x in raw if x]
             elif isinstance(raw, str):
-                # may arrive as CSV
                 flags = [s.strip() for s in raw.split(",") if s.strip()]
         except Exception:
             flags = []
 
         mode = self._effective_mode()
-
-        # Read trade_outside_bbo from indicators (set by tick_processor).
         outside_bbo = bool(int(indicators.get("trade_outside_bbo", 0) or 0)) or ("trade_outside_bbo" in flags)
         try:
             outside_bbo_dist_bps = float(indicators.get("trade_outside_bbo_dist_bps", 0.0) or 0.0)
         except Exception:
             outside_bbo_dist_bps = 0.0
 
-        # default behavior: annotate only if any sanity symptom exists
         if not flags and not outside_bbo:
-            return BookSanityDecision(apply=False, veto=False, gate="BookSanityGate", reason_code="", flags=[])
+            return _make_res("ALLOW", "OK", [], {"msg": "no_flags"})
 
-        # Veto conditions (finite set)
+        # Veto conditions
         veto_flags = {"crossed_bbo", "nan_px", "nan_depth", "neg_qty"}
         do_veto = any(f in veto_flags for f in flags)
         do_trade_outside_veto = bool(
@@ -108,41 +121,15 @@ class BookSanityGate:
         )
 
         if mode != "veto":
-            return BookSanityDecision(
-                apply=True,
-                veto=False,
-                gate="BookSanityGate",
-                reason_code="BOOK_SANITY_FLAGS",
-                flags=flags,
-                notes=f"mode={mode}",
-            )
+            return _make_res("ALLOW", "BOOK_SANITY_FLAGS", flags, {"mode": mode})
 
         if do_veto or do_trade_outside_veto:
-            # Deterministic reason (first match)
             reason = "VETO_BOOK_SANITY"
-            if "crossed_bbo" in flags:
-                reason = "VETO_BOOK_CROSS"
-            elif "nan_depth" in flags or "nan_px" in flags:
-                reason = "VETO_BOOK_NAN"
-            elif "neg_qty" in flags:
-                reason = "VETO_BOOK_NEG_QTY"
-            elif do_trade_outside_veto:
-                reason = "VETO_TRADE_OUTSIDE_BBO"
+            if "crossed_bbo" in flags: reason = "VETO_BOOK_CROSS"
+            elif "nan_depth" in flags or "nan_px" in flags: reason = "VETO_BOOK_NAN"
+            elif "neg_qty" in flags: reason = "VETO_BOOK_NEG_QTY"
+            elif do_trade_outside_veto: reason = "VETO_TRADE_OUTSIDE_BBO"
 
-            return BookSanityDecision(
-                apply=True,
-                veto=True,
-                gate="BookSanityGate",
-                reason_code=reason,
-                flags=flags + (["trade_outside_bbo"] if outside_bbo and "trade_outside_bbo" not in flags else []),
-                notes=f"symbol={symbol} dist_bps={outside_bbo_dist_bps:.4f}",
-            )
+            return _make_res("DENY", reason, flags + (["trade_outside_bbo"] if outside_bbo and "trade_outside_bbo" not in flags else []), {"symbol": symbol, "dist_bps": outside_bbo_dist_bps})
 
-        return BookSanityDecision(
-            apply=True,
-            veto=False,
-            gate="BookSanityGate",
-            reason_code="BOOK_SANITY_FLAGS",
-            flags=flags,
-            notes=f"mode={mode}",
-        )
+        return _make_res("ALLOW", "BOOK_SANITY_FLAGS", flags, {"mode": mode})

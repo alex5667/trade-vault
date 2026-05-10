@@ -36,6 +36,7 @@ from typing import TYPE_CHECKING, Any
 
 from utils.time_utils import get_ny_time_millis
 import contextlib
+from core.redis_keys import RedisStreams as RS
 
 if TYPE_CHECKING:  # pragma: no cover
     pass  # type: ignore
@@ -155,7 +156,7 @@ def load_cfg() -> ArchiverCfg:
     consumer = _env_str("REPLAY_ARCHIVER_CONSUMER", f"replay-archiver-{os.getpid()}")
     return ArchiverCfg(
         redis_url=_env_str("REDIS_URL", "redis://localhost:6379/0"),
-        stream=_env_str("REPLAY_INPUTS_STREAM", "ml_replay_inputs_v1"),
+        stream=_env_str("REPLAY_INPUTS_STREAM", RS.ML_REPLAY_INPUTS),
         group=_env_str("REPLAY_ARCHIVER_GROUP", "ml_replay_archiver_v1"),
         consumer=consumer,
         archive_dir=Path(_env_str("ARCHIVE_DIR", "./archives/ml_replay_inputs_v1")).expanduser(),

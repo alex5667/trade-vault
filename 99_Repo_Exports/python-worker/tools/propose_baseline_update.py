@@ -50,7 +50,7 @@ def _read_metrics_window(r: redis.Redis, stream: str, since_ms: int, max_scan: i
     
     Args:
         r: Redis client
-        stream: Stream name (e.g. "metrics:of_gate")
+        stream: Stream name (e.g. RS.OF_GATE_METRICS)
         since_ms: Minimum timestamp (ms) to read from
         max_scan: Maximum messages to scan
         
@@ -265,7 +265,7 @@ def main() -> None:
     soft_cap = float(os.getenv("BASELINE_PROPOSE_SOFT_RATE_MAX", "0.35") or 0.35)
     ok_floor = float(os.getenv("BASELINE_PROPOSE_OK_RATE_MIN", "0.20") or 0.20)
 
-    metrics_stream = os.getenv("OF_GATE_METRICS_STREAM", "metrics:of_gate")
+    metrics_stream = os.getenv("OF_GATE_METRICS_STREAM", RS.OF_GATE_METRICS)
     since_ms = now_ms() - int(win_h * 3600_000)
     rows = _read_metrics_window(r, metrics_stream, since_ms, max_scan=int(os.getenv("BASELINE_PROPOSE_MAX_SCAN", "400000") or 400000))
     mh = _metrics_health(rows)
@@ -383,7 +383,7 @@ def main() -> None:
         "baseline_inputs": baseline_inputs,
         "baseline_output": baseline_output,
         "symbols": sorted(list(symbols)),
-    },
+    }
 
     r.set(f"baseline:bundle:{bid}", json.dumps(bundle, ensure_ascii=False, separators=(",", ":")), ex=ttl)
     r.set(f"baseline:status:{bid}", "PENDING", ex=ttl)

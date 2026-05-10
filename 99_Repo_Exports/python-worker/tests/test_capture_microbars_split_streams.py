@@ -16,6 +16,7 @@ import pytest
 
 # Import functions from capture_microbars
 from services.capture_microbars import _decode, _discover_symbols, _make_stream_keys
+from core.redis_keys import RedisStreams as RS
 
 
 class TestDecode:
@@ -113,18 +114,18 @@ class TestMakeStreamKeys:
 
     def test_make_stream_keys_no_template(self):
         """Return single key if template has no {sym}."""
-        template = "events:microbar_closed"
+        template = RS.EVENTS_MICROBAR_CLOSED
         with patch("capture_microbars.STREAM_TEMPLATE", template):
             symbols = ["BTCUSDT", "ETHUSDT"]
             result = _make_stream_keys(symbols)
-            assert result == ["events:microbar_closed"]
+            assert result == [RS.EVENTS_MICROBAR_CLOSED]
 
     def test_make_stream_keys_empty_symbols(self):
         """Return single key if symbols empty and no {sym}."""
-        template = "events:microbar_closed"
+        template = RS.EVENTS_MICROBAR_CLOSED
         with patch("capture_microbars.STREAM_TEMPLATE", template):
             result = _make_stream_keys([])
-            assert result == ["events:microbar_closed"]
+            assert result == [RS.EVENTS_MICROBAR_CLOSED]
 
 
 @pytest.mark.asyncio

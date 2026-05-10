@@ -11,6 +11,7 @@ Ticks Redis Client - клиент для работы с отдельным Redi
 
 ИСПОЛЬЗОВАНИЕ:
     from core.ticks_redis_client import get_ticks_redis, get_ticks_dual_redis
+from core.redis_keys import RedisStreams as RS
     
     # Для чтения тиков
     ticks_redis = get_ticks_redis()
@@ -18,7 +19,7 @@ Ticks Redis Client - клиент для работы с отдельным Redi
     
     # Для записи тиков с fallback
     dual_ticks = get_ticks_dual_redis()
-    dual_ticks.xadd("stream:tick_", {...}, maxlen=50000)
+    dual_ticks.xadd(RS.TB_TICK_PREFIX, {...}, maxlen=50000)
 
 CONSUMER GROUPS:
 - Отдельные consumer groups для каждого сервиса, читающего тики
@@ -250,7 +251,7 @@ def create_ticks_consumer_group(
     Создать consumer group для чтения тиков.
     
     Args:
-        stream: Имя stream (например, "stream:tick_")
+        stream: Имя stream (например, RS.TB_TICK_PREFIX)
         group: Имя consumer group (рекомендуется "ticks-*")
         client: TicksRedisClient instance (опционально)
     
@@ -308,7 +309,7 @@ if __name__ == "__main__":
         print(f"❌ Ошибка DualTicksRedisClient: {e}")
 
     # Тест 3: Создание consumer group
-    create_ticks_consumer_group("stream:tick_", "ticks-test-group")
+    create_ticks_consumer_group(RS.TB_TICK_PREFIX, "ticks-test-group")
 
     print("=" * 70)
     print("Тестирование завершено")

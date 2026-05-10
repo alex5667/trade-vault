@@ -352,7 +352,7 @@ class AsyncSignalPublisher:
             try:
                 # Detect if this is a high-frequency telemetry stream (BBO, CVD, etc)
                 # or a mission-critical trade signal (orders:queue).
-                is_trade_signal = sink.name.startswith("orders:queue") or sink.name.startswith("events:signals")
+                is_trade_signal = sink.name.startswith(RS.ORDERS_QUEUE) or sink.name.startswith("events:signals")
                 fast_path = not is_trade_signal
 
                 if fast_path:
@@ -385,7 +385,7 @@ class AsyncSignalPublisher:
             payload["volume"] = float(payload.get("qty", 0.0) or 0.0)
 
         # 1.5) Invariant Firewall (Phase 7.1) — only for orders:queue streams
-        if sink.name.startswith("orders:queue"):
+        if sink.name.startswith(RS.ORDERS_QUEUE):
             try:
                 from services.atr_invariant_runtime_engine import get_runtime_engine
                 engine = get_runtime_engine()
@@ -423,7 +423,7 @@ class AsyncSignalPublisher:
                 # Fail-open internally if engine crashes
 
         # 1.6) Runtime Gating (Phase 7.6 Legacy + Phase 8.5 Graph) — only for orders:queue
-        if sink.name.startswith("orders:queue"):
+        if sink.name.startswith(RS.ORDERS_QUEUE):
             try:
                 from services.atr_graph_backed_runtime_gate import ATRGraphBackedRuntimeGateService
                 action = payload.get("action", "")

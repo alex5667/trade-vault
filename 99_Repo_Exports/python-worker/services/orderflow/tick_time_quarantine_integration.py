@@ -129,7 +129,7 @@ class TickTimeQuarantineIntegration:
                 "symbol": self.symbol,
                 "ts_ms": str(now_ms),
                 "payload": json.dumps(payload, ensure_ascii=False),
-            },
+            }
             await self.redis_client.xadd(
                 self.stream_name, fields, maxlen=self.stream_maxlen, approximate=True
             )

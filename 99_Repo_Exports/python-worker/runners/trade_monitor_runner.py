@@ -74,7 +74,7 @@ MIN_IDLE_MS = int(os.getenv("TM_MIN_IDLE_MS", "60000"))
 
 MAX_RETRIES = int(os.getenv("TM_MAX_RETRIES", "20"))
 RETRY_BACKOFF_MS = int(os.getenv("TM_RETRY_BACKOFF_MS", "150"))
-DLQ_STREAM = os.getenv("TM_DLQ_STREAM", "dlq:trade-monitor")
+DLQ_STREAM = os.getenv("TM_DLQ_STREAM", RS.DLQ_TRADE_MONITOR)
 
 RETRY_HASH_PREFIX = os.getenv("TM_RETRY_HASH_PREFIX", "retries:tm")  # retries:tm:{stream}:{id}
 

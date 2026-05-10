@@ -66,10 +66,11 @@ try:
 except ImportError:
     lgb = None  # type: ignore
 
-try:
-    from imblearn.under_sampling import RandomUnderSampler  # type: ignore[import]
-except ImportError:
-    RandomUnderSampler = None
+# try:
+#     from imblearn.under_sampling import RandomUnderSampler  # type: ignore[import]
+# except ImportError:
+#     RandomUnderSampler = None
+RandomUnderSampler = None
 
 logging.basicConfig(
     level=logging.INFO,
@@ -245,9 +246,22 @@ def fetch_training_data(lookback_days: int) -> Any | None:
         t.slippage_bps,
         t.adverse_bps,
         t.holding_ms,
-        t.close_reason_bucket
+        t.close_reason_bucket,
+        COALESCE(
+            (tc.config_json->'indicators'->>'liq_book_stale_ms')::BIGINT,
+            (tc.config_json->'indicators'->>'book_ts_gap_ms')::BIGINT,
+            0
+        ) AS ind_book_stale_ms,
+        COALESCE((tc.config_json->'indicators'->>'delta_z')::FLOAT, 0.0) AS ind_delta_z,
+        COALESCE((tc.config_json->'indicators'->>'exec_risk_bps')::FLOAT, 0.0) AS ind_exec_risk_bps,
+        COALESCE((tc.config_json->'indicators'->>'ofi_z')::FLOAT, 0.0) AS ind_ofi_z,
+        COALESCE((tc.config_json->'indicators'->>'spread_bps')::FLOAT, 0.0) AS ind_spread_bps,
+        COALESCE((tc.config_json->'indicators'->>'burst_z')::FLOAT, 0.0) AS ind_burst_z,
+        COALESCE((tc.config_json->'indicators'->>'data_health')::FLOAT, 1.0) AS ind_data_health,
+        COALESCE((tc.config_json->'indicators'->>'fill_prob_proxy')::FLOAT, 0.0) AS ind_fill_prob_proxy
     FROM signal_facts s
     JOIN trade_performance t ON s.signal_id = t.signal_id
+    LEFT JOIN trades_closed tc ON tc.sid = s.signal_id
     WHERE s.ts > NOW() - INTERVAL '{lookback_days} days'
       AND t.r IS NOT NULL
       AND s.symbol NOT IN ('XAUUSDT', '', 'GOLD')
@@ -273,8 +287,29 @@ def fetch_training_data(lookback_days: int) -> Any | None:
         logger.warning("No labeled rows found in last %d days", lookback_days)
         return None
 
-    logger.info("Fetched %d labeled samples (%d columns)", len(rows), len(cols))
-    return cols, rows
+    # Masking logic
+    ci = {c: i for i, c in enumerate(cols)}
+    bsm_i = ci.get("ind_book_stale_ms")
+    kept = []
+    drop_book = 0
+    MASK_BOOK_STALE_MS_MAX = 5000  # Mask out trades where order book was too stale
+
+    for row in rows:
+        bsm = float(row[bsm_i] or 0) if bsm_i is not None else 0.0
+        if bsm > 0 and bsm > MASK_BOOK_STALE_MS_MAX:
+            drop_book += 1
+            continue
+        kept.append(row)
+
+    logger.info("Fetched %d rows. After masking stale book (max %dms): kept=%d, dropped=%d (%.1f%%)",
+                len(rows), MASK_BOOK_STALE_MS_MAX, len(kept), drop_book, 
+                100 * drop_book / max(1, len(rows)))
+
+    if not kept:
+        logger.warning("No rows remaining after masking.")
+        return None
+
+    return cols, kept
 
 
 # ---------------------------------------------------------------------------
@@ -282,33 +317,31 @@ def fetch_training_data(lookback_days: int) -> Any | None:
 # ---------------------------------------------------------------------------
 
 NUMERIC_FEATURES = [
-    "atr_14",
-    "obi_avg_20",
-    "weak_progress_ratio",
-    "l3_spread_bps",
-    "l3_microprice_shift_bps_20",
-    "l3_microprice_velocity_bps",
-    "l3_obi_5",
-    "l3_obi_20",
-    "l3_obi_50",
-    "l3_obi_persistence_score",
-    "l3_cancel_to_trade_bid_5s",
-    "l3_cancel_to_trade_ask_5s",
-    "l3_cancel_to_trade_bid_20s",
-    "l3_cancel_to_trade_ask_20s",
-    "l3_queue_pressure_bid",
-    "l3_queue_pressure_ask",
-    "l3_market_depth_imbalance",
+    # Legacy from signal_facts
+    "atr_14", "obi_avg_20", "weak_progress_ratio",
+    # L3 from signal_facts (0 на исторических данных — будут заполняться с Phase 1)
+    "l3_spread_bps", "l3_microprice_shift_bps_20", "l3_microprice_velocity_bps",
+    "l3_obi_5", "l3_obi_20", "l3_obi_50", "l3_obi_persistence_score",
+    "l3_cancel_to_trade_bid_5s", "l3_cancel_to_trade_ask_5s",
+    "l3_cancel_to_trade_bid_20s", "l3_cancel_to_trade_ask_20s",
+    "l3_queue_pressure_bid", "l3_queue_pressure_ask", "l3_market_depth_imbalance",
+    # Golden features from config_json->indicators (99%+ coverage)
+    "ind_delta_z", "ind_exec_risk_bps", "ind_ofi_z",
+    "ind_spread_bps", "ind_burst_z", "ind_data_health", "ind_fill_prob_proxy",
 ]
 
 # Derived features
 DERIVED_FEATURES = [
-    "direction_long",       # 1 if LONG, 0 if SHORT
-    "cancel_to_trade_max",  # max(bid_5s, ask_5s, bid_20s, ask_20s)
-    "obi_spread",           # obi_5 - obi_50
-    "queue_imbalance",      # pressure_bid - pressure_ask
-    "outlier_count",        # number of raw feature values > 10
-    "is_extreme_outlier",   # boolean 1.0 if outlier_count > 0
+    "direction_long",
+    "cancel_to_trade_max",
+    "obi_spread",
+    "queue_imbalance",
+    # NEW: direction-adjusted для уменьшения нагрузки на дерево
+    "adj_delta_z",         # ind_delta_z * direction_sign
+    "adj_ofi_z",           # ind_ofi_z * direction_sign
+    "adj_spread_x_obi",    # ind_spread_bps * ind_obi (if available)
+    "outlier_count",
+    "is_extreme_outlier",
 ]
 
 
@@ -326,6 +359,7 @@ def _build_feature_row(row_dict: dict[str, Any]) -> list[float]:
 
     # Derived features
     direction = _f(row_dict.get("direction"), 0)
+    direction_sign = 1.0 if direction > 0 else -1.0
     out.append(1.0 if direction > 0 else 0.0)  # direction_long
 
     c2t_vals = [
@@ -343,6 +377,16 @@ def _build_feature_row(row_dict: dict[str, Any]) -> list[float]:
     qp_bid = _f(row_dict.get("l3_queue_pressure_bid"), 0.0)
     qp_ask = _f(row_dict.get("l3_queue_pressure_ask"), 0.0)
     out.append(qp_bid - qp_ask)  # queue_imbalance
+
+    # NEW: direction-adjusted
+    ind_delta_z = _f(row_dict.get("ind_delta_z"), 0.0)
+    ind_ofi_z = _f(row_dict.get("ind_ofi_z"), 0.0)
+    ind_spread_bps = _f(row_dict.get("ind_spread_bps"), 0.0)
+    ind_obi = _f(row_dict.get("obi_avg_20"), 0.0)
+
+    out.append(ind_delta_z * direction_sign)
+    out.append(ind_ofi_z * direction_sign)
+    out.append(ind_spread_bps * ind_obi)
 
     # Explicit right-tail outlier penalization markers
     # Tree models struggle to isolate rare extremes. We explicitly count them.
@@ -736,12 +780,12 @@ def main() -> int:
 
     # 10. Package and save as CANDIDATE (not yet promoted)
     out_pack: dict[str, Any] = {
-        "schema_version": 2,
+        "schema_version": "v3_unified",
         "kind": "ml_scorer_v3",
         "model": model,
         "feature_names": feature_names,
         "feature_cols_hash": _sha256_16(feature_names),
-        "feature_schema_ver": str(args.feature_schema_ver or ""),
+        "feature_schema_ver": "v3_unified",
         "robust_scaler_params": scaler_params,
         "calibrator": calibrator,  # IsotonicRegression or None
         "metrics": metrics,
@@ -793,7 +837,7 @@ CHAMPION_METRICS_TTL = 30 * 24 * 3600  # 30 дней
 MIN_ROC_DELTA = float(os.getenv("ML_SCORER_MIN_ROC_DELTA", "0.002"))
 
 
-def _get_redis():
+def _get_redis() -> Any:
     """Get Redis client for approval flow."""
     import redis as _redis
     url = os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
@@ -885,7 +929,7 @@ def _create_pending(
         logger.error("Failed to create pending: %s", e)
 
 
-def _notify_telegram(r, message: str, buttons: list = None) -> None:
+def _notify_telegram(r, message: str, buttons: list | None = None) -> None:
     """Publish message to notify:telegram stream."""
     fields: dict[str, str] = {
         "type": "report",

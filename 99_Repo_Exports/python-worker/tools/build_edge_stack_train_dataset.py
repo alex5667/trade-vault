@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+from core.redis_keys import RedisStreams as RS
 
 """
 build_edge_stack_train_dataset.py
@@ -313,13 +314,13 @@ def main() -> None:
     ap.add_argument(
         "--ml-confirm-stream",
         type=str,
-        default=os.getenv("ML_CONFIRM_METRICS_STREAM", "metrics:ml_confirm"),
+        default=os.getenv("ML_CONFIRM_METRICS_STREAM", RS.ML_CONFIRM_METRICS),
         help="ML confirm metrics stream",
     )
     ap.add_argument(
         "--trades-stream",
         type=str,
-        default=os.getenv("TRADES_CLOSED_STREAM") or os.getenv("TRADE_EVENTS_STREAM", "trades:closed"),
+        default=os.getenv("TRADES_CLOSED_STREAM") or os.getenv("TRADE_EVENTS_STREAM", RS.TRADES_CLOSED),
         help="Trades closed stream",
     )
     ap.add_argument(

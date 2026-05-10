@@ -13,6 +13,7 @@ from services.observability.metrics_registry import (
     of_engine_build_seconds,
     redis_used_memory_mb,
 )
+from core.redis_keys import RedisStreams as RS
 
 
 def test_metrics_registry_imports():
@@ -39,7 +40,7 @@ def test_atr_bad_total_counter():
 
 def test_microbar_stream_xlen_gauge():
     """Test microbar stream xlen gauge can be set."""
-    microbar_stream_xlen.labels(stream="events:microbar_closed").set(100.0)
+    microbar_stream_xlen.labels(stream=RS.EVENTS_MICROBAR_CLOSED).set(100.0)
     # Just verify it doesn't raise
     assert True
 

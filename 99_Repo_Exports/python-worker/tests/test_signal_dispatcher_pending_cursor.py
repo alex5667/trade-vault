@@ -1,12 +1,12 @@
 
 
 def test_try_restore_pending_cursor_none():
-    from services.signal_dispatcher import _try_restore_pending_cursor
+    from services.dispatch.dispatcher_app import _try_restore_pending_cursor
     assert _try_restore_pending_cursor(None, "k") is None
 
 
 def test_try_restore_pending_cursor_bytes():
-    from services.signal_dispatcher import _try_restore_pending_cursor
+    from services.dispatch.dispatcher_app import _try_restore_pending_cursor
 
     class R:
         def get(self, key):
@@ -16,7 +16,7 @@ def test_try_restore_pending_cursor_bytes():
 
 
 def test_try_restore_pending_cursor_str():
-    from services.signal_dispatcher import _try_restore_pending_cursor
+    from services.dispatch.dispatcher_app import _try_restore_pending_cursor
 
     class R:
         def get(self, key):

@@ -22,20 +22,21 @@ import redis
 from core.symbol_config import SymbolConfig, SymbolConfigFactory
 from handlers.base_orderflow_handler import BaseOrderFlowHandler
 from handlers.handler_factory import create_handler
+from core.redis_keys import RedisStreams as RS
 
 
 class SymbolManager:
     """
     Менеджер для динамического управления символами и их обработчиками.
     
-    Читает команды из Redis stream 'config:symbols' и динамически
+    Читает команды из Redis stream RS.CONFIG_SYMBOLS и динамически
     создает/удаляет handlers без перезапуска сервиса.
     """
 
     def __init__(
         self,
         redis_url: str = "redis://localhost:6379/0",
-        config_stream: str = "config:symbols",
+        config_stream: str = RS.CONFIG_SYMBOLS,
         initial_symbols: list[str] | None = None
     ):
         """
@@ -584,7 +585,7 @@ class SymbolManager:
 # HELPER FUNCTIONS для публикации команд в Redis
 # ═════════════════════════════════════════════════════════════════════
 
-def publish_add_symbols(redis_client: redis.Redis, symbols: list[str], stream: str = "config:symbols") -> None:
+def publish_add_symbols(redis_client: redis.Redis, symbols: list[str], stream: str = RS.CONFIG_SYMBOLS) -> None:
     """
     Публикует команду добавления символов.
     
@@ -607,7 +608,7 @@ def publish_add_symbols(redis_client: redis.Redis, symbols: list[str], stream: s
     print(f"📤 Published: ADD {symbols}")
 
 
-def publish_remove_symbols(redis_client: redis.Redis, symbols: list[str], stream: str = "config:symbols") -> None:
+def publish_remove_symbols(redis_client: redis.Redis, symbols: list[str], stream: str = RS.CONFIG_SYMBOLS) -> None:
     """
     Публикует команду удаления символов.
     
@@ -630,7 +631,7 @@ def publish_remove_symbols(redis_client: redis.Redis, symbols: list[str], stream
     print(f"📤 Published: REMOVE {symbols}")
 
 
-def publish_set_symbols(redis_client: redis.Redis, symbols: list[str], stream: str = "config:symbols") -> None:
+def publish_set_symbols(redis_client: redis.Redis, symbols: list[str], stream: str = RS.CONFIG_SYMBOLS) -> None:
     """
     Публикует команду установки списка символов (заменяет текущий список).
     

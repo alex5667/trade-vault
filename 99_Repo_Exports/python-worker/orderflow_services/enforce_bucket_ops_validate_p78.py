@@ -35,6 +35,7 @@ from typing import Any
 
 from utils.time_utils import get_ny_time_millis
 import contextlib
+from core.redis_keys import RedisStreams as RS
 
 try:
     import redis
@@ -192,7 +193,7 @@ def _check_db(dsn: str, view: str, lookback_h: int, min_rows: int) -> tuple[bool
 
 def main() -> int:
     redis_url = os.getenv("REDIS_URL") or os.getenv("CRYPTO_NOTIFY_REDIS_URL") or "redis://localhost:6379/0"
-    stream = os.getenv("OF_GATE_STREAM", "metrics:of_gate")
+    stream = os.getenv("OF_GATE_STREAM", RS.OF_GATE_METRICS)
     min_events = _env_int("ENFORCE_PREFLIGHT_MIN_OF_GATE", "200")
     require_fields = _env_list("ENFORCE_PREFLIGHT_REQUIRE_FIELDS", "exec_regime_bucket,reason_code_top1")
 

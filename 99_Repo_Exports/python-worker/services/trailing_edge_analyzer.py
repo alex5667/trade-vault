@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+from core.redis_keys import RedisStreams as RS
 
 """
 Trailing Edge Analyzer - мини-анализатор pnl_if_fixed_exit vs pnl_net (edge трейлинга).
@@ -332,7 +333,7 @@ class TrailingEdgeAnalyzer:
         if since_hours:
             threshold_ms = int(get_ny_time_millis() - since_hours * 3600 * 1000)
 
-        entries = self.redis.xrevrange("trades:closed", max="+", min="-", count=max(10, limit * 4)) or []
+        entries = self.redis.xrevrange(RS.TRADES_CLOSED, max="+", min="-", count=max(10, limit * 4)) or []
 
         # 1) Сначала нормализуем stream-fields
         raw_items: list[dict[str, str]] = []

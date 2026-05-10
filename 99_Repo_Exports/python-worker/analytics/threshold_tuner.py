@@ -51,7 +51,7 @@ class ThresholdTuner:
         self.repo = repo
         self.r = repo.r
 
-        self.ctrl_stream = os.getenv("AGG_HUB_CONTROL_STREAM", "aggregated_hub:control")
+        self.ctrl_stream = os.getenv("AGG_HUB_CONTROL_STREAM", RS.AGG_HUB_CONTROL)
         self.notify_stream = os.getenv("NOTIFY_STREAM", RS.NOTIFY_TELEGRAM)
 
         self.roc_store = ROCStore(os.getenv("REDIS_URL"))
@@ -179,7 +179,7 @@ class ThresholdTuner:
                 "tuned_at": time.time(),
                 "support": len(pairs),
                 "rule": "youdenJ"
-            },
+            }
 
             # Публикуем порог для aggregated hub
             key = f"hub:threshold:{strategy}:{symbol}"

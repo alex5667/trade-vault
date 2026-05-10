@@ -193,7 +193,7 @@ def main() -> int:
         print("REDIS_URL is required", file=sys.stderr)
         return 2
 
-    dlq_stream = os.environ.get("OF_INPUTS_DLQ_STREAM", "stream:dlq:of_inputs")
+    dlq_stream = os.environ.get("OF_INPUTS_DLQ_STREAM", RS.DLQ_OF_INPUTS)
     group = os.environ.get("OF_INPUTS_DLQ_GROUP", "of_inputs_dlq_replay")
     consumer = os.environ.get("OF_INPUTS_DLQ_CONSUMER", "") or _consumer_name()
 

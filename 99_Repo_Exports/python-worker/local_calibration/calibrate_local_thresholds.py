@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+from core.redis_keys import RedisStreams as RS
 
 """
 Offline calibration script for local signal thresholds.
@@ -42,7 +43,7 @@ except Exception:  # pragma: no cover
 PG_DSN = os.getenv("PG_DSN", "postgresql://user:pass@localhost:5432/trade")
 CALIB_SOURCE = os.getenv("CALIB_SOURCE", "pg")  # 'pg' or 'redis'
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
-TRADES_CLOSED_STREAM = os.getenv("TRADES_CLOSED_STREAM", "trades:closed")
+TRADES_CLOSED_STREAM = os.getenv("TRADES_CLOSED_STREAM", RS.TRADES_CLOSED)
 TRADES_CLOSED_START_ID = os.getenv("TRADES_CLOSED_START_ID", "0-0")
 
 LOOKBACK_DAYS = int(os.getenv("CALIB_LOOKBACK_DAYS", "365"))

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import os
 import time
@@ -10,7 +11,6 @@ from typing import Any
 from prometheus_client import Counter, Gauge, Histogram, start_http_server
 
 from utils.time_utils import get_ny_time_millis
-import contextlib
 
 VERIFIER_UP = Gauge("ml_rollback_verifier_up", "Rollback verifier liveness")
 VERIFIER_LAST_RUN_TS = Gauge("ml_rollback_verifier_last_run_ts_seconds", "Last verifier loop time")
@@ -100,14 +100,10 @@ def compute_rollback_verification(
     return VerificationDecision("INCONCLUSIVE", reasons, details)
 
 
-async def _persist_pg(database_url: str, payload: dict[str, Any]) -> None:
-    import asyncpg  # type: ignore
-
-    conn = await asyncpg.connect(database_url)
-    try:
+async def _persist_pg(pool: Any, payload: dict[str, Any]) -> None:
+    async with pool.acquire() as conn:
         await conn.execute(
             """
-
             INSERT INTO llm_rollback_verifications (
                 recommendation_id, verification_ts_ms, verification_status,
                 reason_codes_json, details_json
@@ -120,27 +116,25 @@ async def _persist_pg(database_url: str, payload: dict[str, Any]) -> None:
             json.dumps(payload.get("details", {})),
         )
         await conn.execute(
-            """,
+            """
             UPDATE llm_recommendations
                SET rollback_verification_status = $2,
                    rollback_verified_at_ms = $3,
                    rollback_failure_reason = $4
-             WHERE recommendation_id = $1,
+             WHERE recommendation_id = $1
             """,
             payload["recommendation_id"],
             payload["verification_status"],
             int(payload["verification_ts_ms"]),
             ",".join(payload.get("reason_codes", [])),
         )
-    finally:
-        await conn.close()
 
 
 async def main() -> None:
     try:
         import redis.asyncio as redis  # type: ignore
     except Exception as exc:  # pragma: no cover
-        raise SystemExit(f"redis.asyncio is required: {exc}")
+        raise SystemExit(f"redis.asyncio is required: {exc}") from exc
 
     port = int(os.getenv("ML_ROLLBACK_VERIFIER_METRICS_PORT", "9862"))
     start_http_server(port)
@@ -166,6 +160,14 @@ async def main() -> None:
         "ROLLBACK_VERIFY_MAX_MISSING_CRITICAL_DELTA": os.getenv("ROLLBACK_VERIFY_MAX_MISSING_CRITICAL_DELTA", "0.01"),
         "ROLLBACK_VERIFY_MAX_ALLOW_RATE_DROP": os.getenv("ROLLBACK_VERIFY_MAX_ALLOW_RATE_DROP", "0.08"),
     }
+
+    pool = None
+    if database_url:
+        try:
+            import asyncpg  # type: ignore
+            pool = await asyncpg.create_pool(database_url, min_size=1, max_size=5)
+        except Exception as exc:
+            print(f"Failed to create DB pool: {exc}")
 
     while True:
         VERIFIER_UP.set(1)
@@ -230,8 +232,8 @@ async def main() -> None:
                                 approximate=True,
                             )
 
-                    if database_url and recommendation_id:
-                        await _persist_pg(database_url, verify_payload)
+                    if pool and recommendation_id:
+                        await _persist_pg(pool, verify_payload)
 
                     VERIFIER_EVENTS.labels(decision.verification_status).inc()
                 finally:

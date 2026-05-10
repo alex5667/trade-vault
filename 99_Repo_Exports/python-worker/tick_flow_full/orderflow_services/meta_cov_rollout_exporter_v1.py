@@ -1,5 +1,6 @@
 from domain.evidence_keys import MetaKeys
 from utils.time_utils import get_ny_time_millis
+from core.redis_keys import RedisStreams as RS
 
 #!/usr/bin/env python3
 """meta_cov_rollout_exporter_v1.py
@@ -161,7 +162,7 @@ class Exporter:
     def __init__(self) -> None:
         self.redis_url = os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
         self.cfg2_key = os.getenv("DYN_CFG_KEY", "settings:dynamic_cfg")
-        self.stream = os.getenv("META_COV_SOURCE_STREAM", os.getenv("ML_CONFIRM_METRICS_STREAM", os.getenv("OF_GATE_METRICS_STREAM", "metrics:of_gate")))
+        self.stream = os.getenv("META_COV_SOURCE_STREAM", os.getenv("ML_CONFIRM_METRICS_STREAM", os.getenv("OF_GATE_METRICS_STREAM", RS.OF_GATE_METRICS)))
         self.lookback_min = int(os.getenv("META_COV_EXPORTER_LOOKBACK_MIN", "60") or 60)
         self.max_scan = int(os.getenv("META_COV_EXPORTER_MAX_SCAN", "50000") or 50000)
         self.r = redis.Redis.from_url(self.redis_url, decode_responses=False) if redis else None

@@ -13,7 +13,7 @@ def test_ml_confirm_gate_bucket2_onehot_encoding():
         sys.modules["redis"] = stub
 
     # Import from tick_flow_full/services via test sys.path injection.
-    from services.ml_confirm_gate import MLConfirmGate
+    from services.ml_confirm import MLConfirmGate
 
     class _DummyModel:
         # Minimal set of feature columns used in _build_feature_row.

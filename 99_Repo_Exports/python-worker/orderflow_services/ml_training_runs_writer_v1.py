@@ -55,7 +55,7 @@ DEFAULT_SOURCE_MAP = {
         "metrics:confidence_calibration:last",
         "metrics:confidence_calibration_v2:last",
     ],
-},
+}
 
 
 STREAM = os.getenv("ML_TRAINING_RUNS_STREAM", "stream:ml:training_runs")

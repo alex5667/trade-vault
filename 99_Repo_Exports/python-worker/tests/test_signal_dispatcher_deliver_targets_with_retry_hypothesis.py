@@ -7,8 +7,8 @@ import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-import services.signal_dispatcher as sd_mod
-from services.signal_dispatcher import SignalDispatcher
+import services.dispatch.dispatcher_app as sd_mod
+from services.dispatch.dispatcher_app import SignalDispatcher
 from utils.time_utils import get_ny_time_millis
 
 

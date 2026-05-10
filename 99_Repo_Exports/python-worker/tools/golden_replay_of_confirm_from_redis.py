@@ -50,7 +50,8 @@ def _notify(redis_url: str, stream: str, text: str) -> None:
         r.xadd(
             stream,
             {
-                "type": "report",
+                "type": "alert",
+
                 "subtype": "of_confirm_replay",
                 "ts_ms": str(get_ny_time_millis()),
                 "text": safe_text,

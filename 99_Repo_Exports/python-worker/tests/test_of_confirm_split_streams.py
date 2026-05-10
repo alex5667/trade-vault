@@ -19,6 +19,7 @@ import pytest
 # [AUTOGRAVITY CLEANUP] sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 from services.of_confirm_service import OFConfirmService
 import contextlib
+from core.redis_keys import RedisStreams as RS
 
 
 @pytest.mark.asyncio
@@ -51,12 +52,12 @@ class TestEnsureMicrobarGroups:
         service = OFConfirmService()
         service.redis = AsyncMock()
         service.consumer_group = "test_group"
-        service.stream_bars_template = "events:microbar_closed"
+        service.stream_bars_template = RS.EVENTS_MICROBAR_CLOSED
         service.bars_max_streams = 200
 
         result = await service._ensure_microbar_groups()
 
-        assert result == ["events:microbar_closed"]
+        assert result == [RS.EVENTS_MICROBAR_CLOSED]
         service.redis.xgroup_create.assert_called_once()
 
     async def test_ensure_groups_respects_max_streams(self):
@@ -215,7 +216,7 @@ class TestSplitStreamsConfiguration:
         service = OFConfirmService()
         # stream_bars should point to legacy stream
         assert service.stream_bars == service.stream_bars_legacy
-        assert service.stream_bars == "events:microbar_closed"
+        assert service.stream_bars == RS.EVENTS_MICROBAR_CLOSED
 
     async def test_custom_stream_template(self):
         """Support custom stream template via ENV."""

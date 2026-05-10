@@ -157,7 +157,7 @@ _ENV_CLOSED_ZSET_RETENTION_DAYS = "CLOSED_ZSET_RETENTION_DAYS"
 _ENV_TRADES_CLOSED_STREAM_COMPACT = "TRADES_CLOSED_STREAM_COMPACT"
 
 # Если включено, repo будет:
-#  - публиковать в stream "trades:closed" минимальный payload (compact),
+#  - публиковать в stream RS.TRADES_CLOSED минимальный payload (compact),
 #  - предполагая, что consumer/reporter умеет hydrate детали из order:{id}.
 TRADES_CLOSED_STREAM_COMPACT = os.getenv("TRADES_CLOSED_STREAM_COMPACT", "0").strip().lower() in ("1", "true", "yes", "on")
 

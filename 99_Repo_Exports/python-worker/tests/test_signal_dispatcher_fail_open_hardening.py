@@ -23,7 +23,7 @@ class _BoomRedis:
 
 def _mk_sd_without_init():
     # Instantiate without calling __init__ (keeps test resilient to ctor signature changes).
-    from services.signal_dispatcher import SignalDispatcher
+    from services.dispatch.dispatcher_app import SignalDispatcher
 
     sd = SignalDispatcher.__new__(SignalDispatcher)
     sd.logger = None
@@ -66,7 +66,7 @@ def test_mark_env_done_fail_open_increments_metric():
 
 def test_env_req_sadd_expire_fail_open_increments_metric():
     # This test is self-adapting: method name may change across versions.
-    from services.signal_dispatcher import SignalDispatcher
+    from services.dispatch.dispatcher_app import SignalDispatcher
 
     sd = _mk_sd_without_init()
     sd.redis = _BoomRedis(boom_methods={"sadd", "expire"})

@@ -6,7 +6,7 @@ Tests for OF Gate metrics integration (ML latency, source_consistency_ok, etc).
 
 import pytest
 
-from services.ml_confirm_gate import MLConfirmDecision, MLConfirmGate
+from services.ml_confirm import MLConfirmDecision, MLConfirmGate
 from utils.time_utils import get_ny_time_millis
 
 

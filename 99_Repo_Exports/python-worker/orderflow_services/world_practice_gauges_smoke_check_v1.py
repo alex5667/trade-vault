@@ -28,6 +28,7 @@ from typing import Any
 
 from utils.time_utils import get_ny_time_millis
 import contextlib
+from core.redis_keys import RedisStreams as RS
 
 try:
     import redis  # type: ignore
@@ -75,7 +76,7 @@ def _top(counter: Counter, k: int = 10) -> list[tuple[str, int]]:
 def main() -> int:
     ap = argparse.ArgumentParser(description="World-practice trackers smoke-check (v1)")
     ap.add_argument("--redis-url", default=os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0"))
-    ap.add_argument("--stream", default=os.getenv("OF_GATE_METRICS_STREAM", "metrics:of_gate"))
+    ap.add_argument("--stream", default=os.getenv("OF_GATE_METRICS_STREAM", RS.OF_GATE_METRICS))
     ap.add_argument("--limit", type=int, default=int(os.getenv("WP_SMOKE_LIMIT", "3000")))
 
     ap.add_argument("--max-age-ms", type=int, default=int(os.getenv("WP_SMOKE_MAX_AGE_MS", "900000")))  # 15m

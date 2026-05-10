@@ -315,7 +315,7 @@ class TelegramMessageAnalyzer:
                 validate_llm_response(parsed, routed_type)
 
                 # Render nicely
-                reason_code = parsed.get("reason_code", "unknown")
+                reason_code = TelegramMessageAnalyzer._clean_llm_text(str(parsed.get("reason_code", "unknown")))
                 severity = parsed.get("severity", "info")
                 emoji = "🚨" if severity == "critical" else "⚠️" if severity == "warning" else "ℹ️"
 
@@ -340,7 +340,7 @@ class TelegramMessageAnalyzer:
 
             except json.JSONDecodeError as e:
                 logger.warning(f"Telegram LLM analysis: failed to decode JSON: {e} — falling back to raw LLM output")
-                return response_text
+                return TelegramMessageAnalyzer._clean_llm_text(response_text)
 
             elapsed = time.monotonic() - t0
             logger.info(f"Telegram analysis generated in {elapsed:.2f}s using {MODEL}")

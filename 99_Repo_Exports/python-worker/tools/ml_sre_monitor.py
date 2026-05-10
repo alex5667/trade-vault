@@ -218,7 +218,7 @@ def main() -> None:
     args = ap.parse_args()
 
     redis_url = os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
-    stream = os.getenv("ML_CONFIRM_METRICS_STREAM", "metrics:ml_confirm")
+    stream = os.getenv("ML_CONFIRM_METRICS_STREAM", RS.ML_CONFIRM_METRICS)
 
     window_ms = int(args.window_min * 60_000)
     end_ms = now_ms()
@@ -471,7 +471,7 @@ def main() -> None:
         tb, tb_alerts = _tb_health(
             r,
             input_stream=os.getenv("TB_INPUT_STREAM", os.getenv("OF_INPUT_STREAM", RS.OF_INPUTS)),
-            labels_stream=os.getenv("TB_LABELS_STREAM", "labels:tb"),
+            labels_stream=os.getenv("TB_LABELS_STREAM", RS.TB_LABELS),
             group=os.getenv("OF_INPUTS_GROUP", os.getenv("TB_INPUT_GROUP", "")),
             max_input_lag_ms=_i(os.getenv("TB_SRE_MAX_INPUT_LAG_MS", "120000"), 120000),
             max_label_stale_ms=_i(os.getenv("TB_SRE_MAX_LABEL_STALE_MS", "300000"), 300000),

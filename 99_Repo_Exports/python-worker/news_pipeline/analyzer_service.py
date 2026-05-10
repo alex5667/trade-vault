@@ -157,7 +157,7 @@ class NewsAnalyzerService:
                             "ts_ms": raw.ts_ms,
                             "symbols": raw.symbols,
                             "analysis": heavy,
-                        },
+                        }
                         self.r.set(key, json.dumps(heavy_payload, ensure_ascii=False))
                         self.r.expire(key, int(config.NEWS_ANALYSIS_KEY_TTL_SEC))
 

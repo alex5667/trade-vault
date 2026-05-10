@@ -52,8 +52,8 @@ def compute_hold_ms_with_quarantine(
       - если похоже на unit mismatch (sec vs ms) -> quarantined=True с отдельной причиной
     """
     try:
-        entry = int(entry_ts_ms)
-        exit_ = int(exit_ts_ms)
+        entry = entry_ts_ms
+        exit_ = exit_ts_ms
     except Exception:
         _safe_inc(metrics, "trade.bad_time.quarantined", 1)
         _safe_quarantine_push(quarantine, "ts_not_int", {"entry_ts_ms": entry_ts_ms, "exit_ts_ms": exit_ts_ms})
@@ -78,13 +78,13 @@ def compute_hold_ms_with_quarantine(
         )
         return 0, True
 
-    if abs(raw) > int(max_back_ms):
+    if abs(raw) > max_back_ms:
         _safe_inc(metrics, "trade.bad_time.exit_before_entry", 1)
         _safe_inc(metrics, "trade.bad_time.quarantined", 1)
         _safe_quarantine_push(
             quarantine,
             "exit_before_entry",
-            {"entry_ts_ms": entry, "exit_ts_ms": exit_, "raw": raw, "max_back_ms": int(max_back_ms)},
+            {"entry_ts_ms": entry, "exit_ts_ms": exit_, "raw": raw, "max_back_ms": max_back_ms},
         )
         return 0, True
 
@@ -197,7 +197,7 @@ def infer_trailing_started(
     """
     if trailing_started or trailing_active:
         return True
-    if int(trailing_moves or 0) > 0:
+    if (trailing_moves or 0) > 0:
         return True
     if (trailing_profile or "").strip():
         return True

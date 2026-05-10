@@ -22,7 +22,7 @@ def service(db_conn_mock):
 
 def test_classify_artifact(service):
     assert service.classify_artifact(RS.CRYPTO_RAW) == "signal"
-    assert service.classify_artifact("orders:queue:mt5") == "dispatch"
+    assert service.classify_artifact(RS.ORDERS_QUEUE_MT5) == "dispatch"
     assert service.classify_artifact("closed_trades") == "post_trade"
     assert service.classify_artifact("control_plane") == "governance"
     assert service.classify_artifact("unknown_stream") == "unknown"

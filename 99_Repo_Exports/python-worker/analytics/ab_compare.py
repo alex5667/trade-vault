@@ -236,7 +236,7 @@ def publish_to_redis(r: redis.Redis, symbol: str, summary: dict[str, dict]):
             "symbol": symbol,
             "ts": time.time(),
             "summary": summary
-        },
+        }
 
         r.set(key, json.dumps(payload))
 

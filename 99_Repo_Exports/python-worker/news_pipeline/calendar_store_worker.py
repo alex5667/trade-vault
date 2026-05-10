@@ -11,12 +11,13 @@ from news_pipeline.postgres_writer import NewsPostgresWriter
 from news_pipeline.stream_worker import StreamWorker
 from utils.time_utils import get_ny_time_millis
 import contextlib
+from core.redis_keys import RedisStreams as RS
 
 log = logging.getLogger("calendar_store")
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
 
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
-CAL_STREAM = os.getenv("CALENDAR_EVENTS_STREAM", "calendar:events")
+CAL_STREAM = os.getenv("CALENDAR_EVENTS_STREAM", RS.CALENDAR_EVENTS)
 GROUP = os.getenv("CALENDAR_GROUP", "calendar-feature-store")
 CONSUMER = os.getenv("CALENDAR_CONSUMER", os.getenv("HOSTNAME", "calendar-store-1"))
 DLQ = os.getenv("CALENDAR_DLQ", "calendar:events:dlq")

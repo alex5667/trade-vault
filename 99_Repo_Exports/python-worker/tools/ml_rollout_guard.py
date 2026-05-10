@@ -202,7 +202,7 @@ def main() -> None:
     ap = argparse.ArgumentParser(description="ML rollout guard: freeze/unfreeze proposals")
     ap.add_argument("--redis-url", default=os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0"))
     ap.add_argument("--cfg-key", default=os.getenv("ML_CONFIRM_CFG_KEY", "cfg:ml_confirm"))
-    ap.add_argument("--metrics-stream", default=os.getenv("ML_CONFIRM_METRICS_STREAM", "metrics:ml_confirm"))
+    ap.add_argument("--metrics-stream", default=os.getenv("ML_CONFIRM_METRICS_STREAM", RS.ML_CONFIRM_METRICS))
     ap.add_argument("--since-min", type=int, default=60, help="Look back N minutes")
     ap.add_argument("--max-scan", type=int, default=200000, help="Max messages to scan")
     args = ap.parse_args()

@@ -9,7 +9,7 @@ from unittest.mock import MagicMock
 import numpy as np
 import pytest
 
-from services.ml_confirm_gate import MLConfirmGate
+from services.ml_confirm import MLConfirmGate
 
 
 class DummyUtilMH:
@@ -48,8 +48,8 @@ def util_mh_cfg():
                 "trend": {"floor": 0.04}
             },
             "unc_k": 0.5
-        },
-    },
+        }
+    }
 
 
 def test_util_mh_best_h_and_floor(mock_redis, util_mh_cfg):
@@ -395,6 +395,7 @@ def test_util_mh_no_model(mock_redis, util_mh_cfg):
         ok_rule=1,
     )
 
+    print(f"DEBUG: dec={dec.to_dict()}, dec.reason={repr(dec.reason)}, error_reason={repr(getattr(gate, "_model_load_error", "miss"))}")
     assert dec.mode == "ERR"
     assert dec.reason == "no_model_loaded"
     assert dec.allow is False  # FAIL_CLOSED policy in ENFORCE

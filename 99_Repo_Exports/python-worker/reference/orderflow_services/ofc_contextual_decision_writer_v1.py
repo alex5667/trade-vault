@@ -190,7 +190,7 @@ def _normalize_row(evt: dict[str, Any]) -> tuple[dict[str, Any] | None, str]:
         "ctx_infer_latency_us": _to_int(src.get(CtxKeys.INFER_LATENCY_US) if src.get(CtxKeys.INFER_LATENCY_US) is not None else evt.get(CtxKeys.INFER_LATENCY_US), 0),
         "spread_bps_missing": _to_bool(evt.get("spread_bps_missing"), False),
         "slippage_missing": _to_bool(evt.get("slippage_missing"), False),
-    },
+    }
     return row, ""
 
 
@@ -291,7 +291,7 @@ async def _publish_dlq(r: Any, *, stream: str, payload: dict[str, Any], reason: 
             "payload": json.dumps(payload, ensure_ascii=False),
             "reason": reason,
             "ts_ms": str(_now_ms()),
-        },
+        }
         await r.xadd(stream, body, maxlen=maxlen, approximate=True)
     except Exception:
         return

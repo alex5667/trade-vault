@@ -28,6 +28,7 @@ from core.meta_model_lr import MetaModelLR
 from services.ml_calibration import PlattLogitCalibrator
 from utils.time_utils import get_ny_time_millis
 import contextlib
+from core.redis_keys import RedisStreams as RS
 
 # Prometheus metrics (optional, fail-open if not available)
 try:
@@ -892,7 +893,7 @@ class MLConfirmGate:
         self._cfg_parse_err: str = ""
 
         # metrics
-        self._metrics_stream = os.getenv("ML_CONFIRM_METRICS_STREAM", "metrics:ml_confirm")
+        self._metrics_stream = os.getenv("ML_CONFIRM_METRICS_STREAM", RS.ML_CONFIRM_METRICS)
         self._metrics_enable = int(os.getenv("ML_CONFIRM_METRICS_ENABLE", "1") or 1) == 1
         try:
             self._metrics_sample = float(os.getenv("ML_CONFIRM_METRICS_SAMPLE", "1.0") or 1.0)
@@ -916,7 +917,7 @@ class MLConfirmGate:
 
         # golden replay capture
         self._replay_capture = int(os.getenv("ML_REPLAY_CAPTURE_ENABLE", "0") or 0) == 1
-        self._replay_stream = os.getenv("ML_REPLAY_INPUTS_STREAM", "stream:ml_confirm:inputs")
+        self._replay_stream = os.getenv("ML_REPLAY_INPUTS_STREAM", RS.ML_CONFIRM_INPUTS)
         try:
             self._replay_sample = float(os.getenv("ML_REPLAY_INPUTS_SAMPLE", "0.01") or 0.01)
         except Exception:
@@ -1994,7 +1995,7 @@ class MLConfirmGate:
             # Deterministic sampling by sid (stable across restarts)
             sample_rate = float(self._metrics_sample)
             if sample_rate < 1.0 and sample_rate > 0.0:
-                if not _stable_sample(sid, sample_rate, salt="metrics:ml_confirm"):
+                if not _stable_sample(sid, sample_rate, salt=RS.ML_CONFIRM_METRICS):
                     return
 
             # Extract bucket and exec_risk_norm from indicators or decision
