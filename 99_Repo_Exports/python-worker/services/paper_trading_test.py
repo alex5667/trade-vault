@@ -68,7 +68,7 @@ class PaperTradingTest:
     Эмулирует различные сценарии движения цены после сигнала.
     """
 
-    def __init__(self, redis_url: str = None):
+    def __init__(self, redis_url: str = None):  # type: ignore
         """
         Args:
             redis_url: URL Redis (если None, берётся из REDIS_URL env)
@@ -104,7 +104,7 @@ class PaperTradingTest:
         sid = f"paper-test-{symbol}-{ts}-{random.randint(1000, 9999)}"
 
         # Симулируем реальные цены
-        if symbol == REMOVE_ME:
+        if symbol == REMOVE_ME:  # type: ignore
             base_price = 2765.5
         elif symbol == "BTCUSD":
             base_price = 50000.0
@@ -248,7 +248,7 @@ class PaperTradingTest:
     def run_test_suite(
         self,
         num_signals: int = 5,
-        scenarios: list[str] = None
+        scenarios: list[str] = None  # type: ignore
     ) -> list[TestResult]:
         """
         Запустить набор тестов.

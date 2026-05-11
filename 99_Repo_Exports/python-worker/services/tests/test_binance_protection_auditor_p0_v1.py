@@ -10,10 +10,10 @@ if str(ROOT) not in sys.path:
 
 mod_path = Path(__file__).parent.parent / 'binance_protection_auditor.py'
 spec = importlib.util.spec_from_file_location('binance_protection_auditor_p0', mod_path)
-mod = importlib.util.module_from_spec(spec)
-sys.modules[spec.name] = mod
-assert spec.loader is not None
-spec.loader.exec_module(mod)
+mod = importlib.util.module_from_spec(spec)  # type: ignore
+sys.modules[spec.name] = mod  # type: ignore
+assert spec.loader is not None  # type: ignore
+spec.loader.exec_module(mod)  # type: ignore
 
 
 class FakeRedis:
@@ -63,7 +63,7 @@ class DummyTelegram:
         self.msgs = [],
 
     def send_text(self, text):
-        self.msgs.append(text),
+        self.msgs.append(text),  # type: ignore
 
 
 def test_scan_once_detects_naked_position_and_orphan_algos(monkeypatch):

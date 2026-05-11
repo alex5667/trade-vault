@@ -49,9 +49,9 @@ class MLFeatureSchemaV4OF:
     """
 
     # numeric keys (read from indicators without the `n:` prefix)
-    num_keys: list[str] = None
+    num_keys: list[str] = None  # type: ignore
     # boolean keys (read from indicators without the `b:` prefix)
-    bool_keys: list[str] = None
+    bool_keys: list[str] = None  # type: ignore
 
     def __post_init__(self) -> None:
         if self.num_keys is None:

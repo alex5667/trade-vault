@@ -11,7 +11,7 @@ class DlqWriter:
         self.redis = redis_client
         self.logger = logger
 
-    def send_target_dlq(self, target: str, sid: str, env: dict[str, Any], *, reason: str, err: str) -> None:
+    async def send_target_dlq(self, target: str, sid: str, env: dict[str, Any], *, reason: str, err: str) -> None:
         stream = DeliveryHelpers.get_dlq_stream_for_target(
             target,
             dlq_notify=self.config.dlq_notify,
@@ -21,7 +21,7 @@ class DlqWriter:
             dlq_snapshot=self.config.dlq_snapshot,
             dlq_default=self.config.dlq_stream
         )
-        DeliveryHelpers.send_to_dlq(
+        await DeliveryHelpers.send_to_dlq(
             redis_client=self.redis,
             dlq_stream=stream,
             target=target,
@@ -32,7 +32,7 @@ class DlqWriter:
             logger=self.logger
         )
 
-    def send_dlq_and_ack(self, msg_id: str, fields: dict[str, Any], helper: Any, stream: str, reason: str = "bad_envelope") -> bool:
+    async def send_dlq_and_ack(self, msg_id: str, fields: dict[str, Any], helper: Any, stream: str, reason: str = "bad_envelope") -> bool:
         """
         Atomic-ish DLQ + ACK. If DLQ succeeds, ACKs.
         """
@@ -46,10 +46,10 @@ class DlqWriter:
             if isinstance(fields, dict) and "sid" in fields:
                 payload["sid"] = fields["sid"]
                 
-            self.redis.xadd(self.config.dlq_stream, {"data": json.dumps(payload, ensure_ascii=False)}, maxlen=self.config.dlq_maxlen, approximate=True)
+            await self.redis.xadd(self.config.dlq_stream, {"data": json.dumps(payload, ensure_ascii=False)}, maxlen=self.config.dlq_maxlen, approximate=True)
             
             if helper and stream:
-                helper.ack(stream, msg_id)
+                await helper.ack(stream, msg_id)
             return True
         except Exception as e:
             if self.logger:

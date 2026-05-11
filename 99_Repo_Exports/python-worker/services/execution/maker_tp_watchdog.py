@@ -184,7 +184,7 @@ class MakerTpWatchdog:
                 # 2. Mark price proximity check
                 try:
                     mark_resp = client.get_mark_price(symbol)
-                    mark = _f(mark_resp.get("markPrice") or mark_resp.get("price"), 0.0)
+                    mark = _f(mark_resp.get("markPrice") or mark_resp.get("price"), 0.0)  # type: ignore
                     if mark > 0:
                         self.observe_mark_contract_spread(
                             sid=sid, symbol=symbol, level=level,

@@ -18,6 +18,7 @@ TrailingSizeRecommender
 """
 
 
+from typing import Tuple
 import statistics as stats
 from collections.abc import Iterable
 from dataclasses import dataclass

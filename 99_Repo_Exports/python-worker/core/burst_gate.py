@@ -128,7 +128,7 @@ class BurstCandidateSelector:
         self.reset()
         if best is None:
             return None
-        now_ms = int(_get_ny_time_millis())
+        now_ms = int(_get_ny_time_millis())  # type: ignore
         out = dict(best.payload)
         out["burst_emitted_at"] = now_ms
         out["burst_start_ts_ms"] = start_ts

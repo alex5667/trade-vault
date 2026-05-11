@@ -80,7 +80,7 @@ class DailyAggregator:
 
         # Timezone
         try:
-            self.tz = ZoneInfo(SESSION_TZ)
+            self.tz = ZoneInfo(SESSION_TZ)  # type: ignore
         except Exception:
             self.tz = UTC
             print(f"⚠️ Timezone {SESSION_TZ} недоступен, используем UTC")
@@ -248,9 +248,9 @@ class DailyAggregator:
                 self._init_day(day, price)
             else:
                 # Обновляем H/L/C текущего дня
-                if price > self.day_high:
+                if price > self.day_high:  # type: ignore
                     self.day_high = price
-                if price < self.day_low:
+                if price < self.day_low:  # type: ignore
                     self.day_low = price
                 self.day_close = price
         except Exception as e:

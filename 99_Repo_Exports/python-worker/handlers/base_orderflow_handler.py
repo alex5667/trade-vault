@@ -120,7 +120,7 @@ class BaseOrderFlowHandler(ABC):
     consumer_name_prefix: str  # Consumer name prefix
     _cache_service: CacheService  # Cache service instance
     _error_handler: ErrorHandler  # Error handler instance
-    _lock: threading.Lock  # Lock for thread safety
+    _lock: threading.Lock  # Lock for thread safety  # type: ignore
     _state_manager: HandlerStateManager  # State manager instance
 
     # Core Services
@@ -146,7 +146,7 @@ class BaseOrderFlowHandler(ABC):
     _regime_service: MarketRegimeService | None
     _extrema_service: LocalExtremaService | None
     _execution_setup: ExecutionSetupRepository | None
-    _outbox_publisher: SignalPublisher | None
+    _outbox_publisher: SignalPublisher | None  # type: ignore
     l2_gpu_processor: Any | None
 
     # Execution components
@@ -765,7 +765,7 @@ class BaseOrderFlowHandler(ABC):
         # Pass signal_type to the processing service
         result = self._signal_processing.process_orderflow_context(ctx, signal_type=signal_type)
 
-        return result
+        return result  # type: ignore
 
     def _emit_health_metrics(self, ctx: Any) -> None:
         """
@@ -959,7 +959,7 @@ class BaseOrderFlowHandler(ABC):
 
             # Ensure geometry/liquidity context is updated before scoring
             if hasattr(self, "_update_geometry_liquidity_context"):
-                self._update_geometry_liquidity_context(ctx)
+                self._update_geometry_liquidity_context(ctx)  # type: ignore
 
             # Bucket boundary финализация + генерация сигналов
 

@@ -21,7 +21,7 @@ class ATRLegacyDecommissionCertService:
     D6: Legacy reads/writes reduced to target class
     """
 
-    def __init__(self, pg_dsn: str = None):
+    def __init__(self, pg_dsn: str = None):  # type: ignore
         self.pg_dsn = pg_dsn or get_env_var("TRADE_PG_DSN", "postgresql://trading:trading@postgres:5432/trade")
 
     async def evaluate_component(self, component: str) -> dict[str, Any]:

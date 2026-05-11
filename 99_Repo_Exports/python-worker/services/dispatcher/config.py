@@ -29,6 +29,7 @@ class SignalDispatcherConfig:
         self.dlq_audit = os.getenv("SIGNAL_DLQ_AUDIT_STREAM", RS.DLQ_SIGNAL_AUDIT)
         self.dlq_manual = os.getenv("SIGNAL_DLQ_MANUAL_STREAM", RS.DLQ_SIGNAL_MANUAL)
         self.dlq_snapshot = os.getenv("SIGNAL_DLQ_SNAPSHOT_STREAM", RS.DLQ_SIGNAL_SNAPSHOT)
+        self.snapshot_stream = os.getenv("SIGNAL_SNAPSHOT_STREAM", RS.DECISION_SNAPSHOT)
 
         self.group = os.getenv("SIGNAL_OUTBOX_GROUP", "signals-outbox-group")
         self.consumer = os.getenv("SIGNAL_OUTBOX_CONSUMER", f"dispatcher-{os.getpid()}")
@@ -101,6 +102,17 @@ class SignalDispatcherConfig:
         self.circuit_breaker_threshold = int(os.getenv("SIGNAL_CIRCUIT_BREAKER_THRESHOLD", "10"))
         self.circuit_breaker_window_sec = int(os.getenv("SIGNAL_CIRCUIT_BREAKER_WINDOW_SEC", "60"))
         self.circuit_breaker_cooldown_sec = int(os.getenv("SIGNAL_CIRCUIT_BREAKER_COOLDOWN_SEC", "120"))
+
+        # Circuit Breaker V3 Integration (P100)
+        self.cb_enabled = os.getenv("SIGNAL_CB_ENABLED", "0") == "1"
+        self.cb_timeout_ms = int(os.getenv("SIGNAL_CB_TIMEOUT_MS", "500"))
+        self.cb_refresh_every_ms = int(os.getenv("SIGNAL_CB_REFRESH_EVERY_MS", "10000"))
+        self.cb_window_ms = int(os.getenv("SIGNAL_CB_WINDOW_MS", str(self.circuit_breaker_window_sec * 1000)))
+        self.cb_max_downgrades = int(os.getenv("SIGNAL_CB_MAX_DOWNGRADES", str(self.circuit_breaker_threshold)))
+        self.cb_disable_ms = int(os.getenv("SIGNAL_CB_DISABLE_MS", str(self.circuit_breaker_cooldown_sec * 1000)))
+        self.cb_block_auto_apply = os.getenv("SIGNAL_CB_BLOCK_AUTO_APPLY", "1") == "1"
+        self.cb_auto_apply_reason = os.getenv("SIGNAL_CB_AUTO_APPLY_REASON", "of_inputs_v3")
+
 
         # --- NEWLY ADDED for Phase 6 ---
         self.retry_zset = os.getenv("SIGNAL_RETRY_ZSET", "zset:signals:retry")
@@ -184,6 +196,7 @@ class SignalDispatcherConfig:
 
         self.snapshot_prefix = os.getenv("SIGNAL_SNAPSHOT_PREFIX", "signal:snapshot")
         self.snapshot_ttl_sec = int(os.getenv("SIGNAL_SNAPSHOT_TTL_SEC", "86400"))
+        # self.snapshot_stream added in __init__
 
         # Prefixes
         self.metrics_prefix = os.getenv("SIGNAL_METRICS_PREFIX", "signal_dispatcher")
@@ -192,6 +205,12 @@ class SignalDispatcherConfig:
         self.dlq_maxlen = int(os.getenv("SIGNAL_DLQ_MAXLEN", "50000"))
         self.env_state_ttl_sec = int(os.getenv("SIGNAL_ENV_STATE_TTL_SEC", "3600"))
         self.lock_ttl_ms = int(os.getenv("SIGNAL_LOCK_TTL_MS", "30000"))
+
+        # Redis connection
+        self.redis_url = os.getenv("SIGNAL_REDIS_URL", os.getenv("REDIS_URL", "redis://localhost:6379/0"))
+        self.redis_max_connections = int(os.getenv("REDIS_MAX_CONNECTIONS", "20"))
+        self.redis_socket_timeout = float(os.getenv("REDIS_SOCKET_TIMEOUT", "1.0"))
+        self.redis_socket_connect_timeout = float(os.getenv("REDIS_SOCKET_CONNECT_TIMEOUT", "1.0"))
 
     @classmethod
     def from_env(cls) -> "SignalDispatcherConfig":

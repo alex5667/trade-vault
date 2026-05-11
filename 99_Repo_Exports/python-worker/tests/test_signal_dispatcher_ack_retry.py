@@ -74,6 +74,7 @@ def test_maybe_claim_pending():
     sd = object.__new__(SignalDispatcher)
     sd.claim_min_idle_ms = 60000
     sd.claim_count = 5
+    sd.claim_budget_per_tick = 5
     sd.claim_every_ms = 1000  # 1 second
     sd._pending_start_id = "0-0"
     sd._last_claim_mono = 0.0
@@ -85,14 +86,17 @@ def test_maybe_claim_pending():
 
     # Mock helper
     mock_helper = Mock()
-    mock_helper.claim_pending.return_value = ("0-100", ["msg1", "msg2"])
+    mock_helper.claim_pending.side_effect = [
+        ("0-100", ["msg1", "msg2"]),
+        ("0-0", [])  # Break loop on second iteration
+    ]
 
     # First call should trigger claim (last_claim_mono = 0)
     import time
     current_time = time.monotonic()
     sd._maybe_claim_pending(mock_helper)
 
-    # Should have called claim_pending
-    mock_helper.claim_pending.assert_called_once()
+    # Should have called claim_pending twice (once for msgs, once for wrap guard)
+    assert mock_helper.claim_pending.call_count == 2
     assert sd._pending_start_id == "0-100"
     assert sd._ctr["claimed"] == 2

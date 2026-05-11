@@ -5,7 +5,7 @@ from collections import deque
 from dataclasses import dataclass
 from typing import Any
 
-from core.smt_symbol_snapshot import SMTDiv, SymbolSnapshot, detect_smt_divergence
+from core.smt_symbol_snapshot import SMTDiv, SymbolSnapshot, detect_smt_divergence  # type: ignore
 
 
 def _clip01(x: float) -> float:

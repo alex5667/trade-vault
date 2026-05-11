@@ -204,7 +204,7 @@ def _queue_stats(r: redis.Redis) -> dict[str, Any]:
     }
 
 
-def _audit_stats(conn: psycopg2.connection) -> dict[str, Any]:
+def _audit_stats(conn: psycopg2.connection) -> dict[str, Any]:  # type: ignore
     """Compute p95 latencies and daily counters from the audit table.
 
     All queries are bounded to the last 7 days and today respectively.

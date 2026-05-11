@@ -65,7 +65,7 @@ def _load_current_snapshots(conn, kind: str) -> list[dict[str, Any]]:
             FROM atr_policy_snapshots
             WHERE snapshot_kind = %s
               AND is_current = true
-            """
+            """,
             (kind,),
         )
         return [dict(r["snapshot_json"]) for r in cur.fetchall()]
@@ -111,7 +111,7 @@ def _insert_recovery_event(conn, *, event_type: str, obj: dict[str, Any], status
               event_type, source, symbol, scenario, regime, risk_horizon_bucket,
               status, reason_code, payload
             ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb)
-            """
+            """,
             (
                 event_type,
                 (obj.get("source", "")),

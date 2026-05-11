@@ -270,6 +270,6 @@ def test_side_case_insensitive():
 
 
 def test_none_profile_defaults_to_monitor():
-    dec = _v2(profile=None, funding_rate_z=4.0)
+    dec = _v2(profile=None, funding_rate_z=4.0)  # type: ignore
     assert dec.mode == "monitor"
     assert not dec.veto

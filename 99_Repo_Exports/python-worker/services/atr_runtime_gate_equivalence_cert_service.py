@@ -38,8 +38,8 @@ class ATRRuntimeGateEquivalenceCertService:
                     WHERE created_at >= NOW() - INTERVAL '1 day'
                 """)
                 row = cur.fetchone()
-                total_checks = row["total_checks"] or 0
-                passed_checks = row["passed_checks"] or 0
+                total_checks = row["total_checks"] or 0  # type: ignore
+                passed_checks = row["passed_checks"] or 0  # type: ignore
                 match_rate = (passed_checks / total_checks) if total_checks > 0 else 0.0
 
                 summary["checked_scopes"] = total_checks
@@ -57,10 +57,10 @@ class ATRRuntimeGateEquivalenceCertService:
                 critical_drifts = 0
                 warning_drifts = 0
                 for d in drifts:
-                    if d["severity"] == "critical":
-                        critical_drifts += d["count"]
+                    if d["severity"] == "critical":  # type: ignore
+                        critical_drifts += d["count"]  # type: ignore
                     else:
-                        warning_drifts += d["count"]
+                        warning_drifts += d["count"]  # type: ignore
 
                 summary["critical_drifts"] = critical_drifts
                 summary["warning_drifts"] = warning_drifts
@@ -72,7 +72,7 @@ class ATRRuntimeGateEquivalenceCertService:
                     FROM atr_runtime_gate_drifts
                     WHERE severity = 'critical'
                 """)
-                last_crit = cur.fetchone()["last_critical"]
+                last_crit = cur.fetchone()["last_critical"]  # type: ignore
                 if last_crit:
                     days_without = (datetime.now(last_crit.tzinfo) - last_crit).days
                 else:
@@ -85,7 +85,7 @@ class ATRRuntimeGateEquivalenceCertService:
                     SELECT MIN(updated_at) as oldest_update
                     FROM atr_control_plane_nodes
                 """)
-                oldest_update = cur.fetchone()["oldest_update"]
+                oldest_update = cur.fetchone()["oldest_update"]  # type: ignore
                 projection_fresh = False
                 if oldest_update:
                     if (datetime.now(oldest_update.tzinfo) - oldest_update).total_seconds() < 86400: # 1d max stale

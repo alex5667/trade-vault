@@ -7,7 +7,7 @@ import redis
 logger = logging.getLogger("atr_policy_regime_stress_gate")
 
 class PolicyRegimeStressGate:
-    def __init__(self, redis_url: str = None, redis_client=None):
+    def __init__(self, redis_url: str = None, redis_client=None):  # type: ignore
         if redis_client:
             self.r = redis_client
         else:
@@ -57,7 +57,7 @@ class PolicyRegimeStressGate:
 
         if action == "clip":
             mult = float(self.r.get(f"cfg:atr_regime_risk_mult:{regime}:{stress}:{layer}:{rollout_stage}") or 1.0)
-            details["risk_mult"] = mult
+            details["risk_mult"] = mult  # type: ignore
             if advisory_only:
                 logger.info(f"[REGIME_STRESS_ADVISORY] Would CLIP {symbol} {layer} with mult={mult}. {details}")
                 return True, "ATR_POLICY_REGIME_STRESS_ADVISORY_CLIP", details

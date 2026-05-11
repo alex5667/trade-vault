@@ -140,7 +140,7 @@ class EntryPolicyOverridesV1:
             sid=_s(pick("sid", "suggestion_id"), ""),
             src=_s(pick("src", "source"), "manual"),
             notes=_s(pick("notes"), ""),
-            extra=d.get("extra") if isinstance(d.get("extra"), dict) else {},
+            extra=d.get("extra") if isinstance(d.get("extra"), dict) else {},  # type: ignore
         )
 
         ok, err = o.validate()

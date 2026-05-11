@@ -75,7 +75,7 @@ def _canon_target(x: str) -> str:
     return x or "tp2"
 
 
-def _clamp01(x: float) -> float:
+def _clamp01(x: float) -> float:  # type: ignore
     if not math.isfinite(x):
         return 0.0
     return max(0.0, min(1.0, float(x)))

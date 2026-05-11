@@ -1,3 +1,4 @@
+from typing import List
 from utils.time_utils import get_ny_time_millis
 
 #!/usr/bin/env python3
@@ -148,8 +149,8 @@ class ATRState:
                 highs = np.array([self.prev_close if self.prev_close else h, h], dtype=np.float32)
                 lows = np.array([self.prev_close if self.prev_close else l, l], dtype=np.float32)
                 closes = np.array([self.prev_close if self.prev_close else c, c], dtype=np.float32)
-                tr_values = gpu_service.compute_atr_batch(highs, lows, closes, period=1)
-                tr = float(tr_values[-1]) if len(tr_values) > 0 else true_range(h, l, self.prev_close)
+                tr_values = gpu_service.compute_atr_batch(highs, lows, closes, period=1)  # type: ignore
+                tr = float(tr_values[-1]) if len(tr_values) > 0 else true_range(h, l, self.prev_close)  # type: ignore
             except Exception:
                 tr = true_range(h, l, self.prev_close)
         else:

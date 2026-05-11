@@ -16,11 +16,11 @@ import contextlib
 
 logger = logging.getLogger(__name__)
 
-def _env_bool(name: str, default: bool = False) -> bool:
-    v = os.getenv(name)
+def _env_bool(name: str, default: bool = False) -> bool:  # type: ignore
+    v = os.getenv(name)  # type: ignore
     if v is None:
         return default
-    return str(v).strip().lower() in ("1", "true", "yes", "y", "on")
+    return v.strip().lower() in ("1", "true", "yes", "y", "on")
 
 def _normalize_side(v: Any) -> str:
     """
@@ -71,7 +71,7 @@ def _extract_entry_regime_from_obj(obj: Any) -> str:
 
 def _mk_crypto_sid(symbol: str, ts_ms: int) -> str:
     """Create canonical SID: crypto-of:{symbol}:{ts_ms}"""
-    return f"crypto-of:{symbol}:{int(ts_ms)}"
+    return f"crypto-of:{symbol}:{ts_ms}"
 
 
 def _normalize_crypto_sid(raw: object, *, symbol: str, ts_ms: int) -> str:
@@ -84,7 +84,7 @@ def _normalize_crypto_sid(raw: object, *, symbol: str, ts_ms: int) -> str:
       - {symbol}:{ts} (legacy without prefix)
       - empty -> generate from symbol+ts_ms
     """
-    s = (raw or "").strip()
+    s = str(raw or "").strip()
     if s.startswith("crypto-of:"):
         return s
     if "|" in s:
@@ -94,7 +94,7 @@ def _normalize_crypto_sid(raw: object, *, symbol: str, ts_ms: int) -> str:
             try:
                 t = int(parts[1])
             except Exception:
-                t = int(ts_ms)
+                t = ts_ms
             if sym and t > 0:
                 return _mk_crypto_sid(sym, t)
     # Accept legacy "SYMBOL:TS" without prefix (not "crypto-of:SYMBOL:TS")
@@ -105,12 +105,12 @@ def _normalize_crypto_sid(raw: object, *, symbol: str, ts_ms: int) -> str:
             t = int(p[1].strip())
             if sym and t > 0:
                 return _mk_crypto_sid(sym, t)
-    if (not s) and symbol and int(ts_ms) > 0:
-        return _mk_crypto_sid(symbol, int(ts_ms))
+    if (not s) and symbol and ts_ms > 0:
+        return _mk_crypto_sid(symbol, ts_ms)
     return s
 
 
-def _b01(v: Any) -> str:
+def _b01(v: Any) -> str:  # type: ignore
     """Единый формат bool в Redis: '1'/'0' (а не 'True'/'False')."""
     try:
         return "1" if bool(v) else "0"
@@ -180,7 +180,7 @@ def _env_bool(name: str, default: bool) -> bool:
     v = os.getenv(name)
     if v is None:
         return default
-    s = str(v).strip().lower()
+    s = v.strip().lower()
     if s in ("1", "true", "yes", "y", "on"):
         return True
     if s in ("0", "false", "no", "n", "off"):
@@ -221,7 +221,7 @@ def _normalize_health_snapshot(d: Mapping[str, Any]) -> dict[str, Any]:
     for k, v in (d or {}).items():
         if v is None:
             continue
-        ks = str(k)
+        ks = k
         if ks.startswith("health_"):
             out[ks] = v
         else:
@@ -385,7 +385,7 @@ def _health_prefix_snapshot(hs: dict[str, Any]) -> dict[str, str]:
     for k, v in (hs or {}).items():
         if v is None:
             continue
-        kk = str(k)
+        kk = k
         if not kk.startswith("health_"):
             kk = "health_" + kk
         out[kk] = str(v)
@@ -483,7 +483,7 @@ def _compact_closed_stream_payload(full: dict[str, Any]) -> dict[str, Any]:
     # keep health fields if present
     out: dict[str, Any] = {}
     for k, v in (full or {}).items():
-        if k in keep or str(k).startswith("health_"):
+        if k in keep or k.startswith("health_"):
             out[k] = v
     return out
 
@@ -683,10 +683,10 @@ class RedisTradeRepository:
         symbol: str,
         tf: str,
         direction: str,
-    ):
+    ) -> Any:
         from types import SimpleNamespace
         return SimpleNamespace(
-            id=str(order_id),
+            id=order_id,
             sid=(sid or ""),
             strategy=(strategy or "unknown"),
             source=(source or "Unknown"),
@@ -722,11 +722,11 @@ class RedisTradeRepository:
         )
         self.save_tp_hit(
             pos,
-            tp_level=int(tp_level),
-            fill_price=float(fill_price),
-            closed_qty=float(closed_qty),
-            pnl_part=float(pnl_part),
-            ts_ms=int(ts_ms),
+            tp_level=tp_level,
+            fill_price=fill_price,
+            closed_qty=closed_qty,
+            pnl_part=pnl_part,
+            ts_ms=ts_ms,
         )
 
     def save_trailing_move_fast(
@@ -752,7 +752,7 @@ class RedisTradeRepository:
             tf=tf,
             direction=direction,
         )
-        self.save_trailing_move(pos, float(previous_sl), float(new_sl), int(ts_ms))
+        self.save_trailing_move(pos, previous_sl, new_sl, ts_ms)
 
     def save_trailing_sync_fast(
         self,
@@ -775,18 +775,23 @@ class RedisTradeRepository:
             tf=tf,
             direction=direction,
         )
-        self.save_trailing_sync(pos, int(ts_ms))
+        self.save_trailing_sync(pos, ts_ms)
 
     # --------------------
     # Signals
     # --------------------
-    def persist_signal(self, signal: SignalNorm, ttl_sec: int = 86400 * 14) -> None:
+    def persist_signal(self, signal: SignalNorm, ttl_sec: int | None = None) -> None:
         if not signal.sid:
             return
         key = f"signals:{signal.sid}"
+        # Default: 48 h — enough for active monitoring/replay without OOM pressure.
+        # Previously 14 days caused ~1.2 GB accumulation (9 900 keys × 130 KB) on noeviction shards.
+        # Override with SIGNAL_PERSIST_TTL_SEC env-var (e.g. 259200 = 3 days for ML dataset needs).
+        if ttl_sec is None:
+            ttl_sec = int(os.getenv("SIGNAL_PERSIST_TTL_SEC", str(86400 * 2)))
         try:
             self.r.set(key, json.dumps(signal.payload, ensure_ascii=False))
-            self.r.expire(key, int(ttl_sec))
+            self.r.expire(key, ttl_sec)
         except Exception:
             pass
 
@@ -801,7 +806,7 @@ class RedisTradeRepository:
         try:
             key = "volume:top_symbols"
             self.r.set(key, json.dumps(volume_data, ensure_ascii=False))
-            self.r.expire(key, int(ttl_sec))
+            self.r.expire(key, ttl_sec)
         except Exception:
             pass
 
@@ -1445,8 +1450,8 @@ class RedisTradeRepository:
         return f"closed_z:{strategy}:{symbol}:{tf}"
 
     # --- Read utilities for ZSET (optional migration helpers) ---
-    def get_closed_by_time(
-        self,
+    def get_closed_by_time(  # type: ignore
+        self,  # type: ignore
         *,
         strategy: str,
         symbol: str,
@@ -1465,15 +1470,15 @@ class RedisTradeRepository:
         sy = canon_symbol(symbol)
         tff = canon_tf(tf)
         key = f"closed_z:{st}:{sy}:{tff}" if not source else f"closed_z:{st}:{sy}:{tff}:{canon_source(source)}"
-        min_s = int(from_ts_ms)
-        max_s = int(to_ts_ms)
+        min_s = from_ts_ms
+        max_s = to_ts_ms
         # redis-py: zrevrangebyscore / zrangebyscore
         if desc:
             return list(self.r.zrevrangebyscore(key, max_s, min_s, start=0, num=limit) or [])
         return list(self.r.zrangebyscore(key, min_s, max_s, start=0, num=limit) or [])
 
-    def get_closed_last_n(
-        self,
+    def get_closed_last_n(  # type: ignore
+        self,  # type: ignore
         *,
         strategy: str,
         symbol: str,
@@ -1486,13 +1491,13 @@ class RedisTradeRepository:
         sy = canon_symbol(symbol)
         tff = canon_tf(tf)
         key = f"closed_z:{st}:{sy}:{tff}" if not source else f"closed_z:{st}:{sy}:{tff}:{canon_source(source)}"
-        return list(self.r.zrevrange(key, 0, max(0, int(n) - 1)) or [])
+        return list(self.r.zrevrange(key, 0, max(0, n - 1)) or [])
 
     # ---------------------------------------------------------------------
     # New: ZSET-based read utilities
     # ---------------------------------------------------------------------
-    def get_closed_by_time(
-        self,
+    def get_closed_by_time(  # type: ignore
+        self,  # type: ignore
         *,
         strategy: str,
         symbol: str,
@@ -1524,7 +1529,7 @@ class RedisTradeRepository:
         zkey = _closed_zset_key(st, sy, t, source)
 
         start = 0
-        num = int(limit) if (limit is not None and int(limit) > 0) else None
+        num = limit if (limit is not None and limit > 0) else None
 
         # redis-py: zrangebyscore(name, min, max, start=None, num=None)
         if reverse:
@@ -1558,8 +1563,8 @@ class RedisTradeRepository:
                 out.append({str(k): str(v) for k, v in row.items()})
         return out
 
-    def get_closed_last_n(
-        self,
+    def get_closed_last_n(  # type: ignore
+        self,  # type: ignore
         *,
         strategy: str,
         symbol: str,
@@ -1573,7 +1578,7 @@ class RedisTradeRepository:
         """
         if not _env_bool(_ENV_ENABLE_CLOSED_ZSET_INDEX, default=False):
             return []
-        n = int(n) if int(n) > 0 else 200
+        n = n if n > 0 else 200
 
         st = canon_strategy(strategy)
         sy = canon_symbol(symbol)

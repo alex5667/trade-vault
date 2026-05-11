@@ -71,7 +71,7 @@ Examples:
 
     print(f"📂 Loading features from {args.features}...")
     if use_gpu:
-        df = cudf.read_parquet(args.features) if args.features.endswith(".parquet") else cudf.read_csv(args.features)
+        df = cudf.read_parquet(args.features) if args.features.endswith(".parquet") else cudf.read_csv(args.features)  # type: ignore
     else:
         df = pd.read_parquet(args.features) if args.features.endswith(".parquet") else pd.read_csv(args.features)
     print(f"✅ Loaded {len(df)} feature rows")
@@ -79,7 +79,7 @@ Examples:
     # Load labels
     print(f"📂 Loading labels from {args.labels}...")
     if use_gpu:
-        lb = cudf.read_parquet(args.labels) if args.labels.endswith(".parquet") else cudf.read_csv(args.labels)
+        lb = cudf.read_parquet(args.labels) if args.labels.endswith(".parquet") else cudf.read_csv(args.labels)  # type: ignore
     else:
         lb = pd.read_parquet(args.labels) if args.labels.endswith(".parquet") else pd.read_csv(args.labels)
     print(f"✅ Loaded {len(lb)} label rows")

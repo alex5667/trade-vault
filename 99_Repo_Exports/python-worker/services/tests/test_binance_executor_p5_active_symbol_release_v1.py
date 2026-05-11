@@ -18,10 +18,10 @@ if str(root) not in sys.path:
 
 mod_path = root / "services" / "binance_executor.py"
 spec = importlib.util.spec_from_file_location("services.binance_executor_p5", mod_path)
-mod = importlib.util.module_from_spec(spec)
-sys.modules[spec.name] = mod
-assert spec.loader is not None
-spec.loader.exec_module(mod)
+mod = importlib.util.module_from_spec(spec)  # type: ignore
+sys.modules[spec.name] = mod  # type: ignore
+assert spec.loader is not None  # type: ignore
+spec.loader.exec_module(mod)  # type: ignore
 
 
 class FakeRedis:
@@ -130,7 +130,7 @@ def test_guard_released_when_exchange_flat_and_no_orders():
     }
     # Should NOT raise — guard should be cleared
     ex._guard_single_active_symbol_open(sid="sid-new", symbol="BTCUSDT", client=FlatClient())
-    raw = json.loads(r.get("orders:active_symbol_sid:BTCUSDT"))
+    raw = json.loads(r.get("orders:active_symbol_sid:BTCUSDT"))  # type: ignore
     assert raw['guard_status'] == 'released'
     assert ex._load_active_symbol_guard('BTCUSDT') == {}
 
@@ -163,7 +163,7 @@ def test_guard_stays_and_annotates_key_when_exchange_shows_live_position():
         assert err.details["blocked_by_sid"] == "sid-old"
         assert err.details["exchange_position_amt"] == 2.0
         # Guard key must be annotated with exchange snapshot
-        guard = json.loads(r.get("orders:active_symbol_sid:ETHUSDT"))
+        guard = json.loads(r.get("orders:active_symbol_sid:ETHUSDT"))  # type: ignore
         assert guard["exchange_guard_reason"] == "exchange_open_position"
         assert guard["exchange_position_amt"] == 2.0
 
@@ -191,7 +191,7 @@ def test_guard_stays_when_exchange_shows_open_orders():
         assert False, "expected OpenBlockedByActiveSymbolError"
     except mod.OpenBlockedByActiveSymbolError as err:
         assert err.details["exchange_open_plain_orders"] == 1
-        guard = json.loads(r.get("orders:active_symbol_sid:SOLUSDT"))
+        guard = json.loads(r.get("orders:active_symbol_sid:SOLUSDT"))  # type: ignore
         assert guard["exchange_guard_reason"] == "exchange_open_orders"
 
 
@@ -216,7 +216,7 @@ def test_guard_stays_and_marks_error_when_exchange_api_fails():
         assert False, "expected OpenBlockedByActiveSymbolError"
     except mod.OpenBlockedByActiveSymbolError as err:
         assert len(err.details["exchange_truth_errors"]) > 0
-        guard = json.loads(r.get("orders:active_symbol_sid:BTCUSDT"))
+        guard = json.loads(r.get("orders:active_symbol_sid:BTCUSDT"))  # type: ignore
         assert guard["exchange_guard_reason"] == "exchange_check_error"
 
 
@@ -239,6 +239,6 @@ def test_legacy_terminal_release_when_exchange_truth_disabled():
     }
     # Should NOT raise (terminal state clears guard without exchange check)
     ex._guard_single_active_symbol_open(sid="sid-new", symbol="BTCUSDT")
-    raw = json.loads(r.get("orders:active_symbol_sid:BTCUSDT"))
+    raw = json.loads(r.get("orders:active_symbol_sid:BTCUSDT"))  # type: ignore
     assert raw['guard_status'] == 'released'
     assert ex._load_active_symbol_guard('BTCUSDT') == {}

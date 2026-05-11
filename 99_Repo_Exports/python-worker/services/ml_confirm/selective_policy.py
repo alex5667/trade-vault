@@ -9,7 +9,7 @@ import time
 from dataclasses import dataclass
 from typing import Any
 
-import redis
+import redis  # type: ignore
 
 from core.bucket2_v1 import derive_bucket2_label
 from core.champion_cfg_validator import validate_champion_cfg
@@ -34,7 +34,7 @@ try:
 except Exception:
     PROMETHEUS_AVAILABLE = False
     # Mock metrics for when prometheus_client is not available
-    class _MockMetric:
+    class _MockMetric:  # type: ignore
         def labels(self, **kwargs):
             return self
         def inc(self, *args, **kwargs):
@@ -117,10 +117,11 @@ class SelectivePolicyMixin:
         except Exception:
             return 0.0
 
+        print(f"DEBUG: mode={dec.effective_mode}, ok={ok_rule}, error={dec.error}, missing={dec.missing}, band={self._abstain_band}, p_margin={dec.p_margin}")
     def _apply_selective(self, dec: MLConfirmDecision, *, ok_rule: int) -> None:
         """Softening ENFORCE decisions near threshold / low confidence."""
-        if self.mode != "ENFORCE" or int(ok_rule) != 1:
-            if self.mode == "SHADOW":
+        if dec.effective_mode != "ENFORCE" or int(ok_rule) != 1:
+            if dec.effective_mode == "SHADOW":
                 dec.status = dec.status or "SHADOW"
             return
         if dec.error:
@@ -129,14 +130,14 @@ class SelectivePolicyMixin:
         if dec.missing:
             # missing handled earlier
             return
-        band = float(self._abstain_band or 0.0)
+        band = float(getattr(self, "_abstain_band", 0.0) or 0.0)
         if band > 0.0 and abs(float(dec.p_margin)) <= band:
             dec.abstain = True
             dec.allow = True
             dec.status = "ABSTAIN_BAND"
             dec.reason = f"ml_abstain_band(margin={dec.p_margin:.6f},band={band:.6f})"
             return
-        cmin = float(self._conf_min or 0.0)
+        cmin = float(getattr(self, "_conf_min", 0.0) or 0.0)
         if cmin > 0.0 and float(dec.conf) < cmin:
             dec.abstain = True
             dec.allow = True

@@ -100,7 +100,7 @@ class SignalReconciler:
 
     def _process_sid(self, sid: str) -> None:
         # best-effort: if dispatcher is actively working, lease will be held
-        token = self.lease.try_acquire(sid)
+        token = self.lease.try_acquire(sid)  # type: ignore
         if not token:
             self._metric_incr("lease_contention_total", 1)
             return
@@ -120,7 +120,7 @@ class SignalReconciler:
                 with contextlib.suppress(Exception):
                     self.redis.zadd(self.journal.settings.index_key, {sid: float(_now_ms())})
         finally:
-            self.lease.release(sid, token)
+            self.lease.release(sid, token)  # type: ignore
 
     def run(self) -> None:
         logger.info(

@@ -136,7 +136,7 @@ class LCBEvaluatorPerRegime:
             if cost_aware:
                 rr = compute_r_adj(r)
             else:
-                rr = _f(r.get("r_mult"), None)
+                rr = _f(r.get("r_mult"), None)  # type: ignore
             if rr is None or not math.isfinite(rr):
                 continue
             by_arm[arm].append(float(rr))

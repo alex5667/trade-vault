@@ -23,10 +23,10 @@ import importlib.util
 
 def _load_module(name: str, path: Path):
     spec = importlib.util.spec_from_file_location(name, path)
-    mod = importlib.util.module_from_spec(spec)
+    mod = importlib.util.module_from_spec(spec)  # type: ignore
     sys.modules[name] = mod
-    assert spec.loader is not None
-    spec.loader.exec_module(mod)
+    assert spec.loader is not None  # type: ignore
+    spec.loader.exec_module(mod)  # type: ignore
     return mod
 
 mod = _load_module("binance_executor", MOD_DIR / "binance_executor.py")

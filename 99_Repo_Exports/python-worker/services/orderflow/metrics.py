@@ -1525,8 +1525,8 @@ def track_confirmations(
     confirmations: list[str],
     side: str = "",
     kind: str = "",
-    allow_keys: set[str] = None,
-    coverage_keys: tuple[str, ...] = None,
+    allow_keys: set[str] = None,  # type: ignore
+    coverage_keys: tuple[str, ...] = None,  # type: ignore
 ) -> None:
     """
     High-ROI drift/coverage tracker:

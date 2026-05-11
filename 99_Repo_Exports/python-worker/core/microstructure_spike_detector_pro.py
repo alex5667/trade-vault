@@ -96,7 +96,7 @@ class MicrostructureSpikeDetectorPro:
         self.ticks.append((ts, bid, ask))
         self.last_ts = ts
 
-    def metrics(self) -> dict[str, any]:
+    def metrics(self) -> dict[str, any]:  # type: ignore
         """
         Рассчитать метрики на текущем окне.
         

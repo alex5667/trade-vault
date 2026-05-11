@@ -36,7 +36,7 @@ def _encode(v: Any) -> Any:
 
 
 def write_stream_event(
-    r: "redis.Redis",
+    r: "redis.Redis",  # type: ignore
     *,
     stream_key: str,
     event_type: str,
@@ -62,7 +62,7 @@ def write_stream_event(
 
 
 def publish_event(
-    r: "redis.Redis",
+    r: "redis.Redis",  # type: ignore
     *,
     channel: str,
     event_type: str,

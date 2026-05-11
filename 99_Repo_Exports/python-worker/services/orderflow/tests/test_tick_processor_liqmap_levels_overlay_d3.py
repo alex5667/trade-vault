@@ -69,15 +69,15 @@ def _mk_tp(overlay_enable: bool):
     os.environ["LIQMAP_LEVELS_SL_MAX_WIDEN_BPS"] = "20"
     os.environ["LIQMAP_LEVELS_TP1_ENABLE"] = "1"
     os.environ["LIQMAP_LEVELS_SL_ENABLE"] = "0"
-    return TickProcessor(
-        redis=None,
-        ticks=None,
-        publisher=None,
-        of_engine=None,
-        calib_svc=None,
-        atr_cache=None,
-        atr_sanity=None,
-        conf_scorer=None,
+    return TickProcessor(  # type: ignore
+        redis=None,  # type: ignore
+        ticks=None,  # type: ignore
+        publisher=None,  # type: ignore
+        of_engine=None,  # type: ignore
+        calib_svc=None,  # type: ignore
+        atr_cache=None,  # type: ignore
+        atr_sanity=None,  # type: ignore
+        conf_scorer=None,  # type: ignore
     )
 
 
@@ -99,7 +99,7 @@ def test_liqmap_levels_overlay_tp1_adjusts_when_enabled():
         "liqmap_1h_peak_up1_usd": 500000.0,
     }
 
-    sl, tps, lot, atr = tp._calculate_levels(rt, entry, "LONG", indicators, trail_profile="classic")
+    sl, tps, lot, atr = tp._calculate_levels(rt, entry, "LONG", indicators, trail_profile="classic")  # type: ignore
 
     assert tps[0] > entry  # TP must remain on correct side
     assert tps[0] < 101.3  # anchored before peak vs base_tp1
@@ -119,7 +119,7 @@ def test_liqmap_levels_overlay_disabled_is_noop():
         "liqmap_1h_peak_up1_usd": 500000.0,
     }
 
-    sl, tps, lot, atr = tp._calculate_levels(rt, entry, "LONG", indicators, trail_profile="classic")
+    sl, tps, lot, atr = tp._calculate_levels(rt, entry, "LONG", indicators, trail_profile="classic")  # type: ignore
 
     assert abs(tps[0] - 101.3) < 1e-6
     assert "liqmap_levels_applied" not in indicators
@@ -129,12 +129,12 @@ def test_d3_sl_max_widen_bps_default_is_20():
     """D3: default SL_MAX_WIDEN_BPS changed from 30 (D2) to 20 (D3 prod standard)."""
     _clean_liqmap_env()
     # No SL_MAX_WIDEN_BPS / MAX_SL_WIDEN_BPS set → must default to 20.
-    tp = TickProcessor(
-        redis=None, ticks=None, publisher=None,
-        of_engine=None, calib_svc=None, atr_cache=None,
-        atr_sanity=None, conf_scorer=None,
+    tp = TickProcessor(  # type: ignore
+        redis=None, ticks=None, publisher=None,  # type: ignore
+        of_engine=None, calib_svc=None, atr_cache=None,  # type: ignore
+        atr_sanity=None, conf_scorer=None,  # type: ignore
     )
-    assert tp.liqmap_levels_max_sl_widen_bps == 20.0
+    assert tp.liqmap_levels_max_sl_widen_bps == 20.0  # type: ignore
 
 
 def test_d3_legacy_alias_max_sl_widen_honoured():
@@ -142,12 +142,12 @@ def test_d3_legacy_alias_max_sl_widen_honoured():
     _clean_liqmap_env()
     os.environ["LIQMAP_LEVELS_MAX_SL_WIDEN_BPS"] = "15"
     # New name absent → legacy alias wins.
-    tp = TickProcessor(
-        redis=None, ticks=None, publisher=None,
-        of_engine=None, calib_svc=None, atr_cache=None,
-        atr_sanity=None, conf_scorer=None,
+    tp = TickProcessor(  # type: ignore
+        redis=None, ticks=None, publisher=None,  # type: ignore
+        of_engine=None, calib_svc=None, atr_cache=None,  # type: ignore
+        atr_sanity=None, conf_scorer=None,  # type: ignore
     )
-    assert tp.liqmap_levels_max_sl_widen_bps == 15.0
+    assert tp.liqmap_levels_max_sl_widen_bps == 15.0  # type: ignore
     _clean_liqmap_env()
 
 
@@ -156,12 +156,12 @@ def test_d3_new_name_beats_legacy_alias():
     _clean_liqmap_env()
     os.environ["LIQMAP_LEVELS_SL_MAX_WIDEN_BPS"] = "25"
     os.environ["LIQMAP_LEVELS_MAX_SL_WIDEN_BPS"] = "99"  # should be ignored
-    tp = TickProcessor(
-        redis=None, ticks=None, publisher=None,
-        of_engine=None, calib_svc=None, atr_cache=None,
-        atr_sanity=None, conf_scorer=None,
+    tp = TickProcessor(  # type: ignore
+        redis=None, ticks=None, publisher=None,  # type: ignore
+        of_engine=None, calib_svc=None, atr_cache=None,  # type: ignore
+        atr_sanity=None, conf_scorer=None,  # type: ignore
     )
-    assert tp.liqmap_levels_max_sl_widen_bps == 25.0
+    assert tp.liqmap_levels_max_sl_widen_bps == 25.0  # type: ignore
     _clean_liqmap_env()
 
 
@@ -169,12 +169,12 @@ def test_d3_legacy_alias_enable_tp1_honoured():
     """D3 back-compat: LIQMAP_LEVELS_ENABLE_TP1=0 is respected when new name absent."""
     _clean_liqmap_env()
     os.environ["LIQMAP_LEVELS_ENABLE_TP1"] = "0"
-    tp = TickProcessor(
-        redis=None, ticks=None, publisher=None,
-        of_engine=None, calib_svc=None, atr_cache=None,
-        atr_sanity=None, conf_scorer=None,
+    tp = TickProcessor(  # type: ignore
+        redis=None, ticks=None, publisher=None,  # type: ignore
+        of_engine=None, calib_svc=None, atr_cache=None,  # type: ignore
+        atr_sanity=None, conf_scorer=None,  # type: ignore
     )
-    assert tp.liqmap_levels_enable_tp1 is False
+    assert tp.liqmap_levels_enable_tp1 is False  # type: ignore
     _clean_liqmap_env()
 
 
@@ -182,10 +182,10 @@ def test_d3_legacy_alias_enable_sl_honoured():
     """D3 back-compat: LIQMAP_LEVELS_ENABLE_SL=1 is respected when new name absent."""
     _clean_liqmap_env()
     os.environ["LIQMAP_LEVELS_ENABLE_SL"] = "1"
-    tp = TickProcessor(
-        redis=None, ticks=None, publisher=None,
-        of_engine=None, calib_svc=None, atr_cache=None,
-        atr_sanity=None, conf_scorer=None,
+    tp = TickProcessor(  # type: ignore
+        redis=None, ticks=None, publisher=None,  # type: ignore
+        of_engine=None, calib_svc=None, atr_cache=None,  # type: ignore
+        atr_sanity=None, conf_scorer=None,  # type: ignore
     )
-    assert tp.liqmap_levels_enable_sl is True
+    assert tp.liqmap_levels_enable_sl is True  # type: ignore
     _clean_liqmap_env()

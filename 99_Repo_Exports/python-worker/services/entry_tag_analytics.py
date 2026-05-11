@@ -560,7 +560,7 @@ def _try_float_or_str(v):
         return v
 
 
-def load_trades_from_redis(r: redis.Redis, limit: int) -> list[dict]:
+def load_trades_from_redis(r: redis.Redis, limit: int) -> list[dict]:  # type: ignore
     """
     Берёт последние limit записей из стрима trades:closed в обратном порядке (свежее → старое).
     """
@@ -893,14 +893,14 @@ def run_cli() -> None:
         mfe_quantile=0.25,
     )
 
-    print(format_report(results, trailing_reports))
-
+    print(format_report(results, trailing_reports))  # type: ignore
+  # type: ignore
 
 # ===============================
 # Trailing analysis integration
 # ===============================
 
-def _build_trailing_snapshots_for_group(group_trades: list[dict]) -> list[ClosedTradeSnapshot]:
+def _build_trailing_snapshots_for_group(group_trades: list[dict]) -> list[ClosedTradeSnapshot]:  # type: ignore
     """Создаёт список ClosedTradeSnapshot из списка dict-ов сделок."""
     if not ClosedTradeSnapshot:
         return []
@@ -999,8 +999,8 @@ def _format_trailing_rec_for_tag(
     source: str,
     symbol: str,
     entry_tag: str,
-    snaps: list[ClosedTradeSnapshot],
-    stop_atr_mult: float,
+    snaps: list[ClosedTradeSnapshot],  # type: ignore
+    stop_atr_mult: float,  # type: ignore
     min_trades: int = 30,
     mfe_quantile: float = 0.25,
 ) -> str:

@@ -58,27 +58,27 @@ async def poll_loop(redis_url: str) -> None:
                 continue
 
             if not raw:
-                ml_confirm_cfg_present.labels(kind=kind).set(0)
-                ml_confirm_cfg_valid.labels(kind=kind).set(0)
-                ml_confirm_errors_total.labels(kind=kind, reason="no_cfg").inc()
+                ml_confirm_cfg_present.labels(kind=kind).set(0)  # type: ignore
+                ml_confirm_cfg_valid.labels(kind=kind).set(0)  # type: ignore
+                ml_confirm_errors_total.labels(kind=kind, reason="no_cfg").inc()  # type: ignore
             else:
-                ml_confirm_cfg_present.labels(kind=kind).set(1)
+                ml_confirm_cfg_present.labels(kind=kind).set(1)  # type: ignore
                 try:
                     cfg, info = validate_champion_cfg(raw, allow_default_enforce_share=False)
                     kind = cfg.kind or kind
-                    ml_confirm_cfg_valid.labels(kind=kind).set(1)
-                    ml_confirm_enforce_share.labels(kind=kind).set(cfg.enforce_share)
+                    ml_confirm_cfg_valid.labels(kind=kind).set(1)  # type: ignore
+                    ml_confirm_enforce_share.labels(kind=kind).set(cfg.enforce_share)  # type: ignore
                 except ChampionCfgError as e:
                     # invalid cfg (bad json / missing enforce_share / invariants)
-                    ml_confirm_cfg_valid.labels(kind=kind).set(0)
+                    ml_confirm_cfg_valid.labels(kind=kind).set(0)  # type: ignore
                     msg = str(e)
                     if msg.startswith("bad_json"):
-                        ml_confirm_errors_total.labels(kind=kind, reason="bad_json").inc()
+                        ml_confirm_errors_total.labels(kind=kind, reason="bad_json").inc()  # type: ignore
                     elif "enforce_share: missing" in msg:
-                        ml_missing_critical_total.labels(field="champion.enforce_share").inc()
-                        ml_confirm_errors_total.labels(kind=kind, reason="invalid_cfg").inc()
+                        ml_missing_critical_total.labels(field="champion.enforce_share").inc()  # type: ignore
+                        ml_confirm_errors_total.labels(kind=kind, reason="invalid_cfg").inc()  # type: ignore
                     else:
-                        ml_confirm_errors_total.labels(kind=kind, reason="invalid_cfg").inc()
+                        ml_confirm_errors_total.labels(kind=kind, reason="invalid_cfg").inc()  # type: ignore
 
             xlen = await _read_xlen(r, LABELS_STREAM)
             if xlen >= 0:
@@ -86,7 +86,7 @@ async def poll_loop(redis_url: str) -> None:
 
             last_ok = time.time()
         except Exception as e:
-            ml_confirm_errors_total.labels(kind=kind, reason="exception").inc()
+            ml_confirm_errors_total.labels(kind=kind, reason="exception").inc()  # type: ignore
             log.exception("poller error: %s", e)
         finally:
             dt = time.time() - t0

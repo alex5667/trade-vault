@@ -19,21 +19,21 @@ class ControlPlaneReadinessService:
         with get_conn() as conn, conn.cursor(cursor_factory=__import__('psycopg2').extras.RealDictCursor) as cur:
             # 1. Total nodes synced
             cur.execute("SELECT count(*) as c FROM atr_control_plane_nodes")
-            total_nodes = cur.fetchone()["c"]
+            total_nodes = cur.fetchone()["c"]  # type: ignore
             if total_nodes == 0:
                 blockers.append("NO_GRAPH_NODES_PRESENT")
                 score -= 100
 
             # 2. Total events synced
             cur.execute("SELECT count(*) as c FROM atr_control_plane_events")
-            total_events = cur.fetchone()["c"]
+            total_events = cur.fetchone()["c"]  # type: ignore
             if total_events < 10:
                 warnings.append("LOW_GRAPH_EVENT_VOLUME")
                 score -= 5
 
             # 3. Unresolved Drifts
             cur.execute("SELECT count(*) as c FROM atr_control_plane_drifts WHERE status = 'unresolved'")
-            active_drifts = cur.fetchone()["c"]
+            active_drifts = cur.fetchone()["c"]  # type: ignore
             if active_drifts > 0:
                 blockers.append("UNRESOLVED_DRIFTS_ACTIVE")
                 score -= 50
@@ -45,7 +45,7 @@ class ControlPlaneReadinessService:
                 LEFT JOIN atr_control_plane_projection_certs c ON c.scope_value = n.scope_value AND c.status = 'passed'
                 WHERE c.cert_id IS NULL
             """)
-            uncertified = cur.fetchone()["uncertified"]
+            uncertified = cur.fetchone()["uncertified"]  # type: ignore
             if uncertified > 0:
                 warnings.append("SOME_NODES_UNCERTIFIED")
                 score -= 10

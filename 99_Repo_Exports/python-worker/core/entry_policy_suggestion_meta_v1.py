@@ -48,7 +48,7 @@ class EntryPolicySuggestionMetaV1:
     reason: str = ""
 
     # Arm metrics snapshot (LCB etc) - compact dict for UI/reporting
-    arm_metrics: dict[str, Any] = None
+    arm_metrics: dict[str, Any] = None  # type: ignore
 
     # Approval policy
     approvals_required: int = 2
@@ -84,7 +84,7 @@ class EntryPolicySuggestionMetaV1:
                 created_ts_ms=int(d.get("created_ts_ms", 0) or 0),
                 updated_ts_ms=int(d.get("updated_ts_ms", 0) or 0),
                 expires_ts_ms=int(d.get("expires_ts_ms", 0) or 0),
-                symbol=_s(d.get("symbol", "")),
+                symbol=_s(d.get("symbol", "")),  # type: ignore
                 regime=_rg(d.get("regime", "na")),
                 group=_s(d.get("group", "default")).lower() or "default",
                 scenario=_scn(d.get("scenario", "na")),

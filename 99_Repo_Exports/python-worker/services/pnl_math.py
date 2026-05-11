@@ -67,7 +67,7 @@ class SymbolSpec:
         """Проверяет, можно ли использовать тиковую модель."""
         return (self.tick_size is not None) and (self.tick_value is not None) and self.tick_size > 0
 
-    def pnl_money(self, entry: float, exit: float, lot: float, side: str, symbol: str = None) -> float:
+    def pnl_money(self, entry: float, exit: float, lot: float, side: str, symbol: str = None) -> float:  # type: ignore
         """
         Расчет P&L в денежных единицах.
         
@@ -105,8 +105,8 @@ class SymbolSpec:
             return diff * lot
 
         if self.uses_ticks:
-            ticks = diff / self.tick_size
-            return ticks * self.tick_value * lot
+            ticks = diff / self.tick_size  # type: ignore
+            return ticks * self.tick_value * lot  # type: ignore
 
         if self.contract_size:
             return diff * self.contract_size * lot
@@ -117,7 +117,7 @@ class SymbolSpec:
         # Последний fallback (лучше явно сконфигурировать SymbolSpec)
         return diff * lot
 
-    def risk_money(self, entry: float, sl: float, lot: float, side: str, symbol: str = None) -> float:
+    def risk_money(self, entry: float, sl: float, lot: float, side: str, symbol: str = None) -> float:  # type: ignore
         """
         Расчет 1R (риск в денежных единицах).
         
@@ -232,7 +232,7 @@ class SymbolSpec:
         # Потеря на 1 лот при срабатывании SL
         # Используем pnl_money для точного расчета
         try:
-            loss_per_lot = abs(self.pnl_money(entry_price, sl_price, 1.0, side, symbol=None))  # symbol не нужен для calculate_risk_lot
+            loss_per_lot = abs(self.pnl_money(entry_price, sl_price, 1.0, side, symbol=None))  # symbol не нужен для calculate_risk_lot  # type: ignore
         except Exception:
             # Fallback: простой расчет
             loss_per_lot = sl_distance * self.contract_size
@@ -264,13 +264,13 @@ def calculate_position_size(
     entry_price: float,
     sl_price: float,
     side: str = "LONG",
-    deposit: float = None,
-    risk_percent: float = None,
-    leverage: float = None,
+    deposit: float = None,  # type: ignore
+    risk_percent: float = None,  # type: ignore
+    leverage: float = None,  # type: ignore
     lot_step: float = 0.01,
     max_lot: float = 10.0,
     redis_client = None,
-    tp_price: float = None, # New: optional TP price for profitability floor check
+    tp_price: float = None, # New: optional TP price for profitability floor check  # type: ignore
 ) -> tuple[float, float, float, float]:
     """
     Универсальная функция расчета размера позиции на основе риска.

@@ -175,7 +175,7 @@ async def test_record_and_trip_sets_cfg_and_auto_apply_keys():
 
     disable_key = f"cfg:of_inputs:v3_disabled:{sym}"
     val = await r.get(disable_key)
-    meta = json.loads(val)
+    meta = json.loads(val)  # type: ignore
     assert meta["until_ms"] == res3["disabled_until_ms"]
     assert meta["hard_until_ms"] == res3["hard_until_ms"]
     assert meta["cooldown_ms"] == 0
@@ -204,8 +204,8 @@ async def test_refresh_disabled_state_reads_until_ms_from_value():
     assert disabled is True
     assert until_ms == now + 50_000
     assert reason == "missing_lob_fields"
-    assert rt.of_inputs_v3_disabled_hard_until_ms == until_ms
-    assert rt.of_inputs_v3_disabled_phase in ("hard", "")
+    assert rt.of_inputs_v3_disabled_hard_until_ms == until_ms  # type: ignore
+    assert rt.of_inputs_v3_disabled_phase in ("hard", "")  # type: ignore
 
     # Cache hit
     r.set_now_ms(now + 1_000)
@@ -231,7 +231,7 @@ async def test_refresh_disabled_state_derives_until_ms_from_ttl_when_value_has_n
     assert disabled is True
     assert until_ms == now + 100_000
     assert reason in ("cfg_ttl", "cfg")
-    assert rt.of_inputs_v3_disabled_hard_until_ms == until_ms
+    assert rt.of_inputs_v3_disabled_hard_until_ms == until_ms  # type: ignore
 
 
 @pytest.mark.asyncio
@@ -258,13 +258,13 @@ async def test_refresh_disabled_state_sets_phase_hard_then_cooldown():
     assert disabled is True
     assert until_ms == payload["until_ms"]
     assert reason == "book_stale"
-    assert rt.of_inputs_v3_disabled_phase == "hard"
+    assert rt.of_inputs_v3_disabled_phase == "hard"  # type: ignore
 
     # --- phase: cooldown (now > hard_until_ms, but < until_ms) ---
     r.set_now_ms(now + 300_001)
     disabled2, _, _ = await refresh_disabled_state(r, rt, now_ms=now + 300_001, refresh_every_ms=1)
     assert disabled2 is True
-    assert rt.of_inputs_v3_disabled_phase == "cooldown"
+    assert rt.of_inputs_v3_disabled_phase == "cooldown"  # type: ignore
 
     # --- phase: expired (now > until_ms) ---
     r.set_now_ms(now + 360_001)

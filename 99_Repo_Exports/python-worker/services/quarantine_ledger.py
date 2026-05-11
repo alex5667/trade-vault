@@ -85,7 +85,7 @@ class QuarantineLedgerSink:
         try:
             conn = self._connect()
             try:
-                with conn, conn.cursor() as cur:
+                with conn, conn.cursor() as cur:  # type: ignore
                     cur.execute(sql, (
                         (doc.get('sid') or ''),
                         (doc.get('symbol') or ''),
@@ -104,8 +104,8 @@ class QuarantineLedgerSink:
                 return True
             finally:
                 with contextlib.suppress(Exception):
-                    conn.rollback()
-                conn.close()
+                    conn.rollback()  # type: ignore
+                conn.close()  # type: ignore
         except Exception:
             if TRADE_QUARANTINE_LEDGER_WRITE_FAIL_TOTAL:
                 TRADE_QUARANTINE_LEDGER_WRITE_FAIL_TOTAL.labels(kind='quarantine_event').inc()
@@ -125,7 +125,7 @@ class QuarantineLedgerSink:
         try:
             conn = self._connect()
             try:
-                with conn, conn.cursor() as cur:
+                with conn, conn.cursor() as cur:  # type: ignore
                     cur.execute(sql, (
                         (doc.get('run_kind') or 'automated_repair'),
                         (doc.get('source') or ''),
@@ -139,8 +139,8 @@ class QuarantineLedgerSink:
                 return True
             finally:
                 with contextlib.suppress(Exception):
-                    conn.rollback()
-                conn.close()
+                    conn.rollback()  # type: ignore
+                conn.close()  # type: ignore
         except Exception:
             if TRADE_QUARANTINE_LEDGER_WRITE_FAIL_TOTAL:
                 TRADE_QUARANTINE_LEDGER_WRITE_FAIL_TOTAL.labels(kind='repair_run').inc()

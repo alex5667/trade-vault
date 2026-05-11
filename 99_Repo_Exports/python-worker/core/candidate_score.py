@@ -119,7 +119,7 @@ def compute_candidate_score(
 
     # --- Adverse selection penalty (expected slippage in bps) ---
     try:
-        slip = float(indicators.get("expected_slippage_bps", 0.0) or 0.0)
+        slip = float(indicators.get("expected_slippage_bps", 0.0) or 0.0)  # type: ignore
         w_slip = float(cfg.get("w_slip", 0.08))  # score penalty per bps
         score -= w_slip * slip
     except Exception:
@@ -127,7 +127,7 @@ def compute_candidate_score(
 
     # --- Data health multiplier (fail-open for stream, but reduce rank) ---
     try:
-        dh = float(indicators.get("data_health", 1.0) or 1.0)
+        dh = float(indicators.get("data_health", 1.0) or 1.0)  # type: ignore
         score *= max(0.25, min(1.0, dh))
     except Exception:
         pass

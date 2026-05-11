@@ -58,7 +58,7 @@ class MainLoopService:
         self,
         *args: Any,
         symbol: str | None = None,
-        health_metrics: HealthMetrics | None = None,
+        health_metrics: HealthMetrics | None = None,  # type: ignore
         **kwargs: Any,
     ) -> None:
         super().__init__()  # in case of mixins
@@ -129,7 +129,7 @@ class MainLoopService:
         try:
             fn = getattr(consumer, "pending_len", None)
             if callable(fn):
-                return int(fn(stream) or 0)
+                return int(fn(stream) or 0)  # type: ignore
         except Exception:
             return 0
         return 0
@@ -397,7 +397,7 @@ class MainLoopService:
                         all_success = False
                         break
                     chunk = msgs[i:i + max_msgs_per_loop]
-                    t, b, ok = self.message_handler.process_message_batch(
+                    t, b, ok = self.message_handler.process_message_batch(  # type: ignore
                         chunk, backoff_new, fail_counts, consumer, stop_event=stop_event
                     )
                     total_tick += t
@@ -406,7 +406,7 @@ class MainLoopService:
                         all_success = False
                         break
             else:
-                total_tick, total_book, all_success = self.message_handler.process_message_batch(
+                total_tick, total_book, all_success = self.message_handler.process_message_batch(  # type: ignore
                     msgs, backoff_new, fail_counts, consumer, stop_event=stop_event
                 )
 
@@ -433,7 +433,7 @@ class MainLoopService:
         и stop_event.
         """
         try:
-            return self.message_handler.claim_and_process_pending(
+            return self.message_handler.claim_and_process_pending(  # type: ignore
                 consumer, streams, start_ids, fail_counts, backoff, stop_event=stop_event
             )
         except Exception as e:

@@ -124,5 +124,5 @@ class DeliverOneTargetSM(RuleBasedStateMachine):
 
 
 def test_state_machine(monkeypatch):
-    sm = DeliverOneTargetSM(monkeypatch)
-    settings(deadline=None, max_examples=200).run(sm)
+    from hypothesis.stateful import run_state_machine_as_test
+    run_state_machine_as_test(lambda: DeliverOneTargetSM(monkeypatch))

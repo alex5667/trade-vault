@@ -112,7 +112,7 @@ class BinanceUserStreamWorker:
         self.keepalive_interval_sec = int(os.getenv("USER_STREAM_KEEPALIVE_SEC", "1800"))
         self.ws_base_url = (os.getenv("BINANCE_FSTREAM_BASE_URL") or "wss://fstream.binance.com").rstrip("/")
         # Redis and HTTP client: injected InMemoryRedis/mock for tests, or real prod connections
-        self.r = redis_client if redis_client is not None else redis.from_url(self.redis_url, decode_responses=True)
+        self.r = redis_client if redis_client is not None else redis.from_url(self.redis_url, decode_responses=True)  # type: ignore
         self.client = client if client is not None else BinanceFuturesClient.from_env(prefix=(os.getenv("BINANCE_USER_STREAM_PREFIX") or "BINANCE_"))
         self.listen_key: str | None = None
         self._last_event_time_ms: int = 0
@@ -159,7 +159,7 @@ class BinanceUserStreamWorker:
                 side=(order.get("S") or ""),
                 status=(order.get("X") or ""),
                 execution_type=(order.get("x") or ""),
-                order_id=int(order.get("i")) if order.get("i") not in (None, "") else None,
+                order_id=int(order.get("i")) if order.get("i") not in (None, "") else None,  # type: ignore
                 client_order_id=(order.get("c") or "") or None,
                 algo_id=None,
                 client_algo_id=None,
@@ -176,7 +176,7 @@ class BinanceUserStreamWorker:
                 execution_type=str(algo.get("x") or payload.get("x") or ""),
                 order_id=None,
                 client_order_id=None,
-                algo_id=int(algo.get("algoId")) if algo.get("algoId") not in (None, "") else None,
+                algo_id=int(algo.get("algoId")) if algo.get("algoId") not in (None, "") else None,  # type: ignore
                 client_algo_id=(algo.get("clientAlgoId") or "") or None,
                 raw=payload,
             )

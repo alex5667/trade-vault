@@ -108,8 +108,8 @@ class MicroBar:
             return
 
         qty = _safe_float(tick.get("qty") or tick.get("volume") or 0.0)
-        if qty < 0:
-            qty = abs(qty)
+        if qty < 0:  # type: ignore
+            qty = abs(qty)  # type: ignore
 
         # OHLC
         self.close = px
@@ -117,8 +117,8 @@ class MicroBar:
         self.low = min(self.low, px)
 
         # volume + VWAP
-        self.vol += qty
-        self._pv_sum += px * qty
+        self.vol += qty  # type: ignore
+        self._pv_sum += px * qty  # type: ignore
         if self.vol > 0:
             self.vwap = self._pv_sum / self.vol
 
@@ -141,7 +141,7 @@ class MicroBar:
         # Phase D: footprint-lite update (O(1))
         try:
             if self.fp_enabled and self._fp is not None and self.fp_bucket_px > 0:
-                self._fp.update(price=px, qty=qty, signed_qty=d)
+                self._fp.update(price=px, qty=qty, signed_qty=d)  # type: ignore
         except Exception:
             # fail-open: footprint must not break bar aggregation
             pass

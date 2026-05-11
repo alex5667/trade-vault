@@ -18,7 +18,7 @@ class SignalContext:
     score: float = 0.0
     price: float | None = None
     direction: str = ""
-    metadata: dict[str, Any] = None
+    metadata: dict[str, Any] = None  # type: ignore
 
     def __post_init__(self):
         if self.metadata is None:

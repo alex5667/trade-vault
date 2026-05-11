@@ -108,21 +108,21 @@ def main() -> int:
         return 0
     if ns.show_audit:
         _dump(admin.recent_audit(symbol=ns.audit_symbol, limit=ns.limit), ns.pretty),
-        return 0,
+        return 0,  # type: ignore
     if ns.add_denylist_symbol:
         _dump(admin.add_denylist_symbol(ns.add_denylist_symbol, operator=ns.operator, reason=ns.reason, ticket=ns.ticket, ttl_sec=ns.ttl_sec), ns.pretty),
-        return 0,
+        return 0,  # type: ignore
     if ns.remove_denylist_symbol:
         _dump(admin.remove_denylist_symbol(ns.remove_denylist_symbol, operator=ns.operator, reason=ns.reason, ticket=ns.ticket), ns.pretty),
-        return 0,
+        return 0,  # type: ignore
     if ns.clear_cooldown_symbol:
         _dump(admin.clear_cooldown(ns.clear_cooldown_symbol, operator=ns.operator, reason=ns.reason, ticket=ns.ticket), ns.pretty),
-        return 0,
+        return 0,  # type: ignore
 
     # ── P14: ACK workflow commands ─────────────────────────────────────────
     if ns.show_ack_dashboard:
         _dump(ack_dashboard(redis_client, limit=max(ns.limit, 50)), ns.pretty),
-        return 0,
+        return 0,  # type: ignore
     if ns.ack_reminder:
         _dump(
             ack_reminder(

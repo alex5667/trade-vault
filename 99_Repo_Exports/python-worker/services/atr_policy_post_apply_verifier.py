@@ -136,8 +136,8 @@ def verify_active_policy(
         return result
 
     # ── 1. Key existence ──────────────────────────────────────────────────
-    raw = r.get(policy_key)
-    if not raw:
+    raw = r.get(policy_key)  # type: ignore
+    if not raw:  # type: ignore
         return _fail("ACTIVE_KEY_MISSING")
 
     # ── 2. JSON validity ──────────────────────────────────────────────────
@@ -167,8 +167,8 @@ def verify_active_policy(
         )
 
     # ── 5. Kill-switch ────────────────────────────────────────────────────
-    ks_raw = r.get(_kill_switch_key(obj))
-    if ks_raw:
+    ks_raw = r.get(_kill_switch_key(obj))  # type: ignore
+    if ks_raw:  # type: ignore
         try:
             ks = json.loads(ks_raw)
             if ks.get("enabled"):

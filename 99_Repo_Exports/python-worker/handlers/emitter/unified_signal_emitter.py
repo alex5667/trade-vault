@@ -90,8 +90,8 @@ class UnifiedSignalEmitter:
         self._outbox_labels_pub = outbox_labels or outbox
         self._logger = logger
         # Метрики должны быть fail-open: если не передали — Noop.
-        self._metrics = metrics if (metrics is not None and hasattr(metrics, "inc")) else NoopMetrics()
-        self._analytics: AnalyticsReporter = analytics if isinstance(analytics, AnalyticsReporter) else NoopAnalyticsReporter()
+        self._metrics = metrics if (metrics is not None and hasattr(metrics, "inc")) else NoopMetrics()  # type: ignore
+        self._analytics: AnalyticsReporter = analytics if isinstance(analytics, AnalyticsReporter) else NoopAnalyticsReporter()  # type: ignore
         self._retries = int(os.getenv("EMIT_RETRIES", "2"))
         self._retry_sleep_ms = int(os.getenv("EMIT_RETRY_SLEEP_MS", "15"))
 
@@ -331,9 +331,9 @@ class UnifiedSignalEmitter:
             "writes": { "SYMBOL|KIND": int, ... },
           }
         """
-        with self._sem_stats_lock:
-            hits = {f"{k[0]}|{k[1]}": int(v) for k, v in self._sem_hits.items()}
-            writes = {f"{k[0]}|{k[1]}": int(v) for k, v in self._sem_writes.items()}
+        with self._sem_stats_lock:  # type: ignore
+            hits = {f"{k[0]}|{k[1]}": int(v) for k, v in self._sem_hits.items()}  # type: ignore
+            writes = {f"{k[0]}|{k[1]}": int(v) for k, v in self._sem_writes.items()}  # type: ignore
         return {
             "enabled": bool(self._sem_cfg.enabled),
             "bucket_ms": int(self._sem_cfg.bucket_ms),
@@ -491,7 +491,7 @@ class UnifiedSignalEmitter:
             # Доп. жёсткость: проверим, что реально сериализуется стандартным json
             # (в проде это чуть дороже — поэтому только strict-mode).
             if strict_contracts_enabled():
-                json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+                json.dumps(payload, ensure_ascii=False, separators=(",", ":"))  # type: ignore
         except Exception:
             # fail-open: минимальный "спасательный" payload, чтобы не потерять факт события
             payload.clear()

@@ -29,11 +29,11 @@ os.environ.setdefault("REDIS_URL", "redis://localhost:6379/0")
 os.environ["EXEC_SL_FALLBACK_PCT"] = "1.0"
 
 mod_path = Path(__file__).parent.parent / "binance_executor.py"
-spec = importlib.util.spec_from_file_location("binance_executor_sl_fb", mod_path)
-mod = importlib.util.module_from_spec(spec)
-sys.modules[spec.name] = mod
-assert spec.loader is not None
-spec.loader.exec_module(mod)
+spec = importlib.util.spec_from_file_location("binance_executor_sl_fb", mod_path)  # type: ignore
+mod = importlib.util.module_from_spec(spec)  # type: ignore
+sys.modules[spec.name] = mod  # type: ignore
+assert spec.loader is not None  # type: ignore
+spec.loader.exec_module(mod)  # type: ignore
 
 
 # --- Fakes ---
@@ -46,11 +46,11 @@ class FakeRedis:
     def get(self, key: str) -> bytes | None:
         v = self.store.get(key)
         return v.encode() if v else None
-
-    def set(self, key: str, value: str, ex: int = None) -> None:
+  # type: ignore
+    def set(self, key: str, value: str, ex: int = None) -> None:  # type: ignore
         self.store[key] = value
-
-    def xadd(self, key: str, fields: dict, maxlen: int = None, approximate: bool = True) -> str:
+  # type: ignore
+    def xadd(self, key: str, fields: dict, maxlen: int = None, approximate: bool = True) -> str:  # type: ignore
         self.stream.append((key, dict(fields)))
         return "0-1"
 
@@ -73,9 +73,9 @@ class FakeFilters:
 
 class FakeClient:
     """Mock BinanceFuturesClient with configurable mark price and algo order results."""
-
-    def __init__(self, *, mark_price: float = 2000.0, algo_result: dict = None,
-                 algo_raise: Exception = None):
+  # type: ignore
+    def __init__(self, *, mark_price: float = 2000.0, algo_result: dict = None,  # type: ignore
+                 algo_raise: Exception = None):  # type: ignore
         self._mark_price = mark_price
         self._algo_result = algo_result or {"algoId": 123}
         self._algo_raise = algo_raise
@@ -96,8 +96,8 @@ class FakeClient:
     def get_position_risk(self) -> list:
         return []
 
-
-def _mk_executor(**overrides) -> mod.BinanceExecutor:
+  # type: ignore
+def _mk_executor(**overrides) -> mod.BinanceExecutor:  # type: ignore
     """Build a BinanceExecutor stub with minimal wiring."""
     ex = mod.BinanceExecutor.__new__(mod.BinanceExecutor)
     ex.r = FakeRedis()

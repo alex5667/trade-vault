@@ -217,8 +217,8 @@ def _parse_liq_event(raw_fields: dict[bytes, bytes]) -> LiqEvent | None:
     """
     try:
         def _b(k: str) -> str | None:
-            v = raw_fields.get(k.encode()) or raw_fields.get(k)
-            return v.decode("utf-8", errors="replace") if isinstance(v, bytes) else str(v) if v is not None else None
+            v = raw_fields.get(k.encode()) or raw_fields.get(k)  # type: ignore
+            return v.decode("utf-8", errors="replace") if isinstance(v, bytes) else str(v) if v is not None else None  # type: ignore
 
         # Try nested JSON payload first (from Go controller.publishNormalized)
         payload_raw = _b("payload") or _b("data")

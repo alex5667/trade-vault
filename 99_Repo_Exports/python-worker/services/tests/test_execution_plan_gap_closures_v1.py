@@ -121,7 +121,7 @@ class TestAlgoOrderContract:
             {"type": "STOP_MARKET", "quantity": 0.01, "triggerPrice": 29000, "side": "SELL"},
             position_mode="oneway",
         ),
-        assert res["workingType"] in ("MARK_PRICE", "CONTRACT_PRICE")
+        assert res["workingType"] in ("MARK_PRICE", "CONTRACT_PRICE")  # type: ignore
 
     def test_close_position_with_quantity_raises(self):
         """algo_closePosition_incompatible_with_quantity."""
@@ -241,7 +241,7 @@ class TestReplaceUntriggeredAlgoOrder:
                 "triggerPrice": 28000,
                 "side": "BUY",
             }
-            result = inst.replace_untriggered_algo_order(
+            result = inst.replace_untriggered_algo_order(  # type: ignore
                 "BTCUSDT", algo_id=9001, new_params=new_params
             )
         client.cancel_algo_order.assert_called_once()
@@ -260,7 +260,7 @@ class TestReplaceUntriggeredAlgoOrder:
             inst.position_mode = client.position_mode
 
             with pytest.raises(RuntimeError, match="not_replaceable"):
-                inst.replace_untriggered_algo_order(
+                inst.replace_untriggered_algo_order(  # type: ignore
                     "BTCUSDT",
                     algo_id=9001,
                     new_params={"type": "STOP_MARKET", "quantity": 0.01, "triggerPrice": 28000},
@@ -283,31 +283,31 @@ class TestLeverageTierResolver:
 
     def test_btcusdt_is_tier_a(self):
         ex = self._make_executor()
-        assert ex._symbol_tier("BTCUSDT") == "A"
+        assert ex._symbol_tier("BTCUSDT") == "A"  # type: ignore
 
     def test_solusdt_is_tier_b(self):
         ex = self._make_executor()
-        assert ex._symbol_tier("SOLUSDT") == "B"
+        assert ex._symbol_tier("SOLUSDT") == "B"  # type: ignore
 
     def test_pepe_is_tier_c(self):
         ex = self._make_executor()
-        assert ex._symbol_tier("PEPEUSDT") == "C"
+        assert ex._symbol_tier("PEPEUSDT") == "C"  # type: ignore
 
     def test_tier_a_uses_tier_env(self):
         ex = self._make_executor()
         with patch.dict(os.environ, {"BINANCE_LEVERAGE_TIER_A": "15"}, clear=False):
-            lev = ex._resolve_symbol_leverage("BTCUSDT")
+            lev = ex._resolve_symbol_leverage("BTCUSDT")  # type: ignore
         assert lev == 15
 
     def test_per_symbol_override_takes_precedence(self):
         ex = self._make_executor()
         with patch.dict(os.environ, {"BINANCE_LEVERAGE_BTCUSDT": "8"}, clear=False):
-            lev = ex._resolve_symbol_leverage("BTCUSDT")
+            lev = ex._resolve_symbol_leverage("BTCUSDT")  # type: ignore
         assert lev == 8
 
     def test_tier_c_default_is_5(self):
         ex = self._make_executor()
-        lev = ex._resolve_symbol_leverage("PEPEUSDT")
+        lev = ex._resolve_symbol_leverage("PEPEUSDT")  # type: ignore
         assert lev == 5
 
     def test_default_leverage_is_20_not_100(self):
@@ -330,7 +330,7 @@ class TestResizeTargetNormalization:
 
     def test_delta_qty_positive(self):
         ex = self._make_executor()
-        mode, delta, target = ex._normalize_resize_target(
+        mode, delta, target = ex._normalize_resize_target(  # type: ignore
             1.0, {"resize_mode": "delta_qty", "delta_qty": 0.5}
         )
         assert mode == "delta_qty"
@@ -339,7 +339,7 @@ class TestResizeTargetNormalization:
 
     def test_delta_qty_negative(self):
         ex = self._make_executor()
-        mode, delta, target = ex._normalize_resize_target(
+        mode, delta, target = ex._normalize_resize_target(  # type: ignore
             1.0, {"resize_mode": "delta_qty", "delta_qty": -0.3}
         )
         assert mode == "delta_qty"
@@ -348,7 +348,7 @@ class TestResizeTargetNormalization:
 
     def test_target_qty_mode(self):
         ex = self._make_executor()
-        mode, delta, target = ex._normalize_resize_target(
+        mode, delta, target = ex._normalize_resize_target(  # type: ignore
             1.0, {"resize_mode": "target_qty", "target_qty": 2.0}
         )
         assert mode == "target_qty"
@@ -358,14 +358,14 @@ class TestResizeTargetNormalization:
     def test_infers_target_qty_from_target_qty_field(self):
         ex = self._make_executor()
         # No resize_mode field, but target_qty present → infer target_qty mode
-        mode, delta, target = ex._normalize_resize_target(1.0, {"target_qty": 0.5})
+        mode, delta, target = ex._normalize_resize_target(1.0, {"target_qty": 0.5})  # type: ignore
         assert mode == "target_qty"
         assert abs(target - 0.5) < 1e-9
 
     def test_invalid_mode_raises(self):
         ex = self._make_executor()
         with pytest.raises(ValueError, match="unsupported_resize_mode"):
-            ex._normalize_resize_target(1.0, {"resize_mode": "bad_mode"})
+            ex._normalize_resize_target(1.0, {"resize_mode": "bad_mode"})  # type: ignore
 
 
 # ===========================================================================
@@ -388,7 +388,7 @@ class TestStructuredOrderContract:
         sl = AlgoOrderRef(
             algo_id=2001, client_algo_id="sl-cid", type="STOP_MARKET", working_type="MARK_PRICE"
         )
-        contract = ex._structured_order_contract(sid="test-sid", entry_ref=entry, sl_ref=sl)
+        contract = ex._structured_order_contract(sid="test-sid", entry_ref=entry, sl_ref=sl)  # type: ignore
         assert contract["sid"] == "test-sid"
         assert contract["entry"]["order_id"] == 1001
         assert contract["protective"]["sl_algo_id"] == 2001
@@ -398,26 +398,26 @@ class TestStructuredOrderContract:
         tps = [
             AlgoOrderRef(algo_id=3001, client_algo_id="tp1", type="TAKE_PROFIT_MARKET", working_type="MARK_PRICE"),
             AlgoOrderRef(algo_id=3002, client_algo_id="tp2", type="TAKE_PROFIT_MARKET", working_type="MARK_PRICE")]
-        contract = ex._structured_order_contract(sid="test-sid", tp_refs=tps)
+        contract = ex._structured_order_contract(sid="test-sid", tp_refs=tps)  # type: ignore
         assert contract["protective"]["tp_algo_ids"] == [3001, 3002]
 
     def test_trailing_included_in_contract(self):
         ex = self._make_executor()
         trail = AlgoOrderRef(algo_id=4001, client_algo_id="trail-cid", type="TRAILING_STOP_MARKET", working_type="MARK_PRICE")
-        contract = ex._structured_order_contract(sid="test-sid", trail_ref=trail)
+        contract = ex._structured_order_contract(sid="test-sid", trail_ref=trail)  # type: ignore
         assert contract["trailing"]["trail_algo_id"] == 4001
 
     def test_causal_timestamps_from_payload(self):
         ex = self._make_executor()
         payload = {"ts_event_ms": 1700000000000, "ts_queue_ms": 1700000000100}
-        ts = ex._causal_timestamps(payload)
+        ts = ex._causal_timestamps(payload)  # type: ignore
         assert ts["ts_event_ms"] == 1700000000000
         assert ts["ts_queue_ms"] == 1700000000100
         assert "ts_exec_start_ms" in ts
 
     def test_causal_timestamps_fallback_to_now(self):
         ex = self._make_executor()
-        ts = ex._causal_timestamps({})
+        ts = ex._causal_timestamps({})  # type: ignore
         now = get_ny_time_millis()
         assert abs(ts["ts_event_ms"] - now) < 5000  # within 5 seconds
         assert abs(ts["ts_exec_start_ms"] - now) < 5000

@@ -56,9 +56,9 @@ class MLConfirmConfig(BaseModel):
                 raise ValueError(f"p_min_by_bucket[{k}] must be in range [0.5, 0.95], got {val}")
         return v
 
-    @field_validator("edge_floors")
+    @field_validator("edge_floors", "util_floors")
     @classmethod
-    def validate_edge_floors_dict(cls, v: dict[str, Any], info) -> dict[str, Any]:
+    def validate_floors_dict(cls, v: dict[str, Any], info) -> dict[str, Any]:
         if not v:
             return v
         field_name = info.field_name

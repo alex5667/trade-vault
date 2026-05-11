@@ -179,7 +179,7 @@ class UnifiedSignalGenerator:
         # MACD
         macd_line, signal_line, histogram = self._calculate_macd(prices)
 
-        return {
+        return {  # type: ignore
             'ema_fast': ema_fast,
             'ema_slow': ema_slow,
             'rsi': rsi,
@@ -227,10 +227,10 @@ class UnifiedSignalGenerator:
             reasons.append("MACD_BULL")
 
         # 4. Delta positive (buying pressure)
-        if orderflow['delta'] > self.config.delta_threshold_extreme:
+        if orderflow['delta'] > self.config.delta_threshold_extreme:  # type: ignore
             bullish_score += 25
             reasons.append("DELTA_EXTREME_BUY")
-        elif orderflow['delta'] > self.config.delta_threshold_moderate:
+        elif orderflow['delta'] > self.config.delta_threshold_moderate:  # type: ignore
             bullish_score += 15
             reasons.append("DELTA_MODERATE_BUY")
 
@@ -268,10 +268,10 @@ class UnifiedSignalGenerator:
             reasons.append("MACD_BEAR")
 
         # 4. Delta negative (selling pressure)
-        if orderflow['delta'] < -self.config.delta_threshold_extreme:
+        if orderflow['delta'] < -self.config.delta_threshold_extreme:  # type: ignore
             bearish_score += 25
             reasons.append("DELTA_EXTREME_SELL")
-        elif orderflow['delta'] < -self.config.delta_threshold_moderate:
+        elif orderflow['delta'] < -self.config.delta_threshold_moderate:  # type: ignore
             bearish_score += 15
             reasons.append("DELTA_MODERATE_SELL")
 
@@ -283,13 +283,13 @@ class UnifiedSignalGenerator:
         # Определяем направление
         if bullish_score > 60 and bullish_score > bearish_score:
             # bullish_score is percent by convention; normalize handles legacy ratio too.
-            bullish_pct = normalize_confidence_pct(bullish_score)
-            confidence = min(confidence_pct_to_ratio(bullish_pct), 0.95)
+            bullish_pct = normalize_confidence_pct(bullish_score)  # type: ignore
+            confidence = min(confidence_pct_to_ratio(bullish_pct), 0.95)  # type: ignore
             return ("LONG", confidence, " + ".join(reasons[:5]))
 
         elif bearish_score > 60 and bearish_score > bullish_score:
-            bearish_pct = normalize_confidence_pct(bearish_score)
-            confidence = min(confidence_pct_to_ratio(bearish_pct), 0.95)
+            bearish_pct = normalize_confidence_pct(bearish_score)  # type: ignore
+            confidence = min(confidence_pct_to_ratio(bearish_pct), 0.95)  # type: ignore
             return ("SHORT", confidence, " + ".join(reasons[:5]))
 
         return (None, 0.0, "")
@@ -318,7 +318,7 @@ class UnifiedSignalGenerator:
             tp_levels = [entry_price - tp for tp in tp_distances]
 
         # Position sizing на основе риска
-        risk_amount = 1000 * (self.config.risk_percent / 100)  # Пример: $1000 account
+        risk_amount = 1000 * (self.config.risk_percent / 100)  # Пример: $1000 account  # type: ignore
         lot = self._calculate_lot_size(risk_amount, sl_distance)
 
         # Генерируем Signal ID

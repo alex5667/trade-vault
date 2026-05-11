@@ -152,7 +152,7 @@ class GeometryLiquidityService:
                 (getattr(l2_snapshot, "depth_bid_5", 0.0) or 0.0)
                 + (getattr(l2_snapshot, "depth_ask_5", 0.0) or 0.0)
             ),
-            aggr_vol_at_wall=float(wall_volume),
+            aggr_vol_at_wall=float(wall_volume),  # type: ignore
         )
 
     def _detect_liquidity_pattern(
@@ -179,11 +179,11 @@ class GeometryLiquidityService:
         min_side_dominance = getattr(cfg, 'min_side_domination_ratio', 1.5) if cfg else 1.5
 
         if buy_vs_sell_ratio >= min_side_dominance:
-            return LiquidityPattern.BUY_AGGR_CLUSTER
+            return LiquidityPattern.BUY_AGGR_CLUSTER  # type: ignore
         elif sell_vs_buy_ratio >= min_side_dominance:
-            return LiquidityPattern.SELL_AGGR_CLUSTER
+            return LiquidityPattern.SELL_AGGR_CLUSTER  # type: ignore
         else:
-            return LiquidityPattern.BOTH_SIDES_CLUSTER
+            return LiquidityPattern.BOTH_SIDES_CLUSTER  # type: ignore
 
     def _score_liquidity(self, lc: LiquidityContext) -> float:
         """Score liquidity context."""
@@ -194,9 +194,9 @@ class GeometryLiquidityService:
 
         # Pattern-based scoring
         pattern_multiplier = 1.0
-        if lc.pattern == LiquidityPattern.BUY_AGGR_CLUSTER or lc.pattern == LiquidityPattern.SELL_AGGR_CLUSTER:
+        if lc.pattern == LiquidityPattern.BUY_AGGR_CLUSTER or lc.pattern == LiquidityPattern.SELL_AGGR_CLUSTER:  # type: ignore
             pattern_multiplier = 1.2
-        elif lc.pattern == LiquidityPattern.BOTH_SIDES_CLUSTER:
+        elif lc.pattern == LiquidityPattern.BOTH_SIDES_CLUSTER:  # type: ignore
             pattern_multiplier = 1.1
 
         return min(base_no_wall_score * pattern_multiplier, max_score)
@@ -264,7 +264,7 @@ class GeometryLiquidityService:
                     # Use ZoneType literals with fallback
                     zone_type = zone_type_map.get(level_name, 'HTF_OB')  # type: ignore
                     strength = 0.8 if 'h1' in level_name else 0.9
-                    add_level(level_price, zone_type, strength)
+                    add_level(level_price, zone_type, strength)  # type: ignore
 
         return hits
 
@@ -341,7 +341,7 @@ class GeometryLiquidityService:
             aggr_buy_at_wall=aggr_buy_at_wall,
             aggr_sell_at_wall=aggr_sell_at_wall,
             aggr_to_rest_ratio=aggr_to_rest_ratio,
-            pattern=pattern,
+            pattern=pattern,  # type: ignore
             cluster=cluster_vol,
             # Legacy fields for compatibility
             near_wall_side=wall_side,
@@ -385,7 +385,7 @@ class GeometryLiquidityService:
         # This would be called from the main handler
         # For now, just delegate to attach methods
         bar_sample = type('BarSample', (), {'ts': ts, 'high': price, 'low': price, 'close': price, 'volume': 0.0})()
-        self._attach_geometry_context(ctx, bar_sample)
+        self._attach_geometry_context(ctx, bar_sample)  # type: ignore
 
         # Liquidity would need L2 snapshot
         # self._attach_liquidity_context(ctx)

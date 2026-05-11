@@ -275,7 +275,7 @@ def monitor_source_performance():
 
     try:
         while True:
-            sources = StatsAggregator.get_strategy_sources(
+            sources = StatsAggregator.get_strategy_sources(  # type: ignore
                 redis_client, "orderflow", "tick"
             )
 
@@ -284,7 +284,7 @@ def monitor_source_performance():
             print("-" * 55)
 
             for source in sources:
-                stats = StatsAggregator.get_stats_by_source(
+                stats = StatsAggregator.get_stats_by_source(  # type: ignore
                     redis_client, "orderflow", "tick", source
                 )
 
@@ -309,7 +309,7 @@ def detailed_source_report(source_name: str):
 
     redis_client = get_redis()
 
-    stats = StatsAggregator.get_stats_by_source(
+    stats = StatsAggregator.get_stats_by_source(  # type: ignore
         redis_client, "orderflow", "tick", source_name
     )
 

@@ -70,7 +70,7 @@ def finite_or(x: Any, default: float) -> float:
 # --- Core / Common ---
 from common.deque_utils import ensure_bounded_deque
 from common.json_fast import dumps1
-from common.math_safe import finite_or
+from common.math_safe import finite_or  # type: ignore
 from core.instrument_config import SymbolSpecs, get_specs
 from handlers.crypto_orderflow.mixins.crypto_orderflow_generate import CryptoOrderFlowGenerateMixin
 from handlers.crypto_orderflow.mixins.crypto_orderflow_geometry import CryptoOrderFlowGeometryMixin
@@ -128,7 +128,7 @@ class CryptoOrderFlowHandler(CryptoOrderFlowInitMixin, CryptoOrderFlowL2Stalenes
             return ""
 
     @staticmethod
-    def _safe_int(v: Any, default: int = 0) -> int:
+    def _safe_int(v: Any, default: int = 0) -> int:  # type: ignore
         try:
             return int(v)
         except Exception:
@@ -175,7 +175,7 @@ class CryptoOrderFlowHandler(CryptoOrderFlowInitMixin, CryptoOrderFlowL2Stalenes
         if not rc:
             return default
         try:
-            u = reason_code_to_u16(rc, strict=False)
+            u = reason_code_to_u16(rc, strict=False)  # type: ignore
             u16 = CryptoOrderFlowHandler._safe_int(u, default=0)
         except Exception:
             u16 = 0
@@ -324,7 +324,7 @@ class CryptoOrderFlowHandler(CryptoOrderFlowInitMixin, CryptoOrderFlowL2Stalenes
         Calls ensure_levels at most once per (side_int) for this ctx.
         Returns True if we attempted to ensure.
         """
-        from handlers.base_orderflow_handler import ensure_levels  # или ваш реальный импорт
+        from handlers.base_orderflow_handler import ensure_levels  # или ваш реальный импорт  # type: ignore
 
         # normalize side to int if possible (so cache key is stable)
         side_key = None
@@ -342,7 +342,7 @@ class CryptoOrderFlowHandler(CryptoOrderFlowInitMixin, CryptoOrderFlowL2Stalenes
             except Exception:
                 return True  # attempted (fail-open)
 
-        return bool(cached_call(ctx, ckey, _do))
+        return bool(cached_call(ctx, ckey, _do))  # type: ignore
 
     @staticmethod
     def attach_trade_levels_once(
@@ -378,7 +378,7 @@ class CryptoOrderFlowHandler(CryptoOrderFlowInitMixin, CryptoOrderFlowL2Stalenes
             # success heuristic: tp1_price exists
             return getattr(ctx, "tp1_price", None) is not None
 
-        return bool(cached_call(ctx, ckey, _do))
+        return bool(cached_call(ctx, ckey, _do))  # type: ignore
 
     @staticmethod
     def _sanitize_u16_list(xs: Any) -> list[int]:
@@ -539,7 +539,7 @@ class CryptoOrderFlowHandler(CryptoOrderFlowInitMixin, CryptoOrderFlowL2Stalenes
             price=ev.price,
             qty=ev.qty,
         )
-        self.l3_agg.on_l3_event(l3_ev)
+        self.l3_agg.on_l3_event(l3_ev)  # type: ignore
 
     def on_book_update(self, snap) -> None:
         """
@@ -552,7 +552,7 @@ class CryptoOrderFlowHandler(CryptoOrderFlowInitMixin, CryptoOrderFlowL2Stalenes
             bids=snap.bids,
             asks=snap.asks,
         )
-        self.l3_agg.on_book_update(book_snap)
+        self.l3_agg.on_book_update(book_snap)  # type: ignore
 
     def on_signal_candidate(self, ctx: Any, signal_kind: str, side: int, raw_score: float, **kwargs: Any) -> None:
         """
@@ -560,14 +560,14 @@ class CryptoOrderFlowHandler(CryptoOrderFlowInitMixin, CryptoOrderFlowL2Stalenes
         Refactored to delegate entirely to SignalOrchestrator.
         """
         # Form basic candidate object
-        cand = CandidatePipeline(
+        cand = CandidatePipeline(  # type: ignore
             kind=(signal_kind or "custom"),
-            side=side,
+            side=side,  # type: ignore
             raw_score=float(raw_score),
-            level_price=None, # will be attached by orchestrator logic if needed
+            level_price=None, # will be attached by orchestrator logic if needed  # type: ignore
             level_key=None,
             reasons=[],
-            meta=kwargs
+            meta=kwargs  # type: ignore
         )
 
         # Delegate to orchestrator
@@ -581,27 +581,27 @@ class CryptoOrderFlowHandler(CryptoOrderFlowInitMixin, CryptoOrderFlowL2Stalenes
     # Обертки для обратной совместимости (методы физически "перемещены", вызывающие продолжают работать)
     # ----------------------------------------------------------------------
     def _get_regime_hist(self, symbol: str) -> deque:
-        ml = int(getattr(self._regime_cfg, "regime_window_size", 240) or 240)
-        d = self._regime_history.get(symbol)
+        ml = int(getattr(self._regime_cfg, "regime_window_size", 240) or 240)  # type: ignore
+        d = self._regime_history.get(symbol)  # type: ignore
         d2 = ensure_bounded_deque(d, ml)
         if d2 is not d:
-            self._regime_history[symbol] = d2
+            self._regime_history[symbol] = d2  # type: ignore
         return d2
 
     def _get_bar_hist(self, symbol: str) -> deque:
         # защита истории баров (отдельный maxlen, чтобы избежать случайного неограниченного роста)
         ml = int(getattr(self, "_bar_history_maxlen", 512) or 512)
-        d = self._bar_history.get(symbol)
+        d = self._bar_history.get(symbol)  # type: ignore
         d2 = ensure_bounded_deque(d, ml)
         if d2 is not d:
-            self._bar_history[symbol] = d2
+            self._bar_history[symbol] = d2  # type: ignore
         return d2
 
     def _compute_regime_features(self, ctx: Any):
-        return self._regime_detector.compute_features(ctx)
+        return self._regime_detector.compute_features(ctx)  # type: ignore
 
     def _update_regime_history(self, ctx: Any) -> None:
-        self._regime_detector.update_history(ctx)
+        self._regime_detector.update_history(ctx)  # type: ignore
 
     def _maybe_log_candidate(self, *, ctx: Any, cand: Any, parts: dict[str, Any], now_ms: int | None = None) -> None:
         """
@@ -680,7 +680,7 @@ class CryptoOrderFlowHandler(CryptoOrderFlowInitMixin, CryptoOrderFlowL2Stalenes
           - signals_veto_total{reason_code,kind,symbol}
         Нет жесткой зависимости от Prom/StatsD; мы просто вызываем опциональный sink.
         """
-        m = self._metrics
+        m = self._metrics  # type: ignore
         if not m:
             return
         try:

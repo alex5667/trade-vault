@@ -134,7 +134,7 @@ def test_cooldown_loop_emits_reminder_after_symbol_persists(monkeypatch):
     # first scan establishes first_seen; second scan sees the same symbol as a loop
     svc.scan_reminders_once()
     # force ancient first_seen
-    state = json.loads(r.get('orders:dust_cleanup:reminder:state:APTUSDT'))
+    state = json.loads(r.get('orders:dust_cleanup:reminder:state:APTUSDT'))  # type: ignore
     state['cooldown_first_seen_ms'] = 1
     r.set('orders:dust_cleanup:reminder:state:APTUSDT', json.dumps(state))
     out = svc.scan_reminders_once()

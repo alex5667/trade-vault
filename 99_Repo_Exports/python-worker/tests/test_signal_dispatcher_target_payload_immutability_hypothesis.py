@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import copy
 
-from hypothesis import given
+from hypothesis import given, settings, HealthCheck
 from hypothesis import strategies as st
 
 from services.dispatch.dispatcher_app import SignalDispatcher
@@ -11,6 +11,7 @@ from services.dispatch.dispatcher_app import SignalDispatcher
 class DummyRedis:
     def set(self, *a, **k):
         return True
+
 
 
 @given(st.text(min_size=1, max_size=20))
@@ -24,7 +25,7 @@ def test_deliver_one_target_does_not_mutate_original_targets_payload(sid):
     sd.marker_gc_zset = "marker:gc"
     sd.delivery_marker_ttl_sec = 60
 
-    sd._delivery_key = lambda target, sid_: f"mk:{target}:{sid_}"
+    sd._delivery_key = lambda target, sid_: f"marker:dispatch:{target}:{sid_}"
     sd._evalsha_or_eval = lambda *a, **k: "OK"
 
     env = {

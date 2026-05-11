@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 import pytest
@@ -30,6 +30,16 @@ class FakeRedis:
         self.set_calls.append({"key": key, "value": value, "ex": ex, "nx": nx})
         return True
 
+    def setex(self, key: str, time: int, value: str) -> bool:
+        self.set_calls.append({"key": key, "value": value, "ex": time, "nx": None})
+        return True
+
+    def script_load(self, script: str) -> str:
+        return "sha123"
+
+    def evalsha(self, sha: str, keys_count: int, *args: Any) -> Any:
+        return True
+
 
 class SpanStub:
     """Minimal Span stub: SignalDispatcher uses Span().ms() in the loop."""
@@ -37,7 +47,7 @@ class SpanStub:
         self._ms = 1.0
 
     def ms(self) -> float:
-        return float(self._ms)
+        return self._ms
 
 
 @dataclass
@@ -46,28 +56,24 @@ class TraceStub:
     sid: str = ""
     symbol=""
     kind: str = ""
-    events: list[dict[str, Any]] = None  # type: ignore[assignment]
-
-    def __post_init__(self) -> None:
-        if self.events is None:
-            self.events = []
-
+    events: list[dict[str, Any]] = field(default_factory=list)
+    
     def add(self, *, where: str, name: str, ok: bool, metrics: dict[str, Any] | None = None) -> None:
         self.events.append({
-            "where": str(where),
-            "name": str(name),
-            "ok": bool(ok),
+            "where": where,
+            "name": name,
+            "ok": ok,
             "metrics": dict(metrics or {}),
         })
 
     def to_dict(self) -> dict[str, Any]:
         # Compact trace for retry/debug context.
         return {
-            "trace_id": str(self.trace_id),
-            "sid": str(self.sid),
-            "symbol": str(self.symbol),
-            "kind": str(self.kind),
-            "events": list(self.events)[-64:],  # hard bound for safety
+            "trace_id": self.trace_id,
+            "sid": self.sid,
+            "symbol": self.symbol,
+            "kind": self.kind,
+            "events": self.events[-64:],  # hard bound for safety
         }
 
 
@@ -79,11 +85,17 @@ def _mk_dispatcher(monkeypatch: pytest.MonkeyPatch) -> SignalDispatcher:
     import services.dispatch.dispatcher_app as mod
 
     # Make classification deterministic for the test.
-    monkeypatch.setattr(mod, "is_transient_error", lambda e: isinstance(e, TransientError))
-    # Avoid trace-enabled branches depending on external infra.
-    monkeypatch.setattr(mod, "trace_enabled", lambda: False)
+    if hasattr(mod, "is_transient_error"):
+        monkeypatch.setattr(mod, "is_transient_error", lambda e: isinstance(e, TransientError))
+    
+    import common.transient as ct
+    monkeypatch.setattr(ct, "is_transient_error", lambda e: isinstance(e, TransientError))
+
+    if hasattr(mod, "trace_enabled"):
+        monkeypatch.setattr(mod, "trace_enabled", lambda: False)
     # Span used for duration in loop.
-    monkeypatch.setattr(mod, "Span", SpanStub)
+    if hasattr(mod, "Span"):
+        monkeypatch.setattr(mod, "Span", SpanStub)
 
     d = SignalDispatcher.__new__(SignalDispatcher)  # bypass __init__
     d.redis = FakeRedis()
@@ -91,6 +103,7 @@ def _mk_dispatcher(monkeypatch: pytest.MonkeyPatch) -> SignalDispatcher:
     d.simple_redis = object()
 
     d.delivery_marker_ttl_sec = 3600
+    d.env_done_prefix = "done:sid"
     d.trace_log_sample_rate = 0.0
     d.trace_sidecar_success_sample_rate = 0.0
 
@@ -103,7 +116,7 @@ def _mk_dispatcher(monkeypatch: pytest.MonkeyPatch) -> SignalDispatcher:
 
     # Required helpers
     d._targets_list = lambda env: list((env.get("targets") or {}).keys())
-    d._env_done_key = lambda sid: f"done:sid:{sid}"
+    d.env_done_prefix = "done:sid"
     d._done_key = lambda sid: f"done_legacy:{sid}"
 
     # Sidecar best-effort loader (used only if env lacks trace_summary).
@@ -113,28 +126,32 @@ def _mk_dispatcher(monkeypatch: pytest.MonkeyPatch) -> SignalDispatcher:
 
     # Marker check (client selection irrelevant for contract; it must be called and respected).
     def _marker_exists(_client: Any, target: str, sid: str) -> bool:
-        return bool(d._test_markers.get(str(target), False))
+        return d._test_markers.get(target, False)
 
     d._marker_exists = _marker_exists
 
     # Delivery: simulate outcome per target.
-    def _deliver_one_target(env, sid, target, targets_obj, meta, dual_client, simple_client) -> None:
-        d._test_deliver_calls.append(str(target))
-        outcome = d._test_outcomes.get(str(target), "ok")
+    def _deliver_one_target(self_target_router, *, env, sid, target, targets_obj, meta, dual_client, simple_client) -> None:
+        d._test_deliver_calls.append(target)
+        outcome = d._test_outcomes.get(target, "ok")
         if outcome == "ok":
             return
         if outcome == "transient":
             raise TransientError(f"transient:{target}")
         raise PermanentError(f"permanent:{target}")
 
-    d._deliver_one_target = _deliver_one_target
+    import services.dispatch.target_router as tr_mod
+    monkeypatch.setattr(tr_mod.TargetRouter, "deliver_one_target", _deliver_one_target)
+
+    # Mock classification in target_router too.
+    monkeypatch.setattr(tr_mod, "is_transient_error", lambda e: isinstance(e, TransientError))
 
     # Retry/DLQ sinks.
     def _schedule_target_retry(*, target: str, sid: str, env: dict[str, Any], attempt: int, last_error: str) -> None:
-        d._test_retry_calls.append((str(target), int(attempt), str(last_error)))
+        d._test_retry_calls.append((target, attempt, last_error))
 
     def _send_target_dlq(target: str, sid: str, env: dict[str, Any], *, reason: str, err: str) -> None:
-        d._test_dlq_calls.append((str(target), reason, str(err)))
+        d._test_dlq_calls.append((target, reason, err))
 
     d._schedule_target_retry = _schedule_target_retry
     d._send_target_dlq = _send_target_dlq
@@ -188,8 +205,8 @@ def test_deliver_targets_contract(monkeypatch: pytest.MonkeyPatch, scenarios) ->
     d._deliver_targets_with_retry(env, sid, targets=list(targets), _trace=trace)
 
     # Expected attempted targets
-    attempted = [t for t in targets if not bool(markers.get(t, False))]
-    skipped = [t for t in targets if bool(markers.get(t, False))]
+    attempted = [t for t in targets if not markers.get(t, False)]
+    skipped = [t for t in targets if markers.get(t, False)]
 
     # Deliver called exactly for attempted targets
     assert sorted(d._test_deliver_calls) == sorted(attempted)
@@ -199,10 +216,10 @@ def test_deliver_targets_contract(monkeypatch: pytest.MonkeyPatch, scenarios) ->
     assert isinstance(attempts1, dict)
 
     for t in skipped:
-        assert int(attempts1.get(t, 0) or 0) == int(attempts0.get(t, 0) or 0)
-
+        assert attempts1.get(t, 0) == attempts0.get(t, 0)
+    
     for t in attempted:
-        assert int(attempts1.get(t, 0) or 0) == int(attempts0.get(t, 0) or 0) + 1
+        assert attempts1.get(t, 0) == attempts0.get(t, 0) + 1
 
     # Retry calls: all failures among attempted
     retry_calls: list[tuple[str, int, str]] = list(d._test_retry_calls)
@@ -219,16 +236,16 @@ def test_deliver_targets_contract(monkeypatch: pytest.MonkeyPatch, scenarios) ->
     assert got_dlq_targets == expected_failed_permanent
 
     # Done marker semantics
-    any_failure = bool(expected_failed_transient or expected_failed_permanent)
-    done_sets = [c for c in d.redis.set_calls if (c.get("key")).startswith("done:sid:")]
+    any_failure = expected_failed_transient or expected_failed_permanent
+    done_sets = [c for c in d.redis.set_calls if (c.get("key", "")).startswith("done:sid:")]  # type: ignore[attr-defined]
     if any_failure:
         assert done_sets == []
     else:
         assert len(done_sets) == 1
         call = done_sets[0]
         assert call["key"] == f"done:sid:{sid}"
-        assert call["nx"] is True
-        assert int(call["ex"] or 0) == int(d.delivery_marker_ttl_sec)
+        print("NX_VAL:", call); assert call["nx"] is True
+        assert (call["ex"] or 0) == d.delivery_marker_ttl_sec
 
 
 def test_trace_summary_loaded_from_sidecar_if_missing(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -266,5 +283,5 @@ def test_forced_attempt_applies_to_first_target_only(monkeypatch: pytest.MonkeyP
     )
 
     # first target forced to 7, second target normal => 1
-    assert int(env["attempts"]["notify"]) == 7
-    assert int(env["attempts"]["audit"]) == 1
+    assert env["attempts"]["notify"] == 7
+    assert env["attempts"]["audit"] == 1

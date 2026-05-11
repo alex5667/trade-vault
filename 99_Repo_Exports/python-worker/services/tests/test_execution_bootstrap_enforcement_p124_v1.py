@@ -25,25 +25,25 @@ import urllib.request
 # ---------------------------------------------------------------------------
 worker_mod_path = Path(__file__).parent.parent / 'execution_projection_worker.py'
 worker_spec = importlib.util.spec_from_file_location('execution_projection_worker_p124', worker_mod_path)
-worker_mod = importlib.util.module_from_spec(worker_spec)
-sys.modules[worker_spec.name] = worker_mod
-assert worker_spec.loader is not None
-worker_spec.loader.exec_module(worker_mod)
-
+worker_mod = importlib.util.module_from_spec(worker_spec)  # type: ignore
+sys.modules[worker_spec.name] = worker_mod  # type: ignore
+assert worker_spec.loader is not None  # type: ignore
+worker_spec.loader.exec_module(worker_mod)  # type: ignore
+  # type: ignore
 sup_mod_path = Path(__file__).parent.parent / 'execution_bootstrap_supervisor.py'
 sup_spec = importlib.util.spec_from_file_location('execution_bootstrap_supervisor_p124', sup_mod_path)
-sup_mod = importlib.util.module_from_spec(sup_spec)
-sys.modules[sup_spec.name] = sup_mod
-assert sup_spec.loader is not None
-sup_spec.loader.exec_module(sup_mod)
-
+sup_mod = importlib.util.module_from_spec(sup_spec)  # type: ignore
+sys.modules[sup_spec.name] = sup_mod  # type: ignore
+assert sup_spec.loader is not None  # type: ignore
+sup_spec.loader.exec_module(sup_mod)  # type: ignore
+  # type: ignore
 health_mod_path = Path(__file__).parent.parent / 'execution_bootstrap_health_server.py'
 health_spec = importlib.util.spec_from_file_location('execution_bootstrap_health_server_p124', health_mod_path)
-health_mod = importlib.util.module_from_spec(health_spec)
-sys.modules[health_spec.name] = health_mod
-assert health_spec.loader is not None
-health_spec.loader.exec_module(health_mod)
-
+health_mod = importlib.util.module_from_spec(health_spec)  # type: ignore
+sys.modules[health_spec.name] = health_mod  # type: ignore
+assert health_spec.loader is not None  # type: ignore
+health_spec.loader.exec_module(health_mod)  # type: ignore
+  # type: ignore
 
 # ---------------------------------------------------------------------------
 # Minimal in-memory Redis double (no external dependencies)

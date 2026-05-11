@@ -90,9 +90,9 @@ def export_mixed_bundle(
 
             for row in cur.fetchall():
                 # Serialize dates
-                for k, v in row.items():
+                for k, v in row.items():  # type: ignore
                     if isinstance(v, datetime):
-                        row[k] = v.isoformat()
+                        row[k] = v.isoformat()  # type: ignore
                 bundle_row = {"_type": "closed_trades", "data": dict(row)}
                 f.write(json.dumps(bundle_row) + "\n")
                 row_count += 1

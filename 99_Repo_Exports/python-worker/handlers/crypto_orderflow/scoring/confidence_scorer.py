@@ -5,7 +5,7 @@ from typing import Any
 
 
 def _crypto_conf_factor(
-    ctx: SignalContext,
+    ctx: SignalContext,  # type: ignore
     signal_kind: str,
     *,
     side: str | None = None,

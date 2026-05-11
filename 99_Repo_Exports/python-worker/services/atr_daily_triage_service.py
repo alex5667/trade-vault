@@ -224,10 +224,10 @@ class ATRDailyTriageService:
                 })
         return actions
 
-    def build_daily_triage_board(self, conn, r, day_start: datetime, custom_metrics: dict = None) -> dict:
+    def build_daily_triage_board(self, conn, r, day_start: datetime, custom_metrics: dict = None) -> dict:  # type: ignore
         if not self.enable:
             logger.info("Daily Triage Board skipped, enable=False")
-            return None
+            return None  # type: ignore
 
         board_id = self.generate_board_id(day_start)
         all_metrics = {}

@@ -220,7 +220,7 @@ def _infer_jsonl_features(path: str, patterns: Sequence[str], max_rows: int = 10
     return sorted(seen)
 
 
-def _load_wide_table(path: str) -> pd.DataFrame:
+def _load_wide_table(path: str) -> pd.DataFrame:  # type: ignore
     if pd is None:
         raise RuntimeError("pandas is required for csv/parquet feature drift inputs")
     p = str(path).lower()

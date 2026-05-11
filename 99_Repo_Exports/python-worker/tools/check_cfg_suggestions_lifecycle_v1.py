@@ -10,12 +10,13 @@ import json
 import os
 import sys
 
-import redis
+import redis.asyncio as redis
+import asyncio
 
 from tools.cfg_suggestions_lifecycle import check_suggestions_health
 
 
-def main():
+async def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--prefix", default=os.getenv("CFG_SUGGESTIONS_PREFIX", "cfg:suggestions:entry_policy"))
     ap.add_argument("--kind", default=os.getenv("CFG_SUGGESTIONS_KIND", "meta_freeze"))
@@ -31,7 +32,7 @@ def main():
         r = redis.Redis.from_url(redis_url, decode_responses=True)
         scopes = [s.strip() for s in args.scopes.split(",") if s.strip()]
 
-        summary, alerts = check_suggestions_health(
+        summary, alerts = await check_suggestions_health(
             r,
             prefix=args.prefix,
             kind=args.kind,
@@ -60,5 +61,8 @@ def main():
             print(f"ERROR: {e}")
         sys.exit(2)
 
+    finally:
+        await r.close()
+
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())

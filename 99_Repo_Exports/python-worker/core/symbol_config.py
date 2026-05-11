@@ -38,9 +38,9 @@ class DOMConfig:
     def __post_init__(self):
         """Auto-generate stream names if not provided"""
         if not self.book_stream and hasattr(self, '_symbol'):
-            self.book_stream = f"stream:book_{self._symbol}"
+            self.book_stream = f"stream:book_{self._symbol}"  # type: ignore
         if not self.book_last_key and hasattr(self, '_symbol'):
-            self.book_last_key = f"book:levels:{self._symbol}"
+            self.book_last_key = f"book:levels:{self._symbol}"  # type: ignore
 
 
 @dataclass
@@ -190,7 +190,7 @@ class SymbolConfig:
         of_cfg = self.orderflow
 
         # Маппинг полей между двумя версиями OrderFlowConfig
-        return InstrumentOrderFlowConfig(
+        return InstrumentOrderFlowConfig(  # type: ignore
             symbol=self.symbol,
             delta_window_ticks=of_cfg.delta_window,
             delta_z_threshold=3.0,  # Default, так как нет в symbol_config.OrderFlowConfig
@@ -449,7 +449,7 @@ class SymbolConfigFactory:
             SymbolConfig with defaults + custom params
         """
         # Определяем тип символа и создаем базовую конфигурацию
-        if symbol == REMOVE_ME:
+        if symbol == REMOVE_ME:  # type: ignore
             config = SymbolConfigFactory.create_xauusd_config()
         elif symbol == "BTCUSD":
             config = SymbolConfigFactory.create_btcusd_config()

@@ -460,7 +460,7 @@ class BinanceOrphanOrderCleanupWorker:
                 # Position exists → check protection instead
                 if self.protection_check:
                     alert = self._check_protection(
-                        symbol, pos, orders, client_label=label
+                        symbol, pos, orders, client_label=label  # type: ignore
                     )
                     if alert:
                         protection_alerts.append(alert)

@@ -103,43 +103,43 @@ class TestBookSanityGate:
     def test_no_flags_no_action(self):
         g = self._gate()
         dec = g.evaluate(indicators={}, symbol="BTCUSDT")
-        assert not dec.apply
-        assert not dec.veto
+        assert not dec.apply  # type: ignore
+        assert not dec.veto  # type: ignore
 
     def test_monitor_mode_no_veto(self):
         g = self._gate(mode="monitor")
         dec = g.evaluate(indicators={"book_sanity_flags": ["crossed_bbo"]}, symbol="BTCUSDT")
-        assert dec.apply
-        assert not dec.veto
+        assert dec.apply  # type: ignore
+        assert not dec.veto  # type: ignore
 
     def test_veto_mode_crossed_bbo(self):
         g = self._gate(mode="veto")
         dec = g.evaluate(indicators={"book_sanity_flags": ["crossed_bbo"]}, symbol="BTCUSDT")
-        assert dec.veto
+        assert dec.veto  # type: ignore
         assert dec.reason_code == "VETO_BOOK_CROSS"
 
     def test_veto_mode_nan(self):
         g = self._gate(mode="veto")
         dec = g.evaluate(indicators={"book_sanity_flags": ["nan_depth"]}, symbol="BTCUSDT")
-        assert dec.veto
+        assert dec.veto  # type: ignore
 
     def test_non_veto_flags_in_veto_mode(self):
         # trade_outside_bbo is NOT in veto_flags set
         g = self._gate(mode="veto")
         dec = g.evaluate(indicators={"book_sanity_flags": ["trade_outside_bbo"]}, symbol="BTCUSDT")
         # trade_outside_bbo is not in _ALLOWED_FLAGS, so it gets filtered
-        assert not dec.veto
+        assert not dec.veto  # type: ignore
 
     def test_csv_flags_parsing(self):
         g = self._gate(mode="veto")
         dec = g.evaluate(indicators={"book_sanity_flags": "crossed_bbo,nan_px"}, symbol="BTCUSDT")
-        assert dec.veto
+        assert dec.veto  # type: ignore
 
     def test_disabled_gate_no_action(self):
         g = BookSanityGate(enabled=False, mode="veto")
         dec = g.evaluate(indicators={"book_sanity_flags": ["crossed_bbo"]}, symbol="X")
-        assert not dec.apply
-        assert not dec.veto
+        assert not dec.apply  # type: ignore
+        assert not dec.veto  # type: ignore
 
     def test_trade_outside_bbo_optional_veto(self):
         """When veto_trade_outside_bbo=True, a trade outside BBO in veto mode must veto."""
@@ -148,7 +148,7 @@ class TestBookSanityGate:
             indicators={"trade_outside_bbo": 1, "trade_outside_bbo_dist_bps": 5.0},
             symbol="BTCUSDT",
         )
-        assert dec.veto
+        assert dec.veto  # type: ignore
         assert dec.reason_code == "VETO_TRADE_OUTSIDE_BBO"
 
     def test_trade_outside_bbo_below_threshold_no_veto(self):
@@ -159,4 +159,4 @@ class TestBookSanityGate:
             symbol="BTCUSDT",
         )
         # dist_bps (2.0) < threshold (10.0) → no veto
-        assert not dec.veto
+        assert not dec.veto  # type: ignore

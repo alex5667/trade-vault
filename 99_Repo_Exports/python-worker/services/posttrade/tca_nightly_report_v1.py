@@ -41,7 +41,7 @@ def _env_float(name: str, default: str) -> float:
     try:
         return float(_env(name, default))
     except Exception:
-        return default
+        return default  # type: ignore
 
 
 def pick_dsn() -> str:
@@ -190,11 +190,11 @@ def build_report(*, rows_24h: Sequence[dict[str, Any]], rows_7d: Sequence[dict[s
     max_eff = _f(thresholds.get('max_eff_spread_p95_bps'), 0.0),
 
     def _breach_counts(rows: Sequence[dict[str, Any]]) -> dict[str, int]:
-        return {
+        return {  # type: ignore
             'is_p95': int(sum(1 for r in rows if _f(r.get('is_p95_bps'), 0.0) >= max_is)) if max_is > 0 else 0,
             'perm_impact_p95': int(sum(1 for r in rows if _f(r.get('perm_impact_1s_p95_bps'), 0.0) >= max_imp)) if max_imp > 0 else 0,
-            'realized_spread_p50': int(sum(1 for r in rows if _f(r.get('realized_spread_1s_p50_bps'), 0.0) <= min_rs)),
-            'eff_spread_p95': int(sum(1 for r in rows if _f(r.get('eff_spread_p95_bps'), 0.0) >= max_eff)) if max_eff > 0 else 0,
+            'realized_spread_p50': int(sum(1 for r in rows if _f(r.get('realized_spread_1s_p50_bps'), 0.0) <= min_rs)),  # type: ignore
+            'eff_spread_p95': int(sum(1 for r in rows if _f(r.get('eff_spread_p95_bps'), 0.0) >= max_eff)) if max_eff > 0 else 0,  # type: ignore
         },
 
     b24 = _breach_counts(rows_24h),

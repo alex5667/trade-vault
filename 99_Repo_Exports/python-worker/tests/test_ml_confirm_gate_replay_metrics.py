@@ -120,7 +120,7 @@ def test_apply_selective_band(gate):
     gate._conf_min = 0.0
 
     dec = MLConfirmDecision(
-        mode="ENFORCE",
+        mode="ENFORCE", effective_mode="ENFORCE",
         allow=False,
         p_edge=0.56,
         p_min=0.55,
@@ -144,7 +144,7 @@ def test_apply_selective_lowconf(gate):
     gate._conf_min = 0.2
 
     dec = MLConfirmDecision(
-        mode="ENFORCE",
+        mode="ENFORCE", effective_mode="ENFORCE",
         allow=False,
         p_edge=0.56,
         p_min=0.55,
@@ -176,7 +176,7 @@ def test_emit_metrics_enabled(gate):
     gate._metrics_stream = RS.ML_CONFIRM_METRICS
 
     dec = MLConfirmDecision(
-        mode="ENFORCE",
+        mode="ENFORCE", effective_mode="ENFORCE",
         allow=True,
         kind="util_mh_v1",
         p_edge=0.6,
@@ -212,8 +212,8 @@ def test_emit_metrics_enabled(gate):
     assert call_args[0][0] == RS.ML_CONFIRM_METRICS
     fields = call_args[0][1]
     assert fields["symbol"] == "BTCUSDT"
-    assert fields["allow"] == 1
-    assert fields["abstain"] == 0
+    assert int(fields["allow"]) == 1
+    assert int(fields["abstain"]) == 0
     assert fields["status"] == "ALLOW"
     assert "latency_us" in fields
     assert "latency_ms" in fields
@@ -242,7 +242,7 @@ def test_capture_replay_input_enabled(gate):
     }
 
     dec = MLConfirmDecision(
-        mode="ENFORCE",
+        mode="ENFORCE", effective_mode="ENFORCE",
         allow=True,
         model_run_id="test_run",
     )
@@ -350,7 +350,7 @@ def test_check_latency_tracking(gate):
 def test_decision_to_dict_includes_new_fields():
     """Test that to_dict() includes new fields."""
     dec = MLConfirmDecision(
-        mode="ENFORCE",
+        mode="ENFORCE", effective_mode="ENFORCE",
         allow=True,
         p_edge=0.6,
         p_min=0.55,

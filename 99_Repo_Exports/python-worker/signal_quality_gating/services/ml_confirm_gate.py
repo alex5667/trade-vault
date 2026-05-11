@@ -547,7 +547,16 @@ def cache_ml_decision(
             except ImportError:
                 asyncio.create_task(r.set(key, payload_str, ex=ttl_sec))
         else:
-            r.set(key, payload_str, ex=ttl_sec)
+            def _sync_set():
+                try:
+                    r.set(key, payload_str, ex=ttl_sec)
+                except Exception:
+                    pass
+            try:
+                loop = asyncio.get_running_loop()
+                loop.run_in_executor(None, _sync_set)
+            except RuntimeError:
+                _sync_set()
     except Exception:
         # Fail-open: don't break decision flow if cache write fails
         pass
@@ -1620,7 +1629,16 @@ class MLConfirmGate:
                 except ImportError:
                     asyncio.create_task(redis.xadd(self._metrics_stream, payload, maxlen=self._metrics_maxlen, approximate=True))
             else:
-                redis.xadd(self._metrics_stream, payload, maxlen=self._metrics_maxlen, approximate=True)
+                def _sync_xadd():
+                    try:
+                        redis.xadd(self._metrics_stream, payload, maxlen=self._metrics_maxlen, approximate=True)
+                    except Exception:
+                        pass
+                try:
+                    loop = asyncio.get_running_loop()
+                    loop.run_in_executor(None, _sync_xadd)
+                except RuntimeError:
+                    _sync_xadd()
         except Exception as e:
             # Increment error metric and rate-limited log
             if METRICS_REGISTRY_AVAILABLE:
@@ -1690,14 +1708,36 @@ class MLConfirmGate:
                 "conf": float(dec.conf or 0.0),
                 "missing_n": int(len(dec.missing or [])),
             })
-            self.r.xadd(self._replay_stream, {
+            payload_dict = {
                 "ts_ms": str(int(ts_ms)),
                 "symbol": symbol.upper(),
                 "scenario_v4": str(scenario),
                 "sid": str(sid),  # Added for deterministic replay
                 "model_run_id": str(dec.model_run_id or ""),
                 "payload": json.dumps(payload, ensure_ascii=False, separators=(",", ":")),
-            }, maxlen=self._replay_maxlen, approximate=True)
+            }
+            try:
+                import asyncio
+                is_async = "aioredis" in type(self.r).__module__ or "asyncio" in type(self.r).__module__ or (hasattr(self.r.xadd, "__call__") and asyncio.iscoroutinefunction(self.r.xadd))
+                if is_async:
+                    try:
+                        from utils.task_manager import safe_create_task
+                        safe_create_task(self.r.xadd(self._replay_stream, payload_dict, maxlen=self._replay_maxlen, approximate=True))
+                    except ImportError:
+                        asyncio.create_task(self.r.xadd(self._replay_stream, payload_dict, maxlen=self._replay_maxlen, approximate=True))
+                else:
+                    def _sync_xadd_replay():
+                        try:
+                            self.r.xadd(self._replay_stream, payload_dict, maxlen=self._replay_maxlen, approximate=True)
+                        except Exception:
+                            pass
+                    try:
+                        loop = asyncio.get_running_loop()
+                        loop.run_in_executor(None, _sync_xadd_replay)
+                    except RuntimeError:
+                        _sync_xadd_replay()
+            except Exception:
+                pass
         except Exception as e:
             # Increment error metric and rate-limited log
             if METRICS_REGISTRY_AVAILABLE:

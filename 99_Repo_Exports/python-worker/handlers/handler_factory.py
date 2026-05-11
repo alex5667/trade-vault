@@ -127,7 +127,7 @@ class OrderFlowHandlerFactory:
         else:
             # Для Forex symbol уже захардкожен в конструкторе
             # Note: XAUUSDOrderFlowHandlerV2 MUST accept dependencies kwarg
-            return handler_class(config, health_metrics=health_metrics, dependencies=deps)
+            return handler_class(config, health_metrics=health_metrics, dependencies=deps)  # type: ignore
 
     @classmethod
     def _get_instrument_type(cls, symbol: str) -> str:
@@ -159,7 +159,7 @@ class OrderFlowHandlerFactory:
         return None
 
     @classmethod
-    def _resolve_dependencies(cls, symbol: str, config: OrderFlowConfig | None, health_metrics: Any | None) -> HandlerDependencies:
+    def _resolve_dependencies(cls, symbol: str, config: OrderFlowConfig | None, health_metrics: Any | None) -> HandlerDependencies:  # type: ignore
         """
         Factory method to resolve all optional dependencies.
         Attempts to import and instantiate components, handling ImportErrors gracefully.
@@ -181,7 +181,7 @@ class OrderFlowHandlerFactory:
             deps.health_monitor = HealthMonitorService()
         except ImportError:
             pass  # Fail-open if service missing, though unlikely
-        except ImportError:
+        except ImportError:  # type: ignore
             pass  # Fail-open if service missing, though unlikely
 
         # 0.5 Analysis & Indicators

@@ -224,7 +224,7 @@ def _make_dispatcher(redis_override=None, dual_redis=None):
         from services.signal_outbox_dispatcher import SignalDispatcher
         d = SignalDispatcher()
         # Replace SCHEMA_VERSION with the test envelope's version
-        d._schema_version_override = "1"
+        d._schema_version_override = "1"  # type: ignore
         return d, rq, da, lease
 
 
@@ -247,7 +247,7 @@ class TestConnectionErrorIsTransient:
         msg_id = "1700000000000-0"
 
         with patch.object(d, "_is_transient", return_value=True):
-            result = d._handle_one(msg_id, fields, helper=helper, attempt_hint=0)
+            result = d._handle_one(msg_id, fields, helper=helper, attempt_hint=0)  # type: ignore
 
         # Must not ACK — will be retried
         assert result is False
@@ -266,7 +266,7 @@ class TestConnectionErrorIsTransient:
 
         with patch.object(d, "_is_transient", return_value=True):
             with patch.object(d, "_bump_attempt", return_value=1):  # attempt < max
-                result = d._handle_one("MSG-001", fields, helper=helper, attempt_hint=0)
+                result = d._handle_one("MSG-001", fields, helper=helper, attempt_hint=0)  # type: ignore
 
         assert result is False
         # DLQ stream must be EMPTY
@@ -293,7 +293,7 @@ class TestNoScriptError:
         fields = _make_fields()
 
         with patch("services.signal_outbox_dispatcher.is_transient_error", return_value=True):
-            result = d._handle_one("MSG-NOSCRIPT", fields, helper=helper, attempt_hint=0)
+            result = d._handle_one("MSG-NOSCRIPT", fields, helper=helper, attempt_hint=0)  # type: ignore
 
         assert result is False
         rq.schedule.assert_called()
@@ -309,7 +309,7 @@ class TestNoScriptError:
 
         with patch("services.signal_outbox_dispatcher.is_transient_error", return_value=True):
             with patch.object(d, "_bump_attempt", return_value=2):  # still below max
-                d._handle_one("MSG-NS2", fields, helper=helper, attempt_hint=0)
+                d._handle_one("MSG-NS2", fields, helper=helper, attempt_hint=0)  # type: ignore
 
         assert fake_redis._streams.get(d.dlq_stream, []) == []
 
@@ -333,7 +333,7 @@ class TestTimeoutIsTransient:
         fields = _make_fields()
 
         with patch.object(d, "_is_transient", return_value=True):
-            result = d._handle_one("MSG-TO", fields, helper=helper, attempt_hint=0)
+            result = d._handle_one("MSG-TO", fields, helper=helper, attempt_hint=0)  # type: ignore
 
         assert result is False
         rq.schedule.assert_called()
@@ -353,7 +353,7 @@ class TestTimeoutIsTransient:
 
         with patch("services.signal_outbox_dispatcher.is_transient_error", return_value=True):
             with patch.object(d, "_bump_attempt", return_value=d.max_attempts + 1):
-                result = d._handle_one("MSG-TO-MAX", fields, helper=helper, attempt_hint=0)
+                result = d._handle_one("MSG-TO-MAX", fields, helper=helper, attempt_hint=0)  # type: ignore
 
         # DLQ entry written
         assert len(fake_redis._streams.get(d.dlq_stream, [])) >= 1
@@ -450,7 +450,7 @@ class TestXClaimFailure:
         helper = _FakeStreamHelper()
 
         with patch.object(d, "_is_transient", return_value=True):
-            d._process_retry_due(helper)
+            d._process_retry_due(helper)  # type: ignore
 
         # Must reschedule (not cancel)
         rq.schedule.assert_called()
@@ -477,7 +477,7 @@ class TestLeaseContention:
         fields = _make_fields()
 
         before = DISPATCHER_LEASE_CONTENTION.labels(consumer=d.consumer)._value.get()
-        result = d._handle_one("MSG-LEASE", fields, helper=helper, attempt_hint=0)
+        result = d._handle_one("MSG-LEASE", fields, helper=helper, attempt_hint=0)  # type: ignore
         after = DISPATCHER_LEASE_CONTENTION.labels(consumer=d.consumer)._value.get()
 
         assert result is False
@@ -491,7 +491,7 @@ class TestLeaseContention:
 
         helper = _FakeStreamHelper()
         fields = _make_fields()
-        d._handle_one("MSG-LEASE2", fields, helper=helper, attempt_hint=0)
+        d._handle_one("MSG-LEASE2", fields, helper=helper, attempt_hint=0)  # type: ignore
 
         rq.schedule.assert_called_once()
 
@@ -514,7 +514,7 @@ class TestSchemaMismatch:
         helper = _FakeStreamHelper()
         fields = _make_fields(schema_version="99")
 
-        result = d._handle_one("MSG-SCHEMA", fields, helper=helper, attempt_hint=0)
+        result = d._handle_one("MSG-SCHEMA", fields, helper=helper, attempt_hint=0)  # type: ignore
 
         # Must return True (ACKed, not retried)
         assert result is True
@@ -531,7 +531,7 @@ class TestSchemaMismatch:
 
         helper = _FakeStreamHelper()
         fields = _make_fields(schema_version="999")
-        d._handle_one("MSG-BAD-SCHEMA", fields, helper=helper, attempt_hint=0)
+        d._handle_one("MSG-BAD-SCHEMA", fields, helper=helper, attempt_hint=0)  # type: ignore
 
         da.xadd_once.assert_not_called()
 
@@ -545,7 +545,7 @@ class TestSchemaMismatch:
         env = {"schema_version": "1", "targets": {}}
         fields = {"data": json.dumps(env)}
 
-        result = d._handle_one("MSG-NO-SID", fields, helper=helper, attempt_hint=0)
+        result = d._handle_one("MSG-NO-SID", fields, helper=helper, attempt_hint=0)  # type: ignore
 
         assert result is True
         assert "MSG-NO-SID" in fake_redis.xack_calls
@@ -565,7 +565,7 @@ class TestBadEnvelope:
         helper = _FakeStreamHelper()
         fields = {"data": "}{NOT JSON}{"}
 
-        result = d._handle_one("MSG-BAD-JSON", fields, helper=helper, attempt_hint=0)
+        result = d._handle_one("MSG-BAD-JSON", fields, helper=helper, attempt_hint=0)  # type: ignore
 
         assert result is True
         assert "MSG-BAD-JSON" in fake_redis.xack_calls
@@ -576,6 +576,6 @@ class TestBadEnvelope:
         d, rq, da, lease = _make_dispatcher(redis_override=fake_redis)
 
         helper = _FakeStreamHelper()
-        result = d._handle_one("MSG-EMPTY", {}, helper=helper, attempt_hint=0)
+        result = d._handle_one("MSG-EMPTY", {}, helper=helper, attempt_hint=0)  # type: ignore
 
         assert result is True

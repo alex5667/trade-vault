@@ -9,12 +9,12 @@ root = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(root))
 sys.path.insert(0, str(root / 'services'))
 policy_spec = importlib.util.spec_from_file_location('services.active_symbol_guard_incident_policy_p11_notifier', root / 'services' / 'active_symbol_guard_incident_policy.py')
-policy_mod = importlib.util.module_from_spec(policy_spec)
-assert policy_spec and policy_spec.loader
+policy_mod = importlib.util.module_from_spec(policy_spec)  # type: ignore
+assert policy_spec and policy_spec.loader  # type: ignore
 policy_spec.loader.exec_module(policy_mod)
 notifier_spec = importlib.util.spec_from_file_location('services.active_symbol_guard_incident_notifier_p11', root / 'services' / 'active_symbol_guard_incident_notifier.py')
-notifier_mod = importlib.util.module_from_spec(notifier_spec)
-assert notifier_spec and notifier_spec.loader
+notifier_mod = importlib.util.module_from_spec(notifier_spec)  # type: ignore
+assert notifier_spec and notifier_spec.loader  # type: ignore
 notifier_spec.loader.exec_module(notifier_mod)
 
 

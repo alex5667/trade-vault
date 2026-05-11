@@ -1,6 +1,6 @@
 import time
 from typing import Any
-from core.redis_stream_consumer import SyncRedisStreamHelper
+from core.redis_stream_consumer import AsyncRedisStreamHelper
 from services.dispatcher.observability import sd_fail_open
 
 
@@ -14,9 +14,10 @@ class DispatchMetrics:
         self._last_diag = 0.0
         self._last_diag_mono = 0.0
 
-    def pending_oldest_idle_ms(self) -> int:
+    async def pending_oldest_idle_ms(self) -> int:
         try:
-            rows = self.redis.execute_command("XPENDING", self.config.outbox_stream, self.config.group, "-", "+", 1)
+            # XPENDING returns raw list in async redis too
+            rows = await self.redis.execute_command("XPENDING", self.config.outbox_stream, self.config.group, "-", "+", 1)
         except Exception:
             return -1
         if not isinstance(rows, list) or not rows:
@@ -29,9 +30,9 @@ class DispatchMetrics:
         except Exception:
             return -1
 
-    def pending_by_consumer(self, limit: int = 50) -> dict[str, int]:
+    async def pending_by_consumer(self, limit: int = 50) -> dict[str, int]:
         try:
-            rows = self.redis.execute_command("XPENDING", self.config.outbox_stream, self.config.group, "-", "+", int(limit))
+            rows = await self.redis.execute_command("XPENDING", self.config.outbox_stream, self.config.group, "-", "+", int(limit))
         except Exception:
             return {}
         out: dict[str, int] = {}
@@ -43,18 +44,18 @@ class DispatchMetrics:
                 out[consumer] = out.get(consumer, 0) + 1
         return out
 
-    def emit_metrics(self, helper: SyncRedisStreamHelper) -> None:
+    async def emit_metrics(self, helper: AsyncRedisStreamHelper) -> None:
         try:
-            outbox_len = int(self.redis.xlen(self.config.outbox_stream))
+            outbox_len = int(await self.redis.xlen(self.config.outbox_stream))
         except Exception:
             outbox_len = -1
         try:
-            pending = int(helper.pending_len(self.config.outbox_stream))
+            pending = int(await helper.pending_len(self.config.outbox_stream))
         except Exception:
             pending = -1
 
-        by_consumer = self.pending_by_consumer(limit=50)
-        oldest_idle = self.pending_oldest_idle_ms()
+        by_consumer = await self.pending_by_consumer(limit=50)
+        oldest_idle = await self.pending_oldest_idle_ms()
 
         self.logger.info(
             "outbox metrics: len=%s pending=%s oldest_idle_ms=%s read_count=%d block_ms=%d claim_idle_ms=%d ctr=%s pending_by_consumer=%s",
@@ -68,17 +69,17 @@ class DispatchMetrics:
             by_consumer,
         )
 
-    def diag(self, helper: SyncRedisStreamHelper) -> None:
+    async def diag(self, helper: AsyncRedisStreamHelper) -> None:
         now = time.monotonic()
         if now - self._last_diag < self.config.outbox_diag_every_sec:
             return
         self._last_diag = now
         try:
-            info = helper.pending_details(self.config.outbox_stream)
-            pending = int(info.get("pending", 0) or 0)
+            info = await helper.pending_details(self.config.outbox_stream)  # type: ignore
+            pending = int(info.get("pending", 0) or 0)  # type: ignore
             cons = info.get("consumers") or []
-            oldest_idle = helper.pending_oldest_idle_ms(self.config.outbox_stream, sample=1)
-            self.logger.info(
+            oldest_idle = await helper.pending_oldest_idle_ms(self.config.outbox_stream)  # type: ignore
+            self.logger.info(  # type: ignore
                 "outbox pending=%d oldest_idle_ms=%d consumers=%s ctr=%s",
                 pending,
                 oldest_idle,
@@ -96,39 +97,20 @@ class DispatchMetrics:
                 metric_key=f"{self.config.metrics_prefix}:outbox_pending_by_consumer_metrics_errors_total",
             )
 
-    def maybe_log_diagnostics(self, helper: SyncRedisStreamHelper) -> None:
+    async def maybe_log_diagnostics(self, helper: AsyncRedisStreamHelper) -> None:
         now = time.monotonic()
         if now - self._last_diag_mono < float(self.config.diag_every_sec):
             return
         self._last_diag_mono = now
         try:
-            p = helper.pending_len(self.config.outbox_stream)
-            by = helper.pending_by_consumer(self.config.outbox_stream)
-            self.logger.info("outbox_pending=%s pending_by_consumer=%s", p, dict(by) if by else {})
-        except Exception as e:
-            self.logger.warning("diagnostics failed: %s", e)
-
-    def maybe_diag_sampled(self, helper: SyncRedisStreamHelper, lease_contention: int, pending_claimed: int) -> None:
-        now = time.monotonic()
-        if (now - self._last_diag_mono) * 1000 < self.config.diag_every_ms:
-            return
-        self._last_diag_mono = now
-        try:
-            pend = helper.pending_len(self.config.outbox_stream)
-            by_cons = helper.pending_by_consumer(self.config.outbox_stream)
+            p = await helper.pending_len(self.config.outbox_stream)
+            by = await helper.pending_by_consumer(self.config.outbox_stream)  # type: ignore
+            self.logger.info("outbox_pending=%s pending_by_consumer=%s", p, dict(by) if by else {})  # type: ignore
         except Exception:
-            pend, by_cons = 0, {}
+            pass
 
-        payload = {
-            "pending": int(pend),
-            "pending_by_consumer": dict(by_cons or {}),
-            "lease_contention": int(lease_contention),
-            "claimed_pending": int(pending_claimed),
-        }
-        self.logger.info("metrics %s", payload)
-
-    def tick_metrics(self, helper: SyncRedisStreamHelper) -> None:
+    async def tick_metrics(self, helper: AsyncRedisStreamHelper) -> None:
         now = time.monotonic()
         if now - self._last_metrics_mono >= float(self.config.metrics_every_sec):
             self._last_metrics_mono = now
-            self.emit_metrics(helper)
+            await self.emit_metrics(helper)

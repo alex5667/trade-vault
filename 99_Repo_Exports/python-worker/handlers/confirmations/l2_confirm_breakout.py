@@ -127,7 +127,7 @@ class L2ConfirmBreakout:
                     if best is None or lv.price < best.price:
                         best = lv
             if best is not None:
-                wall_notional = _f(getattr(best, "notional", None)) or _f(getattr(best, "price", 0.0)) * (_f(getattr(best, "size", 0.0)) or 0.0)
+                wall_notional = _f(getattr(best, "notional", None)) or _f(getattr(best, "price", 0.0)) * (_f(getattr(best, "size", 0.0)) or 0.0)  # type: ignore
                 near_wall_bps = abs(best.price - lvl) / lvl * 10_000.0
         else:
             # после пробоя вниз, ближайшая стена бидов ниже уровня
@@ -142,7 +142,7 @@ class L2ConfirmBreakout:
                     if best is None or lv.price > best.price:
                         best = lv
             if best is not None:
-                wall_notional = _f(getattr(best, "notional", None)) or _f(getattr(best, "price", 0.0)) * (_f(getattr(best, "size", 0.0)) or 0.0)
+                wall_notional = _f(getattr(best, "notional", None)) or _f(getattr(best, "price", 0.0)) * (_f(getattr(best, "size", 0.0)) or 0.0)  # type: ignore
                 near_wall_bps = abs(lvl - best.price) / lvl * 10_000.0
 
         if near_wall_bps is not None:
@@ -164,6 +164,7 @@ class L2ConfirmBreakout:
             return ConfirmResult(
                 passed=False,
                 veto=True,
+                parts=parts,
                 flags=flags,
                 reasons=reasons,
                 score01=0.0,

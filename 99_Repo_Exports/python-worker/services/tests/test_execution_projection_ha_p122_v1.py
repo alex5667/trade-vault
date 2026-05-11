@@ -30,7 +30,7 @@ worker_mod_path = Path(__file__).parent.parent / 'execution_projection_worker.py
 worker_spec = importlib.util.spec_from_file_location('execution_projection_worker_p122', worker_mod_path)
 worker_mod = importlib.util.module_from_spec(worker_spec)  # type: ignore[arg-type]
 sys.modules[worker_spec.name] = worker_mod  # type: ignore[index]
-assert worker_spec.loader is not None
+assert worker_spec.loader is not None  # type: ignore
 worker_spec.loader.exec_module(worker_mod)  # type: ignore[union-attr]
 
 # Grab classes from the loaded module
@@ -327,7 +327,7 @@ def test_rebuild_sid_rebuilds_single_sid():
     count = worker.rebuild_sid('sid-rebuild-A')
 
     assert count >= 1
-    state_a = json.loads(r.get('orders:state:sid-rebuild-A'))
+    state_a = json.loads(r.get('orders:state:sid-rebuild-A'))  # type: ignore
     assert state_a['fsm_state'] == 'ENTRY_ACKED'
     # B should not be written
     assert r.get('orders:state:sid-rebuild-B') is None
@@ -348,7 +348,7 @@ def test_rebuild_all_rebuilds_multiple_sids():
     assert counts['sid-all-1'] == 2
     assert counts['sid-all-2'] == 1
 
-    state_1 = json.loads(r.get('orders:state:sid-all-1'))
+    state_1 = json.loads(r.get('orders:state:sid-all-1'))  # type: ignore
     assert state_1['fsm_state'] == 'PROTECTED'
-    state_2 = json.loads(r.get('orders:state:sid-all-2'))
+    state_2 = json.loads(r.get('orders:state:sid-all-2'))  # type: ignore
     assert state_2['fsm_state'] == 'PROTECTED'

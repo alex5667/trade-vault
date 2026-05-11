@@ -431,13 +431,13 @@ class EntryPolicyRegressionService:
                     "hash": _sha1(json.dumps({"day": day, "kind": "suggestions"}, separators=(",", ":"))),
                 }
                 with contextlib.suppress(Exception):
-                    await self.r.xadd(self.acfg.alerts_stream, msg, maxlen=20000, approximate=True)
+                    await self.r.xadd(self.acfg.alerts_stream, msg, maxlen=20000, approximate=True)  # type: ignore
 
             # Store latest suggestions into Redis for approval workflow
             if bool(int(os.getenv("EP_SUGGESTIONS_STORE_REDIS", "1"))):
                 key = os.getenv("EP_SUGGESTIONS_REDIS_KEY", "cfg:suggestions:entry_policy:latest")
                 ttl_sec = int(os.getenv("EP_SUGGESTIONS_TTL_SEC", "604800"))  # 7 days
-                await self.r.set(key, json.dumps(sugg, ensure_ascii=False, separators=(",", ":")), ex=ttl_sec)
+                await self.r.set(key, json.dumps(sugg, ensure_ascii=False, separators=(",", ":")), ex=ttl_sec)  # type: ignore
         except Exception as e:
             print(f"Error in Tuner logic: {e}")
 

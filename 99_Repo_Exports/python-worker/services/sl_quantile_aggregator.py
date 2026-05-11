@@ -6,7 +6,11 @@ SL Quantile Aggregator Service.
 
 Consumes: trades:post_sl (from PostSlAnalyzer)
 Aggregates: post_sl_req_buffer_atr
-Outputs: Redis keys slq:{symbol}:{side}:{regime} -> JSON snapshot
+Outputs: Redis keys with JSON snapshot in 4 cascade levels:
+  - slq:{symbol}:{side}:{scenario}:{regime}:{session}:{vol_bucket}:{liq_bucket}
+  - slq:{symbol}:{side}:{scenario}:{regime}
+  - slq:{symbol}:{side}:{regime}
+  - slq:{symbol}:{side}
 """
 
 import json
@@ -111,7 +115,7 @@ class SlQuantileAggregator:
                 # Returns: [next_start_id, [messages]]
                 # min_idle_time=1000ms (only claim if idle for >1s)
                 try:
-                    res = self.redis.execute_command(
+                    res: Any = self.redis.execute_command(
                         "XAUTOCLAIM", INPUT_STREAM, GROUP_NAME, CONSUMER_NAME, "1000", start_id, "COUNT", "100"
                     )
                 except redis.exceptions.ResponseError as e:
@@ -157,7 +161,7 @@ class SlQuantileAggregator:
 
     def _poll_stream(self):
         try:
-            entries = self.redis.xreadgroup(
+            entries: Any = self.redis.xreadgroup(
                 GROUP_NAME, CONSUMER_NAME, {INPUT_STREAM: ">"}, count=100, block=1000
             )
         except redis.exceptions.ResponseError as e:
@@ -195,6 +199,12 @@ class SlQuantileAggregator:
         """
         Returns True if processed successfully (valid data).
         Returns False if data was invalid/missing critical fields.
+
+        Bucket hierarchy written to Redis (both exact and fallback):
+          slq:{sym}:{side}:{scenario}:{regime}:{session}:{vol_bucket}:{liq_bucket}  (exact)
+          slq:{sym}:{side}:{scenario}:{regime}  (scenario+regime)
+          slq:{sym}:{side}:{regime}  (legacy / primary fallback)
+          slq:{sym}:{side}  (broadest fallback)
         """
         # 1. Strict extraction & normalization
         symbol = (fields.get("symbol", "")).strip().upper()
@@ -203,31 +213,36 @@ class SlQuantileAggregator:
 
         side_raw = (fields.get("side", "")).strip().upper()
         if side_raw not in ("LONG", "SHORT"):
-            # If strictly required -> fail
-            # logger.warning(f"Skipping msg without valid side: {side_raw}")
             return False
 
-        regime = (fields.get("regime", "na")).strip().lower()
-        if not regime:
-            regime = "na"
+        regime   = (fields.get("regime",   "na")).strip().lower() or "na"
+        scenario = (fields.get("scenario", "na")).strip().lower() or "na"
+        session  = (fields.get("session",  "na")).strip().lower() or "na"
+        vol_b    = (fields.get("vol_bucket", "na")).strip().lower() or "na"
+        liq_b    = (fields.get("liq_bucket", "na")).strip().lower() or "na"
 
         # 2. Extract Metrics
         try:
             req_buf = float(fields.get("post_sl_req_buffer_atr", 0.0))
             tp1_hit = int(fields.get("post_sl_tp1_hit", 0))
         except (ValueError, TypeError):
-            # Malformed numbers
             return False
 
         # 3. Data Quality Check (Finite)
         if not np.isfinite(req_buf) or req_buf < 0:
-            # Junk value (e.g. NaN or negative distance? Negative distance shouldn't happen by logic)
             return False
 
-        # 4. Aggregate
-        key = f"{symbol}:{side_raw}:{regime}"
-        self.buckets[key].append(req_buf)
-        self.buckets_hits[key].append(tp1_hit)
+        # 4. Aggregate into ALL relevant bucket levels
+        #    Consumer cascade: exact → scenario+regime → regime → sym+side
+        keys = [
+            f"{symbol}:{side_raw}:{scenario}:{regime}:{session}:{vol_b}:{liq_b}",  # exact
+            f"{symbol}:{side_raw}:{scenario}:{regime}",
+            f"{symbol}:{side_raw}:{regime}",  # legacy primary
+            f"{symbol}:{side_raw}",
+        ]
+        for k in keys:
+            self.buckets[k].append(req_buf)
+            self.buckets_hits[k].append(tp1_hit)
 
         return True
 

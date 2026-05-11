@@ -66,7 +66,7 @@ class WriteBehindBuffer:
 
     def incr(self, key: str, amount: int = 1) -> None:
         """Queue an INCR (or INCRBY). Accumulates for the same key."""
-        self._pending_incr[key] = self._pending_incr.get(key, 0) + amount
+        self._pending_incr[key] = self._pending_incr.get(key, 0) + amount  # type: ignore
         self._maybe_schedule_flush()
 
     def hincrby(self, key: str, field: str, amount: int = 1) -> None:

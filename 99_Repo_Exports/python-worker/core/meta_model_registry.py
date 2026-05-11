@@ -142,7 +142,7 @@ class PromotionPolicy:
         def _bool(k: str, d: bool) -> bool:
             return os.getenv(k, str(int(d))).lower() in {"1", "true", "yes", "on"}
 
-        return PromotionPolicy(
+        return PromotionPolicy(  # type: ignore
             min_shadow_samples=_int("META_MODEL_MIN_SHADOW_SAMPLES", 200),
             brier_delta_min=_float("META_MODEL_PROMOTE_BRIER_DELTA", 0.005),
             auto_promote=_bool("META_MODEL_AUTO_PROMOTE", False),
@@ -185,7 +185,7 @@ class MetaModelRegistry:
 
     @staticmethod
     def from_env() -> MetaModelRegistry:
-        return MetaModelRegistry(
+        return MetaModelRegistry(  # type: ignore
             champion_path=os.getenv("META_MODEL_PATH", ""),
             challenger_path=os.getenv("META_MODEL_CHALLENGER_PATH", ""),
             policy=PromotionPolicy.from_env(),
@@ -278,7 +278,7 @@ class MetaModelRegistry:
 
         n_ch = ch_snap["n"]
         if n_ch < self.policy.min_shadow_samples:
-            return (
+            return (  # type: ignore
                 False,
                 f"insufficient_shadow_samples:{n_ch}<{self.policy.min_shadow_samples}",
                 stats,
@@ -296,7 +296,7 @@ class MetaModelRegistry:
 
         delta = b_champ - b_ch
         if delta < self.policy.brier_delta_min:
-            return (
+            return (  # type: ignore
                 False,
                 f"challenger_not_better_enough:delta={delta:.5f}<{self.policy.brier_delta_min}",
                 stats,

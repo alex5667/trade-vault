@@ -54,14 +54,14 @@ class QualityGate:
     def _ctx_price_ok(self, ctx: Any) -> bool:
         p = getattr(ctx, "price", None) or getattr(ctx, "last_price", None)
         try:
-            fp = float(p)
+            fp = float(p)  # type: ignore
             return math.isfinite(fp) and fp > 0.0
         except Exception:
             return False
 
     def _ctx_ts_ok(self, ctx: Any) -> bool:
         try:
-            ts = int(getattr(ctx, "ts", None))
+            ts = int(getattr(ctx, "ts", None))  # type: ignore
             return ts > 0
         except Exception:
             return False

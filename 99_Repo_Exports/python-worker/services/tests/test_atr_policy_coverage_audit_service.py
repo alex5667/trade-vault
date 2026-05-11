@@ -54,13 +54,13 @@ def test_rule_exists_but_no_enforcement(service, mock_db):
     rule_cov = next((r for r in results if r["dimension"] == "RULE_COVERAGE"), None)
     enf_cov = next((r for r in results if r["dimension"] == "ENFORCEMENT_COVERAGE"), None)
 
-    assert rule_cov["status"] == "covered"
-    assert rule_cov["reason_code"] == "OK"
+    assert rule_cov["status"] == "covered"  # type: ignore
+    assert rule_cov["reason_code"] == "OK"  # type: ignore
 
-    assert enf_cov["status"] == "missing"
-    assert enf_cov["reason_code"] == "NO_ENFORCEMENT"
+    assert enf_cov["status"] == "missing"  # type: ignore
+    assert enf_cov["reason_code"] == "NO_ENFORCEMENT"  # type: ignore
     # For quarantine_gate, NO_ENFORCEMENT is critical
-    assert enf_cov["severity"] == "critical"
+    assert enf_cov["severity"] == "critical"  # type: ignore
 
 def test_no_cert_for_protective_invariant(service, mock_db):
     conn, cur = mock_db
@@ -79,13 +79,13 @@ def test_no_cert_for_protective_invariant(service, mock_db):
     cert_cov = next((r for r in results if r["dimension"] == "CERT_COVERAGE"), None)
     action_cov = next((r for r in results if r["dimension"] == "ROLLBACK_OR_FREEZE_COVERAGE"), None)
 
-    assert cert_cov["status"] == "missing"
-    assert cert_cov["reason_code"] == "NO_CERT"
-    assert cert_cov["severity"] == "critical" # sl_ratchet_invariant with NO_CERT must be critical
+    assert cert_cov["status"] == "missing"  # type: ignore
+    assert cert_cov["reason_code"] == "NO_CERT"  # type: ignore
+    assert cert_cov["severity"] == "critical" # sl_ratchet_invariant with NO_CERT must be critical  # type: ignore
 
-    assert action_cov["status"] == "missing"
-    assert action_cov["reason_code"] == "NO_ACTION_PATH"
-    assert action_cov["severity"] == "critical"
+    assert action_cov["status"] == "missing"  # type: ignore
+    assert action_cov["reason_code"] == "NO_ACTION_PATH"  # type: ignore
+    assert action_cov["severity"] == "critical"  # type: ignore
 
 def test_severity_mapping(service, mock_db):
     # missing order-path action => critical

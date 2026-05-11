@@ -114,10 +114,10 @@ class TrailingService:
         self._condition: Any = None
         if trail_mode == "orchestrator" and _HAS_TRAILING_PROFILES:
             with contextlib.suppress(Exception):
-                self._profiles = TrailingProfilesRegistry()
+                self._profiles = TrailingProfilesRegistry()  # type: ignore
         if trail_mode == "orchestrator" and _HAS_TRAILING_CONDITION and r is not None:
             with contextlib.suppress(Exception):
-                self._condition = TrailingConditionEvaluator(redis_client=r)
+                self._condition = TrailingConditionEvaluator(redis_client=r)  # type: ignore
 
     def _write_event(self, fields: dict[str, Any]) -> None:
         if self._write_event_fn:
@@ -215,13 +215,13 @@ class TrailingService:
         # Cancel old SL
         if old_sl_order_id:
             with contextlib.suppress(Exception):
-                client.cancel_order(sym, order_id=old_sl_order_id)
+                client.cancel_order(sym, order_id=old_sl_order_id)  # type: ignore
 
         # Place new SL
         new_cid = _make_cid(sid, "sl-trail", r)
         sl_qty_str = _format_float(_round_down(qty, sf.step_size), sf.step_size)
         try:
-            sl_resp = client.place_order(
+            sl_resp = client.place_order(  # type: ignore
                 symbol=sym,
                 side=close_side,
                 type="STOP_MARKET",
@@ -284,7 +284,7 @@ class TrailingService:
             params["activationPrice"] = _format_float(activate_price, sf.tick_size)
 
         try:
-            resp = client.place_algo_order(**params)
+            resp = client.place_algo_order(**params)  # type: ignore
             return {
                 "sid": sid, "symbol": sym,
                 "trail_algo_order_id": resp.get("orderId") or resp.get("id"),
@@ -371,7 +371,7 @@ class TrailingService:
         while time.monotonic() < deadline:
             try:
                 mark_resp = client.get_mark_price(symbol)
-                mark = _f(mark_resp.get("markPrice") or mark_resp.get("price"), 0.0)
+                mark = _f(mark_resp.get("markPrice") or mark_resp.get("price"), 0.0)  # type: ignore
                 if mark <= 0:
                     time.sleep(self.trail_arm_poll_s)
                     continue
@@ -439,7 +439,7 @@ class TrailingService:
         while time.monotonic() < deadline:
             try:
                 mark_resp = client.get_mark_price(symbol)
-                mark = _f(mark_resp.get("markPrice") or mark_resp.get("price"), 0.0)
+                mark = _f(mark_resp.get("markPrice") or mark_resp.get("price"), 0.0)  # type: ignore
                 if mark <= 0:
                     time.sleep(self.trail_loop_poll_s)
                     continue

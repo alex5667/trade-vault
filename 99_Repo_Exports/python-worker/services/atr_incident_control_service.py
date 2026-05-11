@@ -162,7 +162,7 @@ def change_status(incident_id: str, new_status: str, actor: str, reason_code: st
             if not row:
                 return False
 
-            old_status = row["status"]
+            old_status = row["status"]  # type: ignore
             # Enforce state machine simplified: OPEN -> ACKED -> MITIGATING -> STABILIZED -> RECOVERING -> RECOVERED -> CLOSED
             valid_forward = {
                 "OPEN": ["ACKED"],
@@ -178,12 +178,12 @@ def change_status(incident_id: str, new_status: str, actor: str, reason_code: st
                 return False
 
             if new_status == "ACKED" and atr_incident_ack_latency_sec:
-                latency = (now_ms - row["opened_at_ms"]) / 1000.0
-                atr_incident_ack_latency_sec.labels(severity=row["severity"]).observe(latency)
+                latency = (now_ms - row["opened_at_ms"]) / 1000.0  # type: ignore
+                atr_incident_ack_latency_sec.labels(severity=row["severity"]).observe(latency)  # type: ignore
 
             if new_status == "MITIGATING" and atr_incident_mitigate_latency_sec:
-                latency = (now_ms - row["opened_at_ms"]) / 1000.0
-                atr_incident_mitigate_latency_sec.labels(severity=row["severity"]).observe(latency)
+                latency = (now_ms - row["opened_at_ms"]) / 1000.0  # type: ignore
+                atr_incident_mitigate_latency_sec.labels(severity=row["severity"]).observe(latency)  # type: ignore
 
             fields_to_update = {"status": new_status, "updated_at_ms": now_ms}
             if new_status == "ACKED":
@@ -220,14 +220,14 @@ def apply_runbook_action(incident_id: str, actor: str) -> bool:
             inc = cur.fetchone()
             if not inc: return False
 
-            cls = inc["incident_class"]
+            cls = inc["incident_class"]  # type: ignore
             cur.execute("SELECT runbook_id, runbook_json FROM atr_incident_runbooks WHERE incident_class = %s AND is_current = true LIMIT 1", (cls,))
             rb = cur.fetchone()
             if not rb:
                 logger.warning(f"No runbook found for {cls}")
                 return False
 
-            manifest = rb["runbook_json"]
+            manifest = rb["runbook_json"]  # type: ignore
             r = get_redis()
 
             # Mock executing actions
@@ -240,10 +240,10 @@ def apply_runbook_action(incident_id: str, actor: str) -> bool:
                 logger.info(f"[ADVISORY MODE] Would apply runbook logic: {action}")
 
             if atr_incident_runbook_apply_total:
-                atr_incident_runbook_apply_total.labels(runbook_id=rb["runbook_id"]).inc()
+                atr_incident_runbook_apply_total.labels(runbook_id=rb["runbook_id"]).inc()  # type: ignore
 
             # Record transition
-            return change_status(incident_id, "MITIGATING", actor, "RUNBOOK_APPLIED", {"runbook_id": rb["runbook_id"]})
+            return change_status(incident_id, "MITIGATING", actor, "RUNBOOK_APPLIED", {"runbook_id": rb["runbook_id"]})  # type: ignore
     except Exception as e:
         logger.error(f"Failed to apply runbook for {incident_id}: {e}")
         return False
@@ -255,7 +255,7 @@ def attach_evidence_pack(incident_id: str, actor: str, evidence: dict) -> bool:
         with get_conn() as conn, conn.cursor(cursor_factory=__import__('psycopg2').extras.RealDictCursor) as cur:
             cur.execute("SELECT status FROM atr_incidents WHERE incident_id = %s FOR UPDATE", (incident_id,))
             st = cur.fetchone()
-            if not st or st["status"] != "RECOVERED":
+            if not st or st["status"] != "RECOVERED":  # type: ignore
                 return False
 
             evidence_id = f"ev_{incident_id}_{now_ms}"
@@ -274,4 +274,4 @@ def attach_evidence_pack(incident_id: str, actor: str, evidence: dict) -> bool:
 def get_open_incidents() -> list[dict[str, Any]]:
     with get_conn() as conn, conn.cursor(cursor_factory=__import__('psycopg2').extras.RealDictCursor) as cur:
         cur.execute("SELECT * FROM atr_incidents WHERE status != 'CLOSED' ORDER BY updated_at_ms DESC")
-        return cur.fetchall()
+        return cur.fetchall()  # type: ignore

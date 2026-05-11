@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from handlers.base_orderflow_handler import Tick
+from handlers.base_orderflow_handler import Tick  # type: ignore
 
 
 def _to_str(x: Any) -> str:

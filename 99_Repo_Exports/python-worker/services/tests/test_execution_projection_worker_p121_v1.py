@@ -6,18 +6,18 @@ from core.redis_keys import RedisStreams as RS
 
 exec_mod_path = Path(__file__).parent.parent / 'binance_executor.py'
 exec_spec = importlib.util.spec_from_file_location('binance_executor_p121', exec_mod_path)
-exec_mod = importlib.util.module_from_spec(exec_spec)
-sys.modules[exec_spec.name] = exec_mod
-assert exec_spec.loader is not None
-exec_spec.loader.exec_module(exec_mod)
-
+exec_mod = importlib.util.module_from_spec(exec_spec)  # type: ignore
+sys.modules[exec_spec.name] = exec_mod  # type: ignore
+assert exec_spec.loader is not None  # type: ignore
+exec_spec.loader.exec_module(exec_mod)  # type: ignore
+  # type: ignore
 worker_mod_path = Path(__file__).parent.parent / 'execution_projection_worker.py'
 worker_spec = importlib.util.spec_from_file_location('execution_projection_worker_p121', worker_mod_path)
-worker_mod = importlib.util.module_from_spec(worker_spec)
-sys.modules[worker_spec.name] = worker_mod
-assert worker_spec.loader is not None
-worker_spec.loader.exec_module(worker_mod)
-
+worker_mod = importlib.util.module_from_spec(worker_spec)  # type: ignore
+sys.modules[worker_spec.name] = worker_mod  # type: ignore
+assert worker_spec.loader is not None  # type: ignore
+worker_spec.loader.exec_module(worker_mod)  # type: ignore
+  # type: ignore
 
 class FakeRedis:
     def __init__(self):
@@ -98,8 +98,8 @@ def test_executor_does_not_materialize_cache_inline_when_projection_worker_is_en
     worker = worker_mod.ExecutionProjectionWorker(r, exec_stream=RS.ORDERS_EXEC, state_key_prefix='orders:state:')
     processed = worker.run_until_idle()
     assert processed >= 1
-    state = json.loads(r.get(f'orders:state:{sid}'))
-    assert state['fsm_state'] == 'ENTRY_ACKED'
+    state = json.loads(r.get(f'orders:state:{sid}'))  # type: ignore
+    assert state['fsm_state'] == 'ENTRY_ACKED'  # type: ignore
     assert int(state['entry']['order_id']) == 111
     assert state['entry']['client_order_id'] == 'cid-1'
 
@@ -127,8 +127,8 @@ def test_save_order_state_emits_state_patch_and_worker_applies_it_in_order():
 
     worker = worker_mod.ExecutionProjectionWorker(r, exec_stream=RS.ORDERS_EXEC, state_key_prefix='orders:state:')
     worker.run_until_idle()
-    state = json.loads(r.get(f'orders:state:{sid}'))
-    assert state['fsm_state'] == 'PROTECTED'
+    state = json.loads(r.get(f'orders:state:{sid}'))  # type: ignore
+    assert state['fsm_state'] == 'PROTECTED'  # type: ignore
     assert state['protective']['tp_algo_ids'] == [601]
     assert int(state['trailing']['algo_id']) == 701
 
@@ -155,8 +155,8 @@ def test_projection_worker_cursor_makes_repeated_runs_idempotent():
     )
     first = worker.run_once()
     second = worker.run_once()
-    state = json.loads(r.get(f'orders:state:{sid}'))
-    assert first.processed == 1
+    state = json.loads(r.get(f'orders:state:{sid}'))  # type: ignore
+    assert first.processed == 1  # type: ignore
     assert second.processed == 0
     assert state['fsm_state'] == 'ENTRY_FILLED'
     assert r.get('orders:exec:projection:cursor') == first.last_stream_id

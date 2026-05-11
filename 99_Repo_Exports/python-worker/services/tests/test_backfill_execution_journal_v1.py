@@ -7,7 +7,7 @@ from pathlib import Path
 
 SCRIPT = Path(__file__).resolve().parent.parent.parent / 'scripts' / 'backfill_execution_journal_from_orders_exec.py'
 SPEC = importlib.util.spec_from_file_location('backfill_execution_journal_from_orders_exec', SCRIPT)
-mod = importlib.util.module_from_spec(SPEC)
+mod = importlib.util.module_from_spec(SPEC)  # type: ignore
 assert SPEC and SPEC.loader
 sys.modules[SPEC.name] = mod
 SPEC.loader.exec_module(mod)

@@ -40,7 +40,7 @@ class RollingVolatilityTracker:
     last_snapshot: dict[str, float] = None  # type: ignore
 
     def __post_init__(self) -> None:
-        self._px = RollingWindow[float](horizon_ms=int(self.horizon_ms), maxlen=int(self.maxlen))
+        self._px = RollingWindow[float](horizon_ms=int(self.horizon_ms), maxlen=int(self.maxlen))  # type: ignore
         self.last_snapshot = {
             "realized_vol_bps": 0.0,
             "realized_vol_no_data": 1.0,

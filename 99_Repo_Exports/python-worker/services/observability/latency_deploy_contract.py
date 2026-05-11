@@ -215,11 +215,11 @@ def lint_deploy_contract(
 
     # Runtime env
     required_env = list(COMMON_RUNTIME_ENV) + list(contract.required_runtime_env)
-    missing_env = [k for k in required_env if not (runtime_env.get(k, '')).strip()]
+    missing_env = [k for k in required_env if not (runtime_env.get(k, '')).strip()]  # type: ignore
     checks['required_env'] = required_env
     checks['missing_runtime_env'] = missing_env
     if missing_env:
-        errors.append('missing_runtime_env:' + ','.join(missing_env))
+        errors.append('missing_runtime_env:' + ','.join(missing_env))  # type: ignore
 
     # Optional env file parse for machine-readable diff.
     env_file_data: dict[str, str] = {}
@@ -230,10 +230,10 @@ def lint_deploy_contract(
         else:
             env_file_data = parse_env_file(p)
             checks['env_file_present'] = True
-            missing_in_file = [k for k in required_env if not (env_file_data.get(k, '')).strip()]
+            missing_in_file = [k for k in required_env if not (env_file_data.get(k, '')).strip()]  # type: ignore
             checks['missing_env_file_vars'] = missing_in_file
             if missing_in_file:
-                errors.append('missing_env_file_vars:' + ','.join(missing_in_file))
+                errors.append('missing_env_file_vars:' + ','.join(missing_in_file))  # type: ignore
     else:
         checks['env_file_present'] = False
         checks['unit_environmentfiles'] = env_file_values

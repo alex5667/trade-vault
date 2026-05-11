@@ -14,11 +14,11 @@ import pytest
 # [AUTOGRAVITY CLEANUP] sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
 try:
-    from services.binance_executor import compute_trailing_activate_price
+    from services.binance_executor import compute_trailing_activate_price  # type: ignore
     from services.binance_futures_client import AlgoOrderRef
     from services.execution_intent_validator import validate_exit_intent
 except Exception:
-    from binance_executor import compute_trailing_activate_price
+    from binance_executor import compute_trailing_activate_price  # type: ignore
     from binance_futures_client import AlgoOrderRef
     from execution_intent_validator import validate_exit_intent
 

@@ -43,20 +43,20 @@ from services.execution.binance_order_mapper import (
 
 try:
     from services.execution_metrics import (
-        EXECUTION_RECONCILE_PENDING_TOTAL,
-        EXECUTION_STATE_TRANSITION_TOTAL,
-    )
+        EXECUTION_RECONCILE_PENDING_TOTAL,  # type: ignore
+        EXECUTION_STATE_TRANSITION_TOTAL,  # type: ignore
+    )  # type: ignore
 except Exception:
     EXECUTION_RECONCILE_PENDING_TOTAL = EXECUTION_STATE_TRANSITION_TOTAL = None  # type: ignore[assignment]
 
 try:
     # Local metrics defined in binance_executor (module-level)
     from services.execution.binance_executor_app import (
-        EXECUTION_RECONCILE_PENDING_TOTAL as _RECON_TOTAL,  # noqa: F401
-        EXECUTION_STATE_TRANSITION_TOTAL as _TRANS_TOTAL,  # noqa: F401
+        EXECUTION_RECONCILE_PENDING_TOTAL as _RECON_TOTAL,  # noqa: F401  # type: ignore
+        EXECUTION_STATE_TRANSITION_TOTAL as _TRANS_TOTAL,  # noqa: F401  # type: ignore
     )
 except Exception:
-    pass
+    pass  # type: ignore
 
 
 def _ms_now() -> int:
@@ -162,10 +162,10 @@ class ExecutionStateStore:
 
     def _state_is_terminalish(self, state: dict[str, Any] | None) -> bool:
         if self._state_is_terminalish_fn is not None:
-            return self._state_is_terminalish_fn(state)
+            return self._state_is_terminalish_fn(state)  # type: ignore
         doc = dict(state or {})
         fsm = (doc.get("fsm_state") or "").strip().upper()
-        if fsm in TERMINAL_FSM_STATES:
+        if fsm in TERMINAL_FSM_STATES:  # type: ignore
             return True
         status = (doc.get("status") or "").strip().lower()
         return status in {"closed", "cancelled", "canceled", "failed", "exited", "exit_filled", "emergency_flattened"}

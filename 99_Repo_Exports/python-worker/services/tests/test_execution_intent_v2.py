@@ -7,17 +7,17 @@ import pytest
 
 mod_path = Path(__file__).parent.parent / 'binance_executor.py'
 spec = importlib.util.spec_from_file_location('binance_executor_intent', mod_path)
-mod = importlib.util.module_from_spec(spec)
-sys.modules[spec.name] = mod
-assert spec.loader is not None
-spec.loader.exec_module(mod)
+mod = importlib.util.module_from_spec(spec)  # type: ignore
+sys.modules[spec.name] = mod  # type: ignore
+assert spec.loader is not None  # type: ignore
+spec.loader.exec_module(mod)  # type: ignore
 
 mod_path2 = Path(__file__).parent.parent / 'execution_intent_validator.py'
 spec2 = importlib.util.spec_from_file_location('execution_intent_validator', mod_path2)
-mod2 = importlib.util.module_from_spec(spec2)
-sys.modules[spec2.name] = mod2
-assert spec2.loader is not None
-spec2.loader.exec_module(mod2)
+mod2 = importlib.util.module_from_spec(spec2)  # type: ignore
+sys.modules[spec2.name] = mod2  # type: ignore
+assert spec2.loader is not None  # type: ignore
+spec2.loader.exec_module(mod2)  # type: ignore
 
 ExecutionIntent = mod2.ExecutionIntent
 validate_execution_intent = mod2.validate_execution_intent

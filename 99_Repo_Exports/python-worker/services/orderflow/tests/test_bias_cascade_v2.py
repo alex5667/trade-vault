@@ -36,7 +36,7 @@ def test_compute_trend_bias_cont_ctx(processor):
     runtime = MockRuntime()
     bar = SimpleNamespace(close=100.0)
 
-    runtime.cont_ctx_trend_dir = "LONG"
+    runtime.cont_ctx_trend_dir = "LONG"  # type: ignore
     bias, source, strength = processor._compute_trend_bias(runtime, bar)
     assert bias == "UP"
     assert source == "cont_ctx"
@@ -45,7 +45,7 @@ def test_compute_trend_bias_cont_ctx(processor):
 def test_compute_trend_bias_breakout(processor):
     runtime = MockRuntime()
     bar = SimpleNamespace(close=105.0)
-    runtime.last_swing_high = SimpleNamespace(price=100.0)
+    runtime.last_swing_high = SimpleNamespace(price=100.0)  # type: ignore
 
     bias, source, strength = processor._compute_trend_bias(runtime, bar)
     assert bias == "UP"

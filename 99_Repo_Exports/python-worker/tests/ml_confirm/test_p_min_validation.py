@@ -1,7 +1,7 @@
 import pytest
 from pydantic import ValidationError
 
-from services.ml_confirm import MLConfirmConfig
+from services.ml_confirm_gate import MLConfirmConfig
 
 
 def test_ml_confirm_config_valid_p_min():
@@ -10,16 +10,16 @@ def test_ml_confirm_config_valid_p_min():
     assert cfg.p_min == 0.55
 
 def test_ml_confirm_config_invalid_p_min_low():
-    # p_min=0.4 is outside [0.5, 0.95]
+    # p_min=-0.1 is outside [0.0, 0.95]
     with pytest.raises(ValidationError) as excinfo:
-        MLConfirmConfig(p_min=0.4)
-    assert "p_min must be in range [0.5, 0.95]" in str(excinfo.value)
+        MLConfirmConfig(p_min=-0.1)
+    assert "p_min must be in range [0.0, 0.95]" in str(excinfo.value)
 
 def test_ml_confirm_config_invalid_p_min_high():
-    # p_min=0.96 is outside [0.5, 0.95]
+    # p_min=0.96 is outside [0.0, 0.95]
     with pytest.raises(ValidationError) as excinfo:
         MLConfirmConfig(p_min=0.96)
-    assert "p_min must be in range [0.5, 0.95]" in str(excinfo.value)
+    assert "p_min must be in range [0.0, 0.95]" in str(excinfo.value)
 
 def test_ml_confirm_config_valid_p_min_by_bucket():
     # All values within [0.5, 0.95]

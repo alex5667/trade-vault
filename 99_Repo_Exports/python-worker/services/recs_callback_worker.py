@@ -257,7 +257,7 @@ def _preview_bundle(r: redis.Redis, bundle_id: str, who: dict) -> str:
         ]
     else:
         # Fallback for dict format
-        ops = [op for op in (b.get("ops") or []) if isinstance(op, dict) and op.get("op") in ("HSET", "SET")]
+        ops = [op for op in (b.get("ops") or []) if isinstance(op, dict) and op.get("op") in ("HSET", "SET")]  # type: ignore
 
     if not ops:
         _notify(r, f"recs preview: <code>{bundle_id}</code> -> <b>empty ops</b>")
@@ -361,7 +361,7 @@ def _apply_bundle(r: redis.Redis, bundle_id: str, who: dict) -> str:
             ]
         else:
             # Fallback for dict format
-            ops = [op for op in (b.get("ops") or []) if isinstance(op, dict) and op.get("op") in ("HSET", "SET")]
+            ops = [op for op in (b.get("ops") or []) if isinstance(op, dict) and op.get("op") in ("HSET", "SET")]  # type: ignore
 
         if not ops:
             return "empty_ops"
@@ -731,7 +731,7 @@ def _rich_ml_scorer_action(bundle_id: str, action: str, res: str) -> str:
             f"Статус вернулся в PENDING.\n\n"
             f"bundle: <code>{bundle_id}</code>"
         )
-    return None
+    return None  # type: ignore
 
 def _rich_of_gate_action(
     r: redis.Redis,

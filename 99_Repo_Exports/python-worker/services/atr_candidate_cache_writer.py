@@ -86,7 +86,7 @@ def publish_atr_candidate(
             "ts_ms": ts_ms,
         }
         key = f"ta:last:atr:{symbol}:{tf_label}"
-        r.set(
+        r.set(  # type: ignore
             key,
             json.dumps(payload, ensure_ascii=False, separators=(",", ":"), sort_keys=True),
             ex=_TTL_SEC,

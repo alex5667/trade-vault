@@ -1,7 +1,7 @@
 from types import SimpleNamespace
 
 from handlers.crypto_orderflow.components.gates import CryptoSignalGates
-from handlers.crypto_orderflow.utils.pre_publish_gates import GateDecision
+from handlers.crypto_orderflow.utils.pre_publish_gates import GateDecisionV1
 
 
 class RaiserGate:
@@ -45,7 +45,7 @@ def test_gates_fail_open():
 
     # 5. check_entry_policy
     entry_res = gates.check_entry_policy(ctx, payload={"kind": "custom"})
-    assert isinstance(entry_res, GateDecision)
+    assert isinstance(entry_res, GateDecisionV1)
     assert entry_res.veto is False
     assert entry_res.reason_code == "ERROR"
     assert entry_res.apply is True

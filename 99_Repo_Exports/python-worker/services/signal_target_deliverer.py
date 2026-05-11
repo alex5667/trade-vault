@@ -468,7 +468,7 @@ class SignalTargetDeliverer:
                     logger.warning("pending-claim error target=%s err=%s (backoff=%.2fs)", self.target, e, delay)
                     time.sleep(delay)
 
-                msgs = helper.read({self.stream: ">"}, count=self.read_count, block=self.read_block_ms, create_start_id="0")
+                msgs = helper.read({self.stream: ">"}, count=self.read_count, block=self.read_block_ms, create_start_id="0")  # type: ignore
                 if not msgs:
                     self._backoff.reset()
                     continue

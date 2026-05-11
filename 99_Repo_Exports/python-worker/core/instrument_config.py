@@ -444,7 +444,7 @@ def symbol_env_prefix(symbol: str) -> str:
             return p2
     return p
 
-def _env_first[T](keys: list[str], cast: Callable[[str], _T], default: _T) -> _T:
+def _env_first[T](keys: list[str], cast: Callable[[str], _T], default: _T) -> _T:  # type: ignore
     """
     Пытается получить значение из env переменных по списку ключей.
     Возвращает первое найденное значение или default.
@@ -460,7 +460,7 @@ def _env_first[T](keys: list[str], cast: Callable[[str], _T], default: _T) -> _T
     return default
 
 
-def _env_one[T](key: str, cast: Callable[[str], _T], default: _T) -> _T:
+def _env_one[T](key: str, cast: Callable[[str], _T], default: _T) -> _T:  # type: ignore
     """Получает значение из одной env переменной."""
     return _env_first([key], cast, default)
 

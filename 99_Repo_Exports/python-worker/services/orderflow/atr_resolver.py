@@ -20,7 +20,7 @@ class ATRResolver:
         if not tf:
             tf = "1m"
             if runtime:
-                sel = runtime.dynamic_cfg.get(DK.ATR_TF_SEL, "")
+                sel = runtime.dynamic_cfg.get(DK.ATR_TF_SEL, "")  # type: ignore
                 if sel and isinstance(sel, str):
                     tf = sel
                 else:
@@ -35,7 +35,7 @@ class ATRResolver:
                  px = float(getattr(runtime, "last_price", 0.0) or 0.0)
                  bps_val = (val / px) * 10000.0 if px > 0 else 0.0
 
-                 min_bps, max_bps = compute_atr_bps_threshold(cfg)
+                 min_bps, max_bps = compute_atr_bps_threshold(cfg)  # type: ignore
                  enable_sanity = int(runtime.config.get("atr_sanity_enable", 1) or 1)
                  
                  if enable_sanity == 1 and px > 0:

@@ -136,13 +136,13 @@ def report_revoked_today() -> str:
         with conn, conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute(
                 """
-                SELECT symbol, scenario, regime, risk_horizon_bucket, reason_code, created_at
+                SELECT symbol, scenario, regime, risk_horizon_bucket, reason_code, created_at  # type: ignore
                 FROM atr_promotion_policy_audit
                 WHERE created_at::date = current_date
                   AND (decision_json->>'action') = 'REVOKE'
                 ORDER BY created_at DESC
                 LIMIT %s
-                """
+                """,
                 (_top_n(),),
             )
             rows = cur.fetchall()
@@ -167,7 +167,7 @@ def _cohort_report(best: bool) -> str:
         with conn, conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute(
                 f"""
-                WITH paired AS (
+                WITH paired AS (  # type: ignore
                   SELECT
                     source, symbol, scenario, regime, risk_horizon_bucket,
                     max(CASE WHEN live_surface_applied THEN avg_pnl_bps END) AS pnl_canary,
@@ -189,7 +189,7 @@ def _cohort_report(best: bool) -> str:
                 WHERE coalesce(n_canary,0) > 0 AND coalesce(n_control,0) > 0
                 ORDER BY pnl_delta {order}, tp1_delta {order}
                 LIMIT %s
-                """
+                """,
                 (int(os.getenv("ATR_POLICY_TELEGRAM_SUMMARY_WINDOW_DAYS", "21")), _top_n()),
             )
             rows = cur.fetchall()

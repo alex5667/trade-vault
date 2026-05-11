@@ -219,7 +219,7 @@ def pick_best_atr(
     exp_hi_bps = 0.0
     ready = bool(range_agg is not None and range_agg.is_ready())
     if ready and px > 0:
-        exp_lo_bps, exp_hi_bps = range_agg.expected_bounds_bps(min_mult=min_mult, max_mult=max_mult)
+        exp_lo_bps, exp_hi_bps = range_agg.expected_bounds_bps(min_mult=min_mult, max_mult=max_mult)  # type: ignore
 
     # helper: candidate sanity
     def _cand_sane(c: AtrCandidate) -> tuple[int, str]:

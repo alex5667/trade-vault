@@ -7,7 +7,7 @@
 import os
 
 
-def parse_tp_ratio(value: str = None) -> list[float]:
+def parse_tp_ratio(value: str = None) -> list[float]:  # type: ignore
     """
     Парсинг переменной окружения TP_RATIO или переданной строки.
     
@@ -18,7 +18,7 @@ def parse_tp_ratio(value: str = None) -> list[float]:
         Список долей закрытия для TP1, TP2, TP3
     """
     if not value:
-        value = os.getenv("TP_RATIO")
+        value = os.getenv("TP_RATIO")  # type: ignore
 
     if not value:
         return [0.50, 0.30, 0.20]  # Значение по умолчанию

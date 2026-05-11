@@ -241,12 +241,12 @@ def _drill_flip_storm_sim(
             for row in rows:
                 cur.execute(
                     """
-                    INSERT INTO atr_promotion_policy_audit
+                    INSERT INTO atr_promotion_policy_audit  # type: ignore
                       (source, symbol, scenario, regime, risk_horizon_bucket,
                        stop_ttl_mode, trailing_mode, reason_code,
                        approved, applied, decision_json)
                     VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb)
-                    """
+                    """,
                     (
                         row["source"], row["symbol"], row["scenario"],
                         row["regime"], row["risk_horizon_bucket"],

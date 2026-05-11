@@ -43,7 +43,7 @@ class ATRGraphReconciliationService:
                     ORDER BY created_at DESC LIMIT 1
                 """, (component, scope_value))
                 row = cur.fetchone()
-                if row and row["status"] == "active":
+                if row and row["status"] == "active":  # type: ignore
                     return True
         except Exception as e:
             logger.error(f"Error checking graph primary cutover status for {component}/{scope_value}: {e}")

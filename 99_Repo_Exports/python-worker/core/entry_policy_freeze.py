@@ -115,7 +115,7 @@ class EntryPolicyFreezeV1:
 
         fz = EntryPolicyFreezeV1(
             ver=_i(d.get("ver", 1), 1),
-            symbol=_s(d.get("symbol", ""), "").upper(),
+            symbol=_s(d.get("symbol", ""), "").upper(),  # type: ignore
             group=_s(d.get("group", "default"), "default").lower(),
             scenario=_s(d.get("scenario", ""), "").lower(),
             until_ts_ms=_i(d.get("until_ts_ms", 0), 0),

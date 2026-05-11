@@ -1,5 +1,3 @@
-from utils.time_utils import get_ny_time_millis
-
 #!/usr/bin/env python3
 """
 python-worker/tools/cfg_suggestions_lifecycle.py
@@ -19,11 +17,39 @@ Status determination:
    - n_approved >= min_approvals
 3. Applied: Found applied key for SID.
 """
+import asyncio
+import json
+from collections.abc import Awaitable, Callable
 from typing import Any
 
-import redis
+from common.redis_errors import is_transient_error
+from utils.time_utils import get_ny_time_millis
 
-from common.redis_errors import retry_redis_operation
+
+async def async_retry_redis_operation[T](
+    operation: Callable[[], Awaitable[T]],
+    operation_name: str = "Redis operation",
+    max_retries: int = 10,
+    base_delay: float = 1.0,
+    max_delay: float = 30.0,
+    on_final_failure: Callable[[Exception], T] | None = None,
+) -> T:
+    last_exception: Exception | None = None
+    for attempt in range(max_retries):
+        try:
+            return await operation()
+        except Exception as e:
+            last_exception = e
+            if not is_transient_error(e):
+                raise
+            if attempt < max_retries - 1:
+                delay = min(max_delay, base_delay * (2 ** attempt))
+                await asyncio.sleep(delay)
+            else:
+                if on_final_failure is not None:
+                    return on_final_failure(e)
+                raise
+    raise last_exception or RuntimeError("Retry failed")
 
 
 def now_ms() -> int:
@@ -41,8 +67,8 @@ def _f(x: Any, d: float = 0.0) -> float:
     except (ValueError, TypeError):
         return d
 
-def check_suggestions_health(
-    r: redis.Redis,
+async def check_suggestions_health(
+    r: Any,
     prefix: str,
     kind: str,
     scopes: list[str],
@@ -76,12 +102,13 @@ def check_suggestions_health(
 
     for scope in scopes:
         key = f"{prefix}:latest:{kind}:{scope}"
-        sid = retry_redis_operation(
+        sid = await async_retry_redis_operation(
             operation=lambda: r.get(key),
             operation_name="get_latest_sid",
-            on_final_failure=lambda e: None
         )
         if sid:
+            if isinstance(sid, bytes):
+                sid = sid.decode("utf-8")
             latest_sids[scope] = sid
             all_sids.add(sid)
 
@@ -92,7 +119,7 @@ def check_suggestions_health(
 
     for sid in sorted(list(all_sids)):
         meta_key = f"{prefix}:meta:{sid}"
-        meta_raw = r.get(meta_key)
+        meta_raw = await r.get(meta_key)
         if not meta_raw:
             continue
 
@@ -109,27 +136,27 @@ def check_suggestions_health(
         # Check applied
         applied_key = f"{prefix}:applied:{sid}"
         try:
-            is_applied = bool(r.exists(applied_key))
+            is_applied = bool(await r.exists(applied_key))
         except Exception:
-            is_applied = r.get(applied_key) is not None
+            is_applied = await r.get(applied_key) is not None
 
         # Check approved
         approvals_key = f"{prefix}:approvals:{sid}"
         approvals = {}
         try:
             # Check if it's a hash
-            rtype = str(r.type(approvals_key)).lower()
+            rtype = str(await r.type(approvals_key)).lower()
             if "hash" in rtype:
-                approvals = r.hgetall(approvals_key)
-            elif r.exists(approvals_key):
-                approvals = {"status": r.get(approvals_key)}
+                approvals = await r.hgetall(approvals_key)
+            elif await r.exists(approvals_key):
+                approvals = {"status": await r.get(approvals_key)}
         except Exception:
             # Fallback for mock issues or unexpected types
             try:
-                approvals = r.hgetall(approvals_key)
+                approvals = await r.hgetall(approvals_key)
             except Exception:
                 try:
-                    v = r.get(approvals_key)
+                    v = await r.get(approvals_key)
                     if v: approvals = {"status": v}
                 except Exception:
                     pass

@@ -193,7 +193,7 @@ class TestMirrorService(unittest.TestCase):
         os.environ["ATR_POLICY_MIRROR_ENABLE"] = "1"
         os.environ["ATR_POLICY_MIRROR_ADVISORY_ONLY"] = "0"
 
-    def _call(self, verify_result: dict, redis_data: dict = None) -> bool:
+    def _call(self, verify_result: dict, redis_data: dict = None) -> bool:  # type: ignore
         from services.atr_policy_active_mirror_service import mirror_after_verified_apply
         r = _mock_redis(redis_data or {})
         store: dict = {}

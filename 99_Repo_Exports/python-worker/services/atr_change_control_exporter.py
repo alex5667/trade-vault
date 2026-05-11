@@ -48,9 +48,9 @@ def export_once():
 
             for row in cur.fetchall():
                 g_change_requests_total.labels(
-                    status=row["status"],
-                    change_type=row["change_type"]
-                ).set(float(row["cnt"]))
+                    status=row["status"],  # type: ignore
+                    change_type=row["change_type"]  # type: ignore
+                ).set(float(row["cnt"]))  # type: ignore
 
             cur.execute("""
                 SELECT change_type, avg(updated_at_ms - created_at_ms) / 1000.0 as cycle_sec
@@ -60,7 +60,7 @@ def export_once():
             """)
             g_change_cycle_time_sec.clear()
             for row in cur.fetchall():
-                g_change_cycle_time_sec.labels(change_type=row["change_type"]).set(float(row["cycle_sec"] or 0))
+                g_change_cycle_time_sec.labels(change_type=row["change_type"]).set(float(row["cycle_sec"] or 0))  # type: ignore
 
             # A rudimentary check for "incident overrides without formal change",
             # for example looking at some overrides DB or status table (assuming it's checked here

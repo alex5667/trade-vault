@@ -91,7 +91,7 @@ class BinanceProtectionAuditor:
         if redis_client is None and redis is None:
             raise RuntimeError("redis-py is required (pip install redis)")
         self.redis_url = os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
-        self.r = redis_client if redis_client is not None else redis.from_url(self.redis_url, decode_responses=True)
+        self.r = redis_client if redis_client is not None else redis.from_url(self.redis_url, decode_responses=True)  # type: ignore
         self.exec_stream = os.getenv("EXEC_STREAM", RS.ORDERS_EXEC)
         _maxlen = int(os.getenv("EXEC_STREAM_MAXLEN", "0") or "0")
         self.exec_stream_maxlen: int | None = _maxlen if _maxlen > 0 else None
@@ -245,7 +245,7 @@ class BinanceProtectionAuditor:
         canceled = 0
         for order in list(orders or []):
             try:
-                algo_id = int(order.get("algoId"))
+                algo_id = int(order.get("algoId"))  # type: ignore
             except Exception:
                 continue
             try:

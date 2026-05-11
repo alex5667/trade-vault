@@ -14,7 +14,7 @@ def get_change(change_id: str) -> dict[str, Any] | None:
     sql = "SELECT * FROM atr_change_requests WHERE change_id = %s"
     with get_conn() as conn, conn.cursor(cursor_factory=__import__('psycopg2').extras.RealDictCursor) as cur:
         cur.execute(sql, (change_id,))
-        return cur.fetchone()
+        return cur.fetchone()  # type: ignore
 
 def _record_transition(cur, change_id: str, old_status: str, new_status: str, reason_code: str, meta: dict[str, Any]):
     cur.execute("""
@@ -118,7 +118,7 @@ def approve_change(change_id: str, actor: str, note: str = "") -> bool:
             if not chg:
                 return False
 
-            old_status = chg["status"]
+            old_status = chg["status"]  # type: ignore
             # Enforce prerequisites via Release Gate Scorecard
             try:
                 scorecard = build_scorecard(change_id)

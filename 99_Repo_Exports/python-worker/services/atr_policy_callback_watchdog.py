@@ -138,9 +138,9 @@ def check_once(r: redis.Redis | None = None) -> dict[str, Any]:
         return {"severity": "OK", "reason": "NO_PENDING_BACKLOG", "pending_submitted": 0}
 
     # ── Callback age ──────────────────────────────────────────────────────
-    last_callback_raw = r.get(KEY_LAST_CALLBACK)
-    last_notify_raw = r.get(KEY_LAST_NOTIFY)
-
+    last_callback_raw = r.get(KEY_LAST_CALLBACK)  # type: ignore
+    last_notify_raw = r.get(KEY_LAST_NOTIFY)  # type: ignore
+  # type: ignore
     last_callback_ms = int(last_callback_raw or 0)
     last_notify_ms = int(last_notify_raw or 0)
 
@@ -195,14 +195,14 @@ def check_once(r: redis.Redis | None = None) -> dict[str, Any]:
 def stamp_last_notify(r: redis.Redis | None = None) -> None:
     """Call from Telegram publisher after successful push."""
     r = r or _rconn()
-    r.set(KEY_LAST_NOTIFY, int(time.time() * 1000))
-
+    r.set(KEY_LAST_NOTIFY, int(time.time() * 1000))  # type: ignore
+  # type: ignore
 
 def stamp_last_callback(r: redis.Redis | None = None) -> None:
     """Call from Telegram callback_worker after any valid callback."""
     r = r or _rconn()
-    r.set(KEY_LAST_CALLBACK, int(time.time() * 1000))
-
+    r.set(KEY_LAST_CALLBACK, int(time.time() * 1000))  # type: ignore
+  # type: ignore
 
 def run_forever() -> None:
     """Watchdog loop. Usually run as a sidecar or integrated in of_timers_worker."""

@@ -136,7 +136,7 @@ class ConfScoreConfig:
 
 @dataclass
 class SignalTypeConf:
-    name: SignalKind
+    name: SignalKind  # type: ignore
 
     # веса компонентов в conf_factor
     regime_weight: float
@@ -149,7 +149,7 @@ class SignalTypeConf:
     min_raw_score: float            # минимальный |raw_score| (например, z-score сигнала)
 
     # режимы рынка
-    allowed_regimes: tuple[MarketRegime, ...]
+    allowed_regimes: tuple[MarketRegime, ...]  # type: ignore
     prefer_trend: bool = False
     prefer_range: bool = False
     forbid_strong_trend: bool = False

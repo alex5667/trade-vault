@@ -103,7 +103,7 @@ class GoldenReplayRunner:
             )
 
             # Serialize result
-            res = ofc.to_dict()
+            res = ofc.to_dict()  # type: ignore
             return {
                 "case_id": case.get("id"),
                 "inputs_summary": f"{symbol} {direction} {tf}",

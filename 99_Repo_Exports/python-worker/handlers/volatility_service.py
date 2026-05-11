@@ -196,7 +196,7 @@ class VolatilityService:
             atr_str, last_close_str = self.redis.hmget(key, "atr", "lastCloseTime")
             atr_v = float(atr_str) if atr_str is not None and str(atr_str) != "" else None
             ts_v = int(float(last_close_str)) if last_close_str is not None and str(last_close_str) != "" else None
-            if atr_v is not None and (not math.isfinite(atr_v) or atr_v <= 0):
+            if atr_v is not None and (not math.isfinite(atr_v) or atr_v <= 0):  # type: ignore
                 atr_v = None
             return atr_v, ts_v
         except Exception:

@@ -66,6 +66,13 @@ from utils.task_manager import safe_create_task
 from utils.time_utils import get_ny_time_millis
 import contextlib
 import redis
+
+# Trade Profile Router (Phase 1 — shadow)
+from services.trade_profile_router import (
+    TradeProfileRouter,
+    build_signal_profile_meta,
+)
+from services.abc_router import regime_group as _regime_group
 from services.orderflow.decision_snapshot import build_decision_snapshot, publish_decision_snapshot
 from services.orderflow.metrics import (
     of_inputs_publish_error_total,
@@ -302,6 +309,21 @@ class SignalPipeline:
         self._cached_risk_max_qty = float(os.getenv("RISK_MAX_QTY", "0") or "0")
         self._cached_liqmap_sl_widen_cap = float(os.getenv("LIQMAP_SL_WIDEN_CAP", "1.25") or 1.25)
         self._cached_sl_atr_mult_floor = float(os.getenv("SL_ATR_MULT_FLOOR", "0.78") or 0.78)
+        # Liqmap TP/SL levels overlay: OFF / SHADOW / ENFORCE
+        self._cached_liqmap_levels_mode = (os.getenv("LIQMAP_LEVELS_MODE", "SHADOW") or "SHADOW").upper().strip()
+        self._cached_liqmap_levels_min_usd = float(os.getenv("LIQMAP_LEVELS_MIN_USD", "250000") or 250000)
+        self._cached_liqmap_levels_buffer_bps = float(os.getenv("LIQMAP_LEVELS_BUFFER_BPS", "5.0") or 5.0)
+        self._cached_liqmap_levels_max_sl_widen_bps = float(os.getenv("LIQMAP_LEVELS_MAX_SL_WIDEN_BPS", "25.0") or 25.0)
+
+        # ------------------------------------------------------------------
+        # Trade Profile Router (Phase 1 — shadow, fail-open)
+        # Controls: trailing_profile, execution_policy, risk_multiplier, net_edge gate
+        # ------------------------------------------------------------------
+        self._profile_router = TradeProfileRouter()
+        self._profile_router_audit_stream = os.getenv("TRADE_PROFILE_AUDIT_STREAM", "stream:trade_profile_audit")
+        self._profile_router_audit_maxlen = int(os.getenv("TRADE_PROFILE_AUDIT_MAXLEN", "50000") or 50000)
+        # net_edge gate: min net edge after fees/spread/slippage before order allowed in ENFORCE mode
+        self._cached_profile_net_edge_enforce = os.getenv("TRADE_PROFILE_NET_EDGE_ENFORCE", "0").lower() in {"1", "true", "yes", "on"}
 
     def _record_of_inputs_publish_error(self, *, symbol: str, path: str, stream: str, exc: Exception) -> None:
         with contextlib.suppress(Exception):
@@ -781,7 +803,15 @@ class SignalPipeline:
         ctx = self._build_gate_ctx(runtime, signal, sig_ts)
         # indicators already bound above — do not re-bind here
 
-        def _apply_decision(dec: GateDecisionV1) -> bool:
+        # Sentinel values for levels — populated after Stage-1/2 gates pass.
+        # Required so _apply_decision closure can reference them safely even
+        # when a DENY fires before _calculate_levels() is called.
+        # NOTE: Using a mutable dict container to avoid CPython 3.12+ NameError
+        # with closure capture of type-annotated local variables.
+        _levels = {"entry": 0.0, "sl": 0.0, "tp_levels": [], "lot": 0.0}
+        confidence: float = float(signal.get("confidence", 0.0) or 0.0)
+
+        def _apply_decision(dec: Any) -> bool:
             """Standardized decision handling for orchestrated gates."""
             # Only increment veto metric if decision is not ALLOW
             if _PRE_PUBLISH_VETO_TOTAL is not None and getattr(dec, "decision", "") != "ALLOW":
@@ -803,11 +833,11 @@ class SignalPipeline:
                     dec=dec,
                     symbol=symbol,
                     direction=direction,
-                    entry=entry,
-                    sl=sl,
-                    tp_levels=tp_levels,
-                    lot=lot,
-                    confidence=float(confidence or 0.0),
+                    entry=_levels["entry"],
+                    sl=_levels["sl"],
+                    tp_levels=_levels["tp_levels"],
+                    lot=_levels["lot"],
+                    confidence=confidence,
                     ts_ms=sig_ts,
                     indicators=indicators,
                     signal=signal
@@ -825,24 +855,24 @@ class SignalPipeline:
         # ------------------------------------------------------------------
         # STAGE 1: DQ-FIRST INTEGRITY (Hard Stop)
         # ------------------------------------------------------------------
-        if _apply_decision(self.orchestrator.check_dq_integrity(ctx, kind)): return
+        if _apply_decision(self.orchestrator.check_dq_integrity(ctx, kind)): return  # type: ignore
 
         # 2. Liquidity Integrity (Spread, Staleness)
-        if _apply_decision(self.orchestrator.check_liquidity_integrity(ctx)): return
+        if _apply_decision(self.orchestrator.check_liquidity_integrity(ctx)): return  # type: ignore
         
         # 3. Quality / Floor
-        if _apply_decision(self.orchestrator.check_quality(ctx, kind)): return
-        if _apply_decision(self.orchestrator.check_atr_floor(ctx, kind)): return
+        if _apply_decision(self.orchestrator.check_quality(ctx, kind)): return  # type: ignore
+        if _apply_decision(self.orchestrator.check_atr_floor(ctx, kind)): return  # type: ignore
 
         # ------------------------------------------------------------------
         # STAGE 2: CONTEXT & MARKET GATES (Fail-Open / Tighten / Veto)
         # ------------------------------------------------------------------
         
         # Async Context Gates
-        if _apply_decision(self.orchestrator.check_breadth(ctx, kind, direction)): return
+        if _apply_decision(self.orchestrator.check_breadth(ctx, kind, direction)): return  # type: ignore
         
         if self._cached_deriv_ctx_enabled:
-            if _apply_decision(await self.orchestrator.check_derivatives_context(
+            if _apply_decision(await self.orchestrator.check_derivatives_context(  # type: ignore
                 ctx, kind, direction,
                 profile=self._cached_deriv_ctx_profile,
                 thr_funding_z=self._cached_deriv_ctx_funding_z,
@@ -853,7 +883,7 @@ class SignalPipeline:
             )): return
 
         if self._cached_defillama_ctx_enabled:
-            if _apply_decision(await self.orchestrator.check_defillama_context(
+            if _apply_decision(await self.orchestrator.check_defillama_context(  # type: ignore
                 ctx, kind, side=direction,
                 profile=self._cached_defillama_ctx_profile,
                 tighten_mult=self._cached_defillama_ctx_tighten_mult,
@@ -862,7 +892,7 @@ class SignalPipeline:
             )): return
 
         if self._cached_sentiment_ctx_enabled:
-            if _apply_decision(await self.orchestrator.check_sentiment_context(
+            if _apply_decision(await self.orchestrator.check_sentiment_context(  # type: ignore
                 ctx, kind, direction,
                 profile=self._cached_sentiment_ctx_profile,
                 max_age_ms=self._cached_sentiment_ctx_max_age_ms,
@@ -870,7 +900,7 @@ class SignalPipeline:
             )): return
 
         if self._cached_crossvenue_ctx_enabled:
-            if _apply_decision(await self.orchestrator.check_crossvenue_context(
+            if _apply_decision(await self.orchestrator.check_crossvenue_context(  # type: ignore
                 ctx, kind, direction,
                 profile=self._cached_crossvenue_ctx_profile,
                 max_age_ms=self._cached_crossvenue_ctx_max_age_ms,
@@ -883,13 +913,13 @@ class SignalPipeline:
             )): return
 
         if self._cached_exec_health_auto_freeze_enabled:
-            if _apply_decision(await self.orchestrator.check_exec_health_gate(ctx, kind)): return
+            if _apply_decision(await self.orchestrator.check_exec_health_gate(ctx, kind)): return  # type: ignore
 
-        if _apply_decision(self.orchestrator.check_smt(ctx, kind, direction)): return
+        if _apply_decision(self.orchestrator.check_smt(ctx, kind, direction)): return  # type: ignore
 
         # Sync Risk Gates
         if self._cached_liq_geom_enabled:
-            if _apply_decision(self.orchestrator.check_liquidity_geometry(
+            if _apply_decision(self.orchestrator.check_liquidity_geometry(  # type: ignore
                 ctx, kind,
                 profile=self._cached_liq_geom_profile,
                 thr_slope=self._cached_liq_min_book_slope,
@@ -900,7 +930,7 @@ class SignalPipeline:
             )): return
 
         if self._cached_flow_tox_enabled:
-            if _apply_decision(self.orchestrator.check_flow_toxicity(
+            if _apply_decision(self.orchestrator.check_flow_toxicity(  # type: ignore
                 ctx, kind,
                 profile=self._cached_flow_tox_profile,
                 thr_z=self._cached_flow_thr_z,
@@ -913,7 +943,7 @@ class SignalPipeline:
             )): return
 
         if self._cached_manip_enabled:
-            if _apply_decision(self.orchestrator.check_manipulation_gate(
+            if _apply_decision(self.orchestrator.check_manipulation_gate(  # type: ignore
                 ctx, kind,
                 profile=self._cached_manip_profile,
                 thr_qs=self._cached_manip_thr_qs,
@@ -923,8 +953,8 @@ class SignalPipeline:
                 tighten_cap_bps=self._cached_manip_tighten_cap,
             )): return
 
-        if _apply_decision(self.orchestrator.consistency_once(ctx=ctx, symbol=symbol, kind=kind, side=direction)): return
-        if _apply_decision(self.orchestrator.edge_cost_cached(ctx=ctx, kind=kind, symbol=symbol, side=direction)): return
+        if _apply_decision(self.orchestrator.consistency_once(ctx=ctx, symbol=symbol, kind=kind, side=direction)): return  # type: ignore
+        if _apply_decision(self.orchestrator.edge_cost_cached(ctx=ctx, kind=kind, symbol=symbol, side=direction)): return  # type: ignore
 
         # ------------------------------------------------------------------
         # Pipeline: Continue with levels and enrichment
@@ -1044,8 +1074,6 @@ class SignalPipeline:
         # This section remains for signal enrichment only.
         pass
 
-        # ---- trail_profile ----
-
         # Log Strong Gate outcome if present (sample every 10000th message)
         if indicators.get("strong_gate_scn"):
              strong_gate_sampler = LogSamplerFactory.get_sampler("STRONG_GATE", 10000)
@@ -1057,6 +1085,107 @@ class SignalPipeline:
                      indicators.get("strong_gate_need"),
                  )
 
+        # ------------------------------------------------------------------
+        # TRADE PROFILE ROUTER (Phase 1 — shadow + net_edge gate)
+        # Fail-open: any exception → continue with defaults.
+        # Writes ProfileDecision into signal["meta"]["trade_profile"] for audit.
+        # In SHADOW mode: does NOT block, just logs.
+        # In ENFORCE mode: checks net_edge_bps gate; DENY → veto + return.
+        # ------------------------------------------------------------------
+        _profile_decision = None
+        _profile_regime_bucket = "mixed"
+        try:
+            _raw_regime = str(
+                indicators.get("regime")
+                or signal.get("regime")
+                or getattr(runtime, "last_regime", "")
+                or "na"
+            ).strip().lower()
+            _profile_regime_bucket = _regime_group(_raw_regime)
+
+            _profile_decision = self._profile_router.route(
+                symbol=symbol,
+                regime_bucket=_profile_regime_bucket,
+                kind=kind,
+            )
+
+            # --- Phase 2: execution_policy binding ---
+            _exec_policy_from_profile = _profile_decision.profile.execution_policy
+            indicators.setdefault("execution_policy_profile", _exec_policy_from_profile)
+
+            # --- net_edge gate (fail-open unless ENFORCE enabled) ---
+            if self._cached_profile_net_edge_enforce and _profile_decision.mode == "LIVE":
+                _spread_bps = float(indicators.get("spread_bps", 0.0) or 0.0)
+                _slip_bps = float(indicators.get("expected_slippage_bps", 0.0) or 0.0)
+                _fee_bps = self._cached_fees_bps_rt
+                _ev_bps = float(indicators.get("expected_edge_bps", 0.0) or 0.0)
+                _net_edge = _ev_bps - _fee_bps - _spread_bps / 2.0 - _slip_bps
+                _min_net_edge = _profile_decision.profile.min_net_edge_bps
+                indicators["profile_net_edge_bps"] = round(_net_edge, 2)
+                indicators["profile_min_net_edge_bps"] = _min_net_edge
+                if _net_edge < _min_net_edge:
+                    _ne_dec = GateDecisionV1(
+                        gate="trade_profile_net_edge",
+                        decision="DENY",
+                        reason_code="profile_negative_net_edge",
+                        stage="profile",
+                        notes={"net_edge_bps": _net_edge, "min_net_edge_bps": _min_net_edge,
+                               "profile": _profile_decision.profile.name},
+                    )
+                    if _apply_decision(_ne_dec):
+                        return
+
+            # Write profile meta into signal for downstream consumers
+            _sym_tier = str(indicators.get("symbol_tier", "B") or "B").upper()
+            # Map tier → symbol_class for per-class stop/zone parameters
+            _sym_class = {"A": "majors", "B": "alts", "C": "memes"}.get(_sym_tier, "alts")
+            _profile_meta = build_signal_profile_meta(
+                _profile_decision,
+                symbol_tier=_sym_tier,
+                symbol_class=_sym_class,
+                realized_vol_bps=float(indicators.get("realized_vol_bps", 0.0) or 0.0),
+                target_vol_bps=float(indicators.get("target_vol_bps", 0.0) or 0.0),
+            )
+            enriched_signal_meta = signal.setdefault("meta", {})
+            enriched_signal_meta.update(_profile_meta)
+
+            # Inject profile-computed per-class params into indicators
+            # so that _calculate_levels() and gates can use them.
+            indicators["profile_stop_atr_mult"] = _profile_meta.get("stop_atr_mult")
+            indicators["profile_max_zone_bp"] = _profile_meta.get("max_zone_bp")
+            indicators["profile_tp_rr"] = _profile_meta.get("tp_rr")
+            indicators["profile_tp1_atr_mult"] = _profile_meta.get("tp1_atr_mult")
+
+            # Audit to Redis stream (fail-open background task)
+            if self.publisher and self.publisher.r:
+                _audit_payload = {
+                    "ts_ms": sig_ts,
+                    "signal_id": str(signal.get("signal_id") or ""),
+                    "symbol": symbol,
+                    "regime": _raw_regime,
+                    "regime_bucket": _profile_regime_bucket,
+                    "kind": kind,
+                    "side": str(direction),
+                    "profile": _profile_decision.profile.name,
+                    "decision": "ALLOW" if _profile_decision.allowed else "DENY",
+                    "reason_code": _profile_decision.reason_code,
+                    "profile_mode": _profile_decision.mode,
+                    "is_canary": int(_profile_decision.is_canary),
+                    "risk_multiplier": _profile_meta.get("risk_multiplier", 1.0),
+                    "execution_policy": _profile_meta.get("execution_policy", "SAFETY_FIRST"),
+                    "net_edge_bps": float(indicators.get("profile_net_edge_bps", 0.0) or 0.0),
+                }
+                safe_create_task(
+                    self.publisher.r.xadd(
+                        self._profile_router_audit_stream,
+                        {"payload": json.dumps(_audit_payload, ensure_ascii=False)},
+                        maxlen=self._profile_router_audit_maxlen,
+                        approximate=True,
+                    ),
+                    name=f"tpr_audit_{symbol}_{sig_ts}"
+                )
+        except Exception as _tpr_err:
+            logger.debug("⚠️ [TPR] trade_profile_router error (fail-open): %s", _tpr_err)
 
         # ---- trail_profile ----
         # cfg already initialized
@@ -1077,6 +1206,11 @@ class SignalPipeline:
 
         # Calculate actual ATR that will be used (including fallbacks)
         sl, tp_levels, lot, atr, atr_meta = self._calculate_levels(runtime, entry, direction, indicators, trail_profile=trail_profile)
+        # Sync _levels container for any downstream _apply_decision calls (e.g. squeeze gate)
+        _levels["entry"] = entry
+        _levels["sl"] = sl
+        _levels["tp_levels"] = tp_levels
+        _levels["lot"] = lot
 
         # ---- DYNAMIC TRAILING CALLBACK ----
         trail_callback_pct = None
@@ -1164,7 +1298,25 @@ class SignalPipeline:
             signal["trail_after_tp1"] = True
 
         elif is_squeeze_regime_flag:
-            if _apply_decision(self.orchestrator.check_squeeze_regime(ctx, is_squeeze=True)): return
+            if _apply_decision(self.orchestrator.check_squeeze_regime(ctx, is_squeeze=True)): return  # type: ignore
+
+        # Phase 2: override trail_profile from TradeProfile if router is in LIVE/canary mode
+        # Only override when the regime-based selection above did NOT explicitly set a profile
+        # (i.e., we are still on the default "protective_only" from cfg).
+        try:
+            if (
+                _profile_decision is not None
+                and _profile_decision.allowed
+                and _profile_decision.mode == "LIVE"
+                and _profile_decision.is_canary
+                and _profile_decision.profile.trailing_profile
+                and trail_profile in ("protective_only", None, "")
+            ):
+                trail_profile = _profile_decision.profile.trailing_profile
+                signal.setdefault("trail_after_tp1", True)
+                indicators["trail_profile_from_router"] = trail_profile
+        except Exception:
+            pass
 
         # ------------------------------------------------------------------
         # Construction Phase using Typed SignalPayload
@@ -1364,16 +1516,12 @@ class SignalPipeline:
 
         mix_dict = self._build_mix_dict(delta, delta_z, indicators, confirmations)
 
-        confidence = signal.get("confidence")
-        if confidence is None:
-            confidence = indicators.get("confidence")
-        if confidence is None:
-            confidence = 0.3
-        try:
-            confidence = float(confidence)
-        except (TypeError, ValueError):
-            confidence = 0.3
-        confidence = max(0.0, min(1.0, confidence))
+        _conf_raw = signal.get("confidence")
+        if _conf_raw is None:
+            _conf_raw = indicators.get("confidence")
+        if _conf_raw is None:
+            _conf_raw = 0.3
+        confidence = max(0.0, min(1.0, float(_conf_raw)))
 
         # --- Hard Confidence Gate (User request: drop signal if confidence too low) ---
         if not bool(runtime.config.get("disable_confidence_filter", False)):
@@ -1391,7 +1539,7 @@ class SignalPipeline:
                 min_conf_pct *= 100.0
             min_conf = min_conf_pct / 100.0
 
-            if _apply_decision(self.orchestrator.check_confidence(ctx, confidence=confidence, min_conf=min_conf)): return
+            if _apply_decision(self.orchestrator.check_confidence(ctx, confidence=confidence, min_conf=min_conf)): return  # type: ignore
         # ---
 
         # ------------------------------------------------------------------
@@ -1643,7 +1791,7 @@ class SignalPipeline:
         # Fail-open: if portfolio_gate is None or Redis down → ALLOW + warn.
         # ------------------------------------------------------------------
         _intent_notional = lot * entry if lot > 0 and entry > 0 else 0.0
-        if _apply_decision(self.orchestrator.check_portfolio(
+        if _apply_decision(await self.orchestrator.check_portfolio(  # type: ignore
             ctx,
             source="CryptoOrderFlow",
             side=direction,
@@ -2197,7 +2345,7 @@ class SignalPipeline:
 
             # --- PRE-TRADE RISK: PORTFOLIO EXPOSURE GATE (Recommendation 6) ---
             if not is_rejected_signal and self.orchestrator.portfolio_gate:
-                decision = self.orchestrator.portfolio_gate.evaluate(
+                decision = await self.orchestrator.portfolio_gate.evaluate(
                     symbol=symbol,
                     source=(enriched_signal.get("source") or "CryptoOrderFlow"),
                     side=direction,
@@ -2680,6 +2828,20 @@ class SignalPipeline:
         trail_profile: str | None = None,
     ) -> tuple[float, list[float], float, float, dict[str, Any]]:
         cfg = runtime.config
+        # Profile overlay: if TradeProfileRouter injected per-class params,
+        # merge them into an effective cfg so all downstream cfg.get() calls
+        # automatically pick up profile-based stop_atr_mult, tp_rr, tp1_atr_mult.
+        _p_stop = indicators.get("profile_stop_atr_mult")
+        _p_tp_rr = indicators.get("profile_tp_rr")
+        _p_tp1 = indicators.get("profile_tp1_atr_mult")
+        if _p_stop is not None or _p_tp_rr is not None or _p_tp1 is not None:
+            cfg = {**cfg}  # shallow copy to avoid mutating runtime.config
+            if _p_stop is not None:
+                cfg["stop_atr_mult"] = float(_p_stop)
+            if _p_tp_rr is not None:
+                cfg["tp_rr"] = str(_p_tp_rr)
+            if _p_tp1 is not None:
+                cfg["tp1_atr_mult"] = float(_p_tp1)
         atr = float(indicators.get("atr", 0.0) or 0.0)
         atr_meta: dict[str, Any] = {}
         atr_ts_ms = 0
@@ -2787,7 +2949,7 @@ class SignalPipeline:
             trail_profile = cfg.get("trail_profile") or indicators.get("trail_profile") or cfg.get("default_trail_profile", "protective_only")
 
         if (cfg.get("stop_mode", "ATR")).upper() == "ATR":
-            base_stop_mult = cfg.get("stop_atr_mult", 1.2)  # was 1.0
+            base_stop_mult = cfg.get("stop_atr_mult", 1.2)
             if trail_profile == "expansion_v1":
                 base_stop_mult = max(base_stop_mult, 2.5)
                 indicators["expansion_sl_widened"] = 1
@@ -2974,6 +3136,58 @@ class SignalPipeline:
             else:
                 # Standard RR logic
                 tps = [entry - stop_dist * rr for rr in rr_levels(cfg.get("tp_rr", "1.3,2.0,2.7"))]
+
+        # ------------------------------------------------------------------
+        # LIQMAP TP/SL Levels Overlay (Phase D3)
+        # Uses injected liqmap features to adjust SL/TP based on liquidation
+        # cluster positions. Modes: OFF / SHADOW / ENFORCE.
+        # ------------------------------------------------------------------
+        try:
+            _levels_mode = self._cached_liqmap_levels_mode
+            if _levels_mode in ('SHADOW', 'ENFORCE') and float(indicators.get('liqmap_ok', 0)) > 0:
+                from services.orderflow.liqmap_features import apply_liqmap_tp_sl_adjustment
+                _new_sl, _new_tp1, _liqmap_patch = apply_liqmap_tp_sl_adjustment(
+                    side=side,
+                    entry=entry,
+                    base_sl=sl,
+                    base_tp1=float(tps[0]) if tps else entry,
+                    indicators=indicators,
+                    window="1h",
+                    min_usd=self._cached_liqmap_levels_min_usd,
+                    buffer_bps=self._cached_liqmap_levels_buffer_bps,
+                    max_sl_widen_bps=self._cached_liqmap_levels_max_sl_widen_bps,
+                    enable_tp1=True,
+                    enable_sl=True,
+                )
+                # Always inject diagnostic patch into indicators
+                indicators.update(_liqmap_patch)
+
+                if _levels_mode == 'ENFORCE':
+                    # Apply adjusted SL (only widen, never tighten)
+                    if side.upper() == 'LONG' and _new_sl < sl:
+                        sl = _new_sl
+                        stop_dist = abs(entry - sl)
+                    elif side.upper() == 'SHORT' and _new_sl > sl:
+                        sl = _new_sl
+                        stop_dist = abs(entry - sl)
+
+                    # Apply adjusted TP1 (replace first TP, keep rest)
+                    if tps and abs(_new_tp1 - float(tps[0])) > 1e-12:
+                        tps[0] = _new_tp1
+
+                # Log for observability
+                if float(_liqmap_patch.get('liqmap_levels_applied', 0)) > 0:
+                    logger.info(
+                        "🗺️ [LIQMAP-LEVELS] mode=%s symbol=%s side=%s "
+                        "sl_adj_bps=%.1f tp1_adj_bps=%.1f reason=%s",
+                        _levels_mode, runtime.symbol, side,
+                        float(_liqmap_patch.get('liqmap_sl_adj_bps', 0)),
+                        float(_liqmap_patch.get('liqmap_tp1_adj_bps', 0)),
+                        _liqmap_patch.get('liqmap_levels_reason', 'unknown'),
+                    )
+        except Exception as _liqmap_exc:
+            # Fail-open: leave SL/TP unchanged
+            indicators['liqmap_levels_error'] = str(_liqmap_exc)[:200]
 
         # FINAL SAFETY: Sort TPs by distance from entry to guarantee order 1 < 2 < 3
         # abs(tp - entry) makes it direction-agnostic

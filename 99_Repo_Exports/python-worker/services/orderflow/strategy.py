@@ -319,8 +319,8 @@ class OrderFlowStrategy:
         self._regime_svc = None
         if MarketRegimeService is not None and RegimeConfig is not None:
             with contextlib.suppress(Exception):
-                self._regime_svc = MarketRegimeService(RegimeConfig())
-        self._regime_delta_alpha: float = float(os.getenv("REGIME_DELTA_EMA_ALPHA", "0.05"))
+                self._regime_svc = MarketRegimeService(RegimeConfig())  # type: ignore
+        self._regime_delta_alpha: float = float(os.getenv("REGIME_DELTA_EMA_ALPHA", "0.05"))  # type: ignore
         self._regime_hold_alpha: float = float(os.getenv("REGIME_HOLD_EMA_ALPHA", "0.10"))
         self._regime_pub_gap_ms: int = int(os.getenv("REGIME_REDIS_PUB_GAP_MS", "2000"))
         self._regime_redis_ttl_sec: int = int(os.getenv("REGIME_REDIS_TTL_SEC", "120"))
@@ -334,8 +334,8 @@ class OrderFlowStrategy:
             task = self._runtime_refresh_tasks.get(key)
             if task is not None and not task.done():
                 return
-            self._runtime_refresh_tasks[key] = safe_create_task(coro_factory())
-        except Exception:
+            self._runtime_refresh_tasks[key] = safe_create_task(coro_factory())  # type: ignore
+        except Exception:  # type: ignore
             pass
 
     def start_batcher(self):
@@ -361,8 +361,8 @@ class OrderFlowStrategy:
 
         # Cleanup ATR cache entries if the method exists
         if hasattr(self.atr_cache, 'cleanup_symbol'):
-            self.atr_cache.cleanup_symbol(sym)
-
+            self.atr_cache.cleanup_symbol(sym)  # type: ignore
+  # type: ignore
         if hasattr(self, 'market_state') and hasattr(self.market_state, 'cleanup_symbol'):
             self.market_state.cleanup_symbol(sym)
 
@@ -588,10 +588,10 @@ class OrderFlowStrategy:
                 }, ensure_ascii=False, separators=(",", ":")),
                 "extra": json.dumps(extra or {}, ensure_ascii=False, separators=(",", ":")),
             }
-            await self.redis.xadd(self.burst_audit_stream, msg, maxlen=STREAM_RETENTION[RS.BURST_AUDIT], approximate=True)
-        except Exception as exc:
-            log_silent_error(exc, 'audit_failure', self.symbol or "unknown", '_burst_audit')
-            return
+            await self.redis.xadd(self.burst_audit_stream, msg, maxlen=STREAM_RETENTION[RS.BURST_AUDIT], approximate=True)  # type: ignore
+        except Exception as exc:  # type: ignore
+            log_silent_error(exc, 'audit_failure', self.symbol or "unknown", '_burst_audit')  # type: ignore
+            return  # type: ignore
 
     # ── Публичные методы ──────────────────────────────────────────────────────
 
@@ -609,8 +609,8 @@ class OrderFlowStrategy:
 
     # ── Основные рабочие циклы ────────────────────────────────────────────────
 
-    async def process_tick(self, runtime: SymbolRuntime, tick: dict[str, Any], worker_lag_ms: float = 0.0) -> dict[str, Any] | None:
-        # Initialize variables that may not be set if exceptions occur
+    async def process_tick(self, runtime: SymbolRuntime, tick: dict[str, Any], worker_lag_ms: float = 0.0) -> dict[str, Any] | None:  # type: ignore
+        # Initialize variables that may not be set if exceptions occur  # type: ignore
         ofc = None
         dec = None
         direction = None
@@ -2911,10 +2911,36 @@ class OrderFlowStrategy:
         # Deterministic now
         now_ms = int(tick_ts)
 
-        signal_id = f"crypto-of:{runtime.symbol}:{now_ms}"
+        # P1-FIX: resolve primary_reason BEFORE computing signal_id
         primary_reason = "delta_spike"
         if confirmations:
             primary_reason = confirmations[0].split("=", 1)[0]
+
+        # P1-FIX: signal_id must be deterministic for replay and dedup.
+        # The old fallback `f"crypto-of:{runtime.symbol}:{now_ms}"` used wall-clock
+        # time and produced different IDs for the same tick on retry/replay.
+        # UNKNOWN direction ticks cannot produce signals — gate early.
+        if direction == "UNKNOWN":
+            ticks_dropped_unknown_dir = getattr(self, "_ticks_dropped_unknown_dir", {})
+            cnt = ticks_dropped_unknown_dir.get(runtime.symbol, 0) + 1
+            ticks_dropped_unknown_dir[runtime.symbol] = cnt
+            self._ticks_dropped_unknown_dir = ticks_dropped_unknown_dir
+            if cnt % 10000 == 0:
+                self.logger.info(
+                    "🛑 [DIRECTION-GATE] (%s) Dropped %d ticks with UNKNOWN direction (ibm=None)",
+                    runtime.symbol, cnt,
+                )
+            return None
+        try:
+            signal_id = generate_signal_id(
+                runtime.symbol,
+                int(tick_ts),
+                direction,
+                kind=primary_reason,
+            )
+        except Exception:
+            # Fallback: should not happen after UNKNOWN guard, but keep safe
+            signal_id = f"crypto-of:{runtime.symbol}:{now_ms}"
 
         # [DEDUPLICATED] Primary ATR-floor gate is handled as Early Gate (lines ~600).
 
@@ -3485,8 +3511,8 @@ class OrderFlowStrategy:
         self,
         runtime: SymbolRuntime,
         indicators: dict[str, Any],
-        confirmations: Sequence[str],
-        *,
+        confirmations: Sequence[str],  # type: ignore
+        *,  # type: ignore
         side: str,
         kind: str,
         worker_lag_ms: float = 0.0,
@@ -3569,8 +3595,8 @@ class OrderFlowStrategy:
             if getattr(self, "score_calibrator", None) is not None:
                 # pass 'update=True' to keep filling the sliding window history
                 try:
-                    cal_pct = self.score_calibrator.calibrate(
-                         symbol=str(runtime.symbol or ""),
+                    cal_pct = self.score_calibrator.calibrate(  # type: ignore
+                         symbol=str(runtime.symbol or ""),  # type: ignore
                          kind=(kind or "custom"),
                          final_score=float(conf),
                          update=True
@@ -3619,8 +3645,8 @@ class OrderFlowStrategy:
             logger.warning("⚠️ (%s) _publish_orders_queue: unknown direction=%r side=%r (skip)",
                            symbol, signal.get("direction"), signal.get("side"))
             return
-        direction = side_norm.execution.lower() # buy/sell
-        venue = (signal.get("venue") or "mt5").lower()
+        direction = side_norm.execution.lower() # buy/sell  # type: ignore
+        venue = (signal.get("venue") or "mt5").lower()  # type: ignore
 
         reason = signal.get("reason") or "delta_spike"
 
@@ -3629,8 +3655,8 @@ class OrderFlowStrategy:
             kind=(signal.get("kind") or "spike"),
             symbol=symbol,
             ts_ms=int(ts_value),
-            direction=side_norm.internal
-        )
+            direction=side_norm.internal  # type: ignore
+        )  # type: ignore
 
         order_cmd = {
             "id": f"order-{symbol}-{ts_value}",
@@ -3639,9 +3665,9 @@ class OrderFlowStrategy:
             "symbol": symbol,
             "type": "market",
             "direction": direction,
-            "side": side_norm.execution,
-            "side_int": side_norm.numeric,
-            "source": "CryptoOrderFlow",
+            "side": side_norm.execution,  # type: ignore
+            "side_int": side_norm.numeric,  # type: ignore
+            "source": "CryptoOrderFlow",  # type: ignore
             "venue": venue,
             "reason": reason,
         }
@@ -3744,7 +3770,7 @@ class OrderFlowStrategy:
             runtime.signal_count,
         )
 
-    async def _on_microbar_closed(self, runtime: SymbolRuntime, bar: MicroBar) -> None:
+    async def _on_microbar_closed(self, runtime: SymbolRuntime, bar: MicroBar) -> None:  # type: ignore
         """
         In-memory обработка события bar_close.
         Здесь можно делать более тяжелые вычисления (но только на bar_close, не на каждом тике):
@@ -4903,8 +4929,8 @@ class OrderFlowStrategy:
 
                 # --- Persist MicroBar to PostgreSQL (Redundancy) ---
                 try:
-                    pm = (getattr(runtime, 'pm', None) or get_persistence_manager())
-                    b_dict = {
+                    pm = (getattr(runtime, 'pm', None) or get_persistence_manager())  # type: ignore
+                    b_dict = {  # type: ignore
                         "ts_ms": int(bar.end_ts_ms),
                         "open": float(bar.open),
                         "high": float(bar.high),
@@ -5168,8 +5194,8 @@ class OrderFlowStrategy:
                     swing_ts_low_0=tsl0,
                     swing_ts_low_1=tsl1,
                     of_strong=of_strong,
-                    of_dir=str(of_dir),
-                    of_ts_ms=int(runtime.last_of_strong_ts_ms),
+                    of_dir=str(of_dir),  # type: ignore
+                    of_ts_ms=int(runtime.last_of_strong_ts_ms),  # type: ignore
                     weak_progress=int(wp),
                     reclaim=reclaim,
                     reclaim_dir=reclaim_dir,

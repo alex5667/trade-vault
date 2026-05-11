@@ -38,7 +38,7 @@ class ProjectionCertService:
         with get_conn() as conn, conn.cursor(cursor_factory=__import__('psycopg2').extras.RealDictCursor) as cur:
             cur.execute("SELECT DISTINCT scope_value FROM atr_control_plane_nodes")
             for row in cur.fetchall():
-                scopes.add(row["scope_value"])
+                scopes.add(row["scope_value"])  # type: ignore
 
             for symb in scopes:
                 cert_id = ProjectionCertService._generate_id("cert")

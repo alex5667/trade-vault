@@ -143,7 +143,7 @@ def _compute_target_tf_ms(
 # ---------------------------------------------------------------------------
 
 def _tf_alias_map() -> dict[int, str]:
-    return {
+    return {  # type: ignore
         15000: "15s",
         30000: "30s",
         60000: "1m",

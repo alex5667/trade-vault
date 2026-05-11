@@ -52,21 +52,21 @@ except ModuleNotFoundError:
         pass
 
     exc_mod = types.ModuleType("redis.exceptions")
-    exc_mod.RedisError = RedisError
-    exc_mod.ConnectionError = RedisError
-    exc_mod.TimeoutError = RedisError
-    exc_mod.BusyLoadingError = RedisError
-    exc_mod.ResponseError = RedisError
+    exc_mod.RedisError = RedisError  # type: ignore
+    exc_mod.ConnectionError = RedisError  # type: ignore
+    exc_mod.TimeoutError = RedisError  # type: ignore
+    exc_mod.BusyLoadingError = RedisError  # type: ignore
+    exc_mod.ResponseError = RedisError  # type: ignore
     sys.modules["redis.exceptions"] = exc_mod
 
     redis_asyncio = types.ModuleType("redis.asyncio")
-    redis_asyncio.Redis = Redis
+    redis_asyncio.Redis = Redis  # type: ignore
     sys.modules["redis.asyncio"] = redis_asyncio
 
     redis_mod = types.ModuleType("redis")
-    redis_mod.Redis = Redis
-    redis_mod.ConnectionPool = ConnectionPool
-    redis_mod.exceptions = exc_mod
+    redis_mod.Redis = Redis  # type: ignore
+    redis_mod.ConnectionPool = ConnectionPool  # type: ignore
+    redis_mod.exceptions = exc_mod  # type: ignore
     sys.modules["redis"] = redis_mod
 
 
@@ -103,19 +103,19 @@ class _DummyRedis:
 def _make_tp(redis: _DummyRedis, *, refresh_ms=1500, stale_ms=120000):
     # Bypass heavy __init__; only fields used by _inject_liqmap_features are set.
     tp = TickProcessor.__new__(TickProcessor)
-    tp.redis = redis
+    tp.redis = redis  # type: ignore
 
-    tp.liqmap_features_enable = True
-    tp.liqmap_features_windows = ["1h"]
-    tp.liqmap_features_refresh_ms = int(refresh_ms)
-    tp.liqmap_features_failopen_stale_ms = int(stale_ms)
+    tp.liqmap_features_enable = True  # type: ignore
+    tp.liqmap_features_windows = ["1h"]  # type: ignore
+    tp.liqmap_features_refresh_ms = int(refresh_ms)  # type: ignore
+    tp.liqmap_features_failopen_stale_ms = int(stale_ms)  # type: ignore
 
-    tp.liqmap_snapshot_key_prefix = "liqmap:snapshot"
-    tp.liqmap_near_band_bps = 20.0
-    tp.liqmap_peak_min_share = 0.05
+    tp.liqmap_snapshot_key_prefix = "liqmap:snapshot"  # type: ignore
+    tp.liqmap_near_band_bps = 20.0  # type: ignore
+    tp.liqmap_peak_min_share = 0.05  # type: ignore
 
-    tp._liqmap_cache = {}
-    tp._liqmap_next_refresh_ts_ms = {}
+    tp._liqmap_cache = {}  # type: ignore
+    tp._liqmap_next_refresh_ts_ms = {}  # type: ignore
 
     return tp
 
@@ -140,7 +140,7 @@ def test_liqmap_injection_updates_indicators_and_throttles_refresh():
     runtime = _DummyRuntime("BTCUSDT")
     indicators = {}
 
-    asyncio.run(tp._inject_liqmap_features(runtime=runtime, now_ms=now_ms, price=100.0, indicators=indicators))
+    asyncio.run(tp._inject_liqmap_features(runtime=runtime, now_ms=now_ms, price=100.0, indicators=indicators))  # type: ignore
 
     # A couple of core keys should exist (full set is tested in core tests).
     assert indicators["liqmap_1h_levels_n"] == 3.0
@@ -149,13 +149,13 @@ def test_liqmap_injection_updates_indicators_and_throttles_refresh():
 
     # Second call within refresh interval should not hit Redis again.
     indicators2 = {}
-    asyncio.run(tp._inject_liqmap_features(runtime=runtime, now_ms=now_ms + 500, price=100.0, indicators=indicators2))
+    asyncio.run(tp._inject_liqmap_features(runtime=runtime, now_ms=now_ms + 500, price=100.0, indicators=indicators2))  # type: ignore
     assert len(r.get_calls) == 1
     assert "liqmap_1h_total_usd" in indicators2
 
     # After refresh interval passes, Redis should be called again.
     indicators3 = {}
-    asyncio.run(tp._inject_liqmap_features(runtime=runtime, now_ms=now_ms + 2000, price=100.0, indicators=indicators3))
+    asyncio.run(tp._inject_liqmap_features(runtime=runtime, now_ms=now_ms + 2000, price=100.0, indicators=indicators3))  # type: ignore
     assert len(r.get_calls) == 2
 
 
@@ -178,7 +178,7 @@ def test_liqmap_injection_failopen_reuses_last_good_when_snapshot_missing():
     runtime = _DummyRuntime("BTCUSDT")
 
     ind1 = {}
-    asyncio.run(tp._inject_liqmap_features(runtime=runtime, now_ms=base_ms, price=100.0, indicators=ind1))
+    asyncio.run(tp._inject_liqmap_features(runtime=runtime, now_ms=base_ms, price=100.0, indicators=ind1))  # type: ignore
     assert "liqmap_1h_total_usd" in ind1
     assert ind1["liqmap_1h_age_ms"] == 2000.0
 
@@ -186,7 +186,7 @@ def test_liqmap_injection_failopen_reuses_last_good_when_snapshot_missing():
     r.payload_by_key[key] = None
 
     ind2 = {}
-    asyncio.run(tp._inject_liqmap_features(runtime=runtime, now_ms=base_ms + 10_000, price=100.0, indicators=ind2))
+    asyncio.run(tp._inject_liqmap_features(runtime=runtime, now_ms=base_ms + 10_000, price=100.0, indicators=ind2))  # type: ignore
     assert "liqmap_1h_total_usd" in ind2
 
     # Age must increase deterministically based on cached snap ts.

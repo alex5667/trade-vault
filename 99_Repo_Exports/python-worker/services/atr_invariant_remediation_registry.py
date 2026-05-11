@@ -17,7 +17,7 @@ def get_active_remediation_policies() -> dict[str, dict[str, Any]]:
         logger.warning("Could not connect to DB for remediation policies.")
         return policies
     try:
-        with conn.cursor() as cur:
+        with conn.cursor() as cur:  # type: ignore
             cur.execute("""
                 SELECT invariant_id, remediation_kind, policy_json
                 FROM atr_invariant_remediation_policies
@@ -38,5 +38,5 @@ def get_active_remediation_policies() -> dict[str, dict[str, Any]]:
     except Exception as e:
         logger.error(f"Error fetching remediation policies: {e}")
     finally:
-        conn.close()
+        conn.close()  # type: ignore
     return policies

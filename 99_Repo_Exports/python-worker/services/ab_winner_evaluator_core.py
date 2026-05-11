@@ -116,7 +116,7 @@ class WinnerDecision:
     stats: dict[str, ArmStats]
 
     # optional: for multi-scenario aggregation/debug
-    meta: dict[str, Any] = None
+    meta: dict[str, Any] = None  # type: ignore
 
 
 def _mean(xs: list[float]) -> float:

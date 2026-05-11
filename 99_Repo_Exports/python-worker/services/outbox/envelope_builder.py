@@ -101,7 +101,7 @@ def build_outbox_envelope(
 
     # signal stream
     if signal_stream and isinstance(signal_stream_payload, dict):
-        env["meta"]["signal_stream"] = str(signal_stream)
+        env["meta"]["signal_stream"] = str(signal_stream)  # type: ignore
         try:
             targets["signal_stream_payload"] = strip_forbidden_keys(to_json_safe(signal_stream_payload), FORBIDDEN_TARGET_KEYS)
         except Exception:
@@ -109,7 +109,7 @@ def build_outbox_envelope(
 
     # audit
     if audit_stream and isinstance(audit_payload, dict):
-        env["meta"]["audit_stream"] = str(audit_stream)
+        env["meta"]["audit_stream"] = str(audit_stream)  # type: ignore
         try:
             targets["audit_payload"] = strip_forbidden_keys(to_json_safe(audit_payload), FORBIDDEN_TARGET_KEYS)
         except Exception:
@@ -132,7 +132,7 @@ def build_outbox_envelope(
             tr = ensure_trace(ctx, sid=sid_s)
         if tr is not None:
             set_summary_fields(env, tr)
-            env["meta"]["trace_meta_key"] = f"{OUTBOX_META_PREFIX}{sid_s}"
+            env["meta"]["trace_meta_key"] = f"{OUTBOX_META_PREFIX}{sid_s}"  # type: ignore
     except Exception:
         pass
 
@@ -140,7 +140,7 @@ def build_outbox_envelope(
     env_safe = to_json_safe(env)
     contract_check_best_effort(
         kind="envelope",
-        obj=env_safe,
+        obj=env_safe,  # type: ignore
         where="build_outbox_envelope",
         sid=sid_s,
         logger=logger,
@@ -149,7 +149,7 @@ def build_outbox_envelope(
     # Mutation guard (dispatcher can detect accidental mutations/regressions).
     try:
         sha1, nbytes = fingerprint_tradeable_payload(env_safe)
-        m = env_safe.get("meta")
+        m = env_safe.get("meta")  # type: ignore
         if isinstance(m, dict):
             m["payload_sha1"] = str(sha1)
             m["payload_bytes"] = int(nbytes)
@@ -157,7 +157,7 @@ def build_outbox_envelope(
     except Exception:
         pass
 
-    return env_safe
+    return env_safe  # type: ignore
 
 
 def build_trace_sidecar_meta(*, sid: str, trace: DecisionTrace) -> dict[str, Any]:
@@ -277,7 +277,7 @@ def build_trace_sidecar_meta_from_ctx(*, ctx: Any, sid: str) -> dict[str, Any]:
     except Exception:
         trace = DecisionTrace(trace_id=str(sid), sid=str(sid))
     with contextlib.suppress(Exception):
-        set_summary_fields(trace)
+        set_summary_fields(trace)  # type: ignore
     side = build_sidecar_meta(trace)
     # Backward-compat: some components expect key 'trace' instead of 'decision_trace'.
     try:
@@ -453,7 +453,7 @@ def emit_entry_policy_diag_best_effort(
         if redis is None:
             return False
 
-        payload = _safe_json_dumps(event)
+        payload = _safe_json_dumps(event)  # type: ignore
 
         # Use approximate trimming to keep XADD cheap.
         try:

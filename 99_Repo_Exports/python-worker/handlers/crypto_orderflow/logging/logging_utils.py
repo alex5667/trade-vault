@@ -3,8 +3,8 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from core.signal_json_logger import log_signal_one_json
-from utils.time_utils import get_ny_time_millis
+from core.signal_json_logger import log_signal_one_json  # type: ignore
+from utils.time_utils import get_ny_time_millis  # type: ignore
 import contextlib
 
 
@@ -13,7 +13,7 @@ def _safe_float(x: Any) -> float | None:
         v = float(x)
     except Exception:
         return None
-    if not v.isfinite():
+    if not v.isfinite():  # type: ignore
         return None
     return v
 

@@ -348,10 +348,10 @@ class OutboxWriter:
                 # call-sites that pass "just payload_meta" (parts_full, etc.)
                 m = {"payload_meta": m}
             if "schema" not in m:
-                m["schema"] = "outbox_sidecar:v2"
+                m["schema"] = "outbox_sidecar:v2"  # type: ignore
             if "updated_ms" not in m:
                 with contextlib.suppress(Exception):
-                    m["updated_ms"] = get_ny_time_millis()
+                    m["updated_ms"] = get_ny_time_millis()  # type: ignore
 
             # используем тот же сериализатор, что и для payload (если есть)
             return self._serialize_payload(m)  # type: ignore[attr-defined]
@@ -453,7 +453,7 @@ class OutboxWriter:
             code = int(res[0])
             if code == 0:
                 try:
-                    from services.observability.metrics_registry import outbox_dedup_collisions_total
+                    from services.observability.metrics_registry import outbox_dedup_collisions_total  # type: ignore
                     outbox_dedup_collisions_total.labels(kind=kind, symbol=symbol).inc()
                 except Exception:
                     pass
@@ -462,7 +462,7 @@ class OutboxWriter:
                 return str(res[1])
             if code == 2:
                 try:
-                    from services.observability.metrics_registry import outbox_lua_errors_total
+                    from services.observability.metrics_registry import outbox_lua_errors_total  # type: ignore
                     outbox_lua_errors_total.labels(kind=kind, symbol=symbol, reason="xadd_failure").inc()
                 except Exception:
                     pass

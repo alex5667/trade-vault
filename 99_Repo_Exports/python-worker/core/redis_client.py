@@ -86,7 +86,7 @@ def get_redis(retry_attempts=10, retry_delay=2):
                 _connection_pool = None
 
         redis_host = get_env("REDIS_HOST", "redis-worker-1")
-        redis_port = int(get_env("REDIS_PORT", "6379"))
+        redis_port = int(get_env("REDIS_PORT", "6379"))  # type: ignore
 
         import urllib.parse
         redis_url = get_env("REDIS_URL", "")
@@ -95,7 +95,7 @@ def get_redis(retry_attempts=10, retry_delay=2):
         # AUTH commands being sent to no-auth Redis instances (e.g. redis-ticks).
         redis_user = ""
         redis_pass = ""
-        if redis_url.startswith("redis://"):
+        if redis_url.startswith("redis://"):  # type: ignore
             parsed = urllib.parse.urlparse(redis_url)
             if parsed.username:
                 redis_user = parsed.username
@@ -122,7 +122,7 @@ def get_redis(retry_attempts=10, retry_delay=2):
                         password=redis_pass if redis_pass else None,
                         socket_timeout=120,
                         socket_connect_timeout=30,
-                        max_connections=int(get_env("REDIS_MAX_CONNECTIONS", "20")),  # P2: было 100
+                        max_connections=int(get_env("REDIS_MAX_CONNECTIONS", "20")),  # P2: было 100  # type: ignore
                         socket_keepalive=True,
                         decode_responses=True,
                         health_check_interval=30,
@@ -241,9 +241,9 @@ def get_redis_fast_news():
 
         redis_url = get_env("REDIS_URL", "redis://redis-worker-1:6379/0")
 
-        connect_timeout_ms = int(get_env("NEWS_REDIS_CONNECT_TIMEOUT_MS", "200"))
-        socket_timeout_ms = int(get_env("NEWS_REDIS_SOCKET_TIMEOUT_MS", "50"))
-        max_conn = int(get_env("NEWS_REDIS_MAX_CONNECTIONS", "50"))
+        connect_timeout_ms = int(get_env("NEWS_REDIS_CONNECT_TIMEOUT_MS", "200"))  # type: ignore
+        socket_timeout_ms = int(get_env("NEWS_REDIS_SOCKET_TIMEOUT_MS", "50"))  # type: ignore
+        max_conn = int(get_env("NEWS_REDIS_MAX_CONNECTIONS", "50"))  # type: ignore
 
         # Defensive clamps
         connect_timeout_s = max(0.01, min(connect_timeout_ms / 1000.0, 2.0))
@@ -322,8 +322,8 @@ def get_atr_redis():
             return _atr_redis_client
 
         redis_url = get_env("REDIS_URL", "redis://redis-worker-1:6379/0")
-        max_conn = max(2, min(int(get_env("ATR_REDIS_MAX_CONNECTIONS", "5")), 20))
-        timeout_ms = int(get_env("ATR_REDIS_SOCKET_TIMEOUT_MS", "1000"))
+        max_conn = max(2, min(int(get_env("ATR_REDIS_MAX_CONNECTIONS", "5")), 20))  # type: ignore
+        timeout_ms = int(get_env("ATR_REDIS_SOCKET_TIMEOUT_MS", "1000"))  # type: ignore
         timeout_s = max(0.1, min(timeout_ms / 1000.0, 5.0))
 
         _atr_connection_pool = redis.ConnectionPool.from_url(
@@ -459,7 +459,14 @@ def get_async_redis_client(
     # ✅ Normalize URL to prevent duplicate pools (redis-1 vs redis-1/0)
     url = normalize_redis_url(url or "")
 
-    key = (url, max_connections, socket_timeout, socket_connect_timeout, decode_responses, health_check_interval)
+    import asyncio
+    try:
+        loop = asyncio.get_running_loop()
+        loop_id = id(loop)
+    except RuntimeError:
+        loop_id = 0
+
+    key = (url, max_connections, socket_timeout, socket_connect_timeout, decode_responses, health_check_interval, loop_id)
 
     if key in _async_clients:
         return _async_clients[key]

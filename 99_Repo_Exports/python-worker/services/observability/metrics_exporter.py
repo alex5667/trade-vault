@@ -198,7 +198,7 @@ class _Handler(BaseHTTPRequestHandler):
             self.wfile.write(b"not found")
             return
         try:
-            body = collect_metrics(self.server.redis_client).encode("utf-8")
+            body = collect_metrics(self.server.redis_client).encode("utf-8")  # type: ignore
         except Exception as e:
             body = f"error {e}".encode()
         self.send_response(200)
@@ -228,7 +228,7 @@ def main():
     bind = os.getenv("METRICS_BIND", "0.0.0.0")
     port = int(os.getenv("METRICS_PORT", "9109"))
     httpd = HTTPServer((bind, port), _Handler)
-    httpd.redis_client = r
+    httpd.redis_client = r  # type: ignore
     httpd.serve_forever()
 
 

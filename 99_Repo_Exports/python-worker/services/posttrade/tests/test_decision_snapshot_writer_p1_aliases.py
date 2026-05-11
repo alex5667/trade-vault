@@ -40,7 +40,7 @@ class TestNormalizeRowP1Aliases(unittest.TestCase):
         evt = dict(BASE_ROW)
         evt["decision_mid"] = 48000.5
         evt["decision_expected_slippage_bps"] = 3.5
-        row = _normalize_row(evt)
+        row = _normalize_row(evt)  # type: ignore
         self.assertAlmostEqual(float(row["decision_mid"]), 48000.5)
         self.assertAlmostEqual(float(row["decision_expected_slippage_bps"]), 3.5)
 
@@ -49,7 +49,7 @@ class TestNormalizeRowP1Aliases(unittest.TestCase):
         evt = dict(BASE_ROW)
         evt["decision_mid_at_emit"] = 48100.0
         # No decision_mid in the event
-        row = _normalize_row(evt)
+        row = _normalize_row(evt)  # type: ignore
         self.assertAlmostEqual(float(row["decision_mid"]), 48100.0)
 
     def test_decision_mid_primary_wins_over_emit(self):
@@ -57,35 +57,35 @@ class TestNormalizeRowP1Aliases(unittest.TestCase):
         evt = dict(BASE_ROW)
         evt["decision_mid"] = 48000.0
         evt["decision_mid_at_emit"] = 99999.0  # different value
-        row = _normalize_row(evt)
+        row = _normalize_row(evt)  # type: ignore
         self.assertAlmostEqual(float(row["decision_mid"]), 48000.0)
 
     def test_expected_slippage_at_emit_fallback(self):
         """When decision_expected_slippage_bps absent, expected_slippage_bps_at_emit used."""
         evt = dict(BASE_ROW)
         evt["expected_slippage_bps_at_emit"] = 4.5
-        row = _normalize_row(evt)
+        row = _normalize_row(evt)  # type: ignore
         self.assertAlmostEqual(float(row["decision_expected_slippage_bps"]), 4.5)
 
     def test_expected_slippage_primary_wins_over_emit(self):
         evt = dict(BASE_ROW)
         evt["decision_expected_slippage_bps"] = 2.0
         evt["expected_slippage_bps_at_emit"] = 9.0
-        row = _normalize_row(evt)
+        row = _normalize_row(evt)  # type: ignore
         self.assertAlmostEqual(float(row["decision_expected_slippage_bps"]), 2.0)
 
     def test_decision_price_falls_back_to_emit(self):
         """decision_price falls back to decision_mid_at_emit if no decision_mid or decision_price."""
         evt = dict(BASE_ROW)
         evt["decision_mid_at_emit"] = 47500.0
-        row = _normalize_row(evt)
+        row = _normalize_row(evt)  # type: ignore
         # decision_price = decision_price OR decision_mid OR emit
         self.assertAlmostEqual(float(row["decision_price"]), 47500.0)
 
     def test_both_aliases_none_decision_mid_is_none(self):
         """Without any mid, decision_mid and decision_price should be None."""
         evt = dict(BASE_ROW)
-        row = _normalize_row(evt)
+        row = _normalize_row(evt)  # type: ignore
         self.assertIsNone(row["decision_mid"])
         self.assertIsNone(row["decision_price"])
 
@@ -93,13 +93,13 @@ class TestNormalizeRowP1Aliases(unittest.TestCase):
         evt = dict(BASE_ROW)
         evt.pop("sid")
         with self.assertRaises(ValueError):
-            _normalize_row(evt)
+            _normalize_row(evt)  # type: ignore
 
     def test_raises_for_zero_ts(self):
         evt = dict(BASE_ROW)
         evt["decision_ts_ms"] = 0
         with self.assertRaises(ValueError):
-            _normalize_row(evt)
+            _normalize_row(evt)  # type: ignore
 
     def test_both_aliases_populated(self):
         """Both aliases present — primary should still be preferred."""
@@ -108,7 +108,7 @@ class TestNormalizeRowP1Aliases(unittest.TestCase):
         evt["decision_mid_at_emit"] = 50100.0
         evt["decision_expected_slippage_bps"] = 3.0
         evt["expected_slippage_bps_at_emit"] = 4.0
-        row = _normalize_row(evt)
+        row = _normalize_row(evt)  # type: ignore
         self.assertAlmostEqual(float(row["decision_mid"]), 50000.0)
         self.assertAlmostEqual(float(row["decision_expected_slippage_bps"]), 3.0)
 

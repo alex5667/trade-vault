@@ -91,7 +91,7 @@ class BookProcessor:
         # Alpha must be consistent with DQ gate thresholds (train==serve contract).
         # Key name per rollout plan: dq_book_seq_ema_alpha.
         alpha = float(resolve_book_seq_ema_alpha(cfg))
-        runtime.dq_book_seq_ema_alpha = alpha  # exposed for runbook/debug
+        runtime.dq_book_seq_ema_alpha = alpha  # exposed for runbook/debug  # type: ignore
 
         cur_u = _safe_int(book_raw.get("u") or 0)
         cur_U = _safe_int(book_raw.get("U") or 0)
@@ -142,16 +142,16 @@ class BookProcessor:
                     reason = "reorder"
 
         # Runbook-friendly diagnostics (always set, even during warmup).
-        runtime.book_missing_seq_last_gap = int(gap)
+        runtime.book_missing_seq_last_gap = int(gap)  # type: ignore
         runtime.book_seq_last_reason = reason
 
         # Optional counters (safe defaults).
         if reason == "gap":
-            runtime.book_seq_gap_count = _safe_int(getattr(runtime, "book_seq_gap_count", 0) or 0) + 1
+            runtime.book_seq_gap_count = _safe_int(getattr(runtime, "book_seq_gap_count", 0) or 0) + 1  # type: ignore
         elif reason == "dup":
-            runtime.book_seq_dup_count = _safe_int(getattr(runtime, "book_seq_dup_count", 0) or 0) + 1
+            runtime.book_seq_dup_count = _safe_int(getattr(runtime, "book_seq_dup_count", 0) or 0) + 1  # type: ignore
         elif reason == "reorder":
-            runtime.book_seq_reorder_count = _safe_int(getattr(runtime, "book_seq_reorder_count", 0) or 0) + 1
+            runtime.book_seq_reorder_count = _safe_int(getattr(runtime, "book_seq_reorder_count", 0) or 0) + 1  # type: ignore
 
         # EMA update:
         # - init/no_seq_fields/no_u: keep unchanged to avoid false positives on startup or partial depth.
@@ -180,7 +180,7 @@ class BookProcessor:
         # Export EMA to Prometheus at book rate as well (not only on ticks).
         # This avoids staleness when book stream is live but tick stream is quiet.
         with contextlib.suppress(Exception):
-            book_missing_seq_ema_gauge.labels(symbol=str(runtime.symbol)).set(float(runtime.book_missing_seq_ema))
+            book_missing_seq_ema_gauge.labels(symbol=str(runtime.symbol)).set(float(runtime.book_missing_seq_ema))  # type: ignore
 
         # Advance last_u only when monotonic; this is robust against duplicates / reorders.
         if next_last_u > prev_u:
@@ -202,7 +202,7 @@ class BookProcessor:
 
             # 2b. LOB pressure features (P91) — queue imbalance / microprice / slope / dw_obi
             # Fail-open: any exception here must NOT stop the book processing pipeline.
-            LOBPressureTracker.update(runtime, snap, prev_snap, book_ts_ms)
+            LOBPressureTracker.update(runtime, snap, prev_snap, book_ts_ms)  # type: ignore
 
             # 3. Book Rate & Churn Metrics
             # Fail-open: any exception here must NOT stop the book processing pipeline.
@@ -318,7 +318,7 @@ class BookProcessor:
 
             if result and result.get("gpu_used"):
                 # Store GPU-computed metrics on runtime for downstream signal use
-                runtime.last_gpu_l2 = result
+                runtime.last_gpu_l2 = result  # type: ignore
                 # Override book-level spread/imbalance with GPU-accurate values
                 if result.get("spread", 0.0) > 0:
                     mid = (result["best_bid"] + result["best_ask"]) * 0.5
@@ -331,8 +331,8 @@ class BookProcessor:
                 if mp > 0:
                     runtime.last_book_mid = float(mp)
                 # Wall detection
-                runtime.last_gpu_wall_bid_price = float(result.get("wall_bid_price", 0.0))
-                runtime.last_gpu_wall_ask_price = float(result.get("wall_ask_price", 0.0))
+                runtime.last_gpu_wall_bid_price = float(result.get("wall_bid_price", 0.0))  # type: ignore
+                runtime.last_gpu_wall_ask_price = float(result.get("wall_ask_price", 0.0))  # type: ignore
         except Exception:
             pass  # Fail open — GPU errors must never break the hot path
 

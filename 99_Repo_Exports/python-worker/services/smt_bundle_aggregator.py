@@ -530,7 +530,7 @@ class SmtBundleAggregator:
 
                 # Attach news context
                 ctx = SimpleNamespace(symbol=leader_sym, news=None, data_quality_flags=[])
-                self._enricher.attach(ctx, asset_class=asset_class, now_ts_ms=ts_ms)
+                self._enricher.attach(ctx, asset_class=asset_class, now_ts_ms=ts_ms)  # type: ignore
 
                 # Prepare news features for soft gate
                 news_risk = ctx.news.news_risk if ctx.news else None

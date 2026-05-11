@@ -168,10 +168,10 @@ def build_summary(r: redis.Redis | None = None) -> dict[str, Any]:
     try:
         cur = 0
         while True:
-            cur, keys = r.scan(cur, match="cfg:atr_policy:kill_switch:*", count=10000)
-            for k in keys:
-                raw = r.get(k)
-                if raw:
+            cur, keys = r.scan(cur, match="cfg:atr_policy:kill_switch:*", count=10000)  # type: ignore
+            for k in keys:  # type: ignore
+                raw = r.get(k)  # type: ignore
+                if raw:  # type: ignore
                     try:
                         obj = json.loads(raw)
                         if obj.get("enabled"):

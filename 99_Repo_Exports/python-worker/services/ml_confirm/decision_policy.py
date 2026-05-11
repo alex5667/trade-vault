@@ -7,7 +7,7 @@ import math
 import os
 import time
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Callable, TYPE_CHECKING
 
 import redis
 
@@ -16,7 +16,7 @@ from core.champion_cfg_validator import validate_champion_cfg
 from core.edge_stack_mh_v1 import EdgeStackMHModelV1
 from core.feature_engineering import (
     RobustScalerPack,
-    apply_transform,
+    apply_transform,  # type: ignore
     bucketize,
     derive_regime_label,
     derive_session_label,
@@ -34,7 +34,7 @@ try:
 except Exception:
     PROMETHEUS_AVAILABLE = False
     # Mock metrics for when prometheus_client is not available
-    class _MockMetric:
+    class _MockMetric:  # type: ignore
         def labels(self, **kwargs):
             return self
         def inc(self, *args, **kwargs):
@@ -165,13 +165,13 @@ class MLConfirmDecision:
         return {
             "mode": self.mode,
             "kind": self.kind,
-            "allow": bool(self.allow),
-            "p_edge": float(self.p_edge),
-            "p_min": float(self.p_min),
-            "best_h_ms": int(self.best_h_ms),
-            "score": float(self.score),
-            "floor": float(self.floor),
-            "bucket": str(self.bucket),
+            "allow": self.allow,
+            "p_edge": self.p_edge,
+            "p_min": self.p_min,
+            "best_h_ms": self.best_h_ms,
+            "score": self.score,
+            "floor": self.floor,
+            "bucket": self.bucket,
             "util_pred": self.util_pred or {},
             "unc": self.unc or {},
             "missing": self.missing or [],
@@ -179,31 +179,53 @@ class MLConfirmDecision:
             "model_path": self.model_path,
             "reason": self.reason,
             "error": self.error,
-            "latency_us": int(self.latency_us),
-            "abstain": int(bool(self.abstain)),
-            "conf": float(self.conf),
-            "p_margin": float(self.p_margin),
-            "status": str(self.status),
-            "p_edge_raw": float(self.p_edge_raw),
-            "p_edge_cal": float(self.p_edge_cal),
-            "calib_type": str(self.calib_type or ""),
-            "cfg_key_used": str(self.cfg_key_used or ""),
-            "cfg_source": str(self.cfg_source or ""),
-            "cfg_raw_len": int(self.cfg_raw_len),
-            "cfg_parse_err": str(self.cfg_parse_err or ""),
-            "effective_mode": str(self.effective_mode or ""),
-            "mode_source": str(self.mode_source or ""),
-            "exec_risk_ref_bps": float(self.exec_risk_ref_bps),
-            "exec_risk_bps": float(self.exec_risk_bps),
-            "exec_risk_norm": float(self.exec_risk_norm),
-            "exec_pen": float(self.exec_pen),
+            "latency_us": self.latency_us,
+            "abstain": int(self.abstain),
+            "conf": self.conf,
+            "p_margin": self.p_margin,
+            "status": self.status,
+            "p_edge_raw": self.p_edge_raw,
+            "p_edge_cal": self.p_edge_cal,
+            "calib_type": self.calib_type or "",
+            "cfg_key_used": self.cfg_key_used or "",
+            "cfg_source": self.cfg_source or "",
+            "cfg_raw_len": self.cfg_raw_len,
+            "cfg_parse_err": self.cfg_parse_err or "",
+            "effective_mode": self.effective_mode or "",
+            "mode_source": self.mode_source or "",
+            "exec_risk_ref_bps": self.exec_risk_ref_bps,
+            "exec_risk_bps": self.exec_risk_bps,
+            "exec_risk_norm": self.exec_risk_norm,
+            "exec_pen": self.exec_pen,
             "score_breakdown_small": self.score_breakdown_small or {},
-            "score_breakdown_json": str(self.score_breakdown_json or ""),
+            "score_breakdown_json": self.score_breakdown_json or "",
         }
 
 
 
 class DecisionPolicyMixin:
+    if TYPE_CHECKING:
+        _cfg: dict[str, Any]
+        _model: Any
+        mode: str
+        _model_load_error: str
+        _p_min_hard_floor: float
+        _abstain_on_missing: bool
+        _calib_type: str
+        _calibrator: PlattLogitCalibrator | None
+
+        def _fail_allow(self) -> bool: ...
+        def _conf_from_margin(self, margin: float) -> float: ...
+        def _build_feature_row(
+            self,
+            *,
+            model: Any,
+            indicators: dict[str, Any],
+            direction: str,
+            scenario: str,
+            ts_ms: int
+        ) -> tuple[list[float], list[str]]: ...
+
     def _decide_util_mh(
         self,
         *,
@@ -282,14 +304,14 @@ class DecisionPolicyMixin:
                 dec.status = "MISSING_CRITICAL_BLOCK"
                 dec.reason = f"missing_critical({','.join(missing)})"
             dec.p_edge = 0.0
-            dec.p_min = max(0.0, float(self._p_min_hard_floor))
-            dec.p_margin = float(dec.p_edge - dec.p_min)
+            dec.p_min = max(0.0, self._p_min_hard_floor)
+            dec.p_margin = dec.p_edge - dec.p_min
             dec.conf = self._conf_from_margin(dec.p_margin)
             dec.score = 0.0
-            dec.floor = float(dec.p_min)
+            dec.floor = dec.p_min
             return dec
 
-        import numpy as np
+        import numpy as np  # type: ignore
         X = np.array([x_row], dtype=np.float32)
 
         util_pred = model.predict_util(X)  # dict[int]->ndarray
@@ -326,7 +348,7 @@ class DecisionPolicyMixin:
             return dec
 
         util_floors = cfg.get("util_floors") if isinstance(cfg.get("util_floors"), dict) else {}
-        unc_k = _f(util_floors.get("unc_k", getattr(model, "unc_k", 0.5)), getattr(model, "unc_k", 0.5))
+        unc_k = _f(util_floors.get("unc_k", getattr(model, "unc_k", 0.5)), getattr(model, "unc_k", 0.5))  # type: ignore
 
         best_h = 0
         best_score = -1e18
@@ -348,7 +370,7 @@ class DecisionPolicyMixin:
                     logger.warning(f"ML gate: Non-finite prediction for horizon {h} (u={u}, unc={un})")
                     continue
 
-                util_pred_out[str(h)] = u
+                util_pred_out[str(h)] = u  # type: ignore
                 unc_out[str(h)] = un
                 sc = u - unc_k * un
 
@@ -358,10 +380,10 @@ class DecisionPolicyMixin:
                     logger = logging.getLogger("ml_confirm_gate")
                     logger.warning(f"ML gate: Non-finite score for horizon {h} (score={sc})")
                     continue
-
+  # type: ignore
                 if sc > best_score:
                     best_score = sc
-                    best_h = int(h)
+                    best_h = h
                     scores_computed = True
             except (IndexError, KeyError, TypeError, ValueError) as e:
                 # Skip invalid predictions for this horizon, continue with others
@@ -378,38 +400,38 @@ class DecisionPolicyMixin:
             dec.p_min = 0.0
             dec.p_margin = 0.0
             dec.conf = 0.0
-            dec.score = float(best_score) if scores_computed else 0.0
+            dec.score = best_score if scores_computed else 0.0
             dec.best_h_ms = best_h
             dec.util_pred = util_pred_out
             dec.unc = unc_out
             dec.status = "ERR_NO_VALID_SCORES"
             bucket = _bucket_from_scenario(scenario)
             dec.bucket = bucket
-            floor = _get_floor(util_floors, bucket)
+            floor = _get_floor(util_floors, bucket)  # type: ignore
             try:
-                floor = max(float(floor), float(self._p_min_hard_floor))
+                floor = max(floor, self._p_min_hard_floor)
             except Exception:
-                floor = float(floor)
-            dec.floor = float(floor)
+                floor = floor
+            dec.floor = floor
             dec.allow = False  # No valid scores -> block
             return dec
 
         bucket = _bucket_from_scenario(scenario)
-        floor = _get_floor(util_floors, bucket)
+        floor = _get_floor(util_floors, bucket)  # type: ignore
         # hard floor guardrail
         try:
-            floor = max(float(floor), float(self._p_min_hard_floor))
+            floor = max(floor, self._p_min_hard_floor)
         except Exception:
-            floor = float(floor)
+            floor = floor
 
         dec.bucket = bucket
         dec.best_h_ms = best_h
-        dec.score = float(best_score)
-        dec.floor = float(floor)
+        dec.score = best_score
+        dec.floor = floor
         dec.util_pred = util_pred_out
         dec.unc = unc_out
 
-        dec.allow = bool(best_score >= floor)
+        dec.allow = best_score >= floor
 
         # p_edge: convert utility score to probability before calibration
         # Utility scores can be negative/zero/positive, but calibrator expects [0,1]
@@ -443,7 +465,7 @@ class DecisionPolicyMixin:
             # Typical range [-5, 5]: use base scaling
             scale_factor = base_scale
 
-        scaled_score = float(best_score) * scale_factor
+        scaled_score = best_score * scale_factor
         p_edge_from_score = _sigmoid(scaled_score)
 
         # Ensure minimum precision: if sigmoid produces a very small value, keep it for accuracy
@@ -454,8 +476,8 @@ class DecisionPolicyMixin:
             p_edge_from_score = max(1e-6, _sigmoid(scaled_score * 1.1))
 
         # Store pre-calibration probability (not raw utility score)
-        dec.p_edge_raw = float(p_edge_from_score)  # pre-calibration probability
-        dec.p_edge_cal = float(p_edge_from_score)  # will be updated by calibrator if enabled
+        dec.p_edge_raw = p_edge_from_score  # pre-calibration probability
+        dec.p_edge_cal = p_edge_from_score  # will be updated by calibrator if enabled
         dec.calib_type = str(self._calib_type or "none")
 
         calibrate = self._cfg.get("calibrate_p_edge", None)
@@ -467,10 +489,18 @@ class DecisionPolicyMixin:
             # Now calibrate the probability (already in [0,1] range)
             dec.p_edge_cal = float(self._calibrator.apply_one(p_edge_from_score))
 
+        # Map floor to probability space identically to p_edge
+        scaled_floor = float(floor) * scale_factor
+        p_min_from_floor = _sigmoid(scaled_floor)
+
+        p_min_cal = p_min_from_floor
+        if calibrate and self._calibrator is not None:
+            p_min_cal = float(self._calibrator.apply_one(p_min_from_floor))
+
         # use calibrated p_edge for downstream thresholds/metrics
-        dec.p_edge = float(dec.p_edge_cal)
-        dec.p_min = float(floor)
-        dec.p_margin = float(dec.p_edge - dec.p_min)
+        dec.p_edge = dec.p_edge_cal
+        dec.p_min = p_min_cal
+        dec.p_margin = dec.p_edge - dec.p_min
         dec.conf = self._conf_from_margin(dec.p_margin)
         dec.status = "ALLOW" if dec.allow else "BLOCK"
         dec.reason = f"util_mh(score={best_score:.4f},floor={floor:.4f},h={best_h},bucket={bucket})"
@@ -553,7 +583,7 @@ class DecisionPolicyMixin:
         feature_cols = model.get("feature_cols", [])
         if not feature_cols:
             dec.mode = "ERR"
-            dec.allow = self._fail_allow()
+            dec.allow = self._fail_allow()  # type: ignore
             dec.error = "no_feature_cols"
             dec.reason = "no_feature_cols(model_missing_feature_cols)"
             dec.status = "ERR_BAD_MODEL"
@@ -587,10 +617,10 @@ class DecisionPolicyMixin:
                 dec.reason = f"missing_critical({','.join(missing)})"
             dec.p_edge = 0.0
             dec.p_min = max(0.0, float(self._p_min_hard_floor))
-            dec.p_margin = float(dec.p_edge - dec.p_min)
+            dec.p_margin = dec.p_edge - dec.p_min
             dec.conf = self._conf_from_margin(dec.p_margin)
             dec.score = 0.0
-            dec.floor = float(dec.p_min)
+            dec.floor = floor  # type: ignore
             return dec
 
         import numpy as np
@@ -672,7 +702,7 @@ class DecisionPolicyMixin:
 
         # Калибровка (если включена)
         dec.p_edge_raw = float(np.clip(p_edge_raw, 0.0, 1.0))
-        dec.p_edge_cal = float(dec.p_edge_raw)
+        dec.p_edge_cal = dec.p_edge_raw
         dec.calib_type = str(self._calib_type or "none")
 
         calibrate = self._cfg.get("calibrate_p_edge", None)
@@ -683,7 +713,7 @@ class DecisionPolicyMixin:
         if calibrate and self._calibrator is not None:
             dec.p_edge_cal = float(self._calibrator.apply_one(dec.p_edge_raw))
 
-        dec.p_edge = float(dec.p_edge_cal)
+        dec.p_edge = dec.p_edge_cal
 
         # Определение bucket и p_min
         bucket = _bucket_from_scenario(scenario)
@@ -703,18 +733,18 @@ class DecisionPolicyMixin:
         # hard_p_min_floor как guardrail
         hard_p_min_floor = float(cfg.get("hard_p_min_floor", 0.0))
         with contextlib.suppress(Exception):
-            hard_p_min_floor = max(float(hard_p_min_floor), float(self._p_min_hard_floor))
+            hard_p_min_floor = max(hard_p_min_floor, self._p_min_hard_floor)
 
         p_min = max(p_min_cfg, hard_p_min_floor)
         p_min = max(0.0, min(1.0, p_min))  # clamp to [0, 1]
 
-        dec.p_min = float(p_min)
-        dec.floor = float(p_min)  # для совместимости
-        dec.p_margin = float(dec.p_edge - dec.p_min)
+        dec.p_min = p_min
+        dec.floor = p_min  # для совместимости
+        dec.p_margin = dec.p_edge - dec.p_min
         dec.conf = self._conf_from_margin(dec.p_margin)
 
         # Решение
-        dec.allow = bool(dec.p_edge >= dec.p_min)
+        dec.allow = dec.p_edge >= dec.p_min
         dec.status = "ALLOW" if dec.allow else "BLOCK"
         dec.reason = f"edge_stack_v1(p_edge={dec.p_edge:.4f},p_min={dec.p_min:.4f},bucket={bucket})"
 
@@ -800,10 +830,10 @@ class DecisionPolicyMixin:
                 dec.reason = f"missing_critical({','.join(missing)})"
             dec.p_edge = 0.0
             dec.p_min = max(0.0, float(self._p_min_hard_floor))
-            dec.p_margin = float(dec.p_edge - dec.p_min)
+            dec.p_margin = dec.p_edge - dec.p_min
             dec.conf = self._conf_from_margin(dec.p_margin)
             dec.score = 0.0
-            dec.floor = float(dec.p_min)
+            dec.floor = dec.p_min
             return dec
 
         import numpy as np
@@ -858,7 +888,7 @@ class DecisionPolicyMixin:
 
                 if sc > best_score:
                     best_score = sc
-                    best_h = int(h)
+                    best_h = h
                     best_p_cal = p_cal
                     best_unc = unc
             except (IndexError, KeyError, TypeError, ValueError):
@@ -868,20 +898,20 @@ class DecisionPolicyMixin:
             dec.error = "no_valid_scores"
             dec.reason = f"no_valid_scores(horizons={len(horizons)})"
             dec.p_edge = 0.0
-            dec.p_min = 0.0
-            dec.p_margin = 0.0
+            dec.p_min = 0.0  # type: ignore
+            dec.p_margin = 0.0  # type: ignore
             dec.conf = 0.0
             dec.score = 0.0
-            dec.best_h_ms = best_h
+            dec.best_h_ms = best_h  # type: ignore
             dec.status = "ERR_NO_VALID_SCORES"
             bucket = _bucket_from_scenario(scenario)
             dec.bucket = bucket
             floor = _get_floor(cfg.get("edge_floors", {}), bucket)
             try:
-                floor = max(float(floor), float(self._p_min_hard_floor))
+                floor = max(floor, self._p_min_hard_floor)
             except Exception:
-                floor = float(floor)
-            dec.floor = float(floor)
+                floor = floor
+            dec.floor = floor
             dec.allow = False
             return dec
 
@@ -891,32 +921,40 @@ class DecisionPolicyMixin:
         edge_floors = cfg.get("edge_floors", {})
         floor = _get_floor(edge_floors, bucket)
         try:
-            floor = max(float(floor), float(self._p_min_hard_floor))
+            floor = max(floor, self._p_min_hard_floor)
         except Exception:
-            floor = float(floor)
+            floor = floor
 
         dec.best_h_ms = best_h
-        dec.score = float(best_score)
-        dec.floor = float(floor)
+        dec.score = best_score
+        dec.floor = floor
 
         # p_edge: используем p_cal лучшего горизонта
-        dec.p_edge_raw = float(best_p_cal)
-        dec.p_edge_cal = float(best_p_cal)
+        dec.p_edge_raw = best_p_cal
+        dec.p_edge_cal = best_p_cal
         dec.calib_type = "platt_logit"  # модель уже калибрована
 
+        # Map floor to probability space identically to p_edge
+        scaled_floor = float(floor) * scale_factor  # type: ignore
+        p_min_from_floor = _sigmoid(scaled_floor)  # type: ignore
+
+        p_min_cal = p_min_from_floor
+        if calibrate and self._calibrator is not None:  # type: ignore
+            p_min_cal = float(self._calibrator.apply_one(p_min_from_floor))
+
         # use calibrated p_edge for downstream thresholds/metrics
-        dec.p_edge = float(dec.p_edge_cal)
-        dec.p_min = float(floor)
-        dec.p_margin = float(dec.p_edge - dec.p_min)
+        dec.p_edge = dec.p_edge_cal
+        dec.p_min = p_min_cal
+        dec.p_margin = dec.p_edge - dec.p_min
         dec.conf = self._conf_from_margin(dec.p_margin)
 
         # Решение: allow if best_score >= floor
-        dec.allow = bool(best_score >= floor)
+        dec.allow = best_score >= floor
         dec.status = "ALLOW" if dec.allow else "BLOCK"
         dec.reason = f"edge_stack_mh(score={best_score:.4f},floor={floor:.4f},h={best_h},bucket={bucket},unc={best_unc:.4f})"
 
         # Сохраняем uncertainty для метрик
-        dec.unc = {str(best_h): float(best_unc)}
+        dec.unc = {str(best_h): best_unc}
 
         return dec
 
@@ -1000,10 +1038,10 @@ class DecisionPolicyMixin:
                 dec.reason = f"missing_critical({','.join(missing)})"
             dec.p_edge = 0.0
             dec.p_min = max(0.0, float(self._p_min_hard_floor))
-            dec.p_margin = float(dec.p_edge - dec.p_min)
+            dec.p_margin = dec.p_edge - dec.p_min
             dec.conf = self._conf_from_margin(dec.p_margin)
             dec.score = 0.0
-            dec.floor = float(dec.p_min)
+            dec.floor = dec.p_min
             return dec
 
         # Predict
@@ -1044,8 +1082,8 @@ class DecisionPolicyMixin:
             dec.status = "ERR_NON_FINITE"
             return dec
 
-        dec.p_edge_raw = float(p_edge_raw)
-        dec.p_edge_cal = float(p_edge_raw)
+        dec.p_edge_raw = p_edge_raw
+        dec.p_edge_cal = p_edge_raw
         dec.calib_type = str(self._calib_type or "none")
 
         # Optional calibration
@@ -1055,7 +1093,7 @@ class DecisionPolicyMixin:
         if bool(calibrate) and self._calibrator is not None:
              dec.p_edge_cal = float(self._calibrator.apply_one(dec.p_edge_raw))
 
-        dec.p_edge = float(dec.p_edge_cal)
+        dec.p_edge = dec.p_edge_cal
 
         # Determine p_min
         bucket = _bucket_from_scenario(scenario)
@@ -1082,14 +1120,14 @@ class DecisionPolicyMixin:
 
         # guardrail
         with contextlib.suppress(Exception):
-            floor = max(float(floor), float(self._p_min_hard_floor))
+            floor = max(floor, self._p_min_hard_floor)
 
-        dec.p_min = float(floor)
-        dec.floor = float(floor)
-        dec.p_margin = float(dec.p_edge - dec.p_min)
+        dec.p_min = floor
+        dec.floor = floor
+        dec.p_margin = dec.p_edge - dec.p_min
         dec.conf = self._conf_from_margin(dec.p_margin)
 
-        dec.allow = bool(dec.p_edge >= dec.p_min)
+        dec.allow = dec.p_edge >= dec.p_min
         dec.status = "ALLOW" if dec.allow else "BLOCK"
         dec.reason = f"meta_lr(p={dec.p_edge:.4f},thr={dec.p_min:.4f},bucket={bucket})"
 

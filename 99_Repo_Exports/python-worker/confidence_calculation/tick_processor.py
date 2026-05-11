@@ -560,7 +560,15 @@ class TickProcessor:
         try:
             price = float(tick.get("price") or tick.get("p") or 0.0)
             ibm = tick.get("is_buyer_maker") if "is_buyer_maker" in tick else tick.get("m")
-            direction = "SHORT" if ibm else "LONG"  # True=Sell=Short, False=Buy=Long
+            # P1-FIX: ibm=None (unknown side) must NOT be treated as LONG.
+            # Previously "SHORT" if ibm else "LONG" caused LONG-bias when ibm=None (falsy).
+            # Now we require ibm to be explicitly True (taker sell) or False (taker buy).
+            if ibm is True:
+                direction = "SHORT"  # True = taker sell
+            elif ibm is False:
+                direction = "LONG"   # False = taker buy
+            else:
+                direction = "UNKNOWN"  # ibm=None or missing — no side bias
         except Exception as e:
             log_silent_error(e, "tick_parse", runtime.symbol, "TickProcessor")
             return None

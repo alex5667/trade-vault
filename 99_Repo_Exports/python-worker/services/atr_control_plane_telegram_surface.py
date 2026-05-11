@@ -14,14 +14,14 @@ def render_auditor_graph_dashboard() -> dict[str, Any]:
         with get_conn() as conn, conn.cursor(cursor_factory=__import__('psycopg2').extras.RealDictCursor) as cur:
             # Stats
             cur.execute("SELECT count(*) as c FROM atr_control_plane_nodes")
-            total_nodes = cur.fetchone()["c"]
+            total_nodes = cur.fetchone()["c"]  # type: ignore
 
             cur.execute("SELECT count(*) as c FROM v_control_plane_blockers")
-            active_blockers = cur.fetchone()["c"]
+            active_blockers = cur.fetchone()["c"]  # type: ignore
 
             # Illegal transitions in last 24h
             cur.execute("SELECT count(*) as c FROM atr_illegal_transition_attempts WHERE created_at > now() - interval '24 hours'")
-            illegal_last_24h = cur.fetchone()["c"]
+            illegal_last_24h = cur.fetchone()["c"]  # type: ignore
 
             # Projection drift
             # Example heuristic: Nodes updated in last 5m but projection lag > 1s (Simulated here)
@@ -29,7 +29,7 @@ def render_auditor_graph_dashboard() -> dict[str, Any]:
             # so we'll just show active live nodes
 
             cur.execute("SELECT count(*) as c FROM v_control_plane_active_nodes WHERE node_type = 'RolloutState' AND scope_value LIKE '%%live%%'")
-            live_nodes = cur.fetchone()["c"]
+            live_nodes = cur.fetchone()["c"]  # type: ignore
 
     except Exception as e:
         logger.error(f"Failed to fetch auditor graph dashboard stats: {e}")
@@ -89,7 +89,7 @@ def handle_telegram_callback(callback_query: dict[str, Any]) -> dict[str, Any]:
 
             text = "🛑 <b>Active Graph Blockers (Top 10)</b>\n"
             for r in rows:
-                text += f"- {r['edge_type']} from {r['from_node_id']} to {r['to_node_id']}\n"
+                text += f"- {r['edge_type']} from {r['from_node_id']} to {r['to_node_id']}\n"  # type: ignore
             if not rows:
                 text += "\nNo active blockers."
 

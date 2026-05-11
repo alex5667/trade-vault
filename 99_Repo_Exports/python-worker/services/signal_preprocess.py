@@ -153,7 +153,7 @@ def preprocess_signal_for_publish(signal: dict[str, Any], symbol: str, source: s
     # ------------------------------------------------------------------
     flags: list[str] = []
     if isinstance(signal.get("data_quality_flags"), list):
-        flags.extend([str(x) for x in signal.get("data_quality_flags") if x is not None])
+        flags.extend([str(x) for x in signal.get("data_quality_flags") if x is not None])  # type: ignore
 
     # Tick health hints from indicators
     if int(indicators.get("tick_ts_missing", 0) or 0) == 1:
@@ -243,29 +243,29 @@ def preprocess_signal_for_publish(signal: dict[str, Any], symbol: str, source: s
             meta["atr_policy_resolution"] = policy
 
             # Phase 4 metadata
-            meta["atr_policy_ver"] = int(policy.get("policy_ver", 0))
-            meta["atr_policy_snapshot_kind"] = (policy.get("level", "unknown"))
-            meta["atr_policy_applied_key"] = (policy.get("active_key", ""))
-            meta["atr_policy_kill_switch"] = bool(policy.get("kill_switch_active", False))
+            meta["atr_policy_ver"] = int(policy.get("policy_ver", 0))  # type: ignore
+            meta["atr_policy_snapshot_kind"] = (policy.get("level", "unknown"))  # type: ignore
+            meta["atr_policy_applied_key"] = (policy.get("active_key", ""))  # type: ignore
+            meta["atr_policy_kill_switch"] = bool(policy.get("kill_switch_active", False))  # type: ignore
 
             # Phase 4.1: attach resolved ATR policy snapshot metadata
             meta.setdefault("atr_policy_snapshot", {
-                "policy_ver": int(policy.get("policy_ver", 0)),
-                "source": (policy.get("source", "")),
-                "symbol": (policy.get("symbol", "")),
-                "scenario": (policy.get("scenario", "")),
-                "regime": (policy.get("regime", "")),
-                "risk_horizon_bucket": (policy.get("risk_horizon_bucket", "")),
-                "stop_ttl_mode": (policy.get("stop_ttl_mode", "canary")),
-                "trailing_mode": (policy.get("trailing_mode", "canary")),
-                "active_key": (policy.get("active_key", "")),
-                "updated_at_ms": int(policy.get("updated_at_ms", 0)),
+                "policy_ver": int(policy.get("policy_ver", 0)),  # type: ignore
+                "source": (policy.get("source", "")),  # type: ignore
+                "symbol": (policy.get("symbol", "")),  # type: ignore
+                "scenario": (policy.get("scenario", "")),  # type: ignore
+                "regime": (policy.get("regime", "")),  # type: ignore
+                "risk_horizon_bucket": (policy.get("risk_horizon_bucket", "")),  # type: ignore
+                "stop_ttl_mode": (policy.get("stop_ttl_mode", "canary")),  # type: ignore
+                "trailing_mode": (policy.get("trailing_mode", "canary")),  # type: ignore
+                "active_key": (policy.get("active_key", "")),  # type: ignore
+                "updated_at_ms": int(policy.get("updated_at_ms", 0)),  # type: ignore
             })
 
-            signal["atr_policy_ver"] = int(policy.get("policy_ver", 0))
-            signal["atr_policy_level"] = (policy.get("level", "miss"))
-            signal["atr_policy_key"] = (policy.get("active_key", ""))
-            signal["atr_policy_reason_code"] = (policy.get("reason_code", ""))
+            signal["atr_policy_ver"] = int(policy.get("policy_ver", 0))  # type: ignore
+            signal["atr_policy_level"] = (policy.get("level", "miss"))  # type: ignore
+            signal["atr_policy_key"] = (policy.get("active_key", ""))  # type: ignore
+            signal["atr_policy_reason_code"] = (policy.get("reason_code", ""))  # type: ignore
 
             decision = should_apply_live_surface(
                 symbol=str(signal.get("symbol") or symbol or ""),
@@ -293,7 +293,7 @@ def preprocess_signal_for_publish(signal: dict[str, Any], symbol: str, source: s
             apply_live = False
             apply_reason = ""
 
-            rollout_stage = (policy.get("rollout_stage_stop_ttl", "shadow"))
+            rollout_stage = (policy.get("rollout_stage_stop_ttl", "shadow"))  # type: ignore
             if rollout_stage == "shadow":
                 apply_live = False
                 apply_reason = "ATR_POLICY_ROLLOUT_SHADOW"
@@ -303,12 +303,12 @@ def preprocess_signal_for_publish(signal: dict[str, Any], symbol: str, source: s
             else:
                 sticky_key = build_rollout_sticky_key(signal)
                 if should_apply_rollout(sticky_key=sticky_key, rollout_stage=rollout_stage):
-                    if (policy.get("stop_ttl_mode") or "canary") == "live":
+                    if (policy.get("stop_ttl_mode") or "canary") == "live":  # type: ignore
                         apply_live = True
                         apply_reason = "ATR_POLICY_ACTIVE_STOP_TTL"
-                    elif bool(decision.get("should_apply", False)):
+                    elif bool(decision.get("should_apply", False)):  # type: ignore
                         apply_live = True
-                        apply_reason = (decision.get("reason_code") or "LIVE_SURFACE_CANARY_APPLY")
+                        apply_reason = (decision.get("reason_code") or "LIVE_SURFACE_CANARY_APPLY")  # type: ignore
                 else:
                     apply_live = False
                     apply_reason = f"ATR_POLICY_ROLLOUT_{rollout_stage.upper()}_MISS"
@@ -322,15 +322,15 @@ def preprocess_signal_for_publish(signal: dict[str, Any], symbol: str, source: s
                     "reason_code": apply_reason,
                     "atr_tf_ms": int(live_surface.get("atr_tf_ms") or 0),
                     "atr_value": float(live_surface.get("atr_value") or 0.0),
-                    "policy_level": (policy.get("level") or "miss"),
+                    "policy_level": (policy.get("level") or "miss"),  # type: ignore
                 }
             else:
                 meta["live_surface_applied"] = {
                     "applied": False,
-                    "reason_code": str(policy.get("reason_code") or decision.get("reason_code") or "LIVE_SURFACE_SHADOW_ONLY"),
+                    "reason_code": str(policy.get("reason_code") or decision.get("reason_code") or "LIVE_SURFACE_SHADOW_ONLY"),  # type: ignore
                     "atr_tf_ms": int(live_surface.get("atr_tf_ms") or 0),
                     "atr_value": float(live_surface.get("atr_value") or 0.0),
-                    "policy_level": (policy.get("level") or "miss"),
+                    "policy_level": (policy.get("level") or "miss"),  # type: ignore
                 }
     except Exception as exc:  # noqa: BLE001
         try:

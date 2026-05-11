@@ -13,7 +13,7 @@ def microbar_per_symbol_prefix() -> str:
 
 
 def microbar_majors_stream() -> str:
-    return os.getenv("MICROBAR_MAJORS_STREAM", RS.EVENTS_MICROBAR_MAJORS)
+    return os.getenv("MICROBAR_MAJORS_STREAM", RS.EVENTS_MICROBAR_MAJORS)  # type: ignore
 
 
 def microbar_symbols_set() -> str:

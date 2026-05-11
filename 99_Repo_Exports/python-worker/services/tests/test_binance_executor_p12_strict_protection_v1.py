@@ -29,11 +29,11 @@ os.environ["EXEC_STRICT_PROTECTION_VERIFY"] = "1"
 os.environ["EXEC_RECONCILE_REQUIRE_PROTECTION_COMPLETE"] = "1"
 
 mod_path = Path(__file__).parent.parent / "binance_executor.py"
-spec = importlib.util.spec_from_file_location("binance_executor_p12_strict", mod_path)
-mod = importlib.util.module_from_spec(spec)
-sys.modules[spec.name] = mod
-assert spec.loader is not None
-spec.loader.exec_module(mod)
+spec = importlib.util.spec_from_file_location("binance_executor_p12_strict", mod_path)  # type: ignore
+mod = importlib.util.module_from_spec(spec)  # type: ignore
+sys.modules[spec.name] = mod  # type: ignore
+assert spec.loader is not None  # type: ignore
+spec.loader.exec_module(mod)  # type: ignore
 
 
 # --- Fakes ---
@@ -46,11 +46,11 @@ class FakeRedis:
     def get(self, key: str) -> bytes | None:
         v = self.store.get(key)
         return v.encode() if v else None
-
-    def set(self, key: str, value: str, ex: int = None) -> None:
+  # type: ignore
+    def set(self, key: str, value: str, ex: int = None) -> None:  # type: ignore
         self.store[key] = value
-
-    def xadd(self, key: str, fields: dict, maxlen: int = None, approximate: bool = True) -> str:
+  # type: ignore
+    def xadd(self, key: str, fields: dict, maxlen: int = None, approximate: bool = True) -> str:  # type: ignore
         self.stream.append((key, dict(fields)))
         return "0-1"
 
@@ -60,8 +60,8 @@ class FakeRedis:
 
 class FakeClient:
     """Mock BinanceFuturesClient with inspect_protection_set control."""
-
-    def __init__(self, *, inspect_result: dict = None, post_result: dict = None):
+  # type: ignore
+    def __init__(self, *, inspect_result: dict = None, post_result: dict = None):  # type: ignore
         self._inspect_result = inspect_result or {
             "is_complete": True, "missing": [],
             "sl": {"algoId": 1}, "tp_by_index": {1: {"algoId": 2}},
@@ -89,8 +89,8 @@ class FakeClient:
     def post_algo_order(self, params):
         return {"algoId": 999}
 
-
-def _mk_executor(**env_overrides) -> mod.BinanceExecutor:
+  # type: ignore
+def _mk_executor(**env_overrides) -> mod.BinanceExecutor:  # type: ignore
     """Build a BinanceExecutor stub with minimal wiring."""
     ex = mod.BinanceExecutor.__new__(mod.BinanceExecutor)
     ex.r = FakeRedis()

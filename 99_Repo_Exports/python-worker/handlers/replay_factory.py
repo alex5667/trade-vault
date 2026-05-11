@@ -113,17 +113,17 @@ class CryptoOrderFlowReplayAdapter:
                 # Only call the Redis init, skip other complex initialization
                 self._init_redis_config("fake", "fake")
 
-        self.handler._init_manager = FakeInitManager(self.handler)
+        self.handler._init_manager = FakeInitManager(self.handler)  # type: ignore
 
         # Call minimal initialization
         self.handler._initialize_symbol_specs()
 
         # Override outbox and emitter after initialization
-        self.handler.outbox = self.outbox
+        self.handler.outbox = self.outbox  # type: ignore
 
         # Override emitter to use our outbox
         from handlers.emitter.unified_signal_emitter import UnifiedSignalEmitter, _NoopMetrics
-        self.handler._emitter = UnifiedSignalEmitter(
+        self.handler._emitter = UnifiedSignalEmitter(  # type: ignore
             outbox=self.outbox,
             logger=self.logger,
             metrics=_NoopMetrics()
@@ -135,10 +135,10 @@ class CryptoOrderFlowReplayAdapter:
                 # Return None - handler should fall back to ctx fields
                 return None
 
-        self.handler._htf_provider = FakeHTFProvider()
+        self.handler._htf_provider = FakeHTFProvider()  # type: ignore
 
         # Set handler to use ctx-based time
-        self.handler.now_ms = lambda: get_ny_time_millis()
+        self.handler.now_ms = lambda: get_ny_time_millis()  # type: ignore
 
     def process_ctx(self, ctx_payload: dict[str, Any]) -> None:
         """
@@ -176,7 +176,7 @@ class CryptoOrderFlowReplayAdapter:
             tick = SimpleNamespace(**tick_payload)
             # Call handler's tick processing if available
             if hasattr(self.handler, 'process_tick'):
-                self.handler.process_tick(tick)
+                self.handler.process_tick(tick)  # type: ignore
         except Exception as e:
             self.logger.warning(f"Failed to process tick in replay: {e}")
 

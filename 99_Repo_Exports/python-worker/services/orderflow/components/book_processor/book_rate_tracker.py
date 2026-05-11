@@ -26,7 +26,7 @@ class BookRateTracker:
         if not hasattr(runtime, "_book_health_initialized"):
             runtime.last_book_health_ok = 1
             runtime.last_book_health = "OK"
-            runtime._book_health_initialized = True
+            runtime._book_health_initialized = True  # type: ignore
 
         inst = 0.0
         if runtime.prev_book_ts_ms > 0 and book_ts_ms > runtime.prev_book_ts_ms:

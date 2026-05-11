@@ -328,7 +328,7 @@ class SignalGate:
             if not isinstance(p, dict):
                 continue
             try:
-                positions.append(PortfolioPosition(
+                positions.append(PortfolioPosition(  # type: ignore
                     symbol=(p.get("symbol") or ""),
                     notional_usd=float(p.get("notional_usd") or 0.0),
                     side=(p.get("side") or "LONG"),
@@ -424,7 +424,7 @@ class SignalGate:
             async def _bg():
                 with contextlib.suppress(Exception):
                     await asyncio.to_thread(
-                        self._audit_sink.record_decision,
+                        self._audit_sink.record_decision,  # type: ignore
                         decision_id=decision_id,
                         signal=signal,
                         risk_input=risk_input,

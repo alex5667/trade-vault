@@ -202,7 +202,7 @@ class RiskAuditSqlSink:
                             reasons_jsonb = excluded.reasons_jsonb,
                             snapshot_jsonb = excluded.snapshot_jsonb
                             signal_jsonb = excluded.signal_jsonb
-                        """
+                        """,
                     (
                         created_ts_ms,
                         decision_id, signal_id, sid, symbol, cluster, tier, level,
@@ -240,7 +240,7 @@ class RiskAuditSqlSink:
                             clamp_ratio = excluded.clamp_ratio,
                             decision_latency_ms = excluded.decision_latency_ms,
                             snapshot_jsonb = excluded.snapshot_jsonb
-                        """
+                        """,
                     (
                         created_ts_ms,
                         decision_id, sid, signal_id, symbol, cluster, tier, level,

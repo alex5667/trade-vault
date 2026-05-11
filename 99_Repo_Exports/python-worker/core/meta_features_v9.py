@@ -72,7 +72,7 @@ META_FEAT_V9_COLS: list[str] = list(META_FEAT_V8_COLS) + list(META_FEAT_V9_NEW_C
 META_FEAT_V9_HASH: str = hashlib.sha1(",".join(META_FEAT_V9_COLS).encode("utf-8")).hexdigest()
 
 
-META_FEAT_V9_TRANSFORMS: dict[str, str] = dict(META_FEAT_V8_TRANSFORMS)
+META_FEAT_V9_TRANSFORMS: dict[str, str] = dict(META_FEAT_V8_TRANSFORMS)  # type: ignore
 META_FEAT_V9_DESCRIPTIONS: dict[str, str] = {}
 
 for _w in LIQMAP_WINDOWS_V9:

@@ -152,10 +152,10 @@ class TouchLevelTracker:
 
         if side > 0:
             if self._is_touch_trade(now_ts=ts, price=price, side=side):
-                self.ask.trades.add(ts, qty)
+                self.ask.trades.add(ts, qty)  # type: ignore
         elif side < 0:
             if self._is_touch_trade(now_ts=ts, price=price, side=side):
-                self.bid.trades.add(ts, qty)
+                self.bid.trades.add(ts, qty)  # type: ignore
 
     def _update_side(self, st: _SideState, *, ts: int, best_p: float, best_q: float, is_bid: bool) -> None:
         best_p = float(best_p or 0.0)
@@ -174,7 +174,7 @@ class TouchLevelTracker:
             if is_bid:
                 # bid worsens when price goes DOWN
                 if best_p < st.best_price and st.best_qty > 0:
-                    st.drops.add(ts, float(st.best_qty))
+                    st.drops.add(ts, float(st.best_qty))  # type: ignore
                     if st.drop_started_ts == 0:
                         st.drop_started_ts = ts
                         st.qty_before_drop = float(st.best_qty)
@@ -182,7 +182,7 @@ class TouchLevelTracker:
             else:
                 # ask worsens when price goes UP
                 if best_p > st.best_price and st.best_qty > 0:
-                    st.drops.add(ts, float(st.best_qty))
+                    st.drops.add(ts, float(st.best_qty))  # type: ignore
                     if st.drop_started_ts == 0:
                         st.drop_started_ts = ts
                         st.qty_before_drop = float(st.best_qty)
@@ -196,7 +196,7 @@ class TouchLevelTracker:
         # same price => compute drop
         drop = max(0.0, st.best_qty - best_q)
         if drop > 0.0:
-            st.drops.add(ts, drop)
+            st.drops.add(ts, drop)  # type: ignore
             if st.drop_started_ts == 0:
                 st.drop_started_ts = ts
                 st.qty_before_drop = max(st.best_qty, best_q)
@@ -241,10 +241,10 @@ class TouchLevelTracker:
         if ts <= 0:
             return TouchSnapshot(ts=ts)
 
-        bid_T = self.bid.trades.value(ts)
-        ask_T = self.ask.trades.value(ts)
-        bid_D = self.bid.drops.value(ts)
-        ask_D = self.ask.drops.value(ts)
+        bid_T = self.bid.trades.value(ts)  # type: ignore
+        ask_T = self.ask.trades.value(ts)  # type: ignore
+        bid_D = self.bid.drops.value(ts)  # type: ignore
+        ask_D = self.ask.drops.value(ts)  # type: ignore
 
         bid_tag, bid_rho = self._tag(T=bid_T, D=bid_D, refill_lag_ms=int(self.bid.refill_lag_ms or 0))
         ask_tag, ask_rho = self._tag(T=ask_T, D=ask_D, refill_lag_ms=int(self.ask.refill_lag_ms or 0))

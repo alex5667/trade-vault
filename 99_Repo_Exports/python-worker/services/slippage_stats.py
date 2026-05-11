@@ -193,7 +193,7 @@ def update_slippage_ema(
             if isinstance(v, (bytes, bytearray)):
                 v = v.decode("utf-8", "ignore")
             try:
-                f = float(v)
+                f = float(v)  # type: ignore
                 return f if math.isfinite(f) else default
             except Exception:
                 return default
@@ -203,7 +203,7 @@ def update_slippage_ema(
             if isinstance(v, (bytes, bytearray)):
                 v = v.decode("utf-8", "ignore")
             try:
-                return int(float(v))
+                return int(float(v))  # type: ignore
             except Exception:
                 return default
 

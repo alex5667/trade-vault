@@ -34,7 +34,7 @@ except Exception:  # pragma: no cover
 class CircuitBreakerState:
     def __init__(
         self,
-        redis: aioredis.Redis,
+        redis: aioredis.Redis,  # type: ignore
         symbol: str,
         min_dwell_s: int = 300,
         min_consecutive: int = 3,

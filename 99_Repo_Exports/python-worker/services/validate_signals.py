@@ -42,7 +42,7 @@ def _compute_quantiles(values: list[float], probs: list[float], use_gpu: bool) -
         return [0.0 for _ in probs]
     if use_gpu and _GPU_AVAILABLE and _gpu_service:
         try:
-            qs = _gpu_service.compute_quantiles(arr, probs)
+            qs = _gpu_service.compute_quantiles(arr, probs)  # type: ignore
             return [float(x) for x in qs]
         except Exception:
             pass
@@ -212,7 +212,7 @@ def evaluate(
             fwd = (mid[idxs + horizon] - mid[idxs]) / mid[idxs]
             edges = fwd * sides
 
-            edges_cpu = edges.get()
+            edges_cpu = edges.get()  # type: ignore
             wins = int(np.sum(edges_cpu > min_edge))
             losses = len(edges_cpu) - wins
             total = wins + losses if wins + losses > 0 else 1

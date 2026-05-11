@@ -42,7 +42,7 @@ class OFIStabilityTracker:
         self._dir_start_ts_ms = None
         self._last_ts_ms = None
         self._last_non_zero_ts_ms = None
-        self.stats.reset()
+        self.stats.reset()  # type: ignore
 
     def compute_ofi_best_level(
         self,

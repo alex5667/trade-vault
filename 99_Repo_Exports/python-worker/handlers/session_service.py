@@ -268,7 +268,7 @@ class SessionService:
                     return str(wl)
         return "weekend"
 
-    def _infer_session_label(self, ctx: OrderflowSignalContext) -> str:
+    def _infer_session_label(self, ctx: OrderflowSignalContext) -> str:  # type: ignore
         """Infer trading session label from context (DST-aware when possible)."""
         ts_ms = self._normalize_ts_ms(getattr(ctx, "ts", 0))
         if ts_ms <= 0:
@@ -311,7 +311,7 @@ class SessionService:
         if isinstance(cfg_biases, Mapping):
             try:
                 if session in cfg_biases:
-                    return float(cfg_biases.get(session))
+                    return float(cfg_biases.get(session))  # type: ignore
             except Exception:
                 pass
 

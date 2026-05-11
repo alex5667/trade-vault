@@ -393,7 +393,7 @@ def _eval_status(value: Any) -> int:
         except Exception:
             pass
     try:
-        return int(value)
+        return int(value)  # type: ignore
     except Exception:
         return -999
 

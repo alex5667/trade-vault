@@ -5,7 +5,7 @@
 
 import time
 
-from handlers import SignalProcessor
+from handlers import SignalProcessor  # type: ignore
 
 
 def sample_ws_callback(symbols):

@@ -117,7 +117,7 @@ class DualSignalDeliverer:
         if self._sha:
             return self._sha
         self._sha = self.dual.script_load(_LUA_DELIVER_ONE_AND_ACK)
-        return self._sha
+        return self._sha  # type: ignore
 
     @staticmethod
     def _kv_flat(payload: dict[str, Any]) -> list[str]:
@@ -145,20 +145,20 @@ class DualSignalDeliverer:
 
         if not sid or target not in ("notify", "manual"):
             # bad envelope: ack to avoid PEL poison
-            self.dual.xack(self.outbox_stream, self.group, msg_id)
+            self.dual.xack(self.outbox_stream, self.group, msg_id)  # type: ignore
             return True
 
         if target == "notify":
             stream = str(meta.get("notify_stream") or os.getenv("NOTIFY_STREAM", RS.NOTIFY_TELEGRAM))
             maxlen = int(meta.get("maxlen") or 500)
             every_n = int(meta.get("every_n") or 1)
-            counter_key = str(meta.get("counter_key") or os.getenv("NOTIFY_SIGNAL_COUNTER_KEY", RS.NOTIFY_SIGNAL_COUNTER))
+            counter_key = str(meta.get("counter_key") or os.getenv("NOTIFY_SIGNAL_COUNTER_KEY", RS.NOTIFY_SIGNAL_COUNTER))  # type: ignore
             marker_key = f"deliver:notify:{sid}"
             is_notify = "1"
         else:
             stream = (meta.get("manual_stream") or "")
             if not stream:
-                self.dual.xack(self.outbox_stream, self.group, msg_id)
+                self.dual.xack(self.outbox_stream, self.group, msg_id)  # type: ignore
                 return True
             maxlen = int(meta.get("maxlen") or 2000)
             every_n = 1

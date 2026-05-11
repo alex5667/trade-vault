@@ -246,7 +246,7 @@ class BinanceDustCleanupAdminNotifier:
             self._metric_inc(EXECUTION_DUST_ADMIN_NOTIFY_TOTAL, labels={'kind': (kind or 'telegram'), 'result': 'error'})
         if self._tg is not None:
             with contextlib.suppress(Exception):
-                self._tg.send_message(text)
+                self._tg.send_message(text)  # type: ignore
 
     def _parse_json_doc(self, raw: str | None) -> dict[str, Any]:
         if raw in (None, ''):

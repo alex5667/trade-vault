@@ -16,27 +16,27 @@ from core.redis_keys import RedisStreams as RS
 # Load executor
 exec_mod_path = Path(__file__).parent.parent / 'binance_executor.py'
 exec_spec = importlib.util.spec_from_file_location('binance_executor_integration', exec_mod_path)
-exec_mod = importlib.util.module_from_spec(exec_spec)
-sys.modules[exec_spec.name] = exec_mod
-assert exec_spec.loader is not None
-exec_spec.loader.exec_module(exec_mod)
-
+exec_mod = importlib.util.module_from_spec(exec_spec)  # type: ignore
+sys.modules[exec_spec.name] = exec_mod  # type: ignore
+assert exec_spec.loader is not None  # type: ignore
+exec_spec.loader.exec_module(exec_mod)  # type: ignore
+  # type: ignore
 # Load projection worker
 proj_mod_path = Path(__file__).parent.parent / 'execution_projection_worker.py'
 proj_spec = importlib.util.spec_from_file_location('execution_projection_integration', proj_mod_path)
-proj_mod = importlib.util.module_from_spec(proj_spec)
-sys.modules[proj_spec.name] = proj_mod
-assert proj_spec.loader is not None
-proj_spec.loader.exec_module(proj_mod)
-
+proj_mod = importlib.util.module_from_spec(proj_spec)  # type: ignore
+sys.modules[proj_spec.name] = proj_mod  # type: ignore
+assert proj_spec.loader is not None  # type: ignore
+proj_spec.loader.exec_module(proj_mod)  # type: ignore
+  # type: ignore
 # Load repair worker
 repair_mod_path = Path(__file__).parent.parent / 'binance_active_symbol_guard_repair_worker.py'
 repair_spec = importlib.util.spec_from_file_location('binance_repair_integration', repair_mod_path)
-repair_mod = importlib.util.module_from_spec(repair_spec)
-sys.modules[repair_spec.name] = repair_mod
-assert repair_spec.loader is not None
-repair_spec.loader.exec_module(repair_mod)
-
+repair_mod = importlib.util.module_from_spec(repair_spec)  # type: ignore
+sys.modules[repair_spec.name] = repair_mod  # type: ignore
+assert repair_spec.loader is not None  # type: ignore
+repair_spec.loader.exec_module(repair_mod)  # type: ignore
+  # type: ignore
 
 class FakeRedis:
     def __init__(self):
@@ -97,8 +97,8 @@ def test_projection_late_same_sid_event_cannot_resurrect_after_repair_release():
     # 2. Assume trade reached terminal state, but exchange truth flag is true, so projection worker
     # merely sets guard_release_pending=True
     now = get_ny_time_millis()
-    guard = json.loads(r.get('orders:active_symbol_sid:ETHUSDT'))
-    guard.update({"guard_release_pending": True, "state_terminalish": True, "guard_version": 1})
+    guard = json.loads(r.get('orders:active_symbol_sid:ETHUSDT'))  # type: ignore
+    guard.update({"guard_release_pending": True, "state_terminalish": True, "guard_version": 1})  # type: ignore
     r.set('orders:active_symbol_sid:ETHUSDT', json.dumps(guard))
 
     # 3. Repair worker runs, sees flat exchange, and CAS-releases to tombstone
@@ -106,8 +106,8 @@ def test_projection_late_same_sid_event_cannot_resurrect_after_repair_release():
     out = repair.run_once()
     assert out[0]['status'] == 'released'
 
-    guard_post_repair = json.loads(r.get('orders:active_symbol_sid:ETHUSDT'))
-    assert guard_post_repair['guard_status'] == 'released'
+    guard_post_repair = json.loads(r.get('orders:active_symbol_sid:ETHUSDT'))  # type: ignore
+    assert guard_post_repair['guard_status'] == 'released'  # type: ignore
 
     # 4. Projection worker wakes up and processes a delayed stream event for sid-1.
     # In P6 this would overwrite the key and resurrect the guard blocking the symbol.
@@ -123,8 +123,8 @@ def test_projection_late_same_sid_event_cannot_resurrect_after_repair_release():
     proj.run_until_idle()
 
     # Verify the key is still a released tombstone
-    final_guard = json.loads(r.get('orders:active_symbol_sid:ETHUSDT'))
-    assert final_guard['guard_status'] == 'released'
+    final_guard = json.loads(r.get('orders:active_symbol_sid:ETHUSDT'))  # type: ignore
+    assert final_guard['guard_status'] == 'released'  # type: ignore
 
 
 def test_executor_new_sid_can_acquire_after_released_tombstone():
@@ -136,8 +136,8 @@ def test_executor_new_sid_can_acquire_after_released_tombstone():
     store.acquire_or_refresh(symbol="XRPUSDT", sid="old-sid", payload_patch={}, writer="exec")
     store.mark_released(symbol="XRPUSDT", expected_sid="old-sid", release_reason="test", writer="repair")
 
-    assert json.loads(r.get("orders:active_symbol_sid:XRPUSDT"))['guard_status'] == 'released'
-
+    assert json.loads(r.get("orders:active_symbol_sid:XRPUSDT"))['guard_status'] == 'released'  # type: ignore
+  # type: ignore
     # Executor attempts new open
     ex = exec_mod.BinanceExecutor.__new__(exec_mod.BinanceExecutor)
     ex.r = r
@@ -158,6 +158,6 @@ def test_executor_new_sid_can_acquire_after_released_tombstone():
         'status': 'open',
     })
 
-    final_guard = json.loads(r.get("orders:active_symbol_sid:XRPUSDT"))
-    assert final_guard['guard_status'] == 'active'
+    final_guard = json.loads(r.get("orders:active_symbol_sid:XRPUSDT"))  # type: ignore
+    assert final_guard['guard_status'] == 'active'  # type: ignore
     assert final_guard['sid'] == 'new-sid'

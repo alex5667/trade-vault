@@ -18,7 +18,7 @@ class WorstK:
       - export/import for persistence in Redis
     """
     k: int = 200
-    _h: list[float] = None  # heap of (-x)
+    _h: list[float] = None  # heap of (-x)  # type: ignore
     _sum: float = 0.0
     _sumsq: float = 0.0
 

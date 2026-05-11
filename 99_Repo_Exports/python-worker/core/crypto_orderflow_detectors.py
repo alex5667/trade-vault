@@ -272,7 +272,7 @@ class OBIDetector:
         try:
             for k in ("ts_ms", "ts", "timestamp"):
                 if k in book and book.get(k) is not None:
-                    ts_ms = int(book.get(k))
+                    ts_ms = int(book.get(k))  # type: ignore
                     break
         except Exception:
             ts_ms = None
@@ -389,7 +389,7 @@ class IcebergDetector:
         try:
             for k in ("ts_ms", "ts", "timestamp"):
                 if k in book and book.get(k) is not None:
-                    ts_ms = int(book.get(k))
+                    ts_ms = int(book.get(k))  # type: ignore
                     break
         except Exception:
             ts_ms = None

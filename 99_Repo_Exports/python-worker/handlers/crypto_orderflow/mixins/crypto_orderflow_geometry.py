@@ -27,7 +27,7 @@ class CryptoOrderFlowGeometryMixin:
               ctx.geo_zone_hit: top-1 dict
               ctx.geometry_score: float (0..1)
         """
-        if not self._geometry_enabled:
+        if not self._geometry_enabled:  # type: ignore
             return
         try:
             price = float(getattr(ctx, "price", 0.0) or 0.0)
@@ -40,7 +40,7 @@ class CryptoOrderFlowGeometryMixin:
         snap = getattr(ctx, "geometry", None)
         if snap is None:
             # missing HTF/geometry provider: neutral score, add quality flag
-            ctx.geometry_score = float(self._geometry_missing_score)
+            ctx.geometry_score = float(self._geometry_missing_score)  # type: ignore
             flags = getattr(ctx, "data_quality_flags", None)
             if isinstance(flags, list):
                 flags.append("missing_htf")
@@ -102,4 +102,4 @@ class CryptoOrderFlowGeometryMixin:
 
         ctx.geo_zone_hits = hits
         ctx.geo_zone_hit = best
-        ctx.geometry_score = float(best_score if best is not None else self._geometry_missing_score)
+        ctx.geometry_score = float(best_score if best is not None else self._geometry_missing_score)  # type: ignore

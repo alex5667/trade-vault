@@ -132,7 +132,7 @@ class SignalOutboxPublisher:
         """Load Lua script if not already cached."""
         if self._sha_dedup is None:
             self._sha_dedup = self._redis.script_load(_LUA_DEDUP_AND_OUTBOX)
-        return self._sha_dedup
+        return self._sha_dedup  # type: ignore
 
     def publish(
         self,

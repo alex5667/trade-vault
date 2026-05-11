@@ -6,7 +6,7 @@ import pytest
 
 # Add parent directory to path for imports
 # [AUTOGRAVITY CLEANUP] sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
-from services.orderflow_strategy import _ml_should_enforce, _stable_hash01
+from services.orderflow.tick_decision_engine import _ml_should_enforce, _stable_hash01
 
 
 class TestP61MLRollout:
@@ -101,7 +101,7 @@ class TestP61MLRollout:
         """Invalid mode should default to shadow (no enforcement)"""
         assert not _ml_should_enforce("invalid_mode", "sig1", 0.5)
         assert not _ml_should_enforce("", "sig1", 0.5)
-        assert not _ml_should_enforce(None, "sig1", 0.5)
+        assert not _ml_should_enforce(None, "sig1", 0.5)  # type: ignore[arg-type]
 
     def test_ml_should_enforce_rate_clamping(self):
         """Rates outside [0,1] should be clamped"""

@@ -21,9 +21,9 @@ import redis
 import redis.asyncio as aioredis
 
 from core.entry_policy_overrides_v1 import EntryPolicyOverridesV1
-from tools.export_trade_closed_ndjson import iter_closed_from_redis
+from tools.export_trade_closed_ndjson import iter_closed_from_redis  # type: ignore
 from tools.send_telegram import send_telegram
-from utils.time_utils import get_ny_time_millis
+from utils.time_utils import get_ny_time_millis  # type: ignore
 import contextlib
 
 LOCK_KEY = os.getenv("AUTOPILOT_LOCK_KEY", "lock:autopilot:tm_policy")
@@ -64,8 +64,8 @@ def _winner_to_override(
     return EntryPolicyOverridesV1(
         updated_ts_ms=int(updated_ts_ms),
         enabled=1,
-        symbol=symbol.upper(),
-        regime=str(regime).lower(),
+        symbol=symbol.upper(),  # type: ignore
+        regime=str(regime).lower(),  # type: ignore
         scenario=str(scenario).lower(),
         group=_regime_group(regime),
         force_active_arm=str(winner).upper(),

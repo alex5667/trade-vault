@@ -18,10 +18,10 @@ if str(root) not in sys.path:
 
 mod_path = root / "services" / "binance_active_symbol_guard_repair_worker.py"
 spec = importlib.util.spec_from_file_location("services.binance_guard_repair_p5", mod_path)
-mod = importlib.util.module_from_spec(spec)
-sys.modules[spec.name] = mod
-assert spec.loader is not None
-spec.loader.exec_module(mod)
+mod = importlib.util.module_from_spec(spec)  # type: ignore
+sys.modules[spec.name] = mod  # type: ignore
+assert spec.loader is not None  # type: ignore
+spec.loader.exec_module(mod)  # type: ignore
 
 
 class FakeRedis:
@@ -91,7 +91,7 @@ def test_guard_repair_worker_releases_flat_guard():
     out = worker.run_once()
     assert len(out) == 1
     assert out[0]["status"] == "released", f"expected released, got: {out[0]}"
-    raw = json.loads(r.get("orders:active_symbol_sid:SOLUSDT"))
+    raw = json.loads(r.get("orders:active_symbol_sid:SOLUSDT"))  # type: ignore
     assert raw['guard_status'] == 'released'
     assert worker._load_active_symbol_guard('SOLUSDT') == {}
 
@@ -106,7 +106,7 @@ def test_guard_repair_worker_keeps_guard_when_open_orders_exist():
     worker = mod.BinanceActiveSymbolGuardRepairWorker(redis_client=r, client=OpenOrdersClient())
     out = worker.run_once()
     assert out[0]["status"] == "blocked"
-    guard = json.loads(r.get("orders:active_symbol_sid:ADAUSDT"))
+    guard = json.loads(r.get("orders:active_symbol_sid:ADAUSDT"))  # type: ignore
     assert guard["exchange_guard_reason"] == "exchange_open_orders"
     assert guard["exchange_open_plain_orders"] == 1
 
@@ -121,7 +121,7 @@ def test_guard_repair_worker_keeps_guard_when_live_position():
     worker = mod.BinanceActiveSymbolGuardRepairWorker(redis_client=r, client=LivePositionClient())
     out = worker.run_once()
     assert out[0]["status"] == "blocked"
-    guard = json.loads(r.get("orders:active_symbol_sid:BNBUSDT"))
+    guard = json.loads(r.get("orders:active_symbol_sid:BNBUSDT"))  # type: ignore
     assert guard["exchange_guard_reason"] == "exchange_open_position"
     assert guard["exchange_position_amt"] == 5.0
 
@@ -166,9 +166,9 @@ def test_guard_repair_worker_processes_multiple_keys():
     symbols = {o["symbol"] for o in out}
     assert "SOLUSDT" in symbols
     assert "ADAUSDT" in symbols
-    raw_sol = json.loads(r.get("orders:active_symbol_sid:SOLUSDT"))
+    raw_sol = json.loads(r.get("orders:active_symbol_sid:SOLUSDT"))  # type: ignore
     assert raw_sol['guard_status'] == 'released'
     assert worker._load_active_symbol_guard('SOLUSDT') == {}
-    raw_ada = json.loads(r.get("orders:active_symbol_sid:ADAUSDT"))
+    raw_ada = json.loads(r.get("orders:active_symbol_sid:ADAUSDT"))  # type: ignore
     assert raw_ada['guard_status'] == 'released'
     assert worker._load_active_symbol_guard('ADAUSDT') == {}

@@ -27,14 +27,14 @@ def _make_executor(mark_price: float) -> MagicMock:
     # Bind the real method to our mock instance
     from services.binance_executor import BinanceExecutor
     exe._validate_protective_prices = (
-        BinanceExecutor._validate_protective_prices.__get__(exe, type(exe))
+        BinanceExecutor._validate_protective_prices.__get__(exe, type(exe))  # type: ignore
     )
 
     # Stub client always returns the given mark price
     client = MagicMock()
     client.get_mark_price.return_value = mark_price
     exe._client = client
-    return exe, client
+    return exe, client  # type: ignore
 
 
 # Helper: call the method under test
@@ -197,7 +197,7 @@ class TestEdgeCases:
         exe._PROTECTIVE_NUDGE_THRESHOLD = 0.001
         exe._PROTECTIVE_NUDGE_OFFSET    = 0.0005
         exe._validate_protective_prices = (
-            BinanceExecutor._validate_protective_prices.__get__(exe, type(exe))
+            BinanceExecutor._validate_protective_prices.__get__(exe, type(exe))  # type: ignore
         )
         client = MagicMock()
         client.get_mark_price.return_value = 0.0   # unavailable

@@ -414,9 +414,9 @@ class TradeEventEmitter:
             fees_usd_val = float(getattr(closed, "fees", 0.0) or getattr(pos, "fees", 0.0) or 0.0)
             turnover_val = float(getattr(closed, "turnover_roundtrip", 0.0) or 0.0)
             if turnover_val > 0:
-                fee_bps = (fees_usd_val / turnover_val) * 10_000.0
+                fee_bps = (fees_usd_val / turnover_val) * 10_000.0  # type: ignore
 
-        self._events_logger.log_position_closed(
+        self._events_logger.log_position_closed(  # type: ignore
             sid=str(getattr(pos, "sid", "")),
             symbol=str(getattr(pos, "symbol", "")),
             ts_ms=int(exit_ts_ms or 0),

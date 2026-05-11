@@ -20,7 +20,7 @@ def setup_logger(name):
     return logging.getLogger(name)
 
 if TYPE_CHECKING:
-    from contexts import CoreSignalContext
+    from contexts import CoreSignalContext  # type: ignore
 
 
 class CalibrationService:

@@ -114,11 +114,11 @@ def parse_open_position_hash(
             tp_levels = [
                 float(h.get("tp1") or 0),
                 float(h.get("tp2") or 0),
-                float(h.get("tp3") or 0),
+                float(h.get("tp3") or 0),  # type: ignore
             ]
         tp_levels = [float(x) for x in tp_levels if float(x) > 0][:3]
 
-        pos = PositionState(
+        pos = PositionState(  # type: ignore
             id=(h.get("id")),
             sid=(h.get("sid") or ""),
             strategy=(h.get("strategy") or "unknown"),

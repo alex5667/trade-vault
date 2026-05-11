@@ -4,7 +4,7 @@ import json
 import pytest
 
 hypothesis = pytest.importorskip("hypothesis")
-from hypothesis import given
+from hypothesis import given, settings, HealthCheck
 from hypothesis import strategies as st
 
 
@@ -50,6 +50,7 @@ def _mk_sd():
     sd._evalsha_or_eval = fake_evalsha_or_eval
     sd._captured = captured  # for assertions
     return sd
+
 
 
 @given(payload=st.dictionaries(st.text(max_size=16), json_value, max_size=12))

@@ -262,8 +262,8 @@ class OrphanRecoveryPolicy:
                     try:
                         yield
                     finally:
-                        lk.release()
-                ctx = _manual_ctx()
+                        lk.release()  # type: ignore
+                ctx = _manual_ctx()  # type: ignore
             elif lk is not None:
                 ctx = lk
             else:
@@ -400,8 +400,8 @@ class OrphanRecoveryPolicy:
                     source=getattr(pos, "source", ""),
                     symbol=getattr(pos, "symbol", ""),
                     tf=getattr(pos, "tf", ""),
-                    direction=getattr(pos, "direction", ""),
-                    ts_ms=int(exit_ts_ms_default or now_ms),
+                    direction=getattr(pos, "direction", ""),  # type: ignore
+                    ts_ms=int(exit_ts_ms_default or now_ms),  # type: ignore
                     payload={
                         "exit_price": float(pos_exit_price),
                         "exit_ts_ms": int(exit_ts_ms_default or now_ms),
@@ -420,8 +420,8 @@ class OrphanRecoveryPolicy:
                     source=getattr(pos, "source", ""),
                     symbol=getattr(pos, "symbol", ""),
                     tf=getattr(pos, "tf", ""),
-                    direction=getattr(pos, "direction", ""),
-                    ts_ms=int(exit_ts_ms_default or now_ms),
+                    direction=getattr(pos, "direction", ""),  # type: ignore
+                    ts_ms=int(exit_ts_ms_default or now_ms),  # type: ignore
                     payload={
                         "reason": str(getattr(closed, "close_reason", "") or "") if closed else pos_raw,
                         "reason_raw": str(getattr(closed, "close_reason_raw", "") or pos_raw) if closed else pos_raw,
@@ -462,11 +462,11 @@ class OrphanRecoveryPolicy:
                 def _make_io(o_ev, c_ev, cl, pd, cd):
                     tasks = []
                     if callable(self._append_event):
-                        tasks.append(lambda: self._append_event(o_ev))
-                        tasks.append(lambda: self._append_event(c_ev))
-                    if cl is not None and callable(self._persist_closed):
-                        tasks.append(lambda: self._persist_closed(cl, pd, cd))
-                    return tasks
+                        tasks.append(lambda: self._append_event(o_ev))  # type: ignore
+                        tasks.append(lambda: self._append_event(c_ev))  # type: ignore
+                    if cl is not None and callable(self._persist_closed):  # type: ignore
+                        tasks.append(lambda: self._persist_closed(cl, pd, cd))  # type: ignore
+                    return tasks  # type: ignore
 
                 io_tasks.extend(_make_io(orphan_ev, close_ev, closed, pos_dict, closed_dict))
 

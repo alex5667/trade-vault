@@ -32,13 +32,13 @@ from core.rolling_window import RollingWindow, WeightedRollingWindow
 
 class TestRollingWindow:
     def test_push_and_len(self):
-        w: RollingWindow[float] = RollingWindow(horizon_ms=10_000, maxlen=16)
+        w: RollingWindow[float] = RollingWindow(horizon_ms=10_000, maxlen=16)  # type: ignore
         assert w.push(1000, 1.0)
         assert w.push(2000, 2.0)
         assert len(w) == 2
 
     def test_eviction(self):
-        w: RollingWindow[float] = RollingWindow(horizon_ms=5_000, maxlen=64)
+        w: RollingWindow[float] = RollingWindow(horizon_ms=5_000, maxlen=64)  # type: ignore
         w.push(1000, 10.0)
         w.push(2000, 20.0)
         # now push at 7000: horizon=5000 => cutoff=2000, item at 1000 dropped
@@ -47,7 +47,7 @@ class TestRollingWindow:
         assert all(ts >= 2000 for ts, _ in items), f"stale item not evicted: {items}"
 
     def test_out_of_order_rejected(self):
-        w: RollingWindow[float] = RollingWindow(horizon_ms=10_000, maxlen=64)
+        w: RollingWindow[float] = RollingWindow(horizon_ms=10_000, maxlen=64)  # type: ignore
         w.push(5000, 50.0)
         ok = w.push(4000, 40.0)
         assert not ok
@@ -55,13 +55,13 @@ class TestRollingWindow:
         assert len(w) == 1
 
     def test_zero_ts_rejected(self):
-        w: RollingWindow[float] = RollingWindow(horizon_ms=10_000, maxlen=64)
+        w: RollingWindow[float] = RollingWindow(horizon_ms=10_000, maxlen=64)  # type: ignore
         ok = w.push(0, 1.0)
         assert not ok
         assert w.bad_time_total == 1
 
     def test_maxlen_bound(self):
-        w: RollingWindow[float] = RollingWindow(horizon_ms=9_999_999, maxlen=4)
+        w: RollingWindow[float] = RollingWindow(horizon_ms=9_999_999, maxlen=4)  # type: ignore
         for i in range(10):
             w.push(i * 1000 + 1000, float(i))
         assert len(w) <= 4

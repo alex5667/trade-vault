@@ -163,7 +163,7 @@ class ABWinnerSuggesterV2:
 
                 # Metrics: track winner changes
                 if res.changed:
-                    lcb_winner_changes_total.labels(symbol=symbol, regime=regime, scenario=scenario).inc()
+                    lcb_winner_changes_total.labels(symbol=symbol, regime=regime, scenario=scenario).inc()  # type: ignore
 
                 # Metrics: track LCB margin (winner - runner-up)
                 margin = 0.0
@@ -175,7 +175,7 @@ class ABWinnerSuggesterV2:
                     margin = winner_lcb - runner_up_lcb
                 elif len(stats_list) == 1:
                     margin = stats_list[0].lcb
-                lcb_margin.labels(symbol=symbol, regime=regime, scenario=scenario).set(margin)
+                lcb_margin.labels(symbol=symbol, regime=regime, scenario=scenario).set(margin)  # type: ignore
 
                 # Build scores dict from stats_list
                 scores_dict = {
@@ -254,7 +254,7 @@ class ABWinnerSuggesterV2:
                         margin = winner_score.lcb
             elif len(scores) == 1:
                 margin = list(scores.values())[0].lcb
-            lcb_margin.labels(symbol=symbol, regime=regime, scenario=scenario).set(margin)
+            lcb_margin.labels(symbol=symbol, regime=regime, scenario=scenario).set(margin)  # type: ignore
 
             # Metrics: LCB margin for non-cost-aware mode too (Redis-backed)
             try:

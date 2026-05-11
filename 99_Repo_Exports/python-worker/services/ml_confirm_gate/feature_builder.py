@@ -106,8 +106,8 @@ def build_feature_row(
     liq_cfg = getattr(model, "liq_cfg", None)
     if not isinstance(liq_cfg, dict):
         liq_cfg = {}
-    liq_label = derive_regime_label(indicators.get("liq_regime"), fallback_score=_f(indicators.get("liq_score"), None), cfg=liq_cfg)
-    vol_label = derive_regime_label(indicators.get("vol_regime"), fallback_score=_f(indicators.get("vol_score"), None), cfg=liq_cfg)
+    liq_label = derive_regime_label(indicators.get("liq_regime"), fallback_score=_f(indicators.get("liq_score"), None), cfg=liq_cfg)  # type: ignore
+    vol_label = derive_regime_label(indicators.get("vol_regime"), fallback_score=_f(indicators.get("vol_score"), None), cfg=liq_cfg)  # type: ignore
 
     tm = time.gmtime(float(int(ts_ms or 0)) / 1000.0)
     utc_hour = int(getattr(tm, "tm_hour", 0))

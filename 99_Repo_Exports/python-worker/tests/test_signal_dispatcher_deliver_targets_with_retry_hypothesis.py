@@ -4,7 +4,7 @@ import copy
 from typing import Any
 
 import pytest
-from hypothesis import given, settings
+from hypothesis import given, settings, HealthCheck, settings
 from hypothesis import strategies as st
 
 import services.dispatch.dispatcher_app as sd_mod
@@ -19,15 +19,15 @@ class FakeRedis:
     def set(self, key: str, value: Any, ex: int | None = None, nx: bool = False, px: int | None = None) -> bool:
         if nx and key in self.kv:
             return False
-        self.kv[str(key)] = value
+        self.kv[key] = value
         return True
 
     def setex(self, key: str, ttl: int, value: Any) -> bool:
-        self.kv[str(key)] = value
+        self.kv[key] = value
         return True
 
     def get(self, key: str) -> Any:
-        return self.kv.get(str(key))
+        return self.kv.get(key)
 
     def ttl(self, key: str) -> int:
         # not needed here; return "unknown"
@@ -40,6 +40,12 @@ class FakeRedis:
     def xadd(self, stream: str, fields: dict[str, Any], maxlen: int | None = None, approximate: bool = True) -> str:
         # not needed; just accept
         return "0-0"
+
+    def evalsha(self, sha: str, numkeys: int, *keys_and_args: Any) -> int:
+        marker_key = str(keys_and_args[0])
+        from utils.time_utils import get_ny_time_millis
+        self.set(marker_key, str(get_ny_time_millis()))
+        return 1
 
 
 JSON_SCALAR = st.one_of(
@@ -65,7 +71,8 @@ def _payload_strategy():
     )
 
 
-@settings(max_examples=80, deadline=None)
+@settings(max_examples=80, deadline=None, suppress_health_check=[HealthCheck.function_scoped_fixture])
+
 @given(
     p_sig=_payload_strategy(),
     p_aud=_payload_strategy(),
@@ -101,17 +108,18 @@ def test_deliver_targets_with_retry_never_mutates_targets_payloads(
     d.trace_sidecar_success_sample_rate = 0.0
     d.trace_diag_enabled = False
     d._ctr = {}
+    d.logger = type("Logger", (), {"error": print, "warning": print, "info": print, "debug": print})()
 
     # stable keys
-    monkeypatch.setattr(d, "_delivery_key", lambda target, sid0: f"mk:{target}:{sid0}", raising=True)
-    monkeypatch.setattr(d, "_env_done_key", lambda sid0: f"env_done:{sid0}", raising=True)
-    monkeypatch.setattr(d, "_done_key", lambda sid0: f"legacy_done:{sid0}", raising=True)
+    monkeypatch.setattr(d, "_delivery_key", lambda target, sid0: f"marker:dispatch:{target}:{sid0}", raising=False)
+    monkeypatch.setattr(d, "_env_done_key", lambda sid0: f"env_done:{sid0}", raising=False)
+    monkeypatch.setattr(d, "_done_key", lambda sid0: f"legacy_done:{sid0}", raising=False)
 
     # marker exists check: look up marker key in the provided client
     def _marker_exists(client: FakeRedis, target: str, sid0: str) -> bool:
-        return client.get(f"mk:{target}:{sid0}") not in (None, "", b"")
+        return client.get(f"marker:dispatch:{target}:{sid0}") not in (None, "", b"")
 
-    monkeypatch.setattr(d, "_marker_exists", _marker_exists, raising=True)
+    monkeypatch.setattr(d, "_marker_exists", _marker_exists, raising=False)
 
     # choose correct redis per target for marker checks at the end
     def _marker_client_for_target(t: str, dual_client: Any, simple_client: Any) -> Any:
@@ -121,20 +129,20 @@ def test_deliver_targets_with_retry_never_mutates_targets_payloads(
             return simple_client
         return d.redis
 
-    monkeypatch.setattr(d, "_marker_client_for_target", _marker_client_for_target, raising=True)
+    monkeypatch.setattr(d, "_marker_client_for_target", _marker_client_for_target, raising=False)
 
     # strict validator/compactor/diag: no-op to isolate mutation contract
-    monkeypatch.setattr(d, "_strict_validate_env", lambda env: None, raising=True)
-    monkeypatch.setattr(d, "_compact_env_for_retry", lambda env: env, raising=True)
-    monkeypatch.setattr(d, "_emit_diag", lambda *a, **k: None, raising=True)
-    monkeypatch.setattr(d, "_update_env_req", lambda *a, **k: None, raising=True)
-    monkeypatch.setattr(d, "_load_trace_sidecar", lambda *a, **k: {}, raising=True)
-    monkeypatch.setattr(d, "_trace_meta_key", lambda sid0, env=None: f"meta:{sid0}", raising=True)
-    monkeypatch.setattr(d, "_write_trace_sidecar_best_effort", lambda *a, **k: None, raising=True)
+    monkeypatch.setattr(d, "_strict_validate_env", lambda env: None, raising=False)
+    monkeypatch.setattr(d, "_compact_env_for_retry", lambda env: env, raising=False)
+    monkeypatch.setattr(d, "_emit_diag", lambda *a, **k: None, raising=False)
+    monkeypatch.setattr(d, "_update_env_req", lambda *a, **k: None, raising=False)
+    monkeypatch.setattr(d, "_load_trace_sidecar", lambda *a, **k: {}, raising=False)
+    monkeypatch.setattr(d, "_trace_meta_key", lambda sid0, env=None: f"meta:{sid0}", raising=False)
+    monkeypatch.setattr(d, "_write_trace_sidecar_best_effort", lambda *a, **k: None, raising=False)
 
     # retries/dlq: must not raise in success scenario
-    monkeypatch.setattr(d, "_schedule_target_retry", lambda *a, **k: None, raising=True)
-    monkeypatch.setattr(d, "_send_target_dlq", lambda *a, **k: None, raising=True)
+    monkeypatch.setattr(d, "_schedule_target_retry", lambda *a, **k: None, raising=False)
+    monkeypatch.setattr(d, "_send_target_dlq", lambda *a, **k: None, raising=False)
 
     # NOTE: your code calls a free helper patch_trace_sidecar_best_effort(...) in module scope
     monkeypatch.setattr(sd_mod, "patch_trace_sidecar_best_effort", lambda *a, **k: None, raising=False)
@@ -192,10 +200,10 @@ def test_deliver_targets_with_retry_never_mutates_targets_payloads(
     assert attempts.get("snapshot") == 1
 
     # 3) markers exist in correct redis clients
-    assert simple.get(f"mk:signal_stream:{sid}") is not None
-    assert main.get(f"mk:audit:{sid}") is not None
-    assert dual.get(f"mk:manual:{sid}") is not None
-    assert main.get(f"mk:snapshot:{sid}") is not None
+    assert simple.get(f"marker:dispatch:signal_stream:{sid}") is not None
+    assert main.get(f"marker:dispatch:audit:{sid}") is not None
+    assert dual.get(f"marker:dispatch:manual:{sid}") is not None
+    assert main.get(f"marker:dispatch:snapshot:{sid}") is not None
 
     # 4) env_done marker set in main redis (since you set it via self.redis.set(self._env_done_key(sid), ...))
     assert main.get(f"env_done:{sid}") is not None

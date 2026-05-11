@@ -139,10 +139,10 @@ class FakeClient:
         return dict(rows[idx])
 
     def get_open_orders(self, symbol=None):
-        return list(self.plain_orders.get(symbol.upper(), []))
+        return list(self.plain_orders.get(symbol.upper(), []))  # type: ignore
 
     def get_open_algo_orders(self, symbol=None):
-        return list(self.algo_orders.get(symbol.upper(), []))
+        return list(self.algo_orders.get(symbol.upper(), []))  # type: ignore
 
     def cancel_all_orders(self, symbol):
         self.cancel_all_calls.append(symbol.upper())
@@ -180,7 +180,7 @@ def test_dust_worker_confirms_then_cleans_up_exact_qty():
     fake_client = FakeClient()
     fake_redis = FakeRedis()
     worker = BinanceDustCleanupWorker(
-        client=fake_client,
+        client=fake_client,  # type: ignore
         redis_client=fake_redis,
         confirm_passes=2,          # requires 2 consecutive dust observations
         close_retries=2,
@@ -223,7 +223,7 @@ def test_dust_worker_skips_non_dust_position():
     The worker must not touch it even with confirm_passes=1."""
     fake_client = FakeClient()
     worker = BinanceDustCleanupWorker(
-        client=fake_client,
+        client=fake_client,  # type: ignore
         redis_client=FakeRedis(),
         confirm_passes=1,
         allowlist={'BTCUSDT'},  # only BTCUSDT in scope
@@ -248,7 +248,7 @@ def test_dust_worker_reports_error_when_cleanup_fails():
     fake_client = ErrorClient()
     fake_redis = FakeRedis()
     worker = BinanceDustCleanupWorker(
-        client=fake_client,
+        client=fake_client,  # type: ignore
         redis_client=fake_redis,
         confirm_passes=1,   # act immediately on first pass
         close_retries=1,
@@ -298,7 +298,7 @@ def test_dust_worker_already_flat_skips_close():
     flat_client.plain_orders['APTUSDT'] = []
     flat_client.algo_orders['APTUSDT'] = []
     worker = BinanceDustCleanupWorker(
-        client=flat_client,
+        client=flat_client,  # type: ignore
         redis_client=FakeRedis(),
         confirm_passes=1,
         allowlist={'APTUSDT'},
@@ -325,7 +325,7 @@ def test_cleanup_symbol_already_flat_via_direct_call():
         {'symbol': 'APTUSDT', 'positionAmt': '0.0', 'notional': '0.0', 'isolatedMargin': '0.0'}]
     fake_client.current_idx['APTUSDT'] = 0
     worker = BinanceDustCleanupWorker(
-        client=fake_client,
+        client=fake_client,  # type: ignore
         redis_client=FakeRedis(),
         confirm_passes=1,
         allowlist={'APTUSDT'},
@@ -352,7 +352,7 @@ def test_dust_worker_respects_static_and_dynamic_denylist():
     # Seed SUIUSDT into the dynamic Redis denylist set.
     fake_redis.sadd('orders:dust_cleanup:denylist', 'SUIUSDT')
     worker = BinanceDustCleanupWorker(
-        client=fake_client,
+        client=fake_client,  # type: ignore
         redis_client=fake_redis,
         confirm_passes=1,
         allowlist={'APTUSDT', 'SUIUSDT'},
@@ -378,7 +378,7 @@ def test_dust_worker_applies_cleanup_cooldown_per_symbol():
     fake_client = FakeClient()
     fake_redis = FakeRedis()
     worker = BinanceDustCleanupWorker(
-        client=fake_client,
+        client=fake_client,  # type: ignore
         redis_client=fake_redis,
         confirm_passes=1,
         allowlist={'APTUSDT'},

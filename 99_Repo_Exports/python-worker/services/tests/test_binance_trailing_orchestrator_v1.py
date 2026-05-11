@@ -18,10 +18,10 @@ from pathlib import Path
 # --- Load the module directly to avoid heavy dependency chain ---
 mod_path = Path(__file__).parent.parent / "binance_executor.py"
 spec = importlib.util.spec_from_file_location("binance_executor", mod_path)
-mod = importlib.util.module_from_spec(spec)
-sys.modules[spec.name] = mod
-assert spec.loader is not None
-spec.loader.exec_module(mod)
+mod = importlib.util.module_from_spec(spec)  # type: ignore
+sys.modules[spec.name] = mod  # type: ignore
+assert spec.loader is not None  # type: ignore
+spec.loader.exec_module(mod)  # type: ignore
 
 BinanceExecutor = mod.BinanceExecutor
 

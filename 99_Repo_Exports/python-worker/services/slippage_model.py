@@ -50,8 +50,8 @@ def spread_bps_from_tick(tick: Any, mid: float | None = None) -> float | None:
             bid = getattr(tick, "b", None)
         if ask is None:
             ask = getattr(tick, "a", None)
-        b = float(bid)
-        a = float(ask)
+        b = float(bid)  # type: ignore
+        a = float(ask)  # type: ignore
         if not (math.isfinite(b) and math.isfinite(a)):
             return None
         if b <= 0 or a <= 0 or a <= b:

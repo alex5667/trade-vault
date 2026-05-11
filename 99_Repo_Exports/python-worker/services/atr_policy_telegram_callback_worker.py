@@ -56,7 +56,7 @@ def _redis() -> redis.Redis:
     while attempts < max_attempts:
         try:
             _redis_instance = redis.Redis.from_url(url, decode_responses=True)
-            _redis_instance.ping()
+            _redis_instance.ping()  # type: ignore
             return _redis_instance
         except (redis.exceptions.ConnectionError, socket.gaierror) as e:
             attempts += 1
@@ -246,7 +246,7 @@ def handle_event(evt: dict[str, Any]) -> bool:
         return result.get("ok", False)
 
     # Handle golive callbacks
-    gl_action, gl_pkg_id, gl_arg = _parse_golive_callback(cb)
+    gl_action, gl_pkg_id, gl_arg = _parse_golive_callback(cb)  # type: ignore
     if gl_action:
         from services.atr_go_live_telegram_surface import handle_golive_callback
         # We need to adapt handle_golive_callback to take split parts if needed,
@@ -283,8 +283,8 @@ def handle_event(evt: dict[str, Any]) -> bool:
         if rb_action in ("manifest", "postcert", "evidence"):
             rb = get_rollback(rb_arg)
             if not rb:
-                return rollback_publish_ack(rb_arg, rb_action.upper(), actor, "rollback_not_found")
-            publish_rollback_to_telegram(rb)
+                return rollback_publish_ack(rb_arg, rb_action.upper(), actor, "rollback_not_found")  # type: ignore
+            publish_rollback_to_telegram(rb)  # type: ignore
             return True
 
         ok = False
@@ -295,11 +295,11 @@ def handle_event(evt: dict[str, Any]) -> bool:
             # For phase 6.3 pause can be logged
             ok = True
 
-        rollback_publish_ack(rb_arg, rb_action.upper(), actor, "ok" if ok else "failed")
+        rollback_publish_ack(rb_arg, rb_action.upper(), actor, "ok" if ok else "failed")  # type: ignore
 
         rb = get_rollback(rb_arg)
         if rb:
-            publish_rollback_to_telegram(rb)
+            publish_rollback_to_telegram(rb)  # type: ignore
         return ok
 
     # Handle atrchange callbacks

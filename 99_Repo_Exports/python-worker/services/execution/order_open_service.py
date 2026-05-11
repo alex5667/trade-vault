@@ -116,11 +116,11 @@ class OrderOpenService:
         if not self.exec_set_leverage:
             return
         with contextlib.suppress(Exception):
-            client.set_leverage(symbol=symbol, leverage=leverage)
+            client.set_leverage(symbol=symbol, leverage=leverage)  # type: ignore
 
     # ------------------------------------------------------------------
-    # Margin guard
-    # ------------------------------------------------------------------
+    # Margin guard  # type: ignore
+    # ------------------------------------------------------------------  # type: ignore
 
     def _margin_guard_ok(
         self,
@@ -135,7 +135,7 @@ class OrderOpenService:
         if not self.exec_margin_guard_enabled:
             return True
         try:
-            account = client.get_account_info()
+            account = client.get_account_info()  # type: ignore
             available = _f(account.get("availableBalance") or account.get("availableBalance"), 0.0)
             total = _f(account.get("totalWalletBalance") or account.get("totalMarginBalance"), 0.0)
             if total <= 0:
@@ -146,8 +146,8 @@ class OrderOpenService:
                     "sid": sid, "symbol": symbol,
                     "action": "margin_guard_rejected",
                     "event_type": "MARGIN_GUARD_REJECTED",
-                    "severity": "warning",
-                    "used_pct": round(used_pct, 4),
+                    "severity": "warning",  # type: ignore
+                    "used_pct": round(used_pct, 4),  # type: ignore
                     "threshold": self.exec_margin_guard_max_fraction,
                 })
                 return False
@@ -264,7 +264,7 @@ class OrderOpenService:
                     sid=sid, symbol=symbol, action="open", params=params, client=client
                 )
             else:
-                resp = client.place_order(**params)
+                resp = client.place_order(**params)  # type: ignore
         except Exception as exc:
             err_class = _classify_error(exc)
             self._write_event({

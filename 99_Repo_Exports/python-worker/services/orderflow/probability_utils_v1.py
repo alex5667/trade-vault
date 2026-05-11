@@ -26,7 +26,7 @@ def extract_prob_with_source(decision: dict[str, Any]) -> tuple[float | None, Pr
         if k not in ml:
             continue
         try:
-            p = float(ml.get(k))
+            p = float(ml.get(k))  # type: ignore
         except Exception:
             continue
         if 0.0 <= p <= 1.0:

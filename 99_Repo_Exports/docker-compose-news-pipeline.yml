@@ -2,11 +2,12 @@ services:
   news-ingestor-go:
     build:
       context: .
-      dockerfile: Dockerfile.go
+      dockerfile: Dockerfile.go-news
       args:
         BINARY_NAME: news-ingestor
         SOURCE_PATH: cmd/news-ingestor
     image: trade-news-ingestor-go:latest
+    pull_policy: build
     container_name: news-ingestor-go
     restart: unless-stopped
     env_file:
@@ -68,9 +69,11 @@ services:
       args:
         WORKDIR: /app
     image: trade-news-ingestor-py:latest
+    pull_policy: build
     container_name: news-ingestor-py
     restart: unless-stopped
     environment:
+    - PYTHONPATH=/app/python-worker
     - REDIS_URL=${GO_GATEWAY_REDIS_URL}
     - NEWS_REDIS_SOCKET_TIMEOUT_MS=50
     - NEWS_REDIS_CONNECT_TIMEOUT_MS=200
@@ -87,11 +90,11 @@ services:
     - TZ=UTC
     env_file:
     - ./news-pipeline.env
-    working_dir: /app/python-worker/services/news_ingestor_py
+    working_dir: /app/python-worker
     command:
     - sh
     - -c
-    - sleep 120 && python main.py
+    - sleep 120 && python services/news_ingestor_py/main.py
     networks:
     - scanner-ops
     - scanner-infra
@@ -118,6 +121,7 @@ services:
       args:
         WORKDIR: /app
     image: trade-news-ingestor-py-standby:latest
+    pull_policy: build
     container_name: news-ingestor-py-standby
     restart: unless-stopped
     environment:
@@ -161,6 +165,7 @@ services:
       args:
         WORKDIR: /app
     image: trade-news-analyzer:latest
+    pull_policy: build
     container_name: news-analyzer
     restart: unless-stopped
     environment:
@@ -211,6 +216,7 @@ services:
       args:
         WORKDIR: /app
     image: trade-news-feature-store:latest
+    pull_policy: build
     container_name: news-feature-store
     restart: unless-stopped
     environment:
@@ -267,6 +273,7 @@ services:
       args:
         WORKDIR: /app
     image: trade-calendar-feature-store:latest
+    pull_policy: build
     container_name: calendar-feature-store
     restart: unless-stopped
     environment:
@@ -314,11 +321,12 @@ services:
   news-watchdog:
     build:
       context: .
-      dockerfile: Dockerfile.go
+      dockerfile: Dockerfile.go-news
       args:
         BINARY_NAME: news-watchdog
         SOURCE_PATH: cmd/news-watchdog
     image: trade-news-watchdog:latest
+    pull_policy: build
     container_name: news-watchdog
     restart: unless-stopped
     environment:

@@ -26,14 +26,14 @@ def export_metrics():
             # Reset values
             prom_cert_total._metrics.clear()
             for r in counts:
-                prom_cert_total.labels(stage=r['rollout_stage'], status=r['status']).set(r['c'])
+                prom_cert_total.labels(stage=r['rollout_stage'], status=r['status']).set(r['c'])  # type: ignore
 
             # 2. Pending only
             cur.execute("SELECT rollout_stage, COUNT(*) as c FROM atr_rollout_certifications WHERE status = 'pending' GROUP BY rollout_stage")
             pending_counts = cur.fetchall()
             prom_cert_pending._metrics.clear()
             for r in pending_counts:
-                prom_cert_pending.labels(stage=r['rollout_stage']).set(r['c'])
+                prom_cert_pending.labels(stage=r['rollout_stage']).set(r['c'])  # type: ignore
 
             # 3. Stop Hits (events)
             cur.execute("SELECT reason_code, rollout_stage, COUNT(*) as c FROM atr_rollout_cert_events WHERE action = 'fail' GROUP BY reason_code, rollout_stage")
@@ -48,7 +48,7 @@ def export_metrics():
             closeouts = cur.fetchall()
             prom_closeout_total._metrics.clear()
             for r in closeouts:
-                prom_closeout_total.labels(final_status=r['final_status']).set(r['c'])
+                prom_closeout_total.labels(final_status=r['final_status']).set(r['c'])  # type: ignore
 
             # 5. Live metrics of pending windows
             cur.execute("""
@@ -65,9 +65,9 @@ def export_metrics():
             prom_slippage._metrics.clear()
             prom_stop_rate._metrics.clear()
             for r in stats:
-                prom_pnl_bps.labels(stage=r['rollout_stage']).set(float(r['pnl'] or 0))
-                prom_slippage.labels(stage=r['rollout_stage']).set(float(r['slip'] or 0))
-                prom_stop_rate.labels(stage=r['rollout_stage']).set(float(r['sr'] or 0))
+                prom_pnl_bps.labels(stage=r['rollout_stage']).set(float(r['pnl'] or 0))  # type: ignore
+                prom_slippage.labels(stage=r['rollout_stage']).set(float(r['slip'] or 0))  # type: ignore
+                prom_stop_rate.labels(stage=r['rollout_stage']).set(float(r['sr'] or 0))  # type: ignore
 
     except Exception as e:
         logger.error(f"Failed to export rollout cert metrics: {e}")

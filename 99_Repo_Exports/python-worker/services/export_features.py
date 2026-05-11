@@ -270,7 +270,7 @@ def extract_features(
             # ✅ Обрабатываем накопленные книги батчем для OBI
             if len(obi_books_buffer) >= obi_batch_size:
                 try:
-                    from signals.featurizer import obi_from_book_batch
+                    from signals.featurizer import obi_from_book_batch  # type: ignore
                     obi_values = obi_from_book_batch(obi_books_buffer, depth=5)
                     # Обновляем OBI в уже созданных фичах
                     for idx, obi_val in zip(obi_ticks_indices, obi_values):
@@ -300,7 +300,7 @@ def extract_features(
             # ✅ Обрабатываем накопленные книги батчем для OBI
             if len(obi_books_buffer) >= obi_batch_size:
                 try:
-                    from signals.featurizer import obi_from_book_batch
+                    from signals.featurizer import obi_from_book_batch  # type: ignore
                     obi_values = obi_from_book_batch(obi_books_buffer, depth=5)
                     # Обновляем OBI в уже созданных фичах
                     for idx, obi_val in zip(obi_ticks_indices, obi_values):
@@ -317,7 +317,7 @@ def extract_features(
     # Обрабатываем оставшиеся книги
     if obi_books_buffer:
         try:
-            from signals.featurizer import obi_from_book_batch
+            from signals.featurizer import obi_from_book_batch  # type: ignore
             obi_values = obi_from_book_batch(obi_books_buffer, depth=5)
             for idx, obi_val in zip(obi_ticks_indices, obi_values):
                 if idx < len(rows) and obi_val is not None:
@@ -327,7 +327,7 @@ def extract_features(
 
     if use_gpu and _GPU_AVAILABLE:
         try:
-            df_gpu = cudf.DataFrame(rows)
+            df_gpu = cudf.DataFrame(rows)  # type: ignore
             print(f"Extracted {len(df_gpu)} feature rows (GPU DataFrame)")
             return df_gpu
         except Exception:

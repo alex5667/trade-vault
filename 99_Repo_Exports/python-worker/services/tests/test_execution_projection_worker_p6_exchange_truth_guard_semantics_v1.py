@@ -23,25 +23,25 @@ if str(root) not in sys.path:
 
 exec_mod_path = root / 'services' / 'binance_executor.py'
 exec_spec = importlib.util.spec_from_file_location('services.binance_executor_p6_guard_semantics', exec_mod_path)
-exec_mod = importlib.util.module_from_spec(exec_spec)
-sys.modules[exec_spec.name] = exec_mod
-assert exec_spec.loader is not None
-exec_spec.loader.exec_module(exec_mod)
-
+exec_mod = importlib.util.module_from_spec(exec_spec)  # type: ignore
+sys.modules[exec_spec.name] = exec_mod  # type: ignore
+assert exec_spec.loader is not None  # type: ignore
+exec_spec.loader.exec_module(exec_mod)  # type: ignore
+  # type: ignore
 worker_mod_path = root / 'services' / 'execution_projection_worker.py'
 worker_spec = importlib.util.spec_from_file_location('services.execution_projection_worker_p6_guard_semantics', worker_mod_path)
-worker_mod = importlib.util.module_from_spec(worker_spec)
-sys.modules[worker_spec.name] = worker_mod
-assert worker_spec.loader is not None
-worker_spec.loader.exec_module(worker_mod)
-
+worker_mod = importlib.util.module_from_spec(worker_spec)  # type: ignore
+sys.modules[worker_spec.name] = worker_mod  # type: ignore
+assert worker_spec.loader is not None  # type: ignore
+worker_spec.loader.exec_module(worker_mod)  # type: ignore
+  # type: ignore
 repair_mod_path = root / 'services' / 'binance_active_symbol_guard_repair_worker.py'
 repair_spec = importlib.util.spec_from_file_location('services.binance_guard_repair_p6_guard_semantics', repair_mod_path)
-repair_mod = importlib.util.module_from_spec(repair_spec)
-sys.modules[repair_spec.name] = repair_mod
-assert repair_spec.loader is not None
-repair_spec.loader.exec_module(repair_mod)
-
+repair_mod = importlib.util.module_from_spec(repair_spec)  # type: ignore
+sys.modules[repair_spec.name] = repair_mod  # type: ignore
+assert repair_spec.loader is not None  # type: ignore
+repair_spec.loader.exec_module(repair_mod)  # type: ignore
+  # type: ignore
 
 class FakeRedis:
     def __init__(self):
@@ -144,8 +144,8 @@ def test_projection_worker_keeps_terminal_guard_pending_when_exchange_truth_rele
         'ts_event_ms': '1700000000002',
     })
     worker.run_until_idle()
-    guard = json.loads(r.get('orders:active_symbol_sid:BTCUSDT'))
-    assert guard['sid'] == 'sid-1'
+    guard = json.loads(r.get('orders:active_symbol_sid:BTCUSDT'))  # type: ignore
+    assert guard['sid'] == 'sid-1'  # type: ignore
     assert guard['guard_release_policy'] == 'exchange_truth'
     assert guard['guard_release_pending'] is True
     assert guard['state_terminalish'] is True
@@ -173,8 +173,8 @@ def test_projection_worker_still_deletes_terminal_guard_when_exchange_truth_rele
         'ts_event_ms': '1700000000001',
     })
     worker.run_until_idle()
-    assert json.loads(r.get('orders:active_symbol_sid:ETHUSDT'))['sid'] == 'sid-2'
-    r.xadd(RS.ORDERS_EXEC, {
+    assert json.loads(r.get('orders:active_symbol_sid:ETHUSDT'))['sid'] == 'sid-2'  # type: ignore
+    r.xadd(RS.ORDERS_EXEC, {  # type: ignore
         'sid': 'sid-2',
         'symbol': 'ETHUSDT',
         'action': 'close',
@@ -184,8 +184,8 @@ def test_projection_worker_still_deletes_terminal_guard_when_exchange_truth_rele
         'ts_event_ms': '1700000000002',
     })
     worker.run_until_idle()
-    raw_eth = json.loads(r.get('orders:active_symbol_sid:ETHUSDT'))
-    assert raw_eth['guard_status'] == 'released'
+    raw_eth = json.loads(r.get('orders:active_symbol_sid:ETHUSDT'))  # type: ignore
+    assert raw_eth['guard_status'] == 'released'  # type: ignore
     assert worker._active_symbol_guard_store().load_active('ETHUSDT') == {}
 
 
@@ -200,8 +200,8 @@ def test_inline_executor_and_projection_worker_use_same_pending_release_contract
         'status': 'closed',
         'closed': True,
     })
-    inline_guard = json.loads(r.get('orders:active_symbol_sid:SOLUSDT'))
-    assert inline_guard['guard_release_policy'] == 'exchange_truth'
+    inline_guard = json.loads(r.get('orders:active_symbol_sid:SOLUSDT'))  # type: ignore
+    assert inline_guard['guard_release_policy'] == 'exchange_truth'  # type: ignore
     assert inline_guard['guard_release_pending'] is True
     assert inline_guard['state_terminalish'] is True
 
@@ -224,8 +224,8 @@ def test_inline_executor_and_projection_worker_use_same_pending_release_contract
         'ts_event_ms': '1700000000002',
     })
     worker.run_until_idle()
-    projected_guard = json.loads(r2.get('orders:active_symbol_sid:SOLUSDT'))
-    assert projected_guard['guard_release_policy'] == inline_guard['guard_release_policy']
+    projected_guard = json.loads(r2.get('orders:active_symbol_sid:SOLUSDT'))  # type: ignore
+    assert projected_guard['guard_release_policy'] == inline_guard['guard_release_policy']  # type: ignore
     assert projected_guard['guard_release_pending'] == inline_guard['guard_release_pending']
     assert projected_guard['state_terminalish'] == inline_guard['state_terminalish']
     assert projected_guard['guard_release_reason'] == inline_guard['guard_release_reason']
@@ -245,6 +245,6 @@ def test_guard_repair_worker_clears_projection_pending_release_after_exchange_fl
     worker = repair_mod.BinanceActiveSymbolGuardRepairWorker(redis_client=r, client=FlatClient())
     out = worker.run_once()
     assert out[0]['status'] == 'released'
-    raw_btc = json.loads(r.get('orders:active_symbol_sid:BTCUSDT'))
-    assert raw_btc['guard_status'] == 'released'
+    raw_btc = json.loads(r.get('orders:active_symbol_sid:BTCUSDT'))  # type: ignore
+    assert raw_btc['guard_status'] == 'released'  # type: ignore
     assert worker._guard_store().load_active('BTCUSDT') == {}

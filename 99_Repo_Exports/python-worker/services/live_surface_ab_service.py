@@ -10,7 +10,7 @@ import redis
 
 
 def _dsn() -> str:
-    return (
+    return (  # type: ignore
         os.getenv("ANALYTICS_DB_DSN")
         or os.getenv("TRADES_DB_DSN")
         or "postgresql://postgres:12345@postgres:5432/scanner_analytics"
@@ -71,7 +71,7 @@ def run_once() -> int:
                 SELECT * FROM base
                 WHERE n >= %s
                 ORDER BY day DESC, source, symbol, scenario, regime, risk_horizon_bucket, live_surface_applied
-                """
+                """,
                 (_window_days(), _min_group_n()),
             ),
             rows = cur.fetchall()
@@ -155,7 +155,7 @@ def run_once() -> int:
                 SELECT * FROM pair
                 WHERE coalesce(n_canary,0) >= %s
                   AND coalesce(n_control,0) >= %s
-                """
+                """,
                 (_window_days(), _min_group_n(), _min_group_n()),
             ),
             for row in cur.fetchall():

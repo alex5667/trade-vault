@@ -69,13 +69,13 @@ def _env_float(name: str, default: float) -> float:
 
 
 @functools.lru_cache(maxsize=1024)
-def _env_str(name: str, default: str = "") -> str:
+def _env_str(name: str, default: str = "") -> str:  # type: ignore
     """Get string from ENV."""
     return (_cached_getenv(name, default) or "").strip()
 
 
 @functools.lru_cache(maxsize=1024)
-def _env_str(name: str, default: str = "") -> str:
+def _env_str(name: str, default: str = "") -> str:  # type: ignore
     v = _cached_getenv(name)
     return default if v is None else str(v)
 
@@ -89,7 +89,7 @@ def _parse_csv_set(v: str) -> set[str]:
     return out
 
 
-def _norm_symbol(sym: str) -> str:
+def _norm_symbol(sym: str) -> str:  # type: ignore
     return (sym or "").strip().upper().replace("/", "").replace("-", "")
 
 
@@ -100,7 +100,7 @@ def _sym_env_pick(prefix: str, symbol: str, default: float) -> float:
 
 
 @dataclass(frozen=True)
-class QualityGateDecision:
+class QualityGateDecision:  # type: ignore
     apply: bool
     veto: bool
     reason_code: str

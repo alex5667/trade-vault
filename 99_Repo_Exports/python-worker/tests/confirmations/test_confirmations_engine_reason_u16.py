@@ -28,7 +28,7 @@ class _AbsorptionStub:
 
 
 def test_engine_fills_reason_u16_from_registry_when_missing():
-    eng = ConfirmationsEngine(logger=None, breakout=_BreakoutStub(), absorption=_AbsorptionStub(), feature_flags=None)
+    eng = ConfirmationsEngine(logger=None, breakout_validator=_BreakoutStub(), absorption_validator=_AbsorptionStub(), feature_flags=None)
     ctx = SimpleNamespace(l2_is_stale=False, side="buy")
     l2 = object()  # non-None to bypass fail-closed
     v = eng.validate(kind="breakout", ctx=ctx, l2=l2, l3=None, level_price=100.0)

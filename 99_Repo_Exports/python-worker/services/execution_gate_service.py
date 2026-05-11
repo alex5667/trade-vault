@@ -178,7 +178,7 @@ class ExecutionGateService:
             safe_create_task(self._consume_confirmations()),
             safe_create_task(self._cleanup_loop()),
         ]
-        await asyncio.gather(*tasks)
+        await asyncio.gather(*tasks)  # type: ignore
 
     @staticmethod
     def _is_redis_loading(exc: Exception) -> bool:
@@ -196,7 +196,7 @@ class ExecutionGateService:
 
         while self.running:
             try:
-                results = await self.redis.xread(
+                results = await self.redis.xread(  # type: ignore
                     {self.stream_raw: last_id}, count=10, block=1000
                 )
                 _backoff = 1.0
@@ -322,7 +322,7 @@ class ExecutionGateService:
 
         while self.running:
             try:
-                results = await self.redis.xread(
+                results = await self.redis.xread(  # type: ignore
                     {self.stream_confirm: last_id}, count=10, block=1000
                 )
                 _backoff = 1.0
@@ -498,7 +498,7 @@ class ExecutionGateService:
             order_payload["gate_ts_ms"] = get_ny_time_millis()
             order_payload["confirm_score"] = confirmation.get("score", 1.0)
 
-            await self.redis.rpush(self.queue_out, json.dumps(order_payload))
+            await self.redis.rpush(self.queue_out, json.dumps(order_payload))  # type: ignore
             orders_published_total.labels(
                 symbol=proposal.symbol, direction=proposal.direction
             ).inc()
@@ -583,7 +583,7 @@ if __name__ == "__main__":
         """F5 fix: thread-safe shutdown on Python 3.10+."""
         if _main_loop is not None and _main_loop.is_running():
             _main_loop.call_soon_threadsafe(
-                lambda: _main_loop.create_task(_service.shutdown())
+                lambda: _main_loop.create_task(_service.shutdown())  # type: ignore
             )
 
     signal.signal(signal.SIGTERM, _handle_sigterm)

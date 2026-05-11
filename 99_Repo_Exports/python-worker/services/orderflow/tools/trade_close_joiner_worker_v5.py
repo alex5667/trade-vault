@@ -53,13 +53,13 @@ def _env_int(name: str, default: str) -> int:
     try:
         return int(_env(name, default))
     except Exception:
-        return default
+        return default  # type: ignore
 
 def _env_float(name: str, default: str) -> float:
     try:
         return float(_env(name, default))
     except Exception:
-        return default
+        return default  # type: ignore
 
 def _loads_json(s: Any) -> dict[str, Any]:
     if s is None:

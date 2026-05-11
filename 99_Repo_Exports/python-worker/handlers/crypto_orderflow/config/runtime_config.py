@@ -43,7 +43,7 @@ class _RuntimeCfg:
         try:
             return int(os.getenv(env, default))
         except Exception:
-            return default
+            return default  # type: ignore
 
     @classmethod
     def from_env(cls) -> _RuntimeCfg:

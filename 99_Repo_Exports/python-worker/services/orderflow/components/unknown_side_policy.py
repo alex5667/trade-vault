@@ -31,11 +31,17 @@ class UnknownSidePolicyHandler:
 
         if pol == "ignore_delta":
             try:
+                # P1-FIX: explicitly mark all side-related fields so downstream
+                # detectors (delta, CVD) can detect and skip unknown-side ticks.
+                # Previously only qty_signed=0 was set, but is_buyer_maker was left
+                # untouched, causing LONG-bias in tick_processor direction logic.
                 tick["qty_signed"] = 0.0
                 tick["aggressor_sign"] = 0
                 tick["counted_in_delta"] = False
+                tick["side_known"] = False
                 tick["side"] = "UNKNOWN"
-                tick["side_reason"] = "unknown"
+                tick["side_reason"] = "unknown_side_ignore_delta"
+                tick["is_buyer_maker"] = None  # Prevent LONG-bias in downstream ibm checks
             except Exception:
                 pass
         return False

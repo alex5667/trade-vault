@@ -68,8 +68,8 @@ class TestOfGateOkRateE2E(unittest.TestCase):
         # ok_rate = strict ok / n
         ok_rate = stats.get("ok_rate")
         self.assertIsNotNone(ok_rate, "ok_rate must not be None when n>0")
-        self.assertIsInstance(float(ok_rate), float)
-        self.assertGreater(float(ok_rate), 0.0)
+        self.assertIsInstance(float(ok_rate), float)  # type: ignore
+        self.assertGreater(float(ok_rate), 0.0)  # type: ignore
 
         # soft_rate = soft ok / n
         soft_rate = stats.get("soft_rate")
@@ -103,7 +103,7 @@ class TestOfGateOkRateE2E(unittest.TestCase):
         if n > 0:
             ok_rate = stats.get("ok_rate")
             self.assertIsNotNone(ok_rate)
-            self.assertAlmostEqual(float(ok_rate), 1.0, places=5)
+            self.assertAlmostEqual(float(ok_rate), 1.0, places=5)  # type: ignore
 
     def test_ok_rate_with_all_fail(self):
         """All rows fail → ok_rate=0.0 (not None, since n>0)."""
@@ -113,7 +113,7 @@ class TestOfGateOkRateE2E(unittest.TestCase):
         if n > 0:
             ok_rate = stats.get("ok_rate")
             self.assertIsNotNone(ok_rate, "ok_rate must be 0.0, not None, when n>0 but ok==0")
-            self.assertAlmostEqual(float(ok_rate), 0.0, places=5)
+            self.assertAlmostEqual(float(ok_rate), 0.0, places=5)  # type: ignore
 
 
 if __name__ == "__main__":

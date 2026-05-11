@@ -39,12 +39,12 @@ def build_metrics() -> dict[str, Any]:
             "bbo_ts_writer_dlq_total",
             "Invalid payloads moved to DLQ",
         ),
-        "redis_lag_ms": Histogram(
+        "redis_lag_ms": Histogram(  # type: ignore
             "bbo_ts_writer_redis_lag_ms",
             "Redis stream lag in ms (now_ms - payload.ts_ms)",
             buckets=(50, 100, 250, 500, 1000, 2000, 5000, 10000, 30000),
         ),
-        "pending_count": Gauge(
+        "pending_count": Gauge(  # type: ignore
             "bbo_ts_writer_pending_count",
             "Pending (PEL) size for the consumer group",
         ),

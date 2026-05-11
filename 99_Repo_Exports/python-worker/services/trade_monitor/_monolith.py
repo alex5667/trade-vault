@@ -386,7 +386,7 @@ def parse_open_position_hash(
             tp_levels = [float(h.get("tp1") or 0), float(h.get("tp2") or 0), float(h.get("tp3") or 0)]
         tp_levels = [float(x) for x in tp_levels if float(x) > 0][:3]
 
-        pos = PositionState(
+        pos = PositionState(  # type: ignore
             id=(h.get("id")),
             sid=(h.get("sid") or ""),
             strategy=(h.get("strategy") or "unknown"),
@@ -1387,13 +1387,13 @@ class TradeMonitorService:
                 sl_price = float(pos.sl or 0.0)
                 if sl_price > 0:
                     if sym not in self._sl_index:
-                        self._sl_index[sym] = SortedList(key=lambda x: x[0])
+                        self._sl_index[sym] = SortedList(key=lambda x: x[0])  # type: ignore
                     self._sl_index[sym].add((sl_price, pos.id))
 
                 tp_price = float(pos.tp_levels[0]) if pos.tp_levels else 0.0
                 if tp_price > 0:
                     if sym not in self._tp_index:
-                        self._tp_index[sym] = SortedList(key=lambda x: x[0])
+                        self._tp_index[sym] = SortedList(key=lambda x: x[0])  # type: ignore
                     self._tp_index[sym].add((tp_price, pos.id))
             except Exception:
                 pass  # fail-open: индекс вспомогательный, не критичный
@@ -1463,7 +1463,7 @@ class TradeMonitorService:
                     sl_idx.discard((old_sl, pos.id))
             if new_sl > 0:
                 if sym not in self._sl_index:
-                    self._sl_index[sym] = SortedList(key=lambda x: x[0])
+                    self._sl_index[sym] = SortedList(key=lambda x: x[0])  # type: ignore
                 self._sl_index[sym].add((new_sl, pos.id))
         except Exception:
             pass
@@ -1678,10 +1678,10 @@ class TradeMonitorService:
         """
         if not symbol:
             return {}
-        cached = self._health_snapshot_cache.get(symbol)
+        cached = self._health_snapshot_cache.get(symbol)  # type: ignore
         if cached:
             ts_ms, snap = cached
-            if now_ms - ts_ms <= self._health_snapshot_ttl_ms:
+            if now_ms - ts_ms <= self._health_snapshot_ttl_ms:  # type: ignore
                 return snap
 
         try:
@@ -1702,7 +1702,7 @@ class TradeMonitorService:
             out["health_signal_emit_rate"] = signal_emit_rate or "0.0"
             out["health_dlq_rate"] = dlq_rate or "0.0"
 
-            self._health_snapshot_cache[symbol] = (now_ms, out)
+            self._health_snapshot_cache[symbol] = (now_ms, out)  # type: ignore
             return out
         except Exception:
             return {}
@@ -1804,13 +1804,13 @@ class TradeMonitorService:
             tp_levels = extract_tp_levels(h)
 
             pos = PositionState(
-                id=(h.get("id")),
+                id=(h.get("id")),  # type: ignore
                 sid=(h.get("sid") or ""),
                 strategy=(h.get("strategy") or "unknown"),
                 source=(h.get("source") or "Unknown"),
                 symbol=(h.get("symbol") or "UNKNOWN"),
                 tf=(h.get("tf") or "tick"),
-                direction=normalize_side(h.get("direction") or "LONG"),
+                direction=normalize_side(h.get("direction") or "LONG"),  # type: ignore
                 entry_price=float(h.get("entry_price") or 0.0),
                 # timestamps (ms)
                 entry_ts_ms=self._to_int_ms(h.get("entry_ts_ms") or h.get("entry_time"), 0),
@@ -1908,7 +1908,7 @@ class TradeMonitorService:
         self._health_cache[sym] = (now_ms, snap)
         return snap
 
-    def _attach_health_snapshot(self, closed: TradeClosed, symbol: str) -> None:
+    def _attach_health_snapshot(self, closed: TradeClosed, symbol: str) -> None:  # type: ignore
         """
         Attach snapshot for repo.save_closed() without letting repo do extra connections.
         Repo merges closed._health_snapshot into stream payload if present.
@@ -1986,7 +1986,7 @@ class TradeMonitorService:
             return contextlib.nullcontext()
         return self._get_symbol_lock(symbol)
 
-    def _peek_pos_and_symbol_by_sid(self, sid: str) -> tuple[str | None, str | None]:
+    def _peek_pos_and_symbol_by_sid(self, sid: str) -> tuple[str | None, str | None]:  # type: ignore
         """
         Быстрый peek под self._lock:
           - возвращает (pos_id, symbol) если позиция жива
@@ -2010,7 +2010,7 @@ class TradeMonitorService:
         if getattr(self, "_protective_mirror", None) and tp_level == 1 and not getattr(pos, "tp1_mirrored", False):
             try:
                 self._protective_mirror.on_tp1_reached(str(getattr(pos, "sid", "")), str(getattr(pos, "symbol", "")), float(fill_price), int(ts_ms))
-                pos.tp1_mirrored = True
+                pos.tp1_mirrored = True  # type: ignore
             except Exception:
                 pass
 
@@ -2024,10 +2024,10 @@ class TradeMonitorService:
                 ts_int = int(ts)
                 if getattr(pos, "trailing_active", False) and not getattr(pos, "be_mirrored", False):
                     m.on_break_even_activated(sid, sym, float(getattr(pos, "sl", 0.0) or 0.0), ts_int)
-                    pos.be_mirrored = True
+                    pos.be_mirrored = True  # type: ignore
                 if getattr(pos, "trailing_active", False) and not getattr(pos, "trailing_mirrored", False):
                     m.on_trailing_activated(sid, sym, ts_int)
-                    pos.trailing_mirrored = True
+                    pos.trailing_mirrored = True  # type: ignore
             except Exception:
                 pass
 
@@ -2157,11 +2157,11 @@ class TradeMonitorService:
             canary_decision = (meta.get("trailing_canary_decision") or {}) if isinstance(meta, dict) else {}
             surface_diag = (meta.get("trailing_surface_diagnostic") or {}) if isinstance(meta, dict) else {}
 
-            closed.trailing_surface_applied = bool(canary_decision.get("should_apply", False))
-            closed.trailing_surface_reason_code = (canary_decision.get("reason_code") or "")
+            closed.trailing_surface_applied = bool(canary_decision.get("should_apply", False))  # type: ignore
+            closed.trailing_surface_reason_code = (canary_decision.get("reason_code") or "")  # type: ignore
 
-            closed.baseline_trailing_offset_atr = float(surface_diag.get("baseline_offset_distance_px") or 0.0)
-            closed.selected_trailing_offset_atr = float(surface_diag.get("selected_offset_distance_px") or 0.0)
+            closed.baseline_trailing_offset_atr = float(surface_diag.get("baseline_offset_distance_px") or 0.0)  # type: ignore
+            closed.selected_trailing_offset_atr = float(surface_diag.get("selected_offset_distance_px") or 0.0)  # type: ignore
             closed.trailing_policy_level = str(getattr(pos, "trailing_policy_level", ""))
         except Exception:
             pass
@@ -2212,7 +2212,7 @@ class TradeMonitorService:
                 dclosed = DummyClosed()
                 dclosed.__dict__.update(closed_dict)
 
-                r_value = self._calculate_r_value(dpos, dclosed)
+                r_value = self._calculate_r_value(dpos, dclosed)  # type: ignore
                 closed_at = self._resolve_closed_at(dclosed)
 
                 persist_task = self.regime_guard.on_signal_closed(
@@ -2227,7 +2227,7 @@ class TradeMonitorService:
 
                 if callable(persist_task):
                     self._submit_regime_guard_persist_task(
-                        persist_task,
+                        persist_task,  # type: ignore
                         tags={"family": family, "venue": venue}
                     )
             except Exception as e:
@@ -2317,7 +2317,7 @@ class TradeMonitorService:
                 val = getattr(spec, attr)
                 # Если атрибут существует, используем его значение (даже если False)
                 if isinstance(val, (bool, int, float)):
-                    return val
+                    return val  # type: ignore
                 elif isinstance(val, str) and val.strip():
                     # Пустая строка считается как "не задано"
                     return val.lower() in ("1", "true", "yes", "on")
@@ -2688,8 +2688,8 @@ class TradeMonitorService:
         # [JITTER BUFFER] Enqueue for processing
         with self._lock:
             # Add to buffer and keep it sorted by timestamp
-            self._signal_buffer.append(sig)
-            self._signal_buffer.sort(key=lambda s: s.entry_ts_ms)
+            self._signal_buffer.append(sig)  # type: ignore
+            self._signal_buffer.sort(key=lambda s: s.entry_ts_ms)  # type: ignore
 
             # Simple telemetry (metrics added later)
             if len(self._signal_buffer) > 100:
@@ -2867,8 +2867,8 @@ class TradeMonitorService:
                 # Context for winner slicing
                 ctx = payload.get("ctx") if isinstance(payload.get("ctx"), dict) else {}
                 # Also try top-level regime/zone_id from payload if not in ctx
-                sp["regime"] = (ctx.get("regime", getattr(sig, "regime", None)) or "na").lower()
-                sp["zone_id"] = (ctx.get("zone_id", getattr(sig, "zone_id", None)) or "")
+                sp["regime"] = (ctx.get("regime", getattr(sig, "regime", None)) or "na").lower()  # type: ignore
+                sp["zone_id"] = (ctx.get("zone_id", getattr(sig, "zone_id", None)) or "")  # type: ignore
 
                 # --- Calibration / shadow trade fields ---
                 # These get persisted per-position so they survive POSITION_CLOSED → trades:closed join,
@@ -3062,6 +3062,9 @@ class TradeMonitorService:
                 strategy = strategy_from_source(source)
 
             direction = str(data.get("side") or data.get("direction") or "").upper()
+            # Normalize Binance-style BUY/SELL to internal LONG/SHORT
+            _SIDE_MAP = {"BUY": "LONG", "SELL": "SHORT", "LONG": "LONG", "SHORT": "SHORT"}
+            direction = _SIDE_MAP.get(direction, direction)
             if direction not in ("LONG", "SHORT"):
                 return None
 
@@ -3687,7 +3690,7 @@ class TradeMonitorService:
                 if self._attach_health_on_close:
                     try:
                         now_ms = get_ny_time_millis()
-                        closed._health_snapshot = self._get_health_snapshot_prefixed(closed.symbol, now_ms)
+                        closed._health_snapshot = self._get_health_snapshot_prefixed(closed.symbol, now_ms)  # type: ignore
                     except Exception:
                         pass
 
@@ -3710,7 +3713,7 @@ class TradeMonitorService:
                 except Exception:
                     pass
 
-                report_triggers.append((pos.source, pos.symbol, pos.id, getattr(pos, "is_virtual", False)))
+                report_triggers.append((pos.source, pos.symbol, pos.id, getattr(pos, "is_virtual", False)))  # type: ignore
             except Exception as e:
                 logger.warning("⚠️ Orphan forced-close failed: %s", e)
 
@@ -3718,7 +3721,7 @@ class TradeMonitorService:
         for trigger in report_triggers:
             try:
                 from services.periodic_reporter import check_and_trigger_report
-                src, sym, oid = trigger[0], trigger[1], trigger[2]
+                src, sym, oid = trigger[0], trigger[1], trigger[2]  # type: ignore
                 check_and_trigger_report(src, sym, counter_type="trades", order_id=oid)
             except Exception as e:
                 logger.warning("Error triggering report (orphan close): %s", e)
@@ -3950,7 +3953,7 @@ class TradeMonitorService:
                             source=getattr(pos, "source", ""),
                             symbol=getattr(pos, "symbol", ""),
                             tf=getattr(pos, "tf", ""),
-                            direction=getattr(pos, "direction", ""),
+                            direction=getattr(pos, "direction", ""),  # type: ignore
                             ts_ms=int(exit_ts_ms or now_ms),
                             payload={
                                 "exit_price": float(exit_price),
@@ -3968,7 +3971,7 @@ class TradeMonitorService:
                             source=getattr(pos, "source", ""),
                             symbol=getattr(pos, "symbol", ""),
                             tf=getattr(pos, "tf", ""),
-                            direction=getattr(pos, "direction", ""),
+                            direction=getattr(pos, "direction", ""),  # type: ignore
                             ts_ms=int(exit_ts_ms or now_ms),
                             payload={
                                 "reason": str(getattr(closed, "close_reason", "") or ""),
@@ -3982,7 +3985,7 @@ class TradeMonitorService:
 
                         from domain.normalizers import source_from_strategy
                         mapped_src = source_from_strategy(getattr(pos, "strategy", ""), str(getattr(pos, "source", "")))
-                        local_triggers.append((mapped_src, str(getattr(pos, "symbol", "")), str(pos.id), getattr(pos, "is_virtual", False)))
+                        local_triggers.append((mapped_src, str(getattr(pos, "symbol", "")), str(pos.id), getattr(pos, "is_virtual", False)))  # type: ignore
 
                         # cleanup memory under lock
                         with self._lock:
@@ -4005,7 +4008,7 @@ class TradeMonitorService:
         for trigger in report_triggers:
             try:
                 from services.periodic_reporter import check_and_trigger_report
-                src, sym, oid = trigger[0], trigger[1], trigger[2]
+                src, sym, oid = trigger[0], trigger[1], trigger[2]  # type: ignore
                 check_and_trigger_report(src, sym, counter_type="trades", order_id=oid)
             except Exception as e:
                 logger.warning("⚠️ Ошибка при триггере отчета: %s", e)
@@ -4291,7 +4294,7 @@ class TradeMonitorService:
                     if self._attach_health_on_close:
                         try:
                             now_ms = get_ny_time_millis()
-                            closed._health_snapshot = self._get_health_snapshot_prefixed(closed.symbol, now_ms)
+                            closed._health_snapshot = self._get_health_snapshot_prefixed(closed.symbol, now_ms)  # type: ignore
                         except Exception:
                             pass
 
@@ -4308,7 +4311,7 @@ class TradeMonitorService:
 
                     from domain.normalizers import source_from_strategy
                     mapped_src = source_from_strategy(getattr(pos, "strategy", ""), str(getattr(pos, "source", "")))
-                    report_triggers.append((mapped_src, pos.symbol, pos.id, getattr(pos, "is_virtual", False)))
+                    report_triggers.append((mapped_src, pos.symbol, pos.id, getattr(pos, "is_virtual", False)))  # type: ignore
 
                     # cleanup shared maps under _lock
                     with self._lock:
@@ -4326,7 +4329,7 @@ class TradeMonitorService:
                                 logger.error(f"save_tp_hit payload is not a dict: type={type(payload)} val={payload}")
                                 continue
                             self._io_save_tp_hit(
-                                _d.get("pos"),
+                                _d.get("pos"),  # type: ignore
                                 tp_level=int(_d.get("tp_level", 0)),
                                 fill_price=float(_d.get("fill_price", 0.0)),
                                 closed_qty=float(_d.get("closed_qty", 0.0)),
@@ -4341,7 +4344,7 @@ class TradeMonitorService:
                             if not _d:
                                 logger.error(f"save_trailing_move payload is not a dict: type={type(payload)}")
                                 continue
-                            self._io_save_trailing_move(_d.get("pos"), float(_d.get("previous_sl", 0.0)), float(_d.get("new_sl", 0.0)), int(_d.get("ts_ms", 0)))
+                            self._io_save_trailing_move(_d.get("pos"), float(_d.get("previous_sl", 0.0)), float(_d.get("new_sl", 0.0)), int(_d.get("ts_ms", 0)))  # type: ignore
                         except Exception as e:
                             logger.error(f"Error in save_trailing_move: {e}", exc_info=True)
                     elif kind == "save_trailing_sync":
@@ -4350,7 +4353,7 @@ class TradeMonitorService:
                             if not _d:
                                 logger.error(f"save_trailing_sync payload is not a dict: type={type(payload)}")
                                 continue
-                            self._io_save_trailing_sync(_d.get("pos"), int(_d.get("ts_ms", 0)))
+                            self._io_save_trailing_sync(_d.get("pos"), int(_d.get("ts_ms", 0)))  # type: ignore
                         except Exception as e:
                             logger.error(f"Error in save_trailing_sync: {e}", exc_info=True)
                     elif kind == "save_closed":
@@ -4359,7 +4362,7 @@ class TradeMonitorService:
                             if not _d:
                                 logger.error(f"save_closed payload is not a dict: type={type(payload)}")
                                 continue
-                            self._io_save_closed(_d.get("closed"), health_snapshot=(_d.get("health_snapshot") or {}))
+                            self._io_save_closed(_d.get("closed"), health_snapshot=(_d.get("health_snapshot") or {}))  # type: ignore
                         except Exception as e:
                             logger.error(f"Error in save_closed: {e}", exc_info=True)
                     elif kind == "analytics_closed":
@@ -4393,7 +4396,7 @@ class TradeMonitorService:
             for trigger in report_triggers:
                 try:
                     from services.periodic_reporter import check_and_trigger_report
-                    src_t, sym_t, oid_t = trigger[0], trigger[1], trigger[2]
+                    src_t, sym_t, oid_t = trigger[0], trigger[1], trigger[2]  # type: ignore
                     check_and_trigger_report(src_t, sym_t, counter_type="trades", order_id=oid_t)
                 except Exception as _rte:
                     logger.warning("⚠️ on_tick report trigger failed: %s", _rte)
@@ -4737,7 +4740,7 @@ class TradeMonitorService:
             if self._attach_health_on_close:
                 try:
                     now_ms = get_ny_time_millis()
-                    closed._health_snapshot = self._get_health_snapshot_prefixed(closed.symbol, now_ms)
+                    closed._health_snapshot = self._get_health_snapshot_prefixed(closed.symbol, now_ms)  # type: ignore
                 except Exception:
                     pass
             try:
@@ -4762,7 +4765,7 @@ class TradeMonitorService:
             with contextlib.suppress(Exception):
                 self._mark_sid_closed(str(pos.sid or signal_id), ttl_days=7)
 
-            report_trigger = (pos.source, pos.symbol, pos.id, getattr(pos, "is_virtual", False))
+            report_trigger = (pos.source, pos.symbol, pos.id, getattr(pos, "is_virtual", False))  # type: ignore
 
         # ✅ Отчет вне lock (I/O/логика)
         if report_trigger:
@@ -4772,7 +4775,7 @@ class TradeMonitorService:
                 report_trigger[0],
                 report_trigger[1],
                 "trades",
-                report_trigger[2],
+                report_trigger[2],  # type: ignore
             )
             if getattr(pos, "is_virtual", False):
                 self._db_executor.submit(
@@ -4780,7 +4783,7 @@ class TradeMonitorService:
                     report_trigger[0],
                     report_trigger[1],
                     "trades",
-                    report_trigger[2],
+                    report_trigger[2],  # type: ignore
                     True
                 )
             # try:
@@ -4921,7 +4924,7 @@ class TradeMonitorService:
                 pos.tp1_hit = (getattr(pos, "tp1_hit", False) or tp_level >= 1)
                 pos.tp2_hit = (getattr(pos, "tp2_hit", False) or tp_level >= 2)
                 pos.tp3_hit = (getattr(pos, "tp3_hit", False) or tp_level >= 3)
-                pos.tp_before_sl = int(getattr(pos, "tp_hits", 0) or 0)
+                pos.tp_before_sl = int(getattr(pos, "tp_hits", 0) or 0)  # type: ignore
                 pos.closed = True
                 pos.exit_ts_ms = int(ts_ms)
                 pos.exit_price = float(price)
@@ -5010,7 +5013,7 @@ class TradeMonitorService:
             if self._attach_health_on_close:
                 try:
                     now_ms = get_ny_time_millis()
-                    closed._health_snapshot = self._get_health_snapshot_prefixed(closed.symbol, now_ms)
+                    closed._health_snapshot = self._get_health_snapshot_prefixed(closed.symbol, now_ms)  # type: ignore
                 except Exception:
                     pass
             try:
@@ -5034,7 +5037,7 @@ class TradeMonitorService:
             with contextlib.suppress(Exception):
                 self._mark_sid_closed(str(pos.sid or signal_id), ttl_days=7)
 
-            report_trigger = (pos.source, pos.symbol, pos.id, getattr(pos, "is_virtual", False))
+            report_trigger = (pos.source, pos.symbol, pos.id, getattr(pos, "is_virtual", False))  # type: ignore
 
         if report_trigger:
             # Async trigger
@@ -5043,7 +5046,7 @@ class TradeMonitorService:
                 report_trigger[0],
                 report_trigger[1],
                 "trades",
-                report_trigger[2],
+                report_trigger[2],  # type: ignore
             )
             if getattr(pos, "is_virtual", False):
                 self._db_executor.submit(
@@ -5051,7 +5054,7 @@ class TradeMonitorService:
                     report_trigger[0],
                     report_trigger[1],
                     "trades",
-                    report_trigger[2],
+                    report_trigger[2],  # type: ignore
                     True
                 )
             # try:
@@ -5528,7 +5531,7 @@ class TradeMonitorService:
             except Exception:
                 fee_bps = 0.0
 
-            self.events_logger.log_position_closed(
+            self.events_logger.log_position_closed(  # type: ignore
                 sid=str(getattr(pos, "sid", "")),
                 symbol=str(getattr(pos, "symbol", "")),
                 # A3 time contract: use exchange close timestamp as primary

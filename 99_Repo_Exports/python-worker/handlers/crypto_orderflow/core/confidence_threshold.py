@@ -45,8 +45,8 @@ class ConfidenceThresholdConfig:
     min_conf_factor_default: float = 0.45  # Фактор уверенности (0-1)
 
     # Специфичные для символа пороги
-    min_conf_by_symbol: dict[str, float] = None  # Переопределения абсолютной уверенности
-    min_conf_factor_by_symbol: dict[str, float] = None  # Переопределения фактора
+    min_conf_by_symbol: dict[str, float] = None  # Переопределения абсолютной уверенности  # type: ignore
+    min_conf_factor_by_symbol: dict[str, float] = None  # Переопределения фактора  # type: ignore
 
     def __post_init__(self):
         if self.min_conf_by_symbol is None:

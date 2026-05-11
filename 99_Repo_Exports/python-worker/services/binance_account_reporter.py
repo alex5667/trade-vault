@@ -89,7 +89,7 @@ except Exception:  # pragma: no cover - standalone bundle
     from binance_futures_client import BinanceFuturesREST, BinanceHTTPError
 
 try:
-    from services.telegram.telegram_client import TelegramClient
+    from services.telegram.telegram_client import TelegramClient  # type: ignore
 except Exception:  # pragma: no cover - tests / standalone bundle
     class TelegramClient:  # type: ignore[override]
         @staticmethod

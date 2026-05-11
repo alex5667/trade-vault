@@ -58,7 +58,7 @@ class ATRPolicyEnforcementRouter:
             cls._instance._initialized = False
         return cls._instance
 
-    def __init__(self, redis_url: str = None):
+    def __init__(self, redis_url: str = None):  # type: ignore
         if self._initialized:
             return
         self.redis_url = redis_url or os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
@@ -169,7 +169,7 @@ class ATRPolicyEnforcementRouter:
         """Update Redis with runtime decision for fast access."""
         cache_key = f"cache:atr:enforcement:runtime:{symbol}"
         # Cache for 1 hour by default, or less if needed
-        self._r.setex(cache_key, 3600, json.dumps(decision))
+        self._r.setex(cache_key, 3600, json.dumps(decision))  # type: ignore
 
     def _aggregate_actions(self, actions: list[str]) -> str:
         """Find the highest priority action."""
@@ -222,12 +222,12 @@ class ATRPolicyEnforcementRouter:
         Uses cached decision from Redis to avoid DB hits in hot paths.
         """
         cache_key = f"cache:atr:enforcement:runtime:{symbol}"
-        cached = self._r.get(cache_key)
+        cached = self._r.get(cache_key)  # type: ignore
         if cached:
             return json.loads(cached)
 
         # Global cache check (all symbols)
-        global_cache = self._r.get("cache:atr:enforcement:runtime:global")
+        global_cache = self._r.get("cache:atr:enforcement:runtime:global")  # type: ignore
         if global_cache:
             return json.loads(global_cache)
 

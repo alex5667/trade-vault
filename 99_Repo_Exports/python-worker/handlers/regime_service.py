@@ -87,7 +87,7 @@ class RegimeUpdatePayload:
 class MarketRegimeService:
     """Service for market regime detection and management."""
 
-    def __init__(self, config: RegimeConfig = None):
+    def __init__(self, config: RegimeConfig = None):  # type: ignore
         self.config = config or RegimeConfig()
         self.state = RegimeState()
         self.features = RegimeFeatures()

@@ -46,17 +46,17 @@ class DualRedisClient:
         """
         # Подключение к redis-worker-1 (порт 6380)
         redis_host_1 = get_env("REDIS_SIGNALS_HOST", "redis-worker-1")
-        redis_port_1 = int(get_env("REDIS_SIGNALS_PORT", "6379"))
+        redis_port_1 = int(get_env("REDIS_SIGNALS_PORT", "6379"))  # type: ignore
 
         # Подключение к redis-worker-2 (порт 6381)
         redis_host_2 = get_env("REDIS_SIGNALS_HOST_2", "redis-worker-2")
-        redis_port_2 = int(get_env("REDIS_SIGNALS_PORT_2", "6379"))
+        redis_port_2 = int(get_env("REDIS_SIGNALS_PORT_2", "6379"))  # type: ignore
 
         import urllib.parse
         redis_url = get_env("REDIS_URL", "")
         url_user = ""
         url_pass = ""
-        if redis_url.startswith("redis://"):
+        if redis_url.startswith("redis://"):  # type: ignore
             parsed = urllib.parse.urlparse(redis_url)
             if parsed.username:
                 url_user = parsed.username

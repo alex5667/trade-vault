@@ -1,4 +1,54 @@
 services:
+  redis-consumer-janitor:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile.gpu
+    container_name: scanner-redis-consumer-janitor
+    restart: always
+    deploy:
+      resources:
+        limits:
+          cpus: '0.15'
+          memory: 128M
+        reservations:
+          memory: 24M
+    environment:
+    # Redis nodes to sweep (comma-separated; defaults to REDIS_URL)
+    - JANITOR_REDIS_URLS=${JANITOR_REDIS_URLS:-redis://redis-worker-1:6379/0}
+    # Sweep interval (default 1h = 3600s)
+    - JANITOR_INTERVAL_SEC=${JANITOR_INTERVAL_SEC:-3600}
+    # Idle threshold to consider a consumer a zombie (default 2h = 7200000ms)
+    - JANITOR_ZOMBIE_IDLE_MS=${JANITOR_ZOMBIE_IDLE_MS:-7200000}
+    # Idle threshold to ACK stale PEL entries (default 1h = 3600000ms)
+    - JANITOR_STALE_PEL_IDLE_MS=${JANITOR_STALE_PEL_IDLE_MS:-3600000}
+    # Set to 1 for dry-run (only logs, no deletes)
+    - JANITOR_DRY_RUN=${JANITOR_DRY_RUN:-0}
+    # Stream key patterns to scan (comma-separated)
+    - JANITOR_STREAM_PATTERNS=${JANITOR_STREAM_PATTERNS:-events:*,signals:*,stream:*,trades:*,ml_replay_*,notify:*}
+    # Minimum consumers per group to trigger cleaning
+    - JANITOR_MIN_CONSUMERS_TO_CLEAN=${JANITOR_MIN_CONSUMERS_TO_CLEAN:-2}
+    # PEL entries to check per batch
+    - JANITOR_PEL_BATCH=${JANITOR_PEL_BATCH:-200}
+    # Prometheus port
+    - JANITOR_PROMETHEUS_PORT=${JANITOR_PROMETHEUS_PORT:-9872}
+    - PYTHONPATH=/app
+    - PYTHONUNBUFFERED=1
+    - TZ=UTC
+    ports:
+    - ${JANITOR_PROMETHEUS_PORT:-9872}:9872
+    volumes:
+    - ./python-worker/services:/app/services
+    - ./python-worker/runners:/app/runners
+    command:
+    - sh
+    - -c
+    - sleep 10 && python3 -m runners.redis_consumer_janitor_runner
+    depends_on:
+      redis-worker-1:
+        condition: service_healthy
+    networks:
+    - scanner-timers
+    - scanner-infra
   active-symbol-guard-repair-worker:
     build:
       context: .

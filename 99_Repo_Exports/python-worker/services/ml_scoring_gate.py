@@ -278,8 +278,8 @@ class MLScoringGate:
             if not cancel_spike_veto and isinstance(ctx, dict):
                 cancel_spike_veto = ctx.get("cancel_spike_veto", False)
 
-            if hasattr(ctx, "indicators") and isinstance(ctx.indicators, dict):
-                ind = ctx.indicators
+            if hasattr(ctx, "indicators") and isinstance(ctx.indicators, dict):  # type: ignore
+                ind = ctx.indicators  # type: ignore
             elif isinstance(ctx, dict) and "indicators" in ctx:
                 ind = ctx["indicators"]
             else:

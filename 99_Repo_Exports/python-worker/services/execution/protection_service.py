@@ -226,7 +226,7 @@ class ProtectionService:
             **reduce_params,
         }
         with contextlib.suppress(Exception):
-            sl_resp = client.place_order(**sl_params)
+            sl_resp = client.place_order(**sl_params)  # type: ignore
             result["sl_order_id"] = sl_resp.get("orderId") or sl_resp.get("id")
             result["sl_client_order_id"] = sl_cid
             result["sl_price"] = sl_price
@@ -235,8 +235,8 @@ class ProtectionService:
         for i, tp_price in enumerate(tp_levels or []):
             lvl = i + 1
             tp_qty = (tp_qtys[i] if tp_qtys and i < len(tp_qtys) else qty)
-            tp_qty_rounded = _round_down(tp_qty, sf.step_size)
-            tp_cid = _make_cid(sid, f"tp{lvl}", r)
+            tp_qty_rounded = _round_down(tp_qty, sf.step_size)  # type: ignore
+            tp_cid = _make_cid(sid, f"tp{lvl}", r)  # type: ignore
             tp_params: dict[str, Any] = {
                 "symbol": sym,
                 "side": close_side,
@@ -248,7 +248,7 @@ class ProtectionService:
                 **reduce_params,
             }
             with contextlib.suppress(Exception):
-                tp_resp = client.place_order(**tp_params)
+                tp_resp = client.place_order(**tp_params)  # type: ignore
                 result[f"tp{lvl}_order_id"] = tp_resp.get("orderId") or tp_resp.get("id")
                 result[f"tp{lvl}_client_order_id"] = tp_cid
                 result[f"tp{lvl}_price"] = tp_price
@@ -271,11 +271,11 @@ class ProtectionService:
         """Cancel known SL/TP orders by stored order IDs (best-effort)."""
         sym = symbol.upper()
         # SL
-        for key in ("sl_order_id",):
-            oid = state.get(key)
+        for key in ("sl_order_id",):  # type: ignore
+            oid = state.get(key)  # type: ignore
             if oid:
                 with contextlib.suppress(Exception):
-                    client.cancel_order(sym, order_id=oid)
+                    client.cancel_order(sym, order_id=oid)  # type: ignore
         # SL algo
         for key in ("sl_algo_order_id",):
             oid = state.get(key)
@@ -288,7 +288,7 @@ class ProtectionService:
                 oid = state.get(key)
                 if oid:
                     with contextlib.suppress(Exception):
-                        client.cancel_order(sym, order_id=oid)
+                        client.cancel_order(sym, order_id=oid)  # type: ignore
             for key in (f"tp{lvl}_algo_order_id",):
                 oid = state.get(key)
                 if oid:

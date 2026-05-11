@@ -16,7 +16,7 @@ def setup_logger(name):
     return logging.getLogger(name)
 
 if TYPE_CHECKING:
-    from contexts import OrderflowTickContext
+    from contexts import OrderflowTickContext  # type: ignore
 
 
 class L2ProcessingService:

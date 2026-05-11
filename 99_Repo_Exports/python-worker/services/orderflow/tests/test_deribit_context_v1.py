@@ -121,15 +121,15 @@ async def test_snapshot_fields_btcusdt():
     redis = _make_redis(json.dumps(_btcusdt_payload()))
     snap = await aread_deribit_context(redis, symbol="BTCUSDT")
 
-    assert snap.schema_version == 1
-    assert snap.ts_ms == 1760000000000
-    assert snap.btc_options_oi_proxy == pytest.approx(12_500_000_000.0)
-    assert snap.deribit_iv_proxy == pytest.approx(54.2)
-    assert snap.deribit_iv_z == pytest.approx(1.8)
-    assert snap.deribit_funding_8h == pytest.approx(0.00012)
-    assert snap.deribit_perp_basis_bps == pytest.approx(3.4)
-    assert snap.btc_eth_vol_regime == "vol_expansion"
-    assert snap.quality_status == "OK"
+    assert snap.schema_version == 1  # type: ignore
+    assert snap.ts_ms == 1760000000000  # type: ignore
+    assert snap.btc_options_oi_proxy == pytest.approx(12_500_000_000.0)  # type: ignore
+    assert snap.deribit_iv_proxy == pytest.approx(54.2)  # type: ignore
+    assert snap.deribit_iv_z == pytest.approx(1.8)  # type: ignore
+    assert snap.deribit_funding_8h == pytest.approx(0.00012)  # type: ignore
+    assert snap.deribit_perp_basis_bps == pytest.approx(3.4)  # type: ignore
+    assert snap.btc_eth_vol_regime == "vol_expansion"  # type: ignore
+    assert snap.quality_status == "OK"  # type: ignore
 
 
 @pytest.mark.asyncio
@@ -138,9 +138,9 @@ async def test_global_iv_proxy_fallback_fields():
     redis = _make_redis(json.dumps(_global_payload()))
     snap = await aread_deribit_context(redis, symbol="SOLUSDT")
     # btc_deribit_iv_proxy → deribit_iv_proxy
-    assert snap.deribit_iv_proxy == pytest.approx(54.2)
-    assert snap.deribit_iv_z == pytest.approx(1.8)
-    assert snap.deribit_funding_8h == pytest.approx(0.00012)
+    assert snap.deribit_iv_proxy == pytest.approx(54.2)  # type: ignore
+    assert snap.deribit_iv_z == pytest.approx(1.8)  # type: ignore
+    assert snap.deribit_funding_8h == pytest.approx(0.00012)  # type: ignore
 
 
 # ─── Fail-open paths ─────────────────────────────────────────────────────────

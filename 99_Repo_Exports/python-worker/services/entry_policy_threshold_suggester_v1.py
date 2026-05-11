@@ -381,7 +381,7 @@ async def main() -> None:
                                         "max_per_day": max_sw,
                                         "min_gap_ms": gap_ms,
                                         "state_key": st_key,
-                                        "state": st.to_dict(),
+                                        "state": st.to_dict(),  # type: ignore
                                     }
                                 }
 

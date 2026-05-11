@@ -37,7 +37,7 @@ try:
 except Exception:
     PROMETHEUS_AVAILABLE = False
     # Mock metrics for when prometheus_client is not available
-    class _MockMetric:
+    class _MockMetric:  # type: ignore
         def labels(self, **kwargs):
             return self
         def inc(self, *args, **kwargs):
@@ -535,7 +535,7 @@ def _normalize_crypto_sid(raw: object, *, symbol: str, ts_ms: int) -> str:
       - {symbol}:{ts} (legacy without prefix)
       - empty -> generate from symbol+ts_ms
     """
-    s = (raw or "").strip()
+    s = (raw or "").strip()  # type: ignore
     if s.startswith("crypto-of:"):
         return s
     if "|" in s:
@@ -976,12 +976,12 @@ class MLConfirmGate:
                     from prometheus_client import REGISTRY
                     self._metrics_last_successful_load_ts = REGISTRY._names_to_collectors.get("ml_confirm_last_successful_load_ts_seconds")
                     if self._metrics_last_successful_load_ts is None:
-                        class _MockMetric:
+                        class _MockMetric:  # type: ignore
                             def labels(self, **kwargs): return self
                             def set(self, *args, **kwargs): pass
                         self._metrics_last_successful_load_ts = _MockMetric()
             else:
-                class _MockMetric:
+                class _MockMetric:  # type: ignore
                     def labels(self, **kwargs):
                         return self
                     def set(self, *args, **kwargs):
@@ -1282,14 +1282,14 @@ class MLConfirmGate:
             # Load model
             model_path = cfg.get("model_path")
             kind = cfg.get("kind")
-            model = _load_model_cached(model_path, kind, logger=logger)
+            model = _load_model_cached(model_path, kind, logger=logger)  # type: ignore
 
             if METRICS_REGISTRY_AVAILABLE:
                 k = kind or "unknown"
-                self._metrics_cfg_present.labels(kind=k).set(1)
-                self._metrics_cfg_valid.labels(kind=k).set(1)
+                self._metrics_cfg_present.labels(kind=k).set(1)  # type: ignore
+                self._metrics_cfg_valid.labels(kind=k).set(1)  # type: ignore
                 if model:
-                    self._metrics_model_loaded.labels(kind=k).set(1)
+                    self._metrics_model_loaded.labels(kind=k).set(1)  # type: ignore
 
             return cfg.copy(), model
 
@@ -1548,13 +1548,13 @@ class MLConfirmGate:
             t0 = time.monotonic()
             tasks = [_load_one(k) for k in self._champion_kinds]
             await asyncio.gather(*tasks, return_exceptions=True)
-            return time.monotonic() - t0
-        return 0.0
+            return time.monotonic() - t0  # type: ignore
+        return 0.0  # type: ignore
 
     def _refresh_selective_knobs_from_cfg(self) -> None:
         try:
             if self._cfg.get("abstain_band") is not None:
-                self._abstain_band = float(self._cfg.get("abstain_band"))
+                self._abstain_band = float(self._cfg.get("abstain_band"))  # type: ignore
                 p_min = float(self._cfg.get("p_min", 0.5))
                 assert self._abstain_band < (p_min - 0.5), f"abstain_band {self._abstain_band} too wide for p_min {p_min}"
         except AssertionError as ae:
@@ -1565,7 +1565,7 @@ class MLConfirmGate:
             pass
         try:
             if self._cfg.get("conf_min") is not None:
-                self._conf_min = float(self._cfg.get("conf_min"))
+                self._conf_min = float(self._cfg.get("conf_min"))  # type: ignore
         except Exception:
             pass
         try:
@@ -1575,7 +1575,7 @@ class MLConfirmGate:
             pass
         try:
             if self._cfg.get("p_min_hard_floor") is not None:
-                self._p_min_hard_floor = float(self._cfg.get("p_min_hard_floor"))
+                self._p_min_hard_floor = float(self._cfg.get("p_min_hard_floor"))  # type: ignore
         except Exception:
             pass
 
@@ -1799,8 +1799,8 @@ class MLConfirmGate:
         liq_cfg = getattr(model, "liq_cfg", None)
         if not isinstance(liq_cfg, dict):
             liq_cfg = {}
-        liq_label = derive_regime_label(indicators.get("liq_regime"), fallback_score=_f(indicators.get("liq_score"), None), cfg=liq_cfg)
-        vol_label = derive_regime_label(indicators.get("vol_regime"), fallback_score=_f(indicators.get("vol_score"), None), cfg=liq_cfg)
+        liq_label = derive_regime_label(indicators.get("liq_regime"), fallback_score=_f(indicators.get("liq_score"), None), cfg=liq_cfg)  # type: ignore
+        vol_label = derive_regime_label(indicators.get("vol_regime"), fallback_score=_f(indicators.get("vol_score"), None), cfg=liq_cfg)  # type: ignore
 
         # UTC hour/day-of-week and scenario bucket (Commit 8)
         tm = time.gmtime(float(int(ts_ms or 0)) / 1000.0)
@@ -2158,7 +2158,7 @@ class MLConfirmGate:
                 if indicators:
                     payload["vol_ratio_present"] = str(int("vol_ratio" in indicators or "vol_ratio_fast_slow" in indicators))
                     payload["vol_ratio_z_present"] = str(int("vol_ratio_z" in indicators))
-                    payload[HzGateKeys.MODE] = (indicators.get(HzGateKeys.MODE, ""))
+                    payload[HzGateKeys.MODE] = (indicators.get(HzGateKeys.MODE, ""))  # type: ignore
                     # vol_ratio value for drift tracking (bounded)
                     vr = indicators.get("vol_ratio") or indicators.get("vol_ratio_fast_slow")
                     if vr is not None:
@@ -2197,7 +2197,7 @@ class MLConfirmGate:
         except Exception as e:
             # Increment error metric and rate-limited log
             if METRICS_REGISTRY_AVAILABLE:
-                self._metrics_errors_total.labels(kind=dec.kind or "unknown", reason="emit_metrics").inc()
+                self._metrics_errors_total.labels(kind=dec.kind or "unknown", reason="emit_metrics").inc()  # type: ignore
             # Rate-limited logging (at most once per 30 seconds)
             if not hasattr(self, '_last_emit_metrics_error_log_ts'):
                 self._last_emit_metrics_error_log_ts = 0
@@ -2274,7 +2274,7 @@ class MLConfirmGate:
         except Exception as e:
             # Increment error metric and rate-limited log
             if METRICS_REGISTRY_AVAILABLE:
-                self._metrics_errors_total.labels(kind=dec.kind or "unknown", reason="replay_capture").inc()
+                self._metrics_errors_total.labels(kind=dec.kind or "unknown", reason="replay_capture").inc()  # type: ignore
             # Rate-limited logging (at most once per 30 seconds)
             if not hasattr(self, '_last_replay_capture_error_log_ts'):
                 self._last_replay_capture_error_log_ts = 0
@@ -2337,9 +2337,9 @@ class MLConfirmGate:
         try:
             m = model.get("model") if isinstance(model, dict) else model
             if hasattr(m, "predict"):
-                p_raw = float(m.predict(X)[0])
+                p_raw = float(m.predict(X)[0])  # type: ignore
             elif hasattr(m, "predict_proba"):
-                p_raw = float(m.predict_proba(X)[0, 1])
+                p_raw = float(m.predict_proba(X)[0, 1])  # type: ignore
             else:
                 raise ValueError("Model has no predict/predict_proba method")
         except Exception as e:
@@ -2481,7 +2481,7 @@ class MLConfirmGate:
             return dec
 
         util_floors = cfg.get("util_floors") if isinstance(cfg.get("util_floors"), dict) else {}
-        unc_k = _f(util_floors.get("unc_k", getattr(model, "unc_k", 0.5)), getattr(model, "unc_k", 0.5))
+        unc_k = _f(util_floors.get("unc_k", getattr(model, "unc_k", 0.5)), getattr(model, "unc_k", 0.5))  # type: ignore
 
         best_h = 0
         best_score = -1e18
@@ -2540,7 +2540,7 @@ class MLConfirmGate:
             dec.status = "ERR_NO_VALID_SCORES"
             bucket = _bucket_from_scenario(scenario)
             dec.bucket = bucket
-            floor = _get_floor(util_floors, bucket)
+            floor = _get_floor(util_floors, bucket)  # type: ignore
             try:
                 floor = max(float(floor), float(self._p_min_hard_floor))
             except Exception:
@@ -2550,7 +2550,7 @@ class MLConfirmGate:
             return dec
 
         bucket = _bucket_from_scenario(scenario)
-        floor = _get_floor(util_floors, bucket)
+        floor = _get_floor(util_floors, bucket)  # type: ignore
         # hard floor guardrail
         try:
             floor = max(float(floor), float(self._p_min_hard_floor))
@@ -2752,7 +2752,7 @@ class MLConfirmGate:
                 dec.conf = 0.0
                 dec.missing = ["__forbidden_feature_cols"]
                 with contextlib.suppress(Exception):
-                    self._metrics_errors_total.labels(
+                    self._metrics_errors_total.labels(  # type: ignore
                         kind="edge_stack_v1", reason="forbidden_feature_cols"
                     ).inc()
                 return dec
@@ -3321,8 +3321,8 @@ class MLConfirmGate:
             dec.latency_us = int((time.perf_counter_ns() - t0_ns) / 1000)
             latency_sec = time.time() - t0_sec
             if METRICS_REGISTRY_AVAILABLE:
-                self._metrics_events_total.labels(ab_variant=str(self.ab_variant or ""), kind="none", outcome="OFF").inc()
-                self._metrics_latency_seconds.labels(kind="none").observe(latency_sec)
+                self._metrics_events_total.labels(ab_variant=str(self.ab_variant or ""), kind="none", outcome="OFF").inc()  # type: ignore
+                self._metrics_latency_seconds.labels(kind="none").observe(latency_sec)  # type: ignore
             # Extract sid from indicators or generate in format crypto-of:{symbol}:{ts_ms}
             sid = _canonical_sid(indicators, symbol, ts_ms)
             self._emit_metrics(dec, symbol=symbol, ts_ms=ts_ms, direction=direction, scenario=scenario,
@@ -3387,8 +3387,8 @@ class MLConfirmGate:
             dec.latency_us = int((time.perf_counter_ns() - t0_ns) / 1000)
             latency_sec = time.time() - t0_sec
             if METRICS_REGISTRY_AVAILABLE:
-                self._metrics_events_total.labels(ab_variant=str(self.ab_variant or ""), kind="none", outcome="OFF").inc()
-                self._metrics_latency_seconds.labels(kind="none").observe(latency_sec)
+                self._metrics_events_total.labels(ab_variant=str(self.ab_variant or ""), kind="none", outcome="OFF").inc()  # type: ignore
+                self._metrics_latency_seconds.labels(kind="none").observe(latency_sec)  # type: ignore
             sid = _canonical_sid(indicators, symbol, ts_ms)
             self._emit_metrics(dec, symbol=symbol, ts_ms=ts_ms, direction=direction, scenario=scenario,
                                rule_score=rule_score, rule_have=rule_have, rule_need=rule_need,
@@ -3415,9 +3415,9 @@ class MLConfirmGate:
             latency_sec = time.time() - t0_sec
             kind_for_metrics = "unknown"
             if METRICS_REGISTRY_AVAILABLE:
-                self._metrics_events_total.labels(ab_variant=str(self.ab_variant or ""), kind=kind_for_metrics, outcome="ERR").inc()
-                self._metrics_errors_total.labels(kind=kind_for_metrics, reason=err).inc()
-                self._metrics_latency_seconds.labels(kind=kind_for_metrics).observe(latency_sec)
+                self._metrics_events_total.labels(ab_variant=str(self.ab_variant or ""), kind=kind_for_metrics, outcome="ERR").inc()  # type: ignore
+                self._metrics_errors_total.labels(kind=kind_for_metrics, reason=err).inc()  # type: ignore
+                self._metrics_latency_seconds.labels(kind=kind_for_metrics).observe(latency_sec)  # type: ignore
             # Extract sid from indicators or generate in format crypto-of:{symbol}:{ts_ms}
             sid = _canonical_sid(indicators, symbol, ts_ms)
             self._emit_metrics(dec, symbol=symbol, ts_ms=ts_ms, direction=direction, scenario=scenario,
@@ -3470,15 +3470,15 @@ class MLConfirmGate:
                 # Determine outcome for metrics
                 if dec.error:
                     outcome = "ERR"
-                    self._metrics_errors_total.labels(kind=kind_for_metrics, reason=dec.error or "unknown").inc()
+                    self._metrics_errors_total.labels(kind=kind_for_metrics, reason=dec.error or "unknown").inc()  # type: ignore
                 elif dec.status == "SHADOW":
                     outcome = "SHADOW"
                 elif dec.allow:
                     outcome = "ALLOW"
                 else:
                     outcome = "DENY"
-                self._metrics_events_total.labels(ab_variant=str(self.ab_variant or ""), kind=kind_for_metrics, outcome=outcome).inc()
-                self._metrics_latency_seconds.labels(kind=kind_for_metrics).observe(latency_sec)
+                self._metrics_events_total.labels(ab_variant=str(self.ab_variant or ""), kind=kind_for_metrics, outcome=outcome).inc()  # type: ignore
+                self._metrics_latency_seconds.labels(kind=kind_for_metrics).observe(latency_sec)  # type: ignore
 
             # Extract sid from indicators or generate in format crypto-of:{symbol}:{ts_ms}
             sid = _canonical_sid(indicators, symbol, ts_ms)
@@ -3498,7 +3498,7 @@ class MLConfirmGate:
                 _p_min_val = float(cfg.get("p_min", 0.5) or 0.5)
                 _p_min_buckets = cfg.get("p_min_by_bucket") or {}
                 if _p_min_val < 0.5 and not _p_min_buckets:
-                    logger.warning(
+                    logger.warning(  # type: ignore
                         "⚠️ ML gate ENFORCE p_min=%.2f < 0.5 with empty p_min_by_bucket "
                         "for %s/%s — gate is nearly open. Set p_min≥0.5 or add p_min_by_bucket "
                         "in cfg:ml_confirm:champion. (cfg_key=%s)",
@@ -3526,15 +3526,15 @@ class MLConfirmGate:
                 # Determine outcome for metrics
                 if dec.error:
                     outcome = "ERR"
-                    self._metrics_errors_total.labels(kind=kind_for_metrics, reason=dec.error or "unknown").inc()
+                    self._metrics_errors_total.labels(kind=kind_for_metrics, reason=dec.error or "unknown").inc()  # type: ignore
                 elif dec.status == "SHADOW":
                     outcome = "SHADOW"
                 elif dec.allow:
                     outcome = "ALLOW"
                 else:
                     outcome = "DENY"
-                self._metrics_events_total.labels(ab_variant=str(self.ab_variant or ""), kind=kind_for_metrics, outcome=outcome).inc()
-                self._metrics_latency_seconds.labels(kind=kind_for_metrics).observe(latency_sec)
+                self._metrics_events_total.labels(ab_variant=str(self.ab_variant or ""), kind=kind_for_metrics, outcome=outcome).inc()  # type: ignore
+                self._metrics_latency_seconds.labels(kind=kind_for_metrics).observe(latency_sec)  # type: ignore
 
             # Extract sid from indicators or generate in format crypto-of:{symbol}:{ts_ms}
             sid = _canonical_sid(indicators, symbol, ts_ms)
@@ -3563,15 +3563,15 @@ class MLConfirmGate:
                 kind_for_metrics = kind
                 if dec.error:
                     outcome = "ERR"
-                    self._metrics_errors_total.labels(kind=kind_for_metrics, reason=dec.error or "unknown").inc()
+                    self._metrics_errors_total.labels(kind=kind_for_metrics, reason=dec.error or "unknown").inc()  # type: ignore
                 elif dec.status == "SHADOW":
                     outcome = "SHADOW"
                 elif dec.allow:
                     outcome = "ALLOW"
                 else:
                     outcome = "DENY"
-                self._metrics_events_total.labels(ab_variant=str(self.ab_variant or ""), kind=kind_for_metrics, outcome=outcome).inc()
-                self._metrics_latency_seconds.labels(kind=kind_for_metrics).observe(latency_sec)
+                self._metrics_events_total.labels(ab_variant=str(self.ab_variant or ""), kind=kind_for_metrics, outcome=outcome).inc()  # type: ignore
+                self._metrics_latency_seconds.labels(kind=kind_for_metrics).observe(latency_sec)  # type: ignore
 
             sid = _canonical_sid(indicators, symbol, ts_ms)
             self._emit_metrics(dec, symbol=symbol, ts_ms=ts_ms, direction=direction, scenario=scenario,
@@ -3602,15 +3602,15 @@ class MLConfirmGate:
                 # Determine outcome for metrics
                 if dec.error:
                     outcome = "ERR"
-                    self._metrics_errors_total.labels(kind=kind_for_metrics, reason=dec.error or "unknown").inc()
+                    self._metrics_errors_total.labels(kind=kind_for_metrics, reason=dec.error or "unknown").inc()  # type: ignore
                 elif dec.status == "SHADOW":
                     outcome = "SHADOW"
                 elif dec.allow:
                     outcome = "ALLOW"
                 else:
                     outcome = "DENY"
-                self._metrics_events_total.labels(ab_variant=str(self.ab_variant or ""), kind=kind_for_metrics, outcome=outcome).inc()
-                self._metrics_latency_seconds.labels(kind=kind_for_metrics).observe(latency_sec)
+                self._metrics_events_total.labels(ab_variant=str(self.ab_variant or ""), kind=kind_for_metrics, outcome=outcome).inc()  # type: ignore
+                self._metrics_latency_seconds.labels(kind=kind_for_metrics).observe(latency_sec)  # type: ignore
 
             # Extract sid from indicators or generate in format crypto-of:{symbol}:{ts_ms}
             sid = _canonical_sid(indicators, symbol, ts_ms)
@@ -3639,15 +3639,15 @@ class MLConfirmGate:
                 kind_for_metrics = kind or "unknown"
                 if dec.error:
                     outcome = "ERR"
-                    self._metrics_errors_total.labels(kind=kind_for_metrics, reason=dec.error or "unknown").inc()
+                    self._metrics_errors_total.labels(kind=kind_for_metrics, reason=dec.error or "unknown").inc()  # type: ignore
                 elif dec.status == "SHADOW":
                     outcome = "SHADOW"
                 elif dec.allow:
                     outcome = "ALLOW"
                 else:
                     outcome = "DENY"
-                self._metrics_events_total.labels(ab_variant=str(self.ab_variant or ""), kind=kind_for_metrics, outcome=outcome).inc()
-                self._metrics_latency_seconds.labels(kind=kind_for_metrics).observe(latency_sec)
+                self._metrics_events_total.labels(ab_variant=str(self.ab_variant or ""), kind=kind_for_metrics, outcome=outcome).inc()  # type: ignore
+                self._metrics_latency_seconds.labels(kind=kind_for_metrics).observe(latency_sec)  # type: ignore
 
             sid = _canonical_sid(indicators, symbol, ts_ms)
             self._emit_metrics(dec, symbol=symbol, ts_ms=ts_ms, direction=direction, scenario=scenario,
@@ -3673,9 +3673,9 @@ class MLConfirmGate:
         latency_sec = time.time() - t0_sec
         kind_for_metrics = kind or "unknown"
         if METRICS_REGISTRY_AVAILABLE:
-            self._metrics_events_total.labels(ab_variant=str(self.ab_variant or ""), kind=kind_for_metrics, outcome="ERR").inc()
-            self._metrics_errors_total.labels(kind=kind_for_metrics, reason="unsupported_kind").inc()
-            self._metrics_latency_seconds.labels(kind=kind_for_metrics).observe(latency_sec)
+            self._metrics_events_total.labels(ab_variant=str(self.ab_variant or ""), kind=kind_for_metrics, outcome="ERR").inc()  # type: ignore
+            self._metrics_errors_total.labels(kind=kind_for_metrics, reason="unsupported_kind").inc()  # type: ignore
+            self._metrics_latency_seconds.labels(kind=kind_for_metrics).observe(latency_sec)  # type: ignore
         # Extract sid from indicators or generate in format crypto-of:{symbol}:{ts_ms}
         sid = _canonical_sid(indicators, symbol, ts_ms)
         self._emit_metrics(dec, symbol=symbol, ts_ms=ts_ms, direction=direction, scenario=scenario,

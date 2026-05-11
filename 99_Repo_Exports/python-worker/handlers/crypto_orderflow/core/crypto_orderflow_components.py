@@ -154,12 +154,12 @@ class TickParser:
             if "data" in fields:
                 raw_s = _to_str(fields.get("data"))
                 tick_json = json.loads(raw_s) if raw_s else {}
-                ts = int(float(tick_json.get("ts", 0) or 0))
-                bid = float(tick_json.get("bid", 0) or 0)
-                ask = float(tick_json.get("ask", 0) or 0)
-                last = float(tick_json.get("last", 0) or 0)
-                volume = float(tick_json.get("volume", 0) or 0)
-                flags = int(float(tick_json.get("flags", 0) or 0))
+                ts = int(float(tick_json.get("ts", 0) or 0))  # type: ignore
+                bid = float(tick_json.get("bid", 0) or 0)  # type: ignore
+                ask = float(tick_json.get("ask", 0) or 0)  # type: ignore
+                last = float(tick_json.get("last", 0) or 0)  # type: ignore
+                volume = float(tick_json.get("volume", 0) or 0)  # type: ignore
+                flags = int(float(tick_json.get("flags", 0) or 0))  # type: ignore
             else:
                 ts = int(float(fields.get("ts", 0) or 0))
                 bid = float(fields.get("bid", 0) or 0)

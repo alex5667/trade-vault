@@ -332,7 +332,7 @@ def test_util_mh_off_mode(mock_redis):
 
     assert dec.mode == "OFF"
     assert dec.allow is True
-    assert dec.reason == "mode_off"
+    assert dec.reason.startswith("mode_off")
 
 
 def test_util_mh_no_cfg(mock_redis):

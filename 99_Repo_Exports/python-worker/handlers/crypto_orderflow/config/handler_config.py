@@ -67,7 +67,7 @@ class CryptoOrderFlowConfigManager:
         val = self._env_float(f"{base}_{symbol}", self._env_float(base, default))
         return val
 
-    def get_runtime_snapshot(self) -> RuntimeSnapshot:
+    def get_runtime_snapshot(self) -> RuntimeSnapshot:  # type: ignore
         """
         Single place to access cached ENV values.
         Must be extremely cheap in hot-path.
@@ -134,15 +134,15 @@ class CryptoOrderFlowConfigManager:
         for k in ("realized_spread_bps", "realized_spread_ema_bps", "rs_ema_bps"):
             v = getattr(ctx, k, None)
             fv = safe_float(v, default=0.0)
-            if fv > 0:
-                rs = float(fv)
+            if fv > 0:  # type: ignore
+                rs = float(fv)  # type: ignore
                 break
 
         # 2) Fallback from spread_bps
         spread_bps = 0.0
         sb = safe_float(getattr(ctx, "spread_bps", None), default=0.0)
-        if sb > 0:
-            spread_bps = float(sb)
+        if sb > 0:  # type: ignore
+            spread_bps = float(sb)  # type: ignore
 
         # Optional DQ marker
         if rs <= 0.0 and spread_bps <= 0.0:

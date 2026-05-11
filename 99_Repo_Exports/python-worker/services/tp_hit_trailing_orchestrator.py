@@ -166,7 +166,7 @@ class TpHitTrailingOrchestrator:
 
         # Events logger для trade_back
         if HAS_EVENTS_LOGGER:
-            self.events_logger = TradeEventsLogger()
+            self.events_logger = TradeEventsLogger()  # type: ignore
             log.info("✅ Trade events logger initialized")
         else:
             self.events_logger = None
@@ -227,11 +227,11 @@ class TpHitTrailingOrchestrator:
             self.default_profile, len(self.profiles.list_names())
         )
         if self.symbol_filter_enabled:
-            log.info("🎯 Trailing symbols: %s", ", ".join(sorted(self.trailing_symbols)))
+            log.info("🎯 Trailing symbols: %s", ", ".join(sorted(self.trailing_symbols)))  # type: ignore
         else:
             log.info("🎯 Trailing symbols: ALL")
         if self.source_filter_enabled:
-            log.info("🎯 Trailing sources: %s", ", ".join(sorted(self.trailing_sources)))
+            log.info("🎯 Trailing sources: %s", ", ".join(sorted(self.trailing_sources)))  # type: ignore
         else:
             log.info("🎯 Trailing sources: ALL")
         log.info("🗝️ Signal key prefixes: %s", ", ".join(self.signal_key_prefixes))
@@ -311,7 +311,7 @@ class TpHitTrailingOrchestrator:
         symbol = _normalize_symbol(symbol_raw) or "UNKNOWN"
 
         if HAS_METRICS:
-            TrailingMetrics.record_event(event_type, symbol)
+            TrailingMetrics.record_event(event_type, symbol)  # type: ignore
 
         if event_type != self._expected_event_type:
             return TrailingResult(success=False, skipped=True, error="unsupported_event")
@@ -348,7 +348,7 @@ class TpHitTrailingOrchestrator:
                 if record_stats:
                     self.stats["signals_not_found"] += 1
                 if HAS_METRICS:
-                    TrailingMetrics.record_signal_not_found(symbol)
+                    TrailingMetrics.record_signal_not_found(symbol)  # type: ignore
                 log.warning("⚠️  Signal not found in Redis: %s", sid)
                 return TrailingResult(success=False, skipped=False, error="signal_not_found")
             signal, signal_key = signal_data
@@ -366,7 +366,7 @@ class TpHitTrailingOrchestrator:
             if record_stats:
                 self.stats["no_trail_flag"] += 1
             if HAS_METRICS:
-                TrailingMetrics.record_signal_without_flag(symbol)
+                TrailingMetrics.record_signal_without_flag(symbol)  # type: ignore
             log.debug(
                 "Signal %s does not have trail_after_tp1 flag, skip trailing",
                 sid,
@@ -454,7 +454,7 @@ class TpHitTrailingOrchestrator:
             if record_stats:
                 self.stats["trailing_failed"] += 1
             if HAS_METRICS:
-                TrailingMetrics.record_trailing_failed(symbol, "distance_not_computed")
+                TrailingMetrics.record_trailing_failed(symbol, "distance_not_computed")  # type: ignore
             return TrailingResult(success=False, skipped=False, error="distance_not_computed")
 
         entry_price = _to_float(signal.get("entry", 0.0))
@@ -525,7 +525,7 @@ class TpHitTrailingOrchestrator:
             if record_stats:
                 self.stats["trailing_failed"] += 1
             if HAS_METRICS:
-                TrailingMetrics.record_trailing_failed(symbol, "trailing_command_failed")
+                TrailingMetrics.record_trailing_failed(symbol, "trailing_command_failed")  # type: ignore
             return TrailingResult(success=False, skipped=False, error="trailing_command_failed")
 
         # Ограничиваем очистку TP2/TP3 только для профиля rocket_v1
@@ -557,7 +557,7 @@ class TpHitTrailingOrchestrator:
             if record_stats:
                 self.stats["trailing_failed"] += 1
             if HAS_METRICS:
-                TrailingMetrics.record_trailing_failed(symbol, "gateway_error")
+                TrailingMetrics.record_trailing_failed(symbol, "gateway_error")  # type: ignore
             return TrailingResult(success=False, skipped=False, error="gateway_error")
 
         initial_sl_for_log = signal.get("sl")
@@ -566,7 +566,7 @@ class TpHitTrailingOrchestrator:
         if record_stats:
             self.stats["trailing_started"] += 1
         if HAS_METRICS:
-            TrailingMetrics.record_trailing_started(symbol, profile.name)
+            TrailingMetrics.record_trailing_started(symbol, profile.name)  # type: ignore
 
         log.info(
             "✅ Trailing modify sent: sid=%s side=%s new_sl=%.5f (profile=%s)",

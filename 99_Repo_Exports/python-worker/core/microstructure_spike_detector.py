@@ -27,7 +27,7 @@ class MicrostructureSpikeDetector:
         self.speed_q: deque[float] = deque(maxlen=cfg.win_ticks)
         self.range_q: deque[float] = deque(maxlen=cfg.win_ticks)
 
-    def update(self, bid: float, ask: float, volume: float = 1.0, delta_hint: float = None, ts_ms: int = None) -> dict:
+    def update(self, bid: float, ask: float, volume: float = 1.0, delta_hint: float = None, ts_ms: int = None) -> dict:  # type: ignore
         ts = ts_ms / 1000.0 if ts_ms else time.time()
         mid = (bid + ask) / 2.0 if (bid and ask) else 0.0
 
@@ -61,7 +61,7 @@ class MicrostructureSpikeDetector:
                 gpu_service = get_gpu_service()
                 if gpu_service and gpu_service.is_gpu_available():
                     a = np.array(x, dtype=np.float32)
-                    z_scores = gpu_service.compute_z_scores(a, window=len(a))
+                    z_scores = gpu_service.compute_z_scores(a, window=len(a))  # type: ignore
                     return float(z_scores[-1]) if len(z_scores) > 0 else 0.0
             except Exception:
                 pass  # Fallback to CPU

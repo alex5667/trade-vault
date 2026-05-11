@@ -42,7 +42,7 @@ def _make_gate_ctx(symbol: str = "BTCUSDT", ts_ms: int = 0) -> Any:
 
 def _make_gate_decision(decision: str = "ALLOW", reason_code: str = "OK") -> Any:
     """Build a minimal GateDecisionV1 for mocking."""
-    from core.signal_payload import GateDecisionV1
+    from core.gates.decision import GateDecisionV1
     return GateDecisionV1(
         stage="test",
         gate="TestGate",
@@ -101,7 +101,7 @@ class TestBug1SmtSync:
 
     def test_check_smt_returns_gate_decision(self):
         """check_smt must return GateDecisionV1, not a coroutine."""
-        from core.signal_payload import GateDecisionV1
+        from core.gates.decision import GateDecisionV1
 
         orch = _make_orchestrator()
         ctx = _make_gate_ctx()
@@ -153,30 +153,33 @@ class TestBug2PortfolioGateCalled:
             "check_portfolio missing from GateOrchestrator"
         )
 
-    def test_check_portfolio_fail_open_when_not_configured(self):
+    @pytest.mark.asyncio
+    async def test_check_portfolio_fail_open_when_not_configured(self):
         """If portfolio_gate is None, check_portfolio must ALLOW (fail-open)."""
-        from core.signal_payload import GateDecisionV1
+        from core.gates.decision import GateDecisionV1
 
         orch = _make_orchestrator()
         assert orch.portfolio_gate is None, "Precondition: portfolio_gate not set"
 
         ctx = _make_gate_ctx()
-        result = orch.check_portfolio(
+        result = await orch.check_portfolio(
             ctx, source="test", side="LONG", intent_notional=1000.0, symbol="BTCUSDT"
         )
         assert isinstance(result, GateDecisionV1)
         assert result.decision == "ALLOW"
         assert result.reason_code == "PORTFOLIO_GATE_NOT_CONFIGURED"
 
-    def test_check_portfolio_called_when_gate_configured(self):
+    @pytest.mark.asyncio
+    async def test_check_portfolio_called_when_gate_configured(self):
         """When portfolio_gate is configured, evaluate() must be called."""
+        from unittest.mock import AsyncMock
         mock_gate = MagicMock()
-        mock_gate.evaluate.return_value = _make_gate_decision("ALLOW", "PORTFOLIO_APPROVED")
+        mock_gate.evaluate = AsyncMock(return_value=_make_gate_decision("ALLOW", "PORTFOLIO_APPROVED"))
 
         orch = _make_orchestrator(portfolio_gate=mock_gate)
 
         ctx = _make_gate_ctx()
-        result = orch.check_portfolio(
+        result = await orch.check_portfolio(
             ctx, source="CryptoOrderFlow", side="LONG", intent_notional=500.0, symbol="ETHUSDT"
         )
 
@@ -186,17 +189,19 @@ class TestBug2PortfolioGateCalled:
         assert call_kwargs["side"] == "LONG"
         assert call_kwargs["intent_notional"] == 500.0
 
-    def test_check_portfolio_deny_blocks(self):
+    @pytest.mark.asyncio
+    async def test_check_portfolio_deny_blocks(self):
         """When portfolio_gate returns DENY, check_portfolio must forward DENY."""
+        from unittest.mock import AsyncMock
         mock_gate = MagicMock()
-        mock_gate.evaluate.return_value = _make_gate_decision(
+        mock_gate.evaluate = AsyncMock(return_value=_make_gate_decision(
             "DENY", "PORTFOLIO_MAX_POSITIONS_EXCEEDED"
-        )
+        ))
 
         orch = _make_orchestrator(portfolio_gate=mock_gate)
 
         ctx = _make_gate_ctx()
-        result = orch.check_portfolio(
+        result = await orch.check_portfolio(
             ctx, source="CryptoOrderFlow", side="LONG", intent_notional=999.0
         )
         assert result.decision == "DENY"
@@ -367,7 +372,7 @@ class TestPrometheusCollision:
         try:
             # Import both modules — they must coexist
             import handlers.crypto_orderflow.components.gates  # noqa: F401
-            import services.ml_confirm.facade  # noqa: F401
+            import services.ml_confirm_gate.facade  # noqa: F401
         except ValueError as e:
             if "Duplicated timeseries" in str(e):
                 pytest.fail(
@@ -415,7 +420,7 @@ class TestGateDecisionV1Contract:
 
     def test_required_fields_present(self):
         """All required fields must be present on GateDecisionV1."""
-        from core.signal_payload import GateDecisionV1
+        from core.gates.decision import GateDecisionV1
         import dataclasses
         field_names = {f.name for f in dataclasses.fields(GateDecisionV1)}
         missing = self.REQUIRED_FIELDS - field_names
@@ -425,14 +430,14 @@ class TestGateDecisionV1Contract:
 
     def test_frozen_immutability(self):
         """GateDecisionV1 must be frozen (immutable after construction)."""
-        from core.signal_payload import GateDecisionV1
+        from core.gates.decision import GateDecisionV1
         dec = _make_gate_decision()
         with pytest.raises((TypeError, AttributeError)):
             dec.decision = "MODIFIED"  # type: ignore[misc]
 
     def test_valid_decision_values(self):
         """decision field must accept the canonical set of values."""
-        from core.signal_payload import GateDecisionV1
+        from core.gates.decision import GateDecisionV1
         for valid in ("ALLOW", "DENY", "SHADOW_DENY", "TIGHTEN", "ABSTAIN"):
             dec = GateDecisionV1(
                 stage="test", gate="g", decision=valid, reason_code="OK",

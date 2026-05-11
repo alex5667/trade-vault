@@ -786,7 +786,9 @@ def main(argv: list[str] | None = None) -> int:
     if not symbols:
         try:
             from core.symbol_manager import SymbolManager
-            symbols = SymbolManager().get_active_symbols()
+            sm = SymbolManager(redis_url=args.redis_url)
+            sm.restore_state()
+            symbols = sm.get_active_symbols()
         except Exception as e:
             logger.error(f"Failed to load symbols from SymbolManager: {e}")
     if not symbols:

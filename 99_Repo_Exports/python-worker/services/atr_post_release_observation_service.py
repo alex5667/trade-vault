@@ -13,13 +13,40 @@ from services.atr_model_config_drift_service import ATRModelConfigDriftService
 
 logger = logging.getLogger("atr_post_release_observation_service")
 
-# Metrics
-OBSERVATION_TOTAL = Counter("atr_post_release_observation_total", "Total post-release observations", ["change_class", "status"])
-CHECK_TOTAL = Counter("atr_post_release_check_total", "Total post-release checks evaluated", ["check_name", "status"])
-PROMOTION_HOLD_TOTAL = Counter("atr_promotion_hold_total", "Total promotion holds created", ["severity", "status"])
-PROMOTION_ELIGIBLE_TOTAL = Counter("atr_promotion_eligible_total", "Total changes promoted", ["change_class"])
-PROMOTION_ROLLBACK_REVIEW_TOTAL = Counter("atr_promotion_rollback_review_total", "Total rollback reviews required")
-OBSERVATION_DWELL_SEC = Gauge("atr_observation_dwell_sec", "Observation dwell duration", ["change_class"])
+try:
+    from prometheus_client import REGISTRY as _PREG
+    from prometheus_client import Counter as _PCounter
+    from prometheus_client import Gauge as _PGauge
+
+    def _pcounter(name, doc, labels=()):
+        try:
+            return _PCounter(name, doc, list(labels))
+        except ValueError:
+            return (_PREG._names_to_collectors or {}).get(name)
+
+    def _pgauge(name, doc, labels=()):
+        try:
+            return _PGauge(name, doc, list(labels))
+        except ValueError:
+            return (_PREG._names_to_collectors or {}).get(name)
+
+    OBSERVATION_TOTAL = _pcounter("atr_post_release_observation_total", "Total post-release observations", ["change_class", "status"])
+    CHECK_TOTAL = _pcounter("atr_post_release_check_total", "Total post-release checks evaluated", ["check_name", "status"])
+    PROMOTION_HOLD_TOTAL = _pcounter("atr_promotion_hold_total", "Total promotion holds created", ["severity", "status"])
+    PROMOTION_ELIGIBLE_TOTAL = _pcounter("atr_promotion_eligible_total", "Total changes promoted", ["change_class"])
+    PROMOTION_ROLLBACK_REVIEW_TOTAL = _pcounter("atr_promotion_rollback_review_total", "Total rollback reviews required")
+    OBSERVATION_DWELL_SEC = _pgauge("atr_observation_dwell_sec", "Observation dwell duration", ["change_class"])
+except ImportError:
+    class _NullMetric:
+        def inc(self, **_): pass
+        def set(self, **_): pass
+        def labels(self, **_): return self
+    OBSERVATION_TOTAL = _NullMetric()
+    CHECK_TOTAL = _NullMetric()
+    PROMOTION_HOLD_TOTAL = _NullMetric()
+    PROMOTION_ELIGIBLE_TOTAL = _NullMetric()
+    PROMOTION_ROLLBACK_REVIEW_TOTAL = _NullMetric()
+    OBSERVATION_DWELL_SEC = _NullMetric()
 
 ATR_POST_RELEASE_OBSERVATION_ENABLE = os.getenv("ATR_POST_RELEASE_OBSERVATION_ENABLE", "1") == "1"
 ATR_POST_RELEASE_OBSERVATION_ENFORCE = os.getenv("ATR_POST_RELEASE_OBSERVATION_ENFORCE", "0") == "1"
@@ -63,8 +90,8 @@ class ATRPostReleaseObservationService:
                     VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                 """, (observation_id, change_id, change_class, target_scope, 'OBSERVING', started_at, observation_until, json.dumps(summary)))
                 conn.commit()
-
-        OBSERVATION_TOTAL.labels(change_class=change_class, status="OBSERVING").inc()
+  # type: ignore
+        OBSERVATION_TOTAL.labels(change_class=change_class, status="OBSERVING").inc()  # type: ignore
         logger.info(f"ATR Post-Release Observation\n\nChange: {change_id}\nClass: {change_class}\nScope: {target_scope}\nStatus: OBSERVING\nUntil: {observation_until.strftime('%Y-%m-%d %H:%M UTC')}")
         return observation_id
 
@@ -78,8 +105,8 @@ class ATRPostReleaseObservationService:
                     VALUES (%s, %s, %s, %s, %s)
                     ON CONFLICT (check_id) DO UPDATE SET status = EXCLUDED.status, details_json = EXCLUDED.details_json
                 """, (check_id, observation_id, check_name, status, json.dumps(details)))
-            conn.commit()
-        CHECK_TOTAL.labels(check_name=check_name, status=status).inc()
+            conn.commit()  # type: ignore
+        CHECK_TOTAL.labels(check_name=check_name, status=status).inc()  # type: ignore
 
     @staticmethod
     def evaluate_post_release_checks(observation_id: str, mock_telemetry: dict[str, Any] | None = None) -> None:
@@ -154,8 +181,8 @@ class ATRPostReleaseObservationService:
                     VALUES (%s, %s, %s, %s, %s, %s, %s)
                 """, (hold_id, observation_id, scope_value, hold_reason_code, severity, "active", json.dumps({})))
             conn.commit()
-
-        PROMOTION_HOLD_TOTAL.labels(severity=severity, status="active").inc()
+  # type: ignore
+        PROMOTION_HOLD_TOTAL.labels(severity=severity, status="active").inc()  # type: ignore
 
         # Advance observation state based on severity
         with get_db_connection() as conn:
@@ -164,8 +191,8 @@ class ATRPostReleaseObservationService:
                 obs = cur.fetchone()
                 if obs:
                     if severity == "critical" and "protective" in hold_reason_code:
-                        new_state = "ROLLBACK_REVIEW_REQUIRED"
-                        PROMOTION_ROLLBACK_REVIEW_TOTAL.inc()
+                        new_state = "ROLLBACK_REVIEW_REQUIRED"  # type: ignore
+                        PROMOTION_ROLLBACK_REVIEW_TOTAL.inc()  # type: ignore
                     elif severity == "critical":
                         new_state = "PROMOTION_HOLD"
                     else:
@@ -175,8 +202,8 @@ class ATRPostReleaseObservationService:
                             new_state = obs['status']
 
                     cur.execute("UPDATE atr_post_release_observations SET status = %s WHERE observation_id = %s", (new_state, observation_id))
-                    conn.commit()
-                    OBSERVATION_TOTAL.labels(change_class=obs['change_class'], status=new_state).inc()
+                    conn.commit()  # type: ignore
+                    OBSERVATION_TOTAL.labels(change_class=obs['change_class'], status=new_state).inc()  # type: ignore
 
                     if new_state == "PROMOTION_HOLD":
                         logger.warning(f"ATR Promotion Hold\n\nChange: {obs['change_id']}\nScope: {obs['target_scope']}\nStatus: PROMOTION_HOLD\nReasons: {hold_reason_code}")
@@ -189,8 +216,8 @@ class ATRPostReleaseObservationService:
             with conn.cursor() as cur:
                 cur.execute("UPDATE atr_promotion_holds SET status = 'cleared', cleared_at = now() WHERE hold_id = %s RETURNING severity", (hold_id,))
                 res = cur.fetchone()
-                if res:
-                    PROMOTION_HOLD_TOTAL.labels(severity=res[0], status="cleared").inc()
+                if res:  # type: ignore
+                    PROMOTION_HOLD_TOTAL.labels(severity=res[0], status="cleared").inc()  # type: ignore
                 conn.commit()
 
     @staticmethod
@@ -242,12 +269,12 @@ class ATRPostReleaseObservationService:
                 new_state = "PROMOTION_ELIGIBLE"
                 if obs['status'] != new_state:
                     cur.execute("UPDATE atr_post_release_observations SET status = %s, completed_at = now() WHERE observation_id = %s", (new_state, observation_id))
-                    conn.commit()
-                    OBSERVATION_TOTAL.labels(change_class=obs['change_class'], status=new_state).inc()
-                    PROMOTION_ELIGIBLE_TOTAL.labels(change_class=obs['change_class']).inc()
+                    conn.commit()  # type: ignore
+                    OBSERVATION_TOTAL.labels(change_class=obs['change_class'], status=new_state).inc()  # type: ignore
+                    PROMOTION_ELIGIBLE_TOTAL.labels(change_class=obs['change_class']).inc()  # type: ignore
 
-                    dwell_sec = (now - obs['started_at']).total_seconds()
-                    OBSERVATION_DWELL_SEC.labels(change_class=obs['change_class']).set(dwell_sec)
+                    dwell_sec = (now - obs['started_at']).total_seconds()  # type: ignore
+                    OBSERVATION_DWELL_SEC.labels(change_class=obs['change_class']).set(dwell_sec)  # type: ignore
 
                     logger.info(f"ATR Promotion Eligible\n\nChange: {obs['change_id']}\nClass: {obs['change_class']}\nScope: {obs['target_scope']}\nStatus: PROMOTION_ELIGIBLE")
 

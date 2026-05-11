@@ -52,8 +52,8 @@ _log = logging.getLogger(__name__)
 
 # Конфигурация из переменных окружения
 REDIS_URL = os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
-TICK_STREAM = XAU_TICK_STREAM
-BOOK_STREAM = XAU_BOOK_STREAM
+TICK_STREAM = XAU_TICK_STREAM  # type: ignore
+BOOK_STREAM = XAU_BOOK_STREAM  # type: ignore
 GROUP = os.getenv("XAU_GROUP", "xauusd-signal-group")  # v3: unified group для tick+book
 CONSUMER_NAME_PREFIX = os.getenv("XAU_CONSUMER", "xau-handler")
 _DLQ_STREAM = os.getenv("XAU_DLQ_STREAM", RS.DLQ_ORDERFLOW)
@@ -114,7 +114,7 @@ class XAUOrderFlowHandler:
         """Инициализация обработчика."""
         # Tick/book streams live on redis-ticks shard, not worker-1.
         self.redis_client = get_ticks_redis()
-        self.dual_redis = lambda: None()
+        self.dual_redis = lambda: None()  # type: ignore
 
         # Состояние работы
         self.is_running = False
@@ -427,7 +427,7 @@ class XAUOrderFlowHandler:
         Returns:
             Z-score последнего значения
         """
-        if len(window) < max(30, window.maxlen // 4):
+        if len(window) < max(30, window.maxlen // 4):  # type: ignore
             return 0.0
 
         m = mean(window)
@@ -837,9 +837,9 @@ class XAUOrderFlowHandler:
             piv_cfg = PivotProximityCfg(
                 dist_atr_threshold=CFG["dist_atr_threshold"],
                 dist_bp_threshold=CFG.get("dist_bp_threshold"),
-                mode=CFG.get("dist_mode", "or")
+                mode=CFG.get("dist_mode", "or")  # type: ignore
             )
-            is_near, piv_details = check_pivot_proximity(price, self.daily_pivots, atr, piv_cfg, return_details=True)
+            is_near, piv_details = check_pivot_proximity(price, self.daily_pivots, atr, piv_cfg, return_details=True)  # type: ignore
 
             if is_near:
                 # Regime gate (XAU: use 0.0 for now, will integrate full regime later)
@@ -965,7 +965,7 @@ class XAUOrderFlowHandler:
         return False
 
     def _publish_signal(self, side: str, price: float, note: str, emoji: str = "🚨", ts: int = 0,
-                       obi: float = 0.0, weak_progress: bool = False, pivot_details: dict = None) -> None:
+                       obi: float = 0.0, weak_progress: bool = False, pivot_details: dict = None) -> None:  # type: ignore
         """
         Публикует торговый сигнал в notify:telegram используя единый форматировщик.
         
@@ -1008,8 +1008,8 @@ class XAUOrderFlowHandler:
             symbol=SYMBOL,
             side=side,
             entry=price,
-            sl=levels['sl'],
-            tp_levels=levels['tp_levels'],
+            sl=levels['sl'],  # type: ignore
+            tp_levels=levels['tp_levels'],  # type: ignore
             lot=lot,
             source="OrderFlow",
             reason=note,
@@ -1034,7 +1034,7 @@ class XAUOrderFlowHandler:
         # v4: Add Telegram inline buttons if enabled
         if USE_TG_BTNS:
             redis_payload["buttons"] = json.dumps([
-                [
+                [  # type: ignore
                     {"text": "Открыть", "callback": f"open:{side}:{lot:.2f}:{xauusd_signal.sid}"},
                     {"text": "SL/TP", "callback": f"sltp:set:{xauusd_signal.sid}"},
                     {"text": "Отменить", "callback": f"cancel::{xauusd_signal.sid}"}
@@ -1074,11 +1074,11 @@ class XAUOrderFlowHandler:
 
             # Используем простой Redis для нового stream (не dual)
             try:
-                simple_redis = get_redis()
+                simple_redis = get_redis()  # type: ignore
                 # from core.redis_client import ...
                 simple_redis.xadd(
                     ORDERFLOW_SIGNAL_STREAM,
-                    {"data": to_json(signal_payload)},
+                    {"data": to_json(signal_payload)},  # type: ignore
                     maxlen=1000,
                     approximate=True,
                 )

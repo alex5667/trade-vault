@@ -86,7 +86,7 @@ def compute_book_refresh_rate_hz(update_ts_ms: list[float]) -> float:
         return 0.0
 
     hz = len(ts) / (dt / 1000.0)
-    return float(np.clip(hz, 0.0, 1000.0))
+    return float(np.clip(hz, 0.0, 1000.0))  # type: ignore
 
 def compute_sweep_velocity_bps_s(sweep_start_ms: float, sweep_end_ms: float, price_delta_bps: float) -> float:
     """Sweep speed in bps/sec — aggression intensity."""
@@ -116,4 +116,4 @@ def compute_depth_pull_ratio(depth_before: float, depth_after: float) -> float:
 
     # Can be negative if depth added
     ratio = pulled / depth_before
-    return float(np.clip(ratio, -1.0, 1.0))
+    return float(np.clip(ratio, -1.0, 1.0))  # type: ignore

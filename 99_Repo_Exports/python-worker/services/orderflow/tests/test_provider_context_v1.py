@@ -119,12 +119,12 @@ def test_top_gainer_loser_int():
     d["provider_top_gainer"] = 1
     d["provider_top_loser"] = 0
     snap = from_dict(d)
-    assert snap.provider_top_gainer == 1
-    assert snap.provider_top_loser == 0
+    assert snap.provider_top_gainer == 1  # type: ignore
+    assert snap.provider_top_loser == 0  # type: ignore
 
 
 def test_provider_quality_fallback():
     d = dict(_VALID)
     d["provider_quality"] = "fallback"
     snap = from_dict(d)
-    assert snap.provider_quality == "fallback"
+    assert snap.provider_quality == "fallback"  # type: ignore

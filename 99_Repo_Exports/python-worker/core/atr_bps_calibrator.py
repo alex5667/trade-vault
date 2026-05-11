@@ -103,9 +103,9 @@ class ATRBpsCalibrator:
                 src="static",
             )
 
-        q10 = self._q10.get(rg).value() if self._q10.get(rg) else None
-        q20 = self._q20.get(rg).value() if self._q20.get(rg) else None
-        q30 = self._q30.get(rg).value() if self._q30.get(rg) else None
+        q10 = self._q10.get(rg).value() if self._q10.get(rg) else None  # type: ignore
+        q20 = self._q20.get(rg).value() if self._q20.get(rg) else None  # type: ignore
+        q30 = self._q30.get(rg).value() if self._q30.get(rg) else None  # type: ignore
 
         # fail-open fallback to defaults if estimator not ready
         t0 = _cl(float(q10 if (q10 and q10 > 0) else default_floor_t0))
@@ -131,9 +131,9 @@ class ATRBpsCalibrator:
             "updated_ts_ms": int(updated_ts_ms or 0),
             "min_samples": int(self.min_samples),
             "n": int(self._n.get(rg, 0)),
-            "q10": (self._q10.get(rg).to_state() if self._q10.get(rg) else None),
-            "q20": (self._q20.get(rg).to_state() if self._q20.get(rg) else None),
-            "q30": (self._q30.get(rg).to_state() if self._q30.get(rg) else None),
+            "q10": (self._q10.get(rg).to_state() if self._q10.get(rg) else None),  # type: ignore
+            "q20": (self._q20.get(rg).to_state() if self._q20.get(rg) else None),  # type: ignore
+            "q30": (self._q30.get(rg).to_state() if self._q30.get(rg) else None),  # type: ignore
         }
 
     def load_regime_state(self, state: dict[str, Any]) -> None:

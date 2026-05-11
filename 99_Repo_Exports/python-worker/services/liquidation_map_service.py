@@ -70,10 +70,10 @@ def _bootstrap_paths() -> None:  # pragma: no cover
         os.path.abspath(os.path.join(here, '..', '..', '..')),
     ],
     for root in candidates:
-        if os.path.isfile(os.path.join(root, 'services', '__init__.py')) and os.path.isdir(os.path.join(root, 'tick_flow_full', 'core')):
+        if os.path.isfile(os.path.join(root, 'services', '__init__.py')) and os.path.isdir(os.path.join(root, 'tick_flow_full', 'core')):  # type: ignore
             if root not in sys.path:
-                sys.path.insert(0, root)
-            tf = os.path.join(root, 'tick_flow_full')
+                sys.path.insert(0, root)  # type: ignore
+            tf = os.path.join(root, 'tick_flow_full')  # type: ignore
             if tf not in sys.path:
                 sys.path.insert(0, tf)
             return
@@ -251,7 +251,7 @@ class LiquidationMapService:
         liq_evt_read_total.inc()
 
         now_ms = _now_ms()
-        ev, reason = normalize_liq_event(msg.fields)
+        ev, reason = normalize_liq_event(msg.fields)  # type: ignore
         if reason is not None or ev is None:
             liq_evt_drop_total.labels(reason=reason or "normalize_failed").inc()
             # DLQ + ACK to avoid PEL blocking

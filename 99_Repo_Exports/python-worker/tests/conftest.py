@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 import redis
 import contextlib
+import asyncio
 
 
 # --- AGGRESSIVE PATH LOCKDOWN ---
@@ -77,6 +78,7 @@ def pytest_configure() -> None:
     os.environ.setdefault("SIGNAL_REDIS_URL", "redis://localhost:6379/15")
     os.environ.setdefault("REDIS_HOST", "localhost")
     os.environ.setdefault("REDIS_PORT", "6379")
+    os.environ.setdefault("CRYPTO_NOTIFY_SIGNAL_EVERY_N", "1")
 
 @pytest.fixture(scope="session")
 def redis_url():
@@ -87,13 +89,57 @@ def r(redis_url):
     client = redis.Redis.from_url(redis_url, decode_responses=True)
     try:
         client.ping()
-        client.flushdb()
+        try:
+            client.flushdb()
+        except redis.exceptions.ResponseError as e:
+            if "unknown command" in str(e).lower() or "not allowed" in str(e).lower():
+                keys_raw = client.keys("*")
+                # Pyrefly: Argument `Awaitable[Any] | Any` is not assignable to parameter `iterable`
+                keys = list(keys_raw) if not asyncio.iscoroutine(keys_raw) else []
+                if keys:
+                    client.delete(*keys)
+            else:
+                raise
     except redis.exceptions.ConnectionError:
         pytest.skip("Local Redis is not available")
     yield client
     with contextlib.suppress(Exception):
-        client.flushdb()
+        try:
+            client.flushdb()
+        except redis.exceptions.ResponseError as e:
+            if "unknown command" in str(e).lower() or "not allowed" in str(e).lower():
+                keys_raw = client.keys("*")
+                # Pyrefly: Argument `Awaitable[Any] | Any` is not assignable to parameter `iterable`
+                keys = list(keys_raw) if not asyncio.iscoroutine(keys_raw) else []
+                if keys:
+                    client.delete(*keys)
 
 @pytest.fixture()
 def redis_client(r):
     return r
+
+@pytest.fixture()
+async def async_redis_client(redis_url):
+    import redis.asyncio as async_redis
+    client = async_redis.Redis.from_url(
+        redis_url, 
+        decode_responses=True,
+        max_connections=5,
+        socket_timeout=1.0,
+        socket_connect_timeout=1.0
+    )
+    try:
+        await client.ping()
+        try:
+            await client.flushdb()
+        except Exception:
+            keys = await client.keys("*")
+            if keys:
+                await client.delete(*keys)
+    except Exception:
+        pytest.skip("Local Redis is not available for async tests")
+    
+    yield client
+    
+    # Close client properly
+    await client.aclose()

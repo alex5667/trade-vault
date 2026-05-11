@@ -12,7 +12,7 @@ import time
 
 from reporting_service import ReportingService
 from signal_performance_tracker import SignalPerformanceTracker
-from trade_monitor import TradeMonitor
+from trade_monitor import TradeMonitor  # type: ignore
 
 
 def example_1_standalone_tracker():
@@ -56,7 +56,7 @@ def example_1_standalone_tracker():
 
         while True:
             # Периодический вывод статуса
-            status = tracker.get_status()
+            status = tracker.get_status()  # type: ignore
             print("\n📊 Статус:")
             print(f"   Сигналов обработано: {status['signals_read']}")
             print(f"   Тиков обработано: {status['ticks_processed']}")
@@ -137,7 +137,7 @@ def example_2_manual_components():
     redis_client = get_redis()
 
     from services.stats_aggregator import StatsAggregator
-    stats = StatsAggregator.get_stats(redis_client, "orderflow", "tick")
+    stats = StatsAggregator.get_stats(redis_client, "orderflow", "tick")  # type: ignore
     if stats:
         print(f"   Сделок: {stats.get('total_trades', 0)}")
         print(f"   WinRate: {stats.get('winrate', 0)}%")
@@ -184,7 +184,7 @@ def example_3_statistics_and_reports():
 
     # Детальная статистика по конкретной комбинации
     print("\n📊 Детальная статистика (orderflow//tick):")
-    stats = StatsAggregator.get_stats(redis_client, "orderflow", "tick")
+    stats = StatsAggregator.get_stats(redis_client, "orderflow", "tick")  # type: ignore
     if stats:
         print(f"   Всего сделок: {stats['total_trades']}")
         print(f"   Выигрышей: {stats['wins']}")
@@ -202,7 +202,7 @@ def example_3_statistics_and_reports():
 
     # Получение последних сделок
     print("\n📜 Последние 10 сделок:")
-    trades = reporting.get_recent_trades("orderflow", "tick", limit=10)
+    trades = reporting.get_recent_trades("orderflow", "tick", limit=10)  # type: ignore
     for i, trade in enumerate(trades, 1):
         print(f"\n   Сделка {i}:")
         print(f"      ID: {trade.get('id', 'N/A')}")
@@ -268,7 +268,7 @@ def example_4_telegram_notifications():
 
     # Отчёт по стратегии
     print("\n📤 Отправка отчёта по стратегии...")
-    reporting.send_strategy_report("orderflow")
+    reporting.send_strategy_report("orderflow")  # type: ignore
 
 
 def example_5_export_data():
@@ -286,7 +286,7 @@ def example_5_export_data():
     # Экспорт в JSON
     print("\n💾 Экспорт сделок в JSON...")
     output_file = "/tmp/trades_orderflow_xauusd.json"
-    success = reporting.export_trades_to_json(
+    success = reporting.export_trades_to_json(  # type: ignore
         "orderflow",
 
         "tick",
@@ -329,7 +329,7 @@ def example_6_real_time_monitoring():
         iteration = 0
         while True:
             iteration += 1
-            status = tracker.get_status()
+            status = tracker.get_status()  # type: ignore
 
             print(f"Итерация {iteration} ({time.strftime('%H:%M:%S')})")
             print(f"├─ Uptime: {status['uptime_sec']}s")

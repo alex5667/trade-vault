@@ -560,8 +560,8 @@ class PostSlAnalyzer:
         sym = fields.get("symbol")
         tf = fields.get("tf") or fields.get("timeframe")
 
-        if not sym or tf.lower() not in ("1m", "m1"):
-            # We only track on 1m bars for standard granularity
+        if not sym or tf.lower() not in ("1m", "m1"):  # type: ignore
+            # We only track on 1m bars for standard granularity  # type: ignore
             return
 
         # 2. Payload check

@@ -98,39 +98,39 @@ class TestStreamIntegrityGate:
     def test_no_flags_no_action(self):
         g = self._gate()
         dec = g.evaluate(indicators={"tick_seq_gap_rate_ema": 0.0}, symbol="BTCUSDT")
-        assert not dec.apply
-        assert not dec.veto
+        assert not dec.apply  # type: ignore
+        assert not dec.veto  # type: ignore
 
     def test_monitor_mode_no_veto(self):
         g = StreamIntegrityGate(enabled=True, mode="monitor", max_gap_rate_ema=0.05, max_dup_rate_ema=0.0, max_gap_window=10, veto_on_schema_change=False)
         dec = g.evaluate(indicators={"tick_seq_gap_rate_ema": 0.9}, symbol="BTCUSDT")
-        assert dec.apply
-        assert not dec.veto
-        assert "gap_rate_ema_high" in dec.flags
+        assert dec.apply  # type: ignore
+        assert not dec.veto  # type: ignore
+        assert "gap_rate_ema_high" in dec.flags  # type: ignore
 
     def test_veto_mode_vetoes_on_threshold(self):
         g = self._gate(mode="veto", max_gap_rate=0.05)
         dec = g.evaluate(indicators={"tick_seq_gap_rate_ema": 0.9}, symbol="BTCUSDT")
-        assert dec.veto
+        assert dec.veto  # type: ignore
 
     def test_schema_change_veto(self):
         g = StreamIntegrityGate(enabled=True, mode="veto", max_gap_rate_ema=0.0, max_dup_rate_ema=0.0, max_gap_window=0, veto_on_schema_change=True)
         dec = g.evaluate(indicators={"tick_schema_changed": 1}, symbol="BTCUSDT")
-        assert dec.veto
-        assert "schema_changed" in dec.flags
+        assert dec.veto  # type: ignore
+        assert "schema_changed" in dec.flags  # type: ignore
 
     def test_disabled_gate_no_action(self):
         g = StreamIntegrityGate(enabled=False, mode="veto", max_gap_rate_ema=0.01, max_dup_rate_ema=0.0, max_gap_window=1, veto_on_schema_change=True)
         dec = g.evaluate(indicators={"tick_seq_gap_rate_ema": 1.0, "tick_schema_changed": 1}, symbol="X")
-        assert not dec.apply
-        assert not dec.veto
+        assert not dec.apply  # type: ignore
+        assert not dec.veto  # type: ignore
 
     def test_veto_on_dup_rate(self):
         g = StreamIntegrityGate(enabled=True, mode="veto", max_gap_rate_ema=0.0, max_dup_rate_ema=0.05, max_gap_window=0, veto_on_schema_change=False)
         dec = g.evaluate(indicators={"tick_seq_dup_rate_ema": 0.9}, symbol="BTCUSDT")
-        assert dec.veto
+        assert dec.veto  # type: ignore
         assert dec.reason_code == "VETO_DUP_RATE"
-        assert "dup_rate_ema_high" in dec.flags
+        assert "dup_rate_ema_high" in dec.flags  # type: ignore
 
     def test_from_env_aliases_gap_and_dup_rate(self, monkeypatch):
         monkeypatch.setenv("DATA_MAX_SEQ_GAP_RATE", "0.15")

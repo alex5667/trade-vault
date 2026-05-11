@@ -1,3 +1,4 @@
+from typing import Any
 from unittest.mock import MagicMock
 
 # Import the target function that actually computes data health
@@ -23,16 +24,16 @@ def test_data_health_integration_g4_stale_book():
         "data_health_book_age_max_ms": 1500, # If older than 1.5s, it degrades
     }
 
-    indicators = {
+    indicators: dict[str, Any] = {
         "tick_ts_missing": 0,
         "tick_gap_ms": 0,
     }
 
     # 2. Replicate the EXACT mapping logic fixed in tick_processor.py
     _last_book_ts_ms = int(getattr(runtime, "last_book_ts_ms", 0) or 0)
-    indicators["book_ts_gap_ms"] = int(tick_ts - _last_book_ts_ms) if _last_book_ts_ms > 0 else int(10**9)
+    indicators["book_ts_gap_ms"] = (tick_ts - _last_book_ts_ms) if _last_book_ts_ms > 0 else 10**9
     # The crucial input mapping fix:
-    indicators["book_age_ms"] = int(indicators["book_ts_gap_ms"])
+    indicators["book_age_ms"] = indicators["book_ts_gap_ms"]
 
     indicators["book_rate_hz"] = float(getattr(runtime, "book_rate_ema", 0.0) or 0.0)
     spr = float(getattr(runtime, "last_spread_bps", 0.0) or 0.0)
@@ -44,13 +45,13 @@ def test_data_health_integration_g4_stale_book():
     dh = compute_data_health(indicators=indicators, cfg=cfg)
 
     # 4. Replicate the EXACT output mapping logic fixed in tick_processor.py
-    indicators["data_health"] = float(dh.score)
+    indicators["data_health"] = int(dh.score * 100) if dh.score is not None else 0
     indicators["data_health_reasons"] = ",".join(list(dh.reasons or [])[:5])
-    indicators["book_health_ok"] = int(dh.book_health_ok)
+    indicators["book_health_ok"] = dh.book_health_ok
     # The crucial output mapping fix:
-    indicators["tick_time_ok"] = int(dh.tick_time_ok)
-    indicators["spread_ok"] = int(dh.spread_ok)
-    indicators["source_consistency_ok"] = int(dh.source_consistency_ok)
+    indicators["tick_time_ok"] = dh.tick_time_ok
+    indicators["spread_ok"] = dh.spread_ok
+    indicators["source_consistency_ok"] = dh.source_consistency_ok
 
     # 5. Assert: Since gap is 6000ms > max 1500ms, data health should be degraded.
     assert _last_book_ts_ms == 1000000
@@ -62,7 +63,7 @@ def test_data_health_integration_g4_stale_book():
     assert "book_age" in indicators["data_health_reasons"]
 
     # The score should be degraded
-    assert indicators["data_health"] < 1.0
+    assert indicators["data_health"] < 100
 
     # Check that output maps successfully captured other health components
     assert "tick_time_ok" in indicators
@@ -70,7 +71,7 @@ def test_data_health_integration_g4_stale_book():
     assert indicators["spread_ok"] == 1 # Spread was 2.0 bps (assuming max is > 2.0 if set, else ok)
     assert indicators["source_consistency_ok"] == 1
 
-from services.orderflow_strategy import _ml_should_enforce
+from services.orderflow.tick_decision_engine import _ml_should_enforce
 
 
 def test_data_health_canary_veto():
@@ -98,7 +99,7 @@ def test_data_health_canary_veto():
         if is_veto == 1:
             dh_mode = cfg.get("data_health_veto_mode")
             if dh_mode in ("canary", "canary_enforce", "canary-only"):
-                dh_rate = cfg.get("data_health_canary_rate")
+                dh_rate = float(cfg.get("data_health_canary_rate") or 0.0)
                 if not _ml_should_enforce(dh_mode, sid_str, dh_rate):
                     is_veto = 0
             elif dh_mode == "shadow":

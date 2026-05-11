@@ -31,8 +31,22 @@ def choose_arm_abc(*, key: str, split_b: int, split_c: int, salt: str = "") -> s
 
 
 def regime_group(regime: str) -> str:
+    """Maps fine-grained regime to broad AB-test group.
+
+    Groups:
+      thin   — low liquidity / news / illiquid: capital preservation mode
+      trend  — directional momentum / expansion: runner profile
+      range  — chop / mean-reversion: fade/absorption profile
+      mixed  — unclassified / volatile: conservative default
+    """
     rg = (regime or "na").strip().lower()
-    return "thin" if rg in ("thin", "news", "illiquid") else "default"
+    if rg in ("thin", "news", "illiquid"):
+        return "thin"
+    if rg in ("trend", "trending", "trending_bull", "trending_bear", "momentum", "expansion"):
+        return "trend"
+    if rg in ("range", "chop", "meanrev", "sideways"):
+        return "range"
+    return "mixed"
 
 
 @dataclass

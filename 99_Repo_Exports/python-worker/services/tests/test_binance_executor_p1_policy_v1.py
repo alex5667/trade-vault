@@ -4,17 +4,17 @@ from pathlib import Path
 
 mod_path = Path(__file__).parent.parent / "binance_executor.py"
 spec = importlib.util.spec_from_file_location("binance_executor", mod_path)
-mod = importlib.util.module_from_spec(spec)
-sys.modules[spec.name] = mod
-assert spec.loader is not None
-spec.loader.exec_module(mod)
+mod = importlib.util.module_from_spec(spec)  # type: ignore
+sys.modules[spec.name] = mod  # type: ignore
+assert spec.loader is not None  # type: ignore
+spec.loader.exec_module(mod)  # type: ignore
 
 pol_path = Path(__file__).parent.parent / "execution_policy.py"
 pspec = importlib.util.spec_from_file_location("execution_policy", pol_path)
-pol = importlib.util.module_from_spec(pspec)
-sys.modules[pspec.name] = pol
-assert pspec.loader is not None
-pspec.loader.exec_module(pol)
+pol = importlib.util.module_from_spec(pspec)  # type: ignore
+sys.modules[pspec.name] = pol  # type: ignore
+assert pspec.loader is not None  # type: ignore
+pspec.loader.exec_module(pol)  # type: ignore
 
 
 class DummyFilters:

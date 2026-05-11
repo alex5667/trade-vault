@@ -81,9 +81,9 @@ def _extract_bbo(signal: dict[str, Any], runtime: Any | None) -> tuple[float | N
     # Fallback: micro dict
     micro = signal.get("micro") if isinstance(signal.get("micro"), dict) else {}
     if bid is None:
-        bid = _safe_float(micro.get("best_bid"))
+        bid = _safe_float(micro.get("best_bid"))  # type: ignore
     if ask is None:
-        ask = _safe_float(micro.get("best_ask"))
+        ask = _safe_float(micro.get("best_ask"))  # type: ignore
 
     # Runtime fallback: last_book top levels
     if (bid is None or ask is None) and runtime is not None:
@@ -216,7 +216,7 @@ def build_decision_snapshot_event(
     # A1 fields if already set
     tca_ready = bool(signal.get("tca_ready")) if signal.get("tca_ready") is not None else False
     sanity_flags = signal.get("book_sanity_flags") if isinstance(signal.get("book_sanity_flags"), list) else []
-    sanity_flags = [str(x) for x in sanity_flags if x is not None]
+    sanity_flags = [str(x) for x in sanity_flags if x is not None]  # type: ignore
 
     # Merge flags (A1 + derived)
     merged_flags: list[str] = []

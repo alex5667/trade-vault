@@ -65,7 +65,7 @@ def parse_confirmations_list(confirmations: Sequence[str] | None) -> dict[str, i
     """
     out = dict.fromkeys(CONF_KEYS_V1, 0)
     if not confirmations:
-        return out
+        return out  # type: ignore
 
     for raw in confirmations:
         if not raw:
@@ -79,7 +79,7 @@ def parse_confirmations_list(confirmations: Sequence[str] | None) -> dict[str, i
                 out[k] = max(out[k], _as_int01(v))
         except Exception:
             continue
-    return out
+    return out  # type: ignore
 
 
 def extract_confirmation_flags(

@@ -458,7 +458,7 @@ class TradeEventsLogger:
         if side is not None:
             pl["side"] = side.upper()
         if "side" not in pl and "direction" in pl:
-            pl["side"] = (pl.get("direction")).upper()
+            pl["side"] = (pl.get("direction")).upper()  # type: ignore
 
         if venue is not None:
             pl["venue"] = str(venue)

@@ -49,13 +49,13 @@ def _env_int(name: str, default: str) -> int:
     try:
         return int(_env(name, default))
     except Exception:
-        return default
+        return default  # type: ignore
 
 def _env_float(name: str, default: str) -> float:
     try:
         return float(_env(name, default))
     except Exception:
-        return default
+        return default  # type: ignore
 
 def _loads(s: Any) -> dict[str, Any]:
     if s is None:
@@ -312,7 +312,7 @@ def compute_once() -> None:
     _runs_total.labels(result="ok").inc()
 
 def main() -> None:
-    once = "--once" in os.sys.argv
+    once = "--once" in os.sys.argv  # type: ignore
     loop_s = _env_int("SIGNAL_QUALITY_LOOP_S", "900")
     if once:
         compute_once()

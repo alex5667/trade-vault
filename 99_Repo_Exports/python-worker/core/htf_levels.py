@@ -12,7 +12,7 @@ from dataclasses import dataclass
 class HTFLevels:
     """HTF уровни для символа."""
     symbol: str
-    levels: dict[str, list[float]] = None
+    levels: dict[str, list[float]] = None  # type: ignore
 
     def __post_init__(self):
         if self.levels is None:

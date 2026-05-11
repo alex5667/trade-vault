@@ -100,7 +100,7 @@ class TestBinanceAccountReporterP0(unittest.TestCase):
     def test_snapshot_aggregation_and_counts(self):
         """Validate aggregation: all positions counted, top-N list truncated, exposure correct."""
         c = DummyClient()
-        snap = build_snapshot(client=c, topn_positions=2, include_open_orders=True)
+        snap = build_snapshot(client=c, topn_positions=2, include_open_orders=True)  # type: ignore
 
         # All positions counted (not only top-N).
         self.assertEqual(snap.open_positions_n, 3)
@@ -119,7 +119,7 @@ class TestBinanceAccountReporterP0(unittest.TestCase):
     def test_report_contains_key_fields(self):
         """Validate Telegram HTML report contains all required fields and symbols."""
         c = DummyClient()
-        snap = build_snapshot(client=c, topn_positions=2, include_open_orders=True)
+        snap = build_snapshot(client=c, topn_positions=2, include_open_orders=True)  # type: ignore
         msg = format_report(snap)
 
         self.assertIn("Binance USDT-M Account", msg)
@@ -134,9 +134,9 @@ class TestBinanceAccountReporterP0(unittest.TestCase):
     def test_report_with_deltas_block(self):
         """Report includes the Available Δ block when deltas dict is provided."""
         c = DummyClient()
-        snap = build_snapshot(client=c, topn_positions=2, include_open_orders=True)
+        snap = build_snapshot(client=c, topn_positions=2, include_open_orders=True)  # type: ignore
         deltas = {"1h": 10.5, "24h": -50.0}
-        msg = format_report(snap, deltas=deltas)
+        msg = format_report(snap, deltas=deltas)  # type: ignore
 
         self.assertIn("Available Δ", msg)
         self.assertIn("1h", msg)
@@ -149,9 +149,9 @@ class TestBinanceAccountReporterP0(unittest.TestCase):
     def test_report_with_none_deltas(self):
         """When delta values are None (no history yet), show em-dash."""
         c = DummyClient()
-        snap = build_snapshot(client=c, topn_positions=2, include_open_orders=True)
+        snap = build_snapshot(client=c, topn_positions=2, include_open_orders=True)  # type: ignore
         deltas = {"1h": None, "24h": None}
-        msg = format_report(snap, deltas=deltas)
+        msg = format_report(snap, deltas=deltas)  # type: ignore
 
         self.assertIn("Available Δ", msg)
         self.assertIn("—", msg)
@@ -166,7 +166,7 @@ class TestBinanceAccountReporterP0(unittest.TestCase):
     def test_snapshot_positions_sorted_by_notional(self):
         """Top positions list is sorted by absolute notional descending."""
         c = DummyClient()
-        snap = build_snapshot(client=c, topn_positions=3, include_open_orders=False)
+        snap = build_snapshot(client=c, topn_positions=3, include_open_orders=False)  # type: ignore
         # ETH notional=580 > BTC notional=510 > XRP notional=51
         self.assertEqual(snap.positions[0]["symbol"], "ETHUSDT")
         self.assertEqual(snap.positions[1]["symbol"], "BTCUSDT")
@@ -175,7 +175,7 @@ class TestBinanceAccountReporterP0(unittest.TestCase):
     def test_side_detection(self):
         """LONG for positive positionAmt, SHORT for negative."""
         c = DummyClient()
-        snap = build_snapshot(client=c, topn_positions=10, include_open_orders=False)
+        snap = build_snapshot(client=c, topn_positions=10, include_open_orders=False)  # type: ignore
         sides = {p["symbol"]: p["side"] for p in snap.positions}
         self.assertEqual(sides["BTCUSDT"], "LONG")
         self.assertEqual(sides["ETHUSDT"], "SHORT")
@@ -220,7 +220,7 @@ class TestAvailableHistory(unittest.TestCase):
         deltas = _read_delta_available(r, "history", now_ms, 520.0)
 
         self.assertIsNotNone(deltas["1h"])
-        self.assertAlmostEqual(deltas["1h"], 20.0, places=6)
+        self.assertAlmostEqual(deltas["1h"], 20.0, places=6)  # type: ignore
         self.assertIsNone(deltas["24h"])
 
     def test_store_and_read_24h_delta(self):
@@ -231,7 +231,7 @@ class TestAvailableHistory(unittest.TestCase):
 
         self.assertIsNone(deltas["1h"])
         self.assertIsNotNone(deltas["24h"])
-        self.assertAlmostEqual(deltas["24h"], -50.0, places=6)
+        self.assertAlmostEqual(deltas["24h"], -50.0, places=6)  # type: ignore
 
     def test_no_history_returns_none(self):
         r = self.MockRedis()

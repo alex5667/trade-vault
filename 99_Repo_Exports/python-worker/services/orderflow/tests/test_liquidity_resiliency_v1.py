@@ -21,7 +21,7 @@ class TestLiquidityResiliencyV1(unittest.TestCase):
             recover_hold_ms=200,
         )
         defaults.update(kwargs)
-        return LiquidityResiliencyTracker(**defaults)
+        return LiquidityResiliencyTracker(**defaults)  # type: ignore
 
     def _establish_baseline(self, tr: LiquidityResiliencyTracker, n: int = 10) -> None:
         """Feed n identical ticks so EMA converges to baseline before stressing."""

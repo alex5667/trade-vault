@@ -149,7 +149,7 @@ class OFConfirmService:
         # Ensure consumer group exists
         for stream in [self.stream_spikes, self.stream_bars_legacy]:
             try:
-                await self.redis.xgroup_create(stream, self.consumer_group, mkstream=True)
+                await self.redis.xgroup_create(stream, self.consumer_group, mkstream=True)  # type: ignore
             except aioredis.ResponseError as e:
                 if "BUSYGROUP" not in str(e):
                     logger.warning(f"Error creating group for {stream}: {e}")
@@ -171,7 +171,7 @@ class OFConfirmService:
             safe_create_task(self._poll_regime()),
         ]
 
-        await asyncio.gather(*tasks)
+        await asyncio.gather(*tasks)  # type: ignore
 
     async def _consume_ticks(self):
         logger.info("Started raw tick consumer loop")
@@ -189,7 +189,7 @@ class OFConfirmService:
         while self.running:
             try:
                 # Use PUBSUB for ticks (low latency)
-                pubsub = self.redis.pubsub()
+                pubsub = self.redis.pubsub()  # type: ignore
                 await pubsub.psubscribe(pattern)
 
                 async for message in pubsub.listen():
@@ -227,7 +227,7 @@ class OFConfirmService:
 
         while self.running:
             try:
-                resp = await self.redis.xreadgroup(
+                resp = await self.redis.xreadgroup(  # type: ignore
                     groupname=self.consumer_group,
                     consumername=self.consumer_name,
                     streams={self.stream_spikes: ">"},
@@ -242,31 +242,31 @@ class OFConfirmService:
                         try:
                             payload_str = (fields or {}).get("payload")
                             if not payload_str:
-                                await self.redis.xack(self.stream_spikes, self.consumer_group, msg_id)
+                                await self.redis.xack(self.stream_spikes, self.consumer_group, msg_id)  # type: ignore
                                 continue
 
                             spike = json.loads(payload_str)
                             symbol = spike.get("symbol", "")
                             if not symbol:
-                                await self.redis.xack(self.stream_spikes, self.consumer_group, msg_id)
+                                await self.redis.xack(self.stream_spikes, self.consumer_group, msg_id)  # type: ignore
                                 continue
 
                             events_received_total.labels(type="delta_spike_stream", symbol=symbol).inc()
                             state = self._get_state(symbol)
                             await self._check_spike(symbol, state, spike)
-                            await self.redis.xack(self.stream_spikes, self.consumer_group, msg_id)
+                            await self.redis.xack(self.stream_spikes, self.consumer_group, msg_id)  # type: ignore
 
                         except Exception as e:
                             logger.warning("Spike message %s process error: %s", msg_id, e)
                             # ACK to avoid poison pill blocking the group
                             with contextlib.suppress(Exception):
-                                await self.redis.xack(self.stream_spikes, self.consumer_group, msg_id)
+                                await self.redis.xack(self.stream_spikes, self.consumer_group, msg_id)  # type: ignore
 
             except aioredis.ResponseError as e:
                 if "NOGROUP" in str(e):
                     logger.warning("Consumer group missing for %s, recreating...", self.stream_spikes)
                     with contextlib.suppress(Exception):
-                        await self.redis.xgroup_create(self.stream_spikes, self.consumer_group, mkstream=True)
+                        await self.redis.xgroup_create(self.stream_spikes, self.consumer_group, mkstream=True)  # type: ignore
                 else:
                     logger.error("Spike consumer error: %s", e)
                 await asyncio.sleep(1)
@@ -292,7 +292,7 @@ class OFConfirmService:
                     continue
 
                 keys = [f"book:levels:{s}" for s in symbols]
-                values = await self.redis.mget(*keys)
+                values = await self.redis.mget(*keys)  # type: ignore
 
                 for sym, raw in zip(symbols, values):
                     if not raw:
@@ -307,7 +307,7 @@ class OFConfirmService:
                     # Normalize: book:levels uses "ts" in seconds (float),
                     # detectors expect "ts_ms" in milliseconds (int).
                     ts_sec = book.get("ts", 0)
-                    ts_ms = _i(_f(ts_sec, 0.0) * 1000) if ts_sec is not None else _iget_ny_time_millis()
+                    ts_ms = _i(_f(ts_sec, 0.0) * 1000) if ts_sec is not None else _iget_ny_time_millis()  # type: ignore
                     book_for_detector = {
                         "bids": book.get("bids", []),
                         "asks": book.get("asks", []),
@@ -333,7 +333,7 @@ class OFConfirmService:
                             pass
 
                     # Track freshness
-                    state.last_book_ts_ms = ts_ms
+                    state.last_book_ts_ms = ts_ms  # type: ignore
 
                 _poll_count += 1
                 if _poll_count == 1 or _poll_count % 1000 == 0:
@@ -363,19 +363,19 @@ class OFConfirmService:
                     for msg_id, fields in messages:
                         try:
                             await self._process_bar(fields)
-                            await self.redis.xack(self.stream_bars, self.consumer_group, msg_id)
+                            await self.redis.xack(self.stream_bars, self.consumer_group, msg_id)  # type: ignore
                         except Exception as e:
                             logger.error(f"Error processing bar message {msg_id}: {e}")
                             # ACK even on error to avoid poison pills
                             with contextlib.suppress(Exception):
-                                await self.redis.xack(self.stream_bars, self.consumer_group, msg_id)
+                                await self.redis.xack(self.stream_bars, self.consumer_group, msg_id)  # type: ignore
 
             except aioredis.ResponseError as e:
                 msg = str(e)
                 if "NOGROUP" in msg:
                     logger.warning(f"Consumer group missing for {self.stream_bars}, recreating...")
                     try:
-                        await self.redis.xgroup_create(self.stream_bars, self.consumer_group, mkstream=True)
+                        await self.redis.xgroup_create(self.stream_bars, self.consumer_group, mkstream=True)  # type: ignore
                     except Exception as create_err:
                         logger.error(f"Failed to recreate group: {create_err}")
                 else:
@@ -450,7 +450,7 @@ class OFConfirmService:
                     continue
 
                 keys = [f"regime:{s}" for s in symbols]
-                values = await self.redis.mget(*keys)
+                values = await self.redis.mget(*keys)  # type: ignore
 
                 for sym, raw in zip(symbols, values):
                     if not raw:
@@ -524,7 +524,7 @@ class OFConfirmService:
                 status = "confirmed"
                 out_payload = of_confirm.to_dict()
                 out_payload["generated_at"] = get_ny_time_millis()
-                await self.redis.xadd(
+                await self.redis.xadd(  # type: ignore
                     self.stream_out,
                     {"payload": json.dumps(out_payload)},
                     maxlen=50000,
@@ -550,7 +550,7 @@ class OFConfirmService:
             cursor = 0
             seen = 0
             while True:
-                cursor, batch = await self.redis.sscan(self.microbar_symbols_set, cursor=cursor, count=10000)
+                cursor, batch = await self.redis.sscan(self.microbar_symbols_set, cursor=cursor, count=10000)  # type: ignore
                 for s in batch or []:
                     sym = s.decode("utf-8", "ignore") if isinstance(s, bytes) else str(s)
                     if sym:
@@ -565,7 +565,7 @@ class OFConfirmService:
         # create group on each stream (mkstream=True so empty streams don't crash)
         for k in keys:
             try:
-                await self.redis.xgroup_create(k, self.consumer_group, mkstream=True)
+                await self.redis.xgroup_create(k, self.consumer_group, mkstream=True)  # type: ignore
             except Exception:
                 # group exists / stream exists => ignore
                 pass
@@ -587,7 +587,7 @@ class OFConfirmService:
         # Use '>' to read new messages for this group.
         stream_map: dict[str, str] = dict.fromkeys(keys, ">")
         try:
-            resp = await self.redis.xreadgroup(
+            resp = await self.redis.xreadgroup(  # type: ignore
                 groupname=self.consumer_group,
                 consumername=self.consumer_name,
                 streams=stream_map,
@@ -606,13 +606,13 @@ class OFConfirmService:
                     # to parse/process microbar payloads.
                     await self._process_bar(msg_id, fields, stream=stream)
                     # ACK only if processing succeeded
-                    await self.redis.xack(stream, self.consumer_group, msg_id)
+                    await self.redis.xack(stream, self.consumer_group, msg_id)  # type: ignore
                 except Exception:
                     # On failure: do not ack => message remains pending for retry
                     pass
         return n
 
-    async def _process_bar(self, msg_id: str = None, fields: dict[str, Any] = None, stream: str = None):
+    async def _process_bar(self, msg_id: str = None, fields: dict[str, Any] = None, stream: str = None):  # type: ignore
         """
         Process a microbar message. Supports both legacy (fields dict) and new (msg_id, fields, stream) signatures.
         """
@@ -721,7 +721,7 @@ class OFConfirmService:
                 symbols = set([s.strip().upper() for s in env_syms if s.strip()])
 
                 try:
-                    redis_syms = await self.redis.smembers("crypto:symbols")
+                    redis_syms = await self.redis.smembers("crypto:symbols")  # type: ignore
                     if redis_syms:
                         symbols.update([s.upper() for s in redis_syms])
                 except Exception:

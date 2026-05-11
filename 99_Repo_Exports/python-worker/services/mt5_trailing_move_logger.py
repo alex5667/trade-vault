@@ -16,6 +16,9 @@ if (new_sl != old_sl) {
 
 Использование в Python:
 ```python
+from typing import Dict
+from typing import Dict
+from typing import Dict
 from services.mt5_trailing_move_logger import MT5TrailingMoveLogger
 
 logger = MT5TrailingMoveLogger()
@@ -132,7 +135,7 @@ class MT5TrailingMoveLogger:
                 sid, new_sl, distance_from_entry or 0.0, profile
             )
 
-        return success
+        return success  # type: ignore
 
     def get_trailing_distance(self, sid: str) -> float | None:
         """
@@ -166,7 +169,7 @@ class MT5TrailingMoveLogger:
             log.error("Failed to get trailing distance for %s: %s", sid, str(e))
             return None
 
-    def get_trailing_stats(self, sid: str) -> Dict | None:
+    def get_trailing_stats(self, sid: str) -> dict | None:
         """
         Получить статистику trailing для сигнала.
         

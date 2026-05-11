@@ -91,22 +91,22 @@ class ATRPolicyCoverageAuditService:
         """Execute a write query."""
         conn = self._conn_factory()
         try:
-            with conn.cursor() as cur:
+            with conn.cursor() as cur:  # type: ignore
                 cur.execute(query, params)
-            conn.commit()
+            conn.commit()  # type: ignore
         except Exception as e:
-            conn.rollback()
+            conn.rollback()  # type: ignore
             logger.error(f"DB Write Error: {e} - Query: {query}")
             raise
         finally:
-            if not getattr(conn, '_is_test_mock', False) and db_conn is None:
-                conn.close()
+            if not getattr(conn, '_is_test_mock', False) and db_conn is None:  # type: ignore
+                conn.close()  # type: ignore
 
-    def _execute_read(self, query: str, params: tuple = None) -> list[dict[str, Any]]:
+    def _execute_read(self, query: str, params: tuple = None) -> list[dict[str, Any]]:  # type: ignore
         """Execute a read query and return dicts."""
         conn = self._conn_factory()
         try:
-            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:  # type: ignore
                 if params:
                     cur.execute(query, params)
                 else:
@@ -116,8 +116,8 @@ class ATRPolicyCoverageAuditService:
             logger.error(f"DB Read Error: {e} - Query: {query}")
             raise
         finally:
-            if not getattr(conn, '_is_test_mock', False) and db_conn is None:
-                conn.close()
+            if not getattr(conn, '_is_test_mock', False) and db_conn is None:  # type: ignore
+                conn.close()  # type: ignore
 
     def load_surface_inventory(self, domain: str | None = None) -> list[dict[str, Any]]:
         """Load surfaces from the inventory table."""

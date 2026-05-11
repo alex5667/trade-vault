@@ -24,7 +24,7 @@ class PersistenceManager:
     """
     def __init__(self, dsn: str | None = None):
         self.dsn = dsn or os.getenv("ANALYTICS_DB_DSN")
-        self._pool: asyncpg.Pool | None = None
+        self._pool: asyncpg.Pool | None = None  # type: ignore
         # Pool-creation lock: initialized lazily inside _get_pool() because
         # asyncio.Lock() must be created inside a running event loop.
         self._pool_lock: asyncio.Lock | None = None
@@ -35,7 +35,7 @@ class PersistenceManager:
         self._last_flush_time = 0.0
         self._flush_task: asyncio.Task | None = None
 
-    async def _get_pool(self) -> asyncpg.Pool:
+    async def _get_pool(self) -> asyncpg.Pool:  # type: ignore
         """Lazy initialization of the high-concurrency connection pool.
 
         Uses a per-instance asyncio.Lock to prevent concurrent callers from
@@ -53,8 +53,8 @@ class PersistenceManager:
         async with self._pool_lock:
             # Double-checked locking: re-verify after acquiring the lock.
             if self._pool is None:
-                logger.info(f"🔌 Initializing asyncpg pool for {self.dsn.split('@')[-1]}")
-                self._pool = await asyncpg.create_pool(
+                logger.info(f"🔌 Initializing asyncpg pool for {self.dsn.split('@')[-1]}")  # type: ignore
+                self._pool = await asyncpg.create_pool(  # type: ignore
                     self.dsn,
                     min_size=2,
                     max_size=20,           # was 1000 — caused PG connection exhaustion
@@ -126,7 +126,7 @@ class PersistenceManager:
                     async with pool.acquire(timeout=15.0) as conn:
                         await asyncio.wait_for(conn.executemany(sql, chunk), timeout=30.0)
                     break # Success for this chunk
-                except (TimeoutError, asyncpg.exceptions.PostgresError) as e:
+                except (TimeoutError, asyncpg.exceptions.PostgresError) as e:  # type: ignore
                     logger.warning(f"⚠️ Pool timeout/error saving microbar chunk of size {len(chunk)} (attempt {attempt}/3): {type(e).__name__} {e}")
                     if attempt < 3:
                          await asyncio.sleep(attempt * 0.5)
@@ -139,7 +139,7 @@ class PersistenceManager:
                 try:
                      logger.warning("🔄 Falling back to direct connection for microbar chunk")
                      # We use a 15s connection timeout for fallback
-                     conn = await asyncpg.connect(self.dsn, timeout=15.0)
+                     conn = await asyncpg.connect(self.dsn, timeout=15.0)  # type: ignore
                      try:
                          # We use a larger timeout here if it's the absolute last fallback
                          await asyncio.wait_for(conn.executemany(sql, chunk), timeout=45.0)

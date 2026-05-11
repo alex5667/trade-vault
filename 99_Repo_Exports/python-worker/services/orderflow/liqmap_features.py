@@ -257,7 +257,7 @@ def apply_liqmap_tp_sl_adjustment(
     entry_px = _f(entry, 0.0)
     base_sl_px = _f(base_sl, 0.0)
     base_tp1_px = _f(base_tp1, 0.0)
-    s_side = _norm_side(side)
+    s_side = _norm_side(side)  # type: ignore
 
     out: dict[str, Any] = {
         "liqmap_levels_applied": 0.0,

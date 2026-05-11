@@ -86,7 +86,7 @@ class SignalRetryScheduler:
         if self._sha:
             return self._sha
         self._sha = self.redis.script_load(_LUA_PUMP_RETRY_DUE_TO_OUTBOX)
-        return self._sha
+        return self._sha  # type: ignore
 
     def pump_once(self) -> None:
         now_ms = get_ny_time_millis()

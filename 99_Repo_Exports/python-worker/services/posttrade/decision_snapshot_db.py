@@ -406,7 +406,7 @@ class PostgresDecisionSnapshotDB:
                 conn.close()
             raise
 
-    def upsert_decision_snapshots(self, rows: Sequence[Row]) -> int:
+    def upsert_decision_snapshots(self, rows: Sequence[Row]) -> int:  # type: ignore
         if not rows:
             return 0
 

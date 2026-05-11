@@ -40,6 +40,7 @@ def l2_confirm_breakout(
     ctx: Any,
     l2: Any,
     side: str,  # "buy" => breakout up, "sell" => breakout down
+    level_price: float | None = None,
     max_spread_bps: float = 8.0,
     wall_near_bps: float = 6.0,
     min_wall_notional: float = 50_000.0,
@@ -98,7 +99,8 @@ def l2_confirm_breakout(
             max_near_wall_bps=float(wall_near_bps),
         )
     )
-    res = v.confirm(ctx=ctx, side=side, level_price=ctx.level_price if hasattr(ctx, 'level_price') else 100.0)
+    _lvl = level_price if level_price is not None else (getattr(ctx, "level_price", None) or 100.0)
+    res = v.confirm(ctx=ctx, side=side, level_price=_lvl, l2=l2)
     parts.update(res.parts or {})
     parts.update(res.flags or {})
     # Если валидатор кидает veto (stale), пробрасываем его со структурированным кодом.

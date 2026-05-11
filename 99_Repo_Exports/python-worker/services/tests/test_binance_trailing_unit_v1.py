@@ -20,17 +20,17 @@ from pathlib import Path
 
 mod_path = Path(__file__).parent.parent / "binance_executor.py"
 spec = importlib.util.spec_from_file_location("binance_executor", mod_path)
-mod = importlib.util.module_from_spec(spec)
-sys.modules[spec.name] = mod
-assert spec.loader is not None
-spec.loader.exec_module(mod)
+mod = importlib.util.module_from_spec(spec)  # type: ignore
+sys.modules[spec.name] = mod  # type: ignore
+assert spec.loader is not None  # type: ignore
+spec.loader.exec_module(mod)  # type: ignore
 
 client_path = Path(__file__).parent.parent / "binance_futures_client.py"
 cspec = importlib.util.spec_from_file_location("binance_futures_client", client_path)
-client_mod = importlib.util.module_from_spec(cspec)
-sys.modules[cspec.name] = client_mod
-assert cspec.loader is not None
-cspec.loader.exec_module(client_mod)
+client_mod = importlib.util.module_from_spec(cspec)  # type: ignore
+sys.modules[cspec.name] = client_mod  # type: ignore
+assert cspec.loader is not None  # type: ignore
+cspec.loader.exec_module(client_mod)  # type: ignore
 
 _truthy = mod._truthy
 _round_half_up = mod._round_half_up

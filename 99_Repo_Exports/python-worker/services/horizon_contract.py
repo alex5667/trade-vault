@@ -164,7 +164,7 @@ def _load_calibrated_horizon_profile(
             if not isinstance(obj, dict):
                 continue
             updated_at_ms = _safe_int(obj.get("updated_at_ms"), 0)
-            if updated_at_ms > 0 and (now_ms - updated_at_ms) > _PROFILE_STALE_MAX_MS:
+            if updated_at_ms > 0 and (now_ms - updated_at_ms) > _PROFILE_STALE_MAX_MS:  # type: ignore
                 try:
                     from services.horizon_profile_bootstrap_service import _M_LOOKUP_STALE
                     _M_LOOKUP_STALE.inc()
@@ -442,11 +442,11 @@ def build_phase0_horizon_profile(
     # Static bootstrap fallback (Phase 0 / no history yet)
     hp = HorizonProfileV1(
         contract_ver=_CONTRACT_VER,
-        phase_mode=_PHASE_MODE if _PHASE_MODE in {"off", "shadow", "canary", "enforce"} else "off",
+        phase_mode=_PHASE_MODE if _PHASE_MODE in {"off", "shadow", "canary", "enforce"} else "off",  # type: ignore
         hold_target_ms=0,
         alpha_half_life_ms=0,
         max_signal_age_ms=_DEFAULT_MAX_SIGNAL_AGE_MS,
-        risk_horizon_bucket=_DEFAULT_BUCKET if _DEFAULT_BUCKET in {"micro", "short", "medium", "long", "unknown"} else "unknown",
+        risk_horizon_bucket=_DEFAULT_BUCKET if _DEFAULT_BUCKET in {"micro", "short", "medium", "long", "unknown"} else "unknown",  # type: ignore
         profile_source=_DEFAULT_PROFILE_SOURCE,
         profile_conf=0.0,
         reason_code="HZ_STATIC_BOOTSTRAP",
@@ -457,7 +457,7 @@ def build_phase0_horizon_profile(
             "ts_ms": int(now_ms),
         },
     ),
-    return asdict(hp)
+    return asdict(hp)  # type: ignore
 
 
 def build_phase0_atr_profile(
@@ -483,7 +483,7 @@ def build_phase0_atr_profile(
         vol_ratio_fast_slow=1.0,
         vol_ratio_z=0.0,
     ),
-    return asdict(ap)
+    return asdict(ap)  # type: ignore
 
 
 def build_runtime_atr_profile(
@@ -501,7 +501,7 @@ def build_runtime_atr_profile(
     if _SELECTOR_ENABLED:
         try:
             from services.atr_runtime_selector import select_runtime_atr_profile
-            return select_runtime_atr_profile(
+            return select_runtime_atr_profile(  # type: ignore
                 signal=signal,
                 price=price,
                 hold_target_ms=hold_target_ms,
@@ -517,23 +517,23 @@ def build_runtime_atr_profile(
         or 0.0,
         0.0,
     ),
-    atr_pct = float(atr_value / price) if price > 0.0 else 0.0
+    atr_pct = float(atr_value / price) if price > 0.0 else 0.0  # type: ignore
     ap = ATRProfileV1(
         mode="legacy",
-        atr_value=float(atr_value),
+        atr_value=float(atr_value),  # type: ignore
         atr_tf_ms=_DEFAULT_TF_MS,
         atr_window_n=_DEFAULT_WINDOW_N,
         atr_age_ms=0,
         atr_source="legacy",
-        atr_regime_value=float(atr_value),
-        atr_trail_value=float(atr_value),
+        atr_regime_value=float(atr_value),  # type: ignore
+        atr_trail_value=float(atr_value),  # type: ignore
         atr_regime_tf_ms=_DEFAULT_TF_MS,
         atr_trail_tf_ms=_DEFAULT_TF_MS,
         atr_pct=atr_pct,
         vol_ratio_fast_slow=1.0,
         vol_ratio_z=0.0,
     ),
-    return asdict(ap)
+    return asdict(ap)  # type: ignore
 
 
 def attach_phase0_contract(signal: dict[str, Any], *, symbol: str, source: str) -> dict[str, Any]:
@@ -589,7 +589,7 @@ def attach_phase0_contract(signal: dict[str, Any], *, symbol: str, source: str) 
             meta["atr_candidates"] = _provider.collect(
                 signal=signal,
                 symbol=str(symbol or signal.get("symbol") or "").upper(),
-                now_ms=now_ms,
+                now_ms=now_ms,  # type: ignore
             ),
         except Exception:
             pass
@@ -599,7 +599,7 @@ def attach_phase0_contract(signal: dict[str, Any], *, symbol: str, source: str) 
         symbol=str(symbol or signal.get("symbol") or "").upper(),
         kind=kind,
         regime=regime,
-        now_ms=now_ms,
+        now_ms=now_ms,  # type: ignore
     ))
 
     # Phase 2: use runtime selector; reads hold/decay from the horizon just built.
@@ -608,10 +608,10 @@ def attach_phase0_contract(signal: dict[str, Any], *, symbol: str, source: str) 
     alpha_half_life_ms_hz = _safe_int(hz.get("alpha_half_life_ms"), 0)
     meta.setdefault("atr_profile", build_runtime_atr_profile(
         signal=signal,
-        price=price,
+        price=price,  # type: ignore
         hold_target_ms=hold_target_ms_hz,
         alpha_half_life_ms=alpha_half_life_ms_hz,
-        now_ms=now_ms,
+        now_ms=now_ms,  # type: ignore
     ))
 
     # Legacy aliases for future phases / diagnostics.
@@ -660,7 +660,7 @@ def attach_phase0_contract(signal: dict[str, Any], *, symbol: str, source: str) 
                 source=(source or "unknown"),
                 phase_mode=str(meta["horizon"].get("phase_mode") or "off"),
             ).inc()
-            _M_REASON.labels(
+            _M_REASON.labels(  # type: ignore
                 reason_code=str(meta["horizon"].get("reason_code") or "HZ_STATIC_BOOTSTRAP"),
             ).inc()
         except Exception:

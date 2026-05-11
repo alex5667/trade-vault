@@ -233,7 +233,7 @@ class TestDriftSeverity(unittest.TestCase):
     def test_decision_mismatch_severity_critical(self):
         d = self._get_drift("release_decision_mismatch", "deny", "allow")
         self.assertIsNotNone(d)
-        self.assertEqual(d["severity"], "critical")
+        self.assertEqual(d["severity"], "critical")  # type: ignore
 
 
 class TestTelegramRenderers(unittest.TestCase):

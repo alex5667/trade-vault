@@ -141,10 +141,10 @@ if __name__ == "__main__":
     # Имитация работы
     TrailingMetrics.set_system_info("1.0.0", "rocket_v1")
 
-    TrailingMetrics.record_event("TP1_HIT")
-    TrailingMetrics.record_trailing_started("rocket_v1")
+    TrailingMetrics.record_event("TP1_HIT")  # type: ignore
+    TrailingMetrics.record_trailing_started("rocket_v1")  # type: ignore
 
-    TrailingMetrics.record_event("TP2_HIT")
+    TrailingMetrics.record_event("TP2_HIT")  # type: ignore
     TrailingMetrics.record_trailing_stopped("")
 
     # Генерация метрик

@@ -22,10 +22,10 @@ except Exception:  # pragma: no cover
 
 logger = logging.getLogger("orderflow_metrics_book_sanity")
 
-TCollector = TypeVar("TCollector", bound="Collector")
+TCollector = TypeVar("TCollector", bound="Collector")  # type: ignore
 
 
-def _get_or_create[TCollector: "Collector"](
+def _get_or_create[TCollector: "Collector"](  # type: ignore
     name: str,
     ctor: type[TCollector],
     documentation: str,

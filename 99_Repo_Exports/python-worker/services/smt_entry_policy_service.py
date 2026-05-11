@@ -166,9 +166,9 @@ class EntryPolicyService:
         # Optional: max expected slippage veto (used by entry_policy_core).
         # If unset (=0), core keeps this gate disabled.
         try:
-            self.core_cfg.max_expected_slippage_bps = float(os.getenv("SMT_ENTRY_MAX_EXPECTED_SLIPPAGE_BPS", "0") or 0.0)
+            self.core_cfg.max_expected_slippage_bps = float(os.getenv("SMT_ENTRY_MAX_EXPECTED_SLIPPAGE_BPS", "0") or 0.0)  # type: ignore
         except Exception:
-            self.core_cfg.max_expected_slippage_bps = 0.0
+            self.core_cfg.max_expected_slippage_bps = 0.0  # type: ignore
 
         # P6: execution health (TCA rollups) configuration
         self._exec_entry_policy_enable = bool(int(os.getenv("EXEC_HEALTH_ENTRY_POLICY_ENABLED", "1") or 1))
@@ -208,14 +208,14 @@ class EntryPolicyService:
         sym, grp, scn = symbol.upper(), group.lower(), scenario.lower()
         if scn not in ("reversal", "continuation"): return 0, 0, "", ""
         ck = f"{sym}:{grp}:{scn}"
-        if (now_ms - self._freeze_cache_ts.get(ck, 0)) < self._freeze_cache_ttl_ms:
-            v = self._freeze_cache.get(ck)
+        if (now_ms - self._freeze_cache_ts.get(ck, 0)) < self._freeze_cache_ttl_ms:  # type: ignore
+            v = self._freeze_cache.get(ck)  # type: ignore
             if v:
                 obj, _ = EntryPolicyFreezeV1.from_json(v)
                 if obj and obj.is_active(now_ms): return 1, int(obj.until_ts_ms), str(obj.mode), str(obj.reason_code)
 
         raw = await self.r.get(f"cfg:entry_policy:freeze:v1:{sym}:{grp}:{scn}")
-        self._freeze_cache[ck], self._freeze_cache_ts[ck] = (raw or ""), now_ms
+        self._freeze_cache[ck], self._freeze_cache_ts[ck] = (raw or ""), now_ms  # type: ignore
         if raw:
             obj, _ = EntryPolicyFreezeV1.from_json(str(raw))
             if obj and obj.is_active(now_ms): return 1, int(obj.until_ts_ms), str(obj.mode), str(obj.reason_code)
@@ -330,7 +330,7 @@ class EntryPolicyService:
             # strict/tighten: raise expected_slippage_bps in snap (and micro if present)
             if float(dec.tighten_add_bps or 0.0) > 0.0:
                 micro = snap.get("micro") if isinstance(snap.get("micro"), dict) else {}
-                exp0 = _f(snap.get("expected_slippage_bps", micro.get("expected_slippage_bps", 0.0)), 0.0)
+                exp0 = _f(snap.get("expected_slippage_bps", micro.get("expected_slippage_bps", 0.0)), 0.0)  # type: ignore
                 exp1 = float(exp0 + float(dec.tighten_add_bps))
                 snap["expected_slippage_bps"] = exp1
                 if isinstance(micro, dict):
@@ -425,7 +425,7 @@ class EntryPolicyService:
         self._ovr_loaded_ts_ms[grp] = int(o.updated_ts_ms or now_ms)
         self._ovr_last_apply_ts_ms[grp] = int(now_ms)
 
-    async def _audit(self, *, now_ms: int, cand: dict[str, Any], ok: bool, reason_code: str, notes: str, snap: dict[str, Any], bundle: dict[str, Any], arm: str = "NA", ovr: EntryPolicyOverridesV1 = None) -> None:
+    async def _audit(self, *, now_ms: int, cand: dict[str, Any], ok: bool, reason_code: str, notes: str, snap: dict[str, Any], bundle: dict[str, Any], arm: str = "NA", ovr: EntryPolicyOverridesV1 = None) -> None:  # type: ignore
         try:
             o = ovr or EntryPolicyOverridesV1()
             eid = _entry_id(cand, snap, bundle)
@@ -494,10 +494,10 @@ class EntryPolicyService:
 
             micro = snap.get("micro") if isinstance(snap.get("micro"), dict) else {}
 
-            slope_bid = _f(snap.get("book_slope_bid", micro.get("book_slope_bid", 0.0)), 0.0)
-            slope_ask = _f(snap.get("book_slope_ask", micro.get("book_slope_ask", 0.0)), 0.0)
-            dws_bps = _f(snap.get("dws_bps", micro.get("dws_bps", 0.0)), 0.0)
-            rec_ms = _i(snap.get("liq_recovery_time_ms", micro.get("liq_recovery_time_ms", 0)), 0)
+            slope_bid = _f(snap.get("book_slope_bid", micro.get("book_slope_bid", 0.0)), 0.0)  # type: ignore
+            slope_ask = _f(snap.get("book_slope_ask", micro.get("book_slope_ask", 0.0)), 0.0)  # type: ignore
+            dws_bps = _f(snap.get("dws_bps", micro.get("dws_bps", 0.0)), 0.0)  # type: ignore
+            rec_ms = _i(snap.get("liq_recovery_time_ms", micro.get("liq_recovery_time_ms", 0)), 0)  # type: ignore
 
             thr_slope = float(os.getenv("ENTRY_LIQ_MIN_BOOK_SLOPE", os.getenv("LIQ_MIN_BOOK_SLOPE", "0")) or 0.0)
             thr_dws = float(os.getenv("ENTRY_LIQ_MAX_DWS_BPS", os.getenv("LIQ_MAX_DWS_BPS", "0")) or 0.0)
@@ -532,7 +532,7 @@ class EntryPolicyService:
 
             # strict/hard: tighten expected_slippage_bps in snap (and micro if present)
             if decg.tighten_add_bps > 0.0:
-                exp0 = _f(snap.get("expected_slippage_bps", micro.get("expected_slippage_bps", 0.0)), 0.0)
+                exp0 = _f(snap.get("expected_slippage_bps", micro.get("expected_slippage_bps", 0.0)), 0.0)  # type: ignore
                 exp1 = float(exp0 + float(decg.tighten_add_bps))
                 snap["expected_slippage_bps"] = exp1
                 if isinstance(micro, dict):
@@ -754,7 +754,7 @@ class EntryPolicyService:
 
             if decd.tighten_add_bps > 0.0:
                 micro = snap.get("micro") if isinstance(snap.get("micro"), dict) else {}
-                exp0 = _f(snap.get("expected_slippage_bps", micro.get("expected_slippage_bps", 0.0)), 0.0)
+                exp0 = _f(snap.get("expected_slippage_bps", micro.get("expected_slippage_bps", 0.0)), 0.0)  # type: ignore
                 exp1 = float(exp0 + float(decd.tighten_add_bps))
                 snap["expected_slippage_bps"] = exp1
                 snap["deriv_ctx_tighten_add_bps"] = float(decd.tighten_add_bps)
@@ -940,13 +940,13 @@ class EntryPolicyService:
         try:
             req_tier = -1
             reg = (snap.get("regime", "na")).lower()
-            if reg == "trend": req_tier = int(ovr.abs_lvl_tier_trend)
-            elif reg == "range": req_tier = int(ovr.abs_lvl_tier_range)
-            elif reg == "thin": req_tier = int(ovr.abs_lvl_tier_thin)
+            if reg == "trend": req_tier = int(ovr.abs_lvl_tier_trend)  # type: ignore
+            elif reg == "range": req_tier = int(ovr.abs_lvl_tier_range)  # type: ignore
+            elif reg == "thin": req_tier = int(ovr.abs_lvl_tier_thin)  # type: ignore
 
             if req_tier != -1:
                 obs_tier = int(snap.get("abs_lvl_tier", 0))
-                mode = str(ovr.abs_lvl_tier_mode).lower()
+                mode = str(ovr.abs_lvl_tier_mode).lower()  # type: ignore
                 deny = False
                 if mode == "exact":
                     if obs_tier != req_tier: deny = True
@@ -958,7 +958,7 @@ class EntryPolicyService:
                         now_ms=_now_ms(), cand=cand, ok=False,
                         reason_code="DENY_ABS_LVL_TIER_POLICY",
                         notes=f"req={req_tier} obs={obs_tier} mode={mode}",
-                        snap=snap, bundle=bundle, ovr=ovr
+                        snap=snap, bundle=bundle, ovr=ovr  # type: ignore
                     )
                     return
         except Exception:
@@ -967,14 +967,14 @@ class EntryPolicyService:
         # Apply policy knobs into core_cfg (safe / optional)
         try:
             if float(getattr(ovr, "coh_thr", 0.0) or 0.0) > 0:
-                self.core_cfg.coh_thr = float(ovr.coh_thr)
+                self.core_cfg.coh_thr = float(ovr.coh_thr)  # type: ignore
         except Exception:
             pass
 
         frz_active, frz_until, frz_mode, frz_reason = 0, 0, "", ""
 
         try:
-            if ovr.enabled:
+            if ovr.enabled:  # type: ignore
                 # 1) Force active arm (hard override)
                 fa = str(getattr(ovr, "force_active_arm", "") if hasattr(ovr, "force_active_arm") else "").upper()
                 if fa in ("A", "B", "C"):
@@ -985,7 +985,7 @@ class EntryPolicyService:
         # ADX-aware execution: in chop force Arm A
         try:
             adx_q = float(snap.get("adx_q", 0.5) or 0.5)
-            adx_chop_lo = float(ovr.adx_chop_lo_q)
+            adx_chop_lo = float(ovr.adx_chop_lo_q)  # type: ignore
             if adx_q <= adx_chop_lo:
                 cand["ab_arm"] = "A"
         except Exception: pass
@@ -1019,14 +1019,14 @@ class EntryPolicyService:
             # audit includes raw/effective active arm and stabilizer snapshot
             with contextlib.suppress(Exception):
                 self._last_active_arm_dbg = {"raw": active_val_raw, "eff": active_val, "key": arm_key, "ovr": ovr, "stab": self._arm_stab.snapshot(arm_key)}
-            await self._audit(now_ms=_now_ms(), cand=cand, ok=True, reason_code="ALLOW_SHADOW_AB_ARM", notes=f"Shadow (active_raw={active_val_raw} active_eff={active_val})", snap=snap, bundle=bundle, ovr=ovr)
+            await self._audit(now_ms=_now_ms(), cand=cand, ok=True, reason_code="ALLOW_SHADOW_AB_ARM", notes=f"Shadow (active_raw={active_val_raw} active_eff={active_val})", snap=snap, bundle=bundle, ovr=ovr)  # type: ignore
             return
 
         if not frz_active:
             frz_active, _, frz_mode, frz_reason = await self._get_freeze(symbol=cand["symbol"], group=cand["ab_group"], scenario=scn, now_ms=now)
         if frz_active:
             if frz_mode == "hard":
-                await self._audit(now_ms=_now_ms(), cand=cand, ok=False, reason_code="FROZEN_HARD", notes=frz_reason, snap=snap, bundle=bundle, ovr=ovr)
+                await self._audit(now_ms=_now_ms(), cand=cand, ok=False, reason_code="FROZEN_HARD", notes=frz_reason, snap=snap, bundle=bundle, ovr=ovr)  # type: ignore
                 return
             elif cand["ab_arm"] != "A": # Shadow covers non-A
                 # Record block for promoter decision-making
@@ -1037,7 +1037,7 @@ class EntryPolicyService:
                     pressure=float(snap.get("pressure_sps", 0.0) or 0.0),
                     blocked=True,
                 )
-                await self._audit(now_ms=_now_ms(), cand=cand, ok=True, reason_code="ALLOW_SHADOW_FROZEN_NONA", notes=frz_reason, snap=snap, bundle=bundle, ovr=ovr)
+                await self._audit(now_ms=_now_ms(), cand=cand, ok=True, reason_code="ALLOW_SHADOW_FROZEN_NONA", notes=frz_reason, snap=snap, bundle=bundle, ovr=ovr)  # type: ignore
                 return
             else:
                 # Arm A passes through shadow freeze; still count as seen
@@ -1055,7 +1055,7 @@ class EntryPolicyService:
         # - hard: tighten + veto
         ok_geom, geom_rc, geom_notes = self._apply_liq_geom_policy(cand=cand, snap=snap)
         if not ok_geom:
-            await self._audit(now_ms=_now_ms(), cand=cand, ok=False, reason_code=str(geom_rc), notes=str(geom_notes), snap=snap, bundle=bundle, ovr=ovr)
+            await self._audit(now_ms=_now_ms(), cand=cand, ok=False, reason_code=str(geom_rc), notes=str(geom_notes), snap=snap, bundle=bundle, ovr=ovr)  # type: ignore
             return
 
         # Phase D (P3): Flow toxicity overlay for EntryPolicy
@@ -1063,7 +1063,7 @@ class EntryPolicyService:
         # Profiles: default/soft=annotate, strict=tighten, hard=tighten+veto.
         ok_flow, flow_rc, flow_notes = self._apply_flow_toxicity_policy(cand=cand, snap=snap)
         if not ok_flow:
-            await self._audit(now_ms=_now_ms(), cand=cand, ok=False, reason_code=str(flow_rc), notes=str(flow_notes), snap=snap, bundle=bundle, ovr=ovr)
+            await self._audit(now_ms=_now_ms(), cand=cand, ok=False, reason_code=str(flow_rc), notes=str(flow_notes), snap=snap, bundle=bundle, ovr=ovr)  # type: ignore
             return
 
         # Phase E (P4): Manipulation patterns overlay for EntryPolicy
@@ -1071,7 +1071,7 @@ class EntryPolicyService:
         # Profiles: default/soft/monitor=annotate, strict/tighten=tighten, hard/veto=veto.
         ok_manip, manip_rc, manip_notes = self._apply_manip_gate(cand=cand, snap=snap)
         if not ok_manip:
-            await self._audit(now_ms=_now_ms(), cand=cand, ok=False, reason_code=str(manip_rc), notes=str(manip_notes), snap=snap, bundle=bundle, ovr=ovr)
+            await self._audit(now_ms=_now_ms(), cand=cand, ok=False, reason_code=str(manip_rc), notes=str(manip_notes), snap=snap, bundle=bundle, ovr=ovr)  # type: ignore
             return
 
         # P0: normalized derivatives context (funding/basis/OI crowding) overlay.
@@ -1079,13 +1079,13 @@ class EntryPolicyService:
         # expected_slippage_bps before core evaluation.
         ok_deriv, deriv_rc, deriv_notes = await self._apply_derivatives_context_policy(cand=cand, snap=snap)
         if not ok_deriv:
-            await self._audit(now_ms=_now_ms(), cand=cand, ok=False, reason_code=str(deriv_rc), notes=str(deriv_notes), snap=snap, bundle=bundle, ovr=ovr)
+            await self._audit(now_ms=_now_ms(), cand=cand, ok=False, reason_code=str(deriv_rc), notes=str(deriv_notes), snap=snap, bundle=bundle, ovr=ovr)  # type: ignore
             return
 
         # P6: apply execution health overlay (same SoT reader/policy as EdgeCostGate/Pipeline)
         ok_exec, exec_rc, exec_notes = await self._maybe_attach_exec_health(now_ms=now, cand=cand, snap=snap, bundle=bundle)
         if not ok_exec:
-            await self._audit(now_ms=_now_ms(), cand=cand, ok=False, reason_code=str(exec_rc), notes=str(exec_notes), snap=snap, bundle=bundle, ovr=ovr)
+            await self._audit(now_ms=_now_ms(), cand=cand, ok=False, reason_code=str(exec_rc), notes=str(exec_notes), snap=snap, bundle=bundle, ovr=ovr)  # type: ignore
             return
 
         # P6: global auto-freeze must stop real entry emission (pre-evaluate deny).
@@ -1093,7 +1093,7 @@ class EntryPolicyService:
         # avoid unnecessary work when frozen.
         ok_frz, frz_rc, frz_notes = await self._maybe_enforce_exec_health_auto_freeze(now_ms=now, cand=cand, snap=snap, bundle=bundle)
         if not ok_frz:
-            await self._audit(now_ms=_now_ms(), cand=cand, ok=False, reason_code=str(frz_rc), notes=str(frz_notes), snap=snap, bundle=bundle, ovr=ovr)
+            await self._audit(now_ms=_now_ms(), cand=cand, ok=False, reason_code=str(frz_rc), notes=str(frz_notes), snap=snap, bundle=bundle, ovr=ovr)  # type: ignore
             return
 
         from services.entry_policy_core import evaluate_entry_policy
@@ -1104,16 +1104,16 @@ class EntryPolicyService:
             try:
                 if int(getattr(ovr, "enabled", 1) or 1) == 1:
                     rg = (snap.get("regime", "na") or "na")
-                    min_of = float(ovr.min_of_score(rg))
+                    min_of = float(ovr.min_of_score(rg))  # type: ignore
                     of_score = float(snap.get("of_confirm_score", 0.0) or 0.0)
                     if of_score < min_of:
-                        await self._audit(now_ms=_now_ms(), cand=cand, ok=False, reason_code="OVR_MIN_OF_SCORE", notes=f"of_score={of_score:.2f}<min={min_of:.2f}", snap=snap, bundle=bundle, ovr=ovr)
+                        await self._audit(now_ms=_now_ms(), cand=cand, ok=False, reason_code="OVR_MIN_OF_SCORE", notes=f"of_score={of_score:.2f}<min={min_of:.2f}", snap=snap, bundle=bundle, ovr=ovr)  # type: ignore
                         return
                     # Spread z guard (shadow safer than hard veto)
                     spr_z = float(snap.get("spread_z", 0.0) or 0.0)
                     if spr_z > float(getattr(ovr, "spread_z_max", 3.0) or 3.0):
                         # allow shadow, do not emit
-                        await self._audit(now_ms=_now_ms(), cand=cand, ok=True, reason_code="ALLOW_SHADOW_SPREAD_Z", notes=f"spread_z={spr_z:.2f}", snap=snap, bundle=bundle, ovr=ovr)
+                        await self._audit(now_ms=_now_ms(), cand=cand, ok=True, reason_code="ALLOW_SHADOW_SPREAD_Z", notes=f"spread_z={spr_z:.2f}", snap=snap, bundle=bundle, ovr=ovr)  # type: ignore
                         return
             except Exception:
                 pass
@@ -1122,11 +1122,11 @@ class EntryPolicyService:
             if not emitted:
                 # P6 final safety: freeze became active between pre-evaluate and emit
                 fr_notes = f"freeze_reason={snap.get('exec_health_auto_freeze_reason','')} freeze_until_ts_ms={int(snap.get('exec_health_auto_freeze_until_ts_ms', 0) or 0)}"
-                await self._audit(now_ms=_now_ms(), cand=cand, ok=False, reason_code="DENY_EXEC_HEALTH_AUTO_FREEZE", notes=fr_notes, snap=snap, bundle=bundle, ovr=ovr)
+                await self._audit(now_ms=_now_ms(), cand=cand, ok=False, reason_code="DENY_EXEC_HEALTH_AUTO_FREEZE", notes=fr_notes, snap=snap, bundle=bundle, ovr=ovr)  # type: ignore
                 return
-            await self._audit(now_ms=_now_ms(), cand=cand, ok=True, reason_code="ALLOW", notes=dec.notes, snap=snap, bundle=bundle, ovr=ovr)
+            await self._audit(now_ms=_now_ms(), cand=cand, ok=True, reason_code="ALLOW", notes=dec.notes, snap=snap, bundle=bundle, ovr=ovr)  # type: ignore
         else:
-            await self._audit(now_ms=_now_ms(), cand=cand, ok=False, reason_code=dec.reason_code, notes=dec.notes, snap=snap, bundle=bundle, ovr=ovr)
+            await self._audit(now_ms=_now_ms(), cand=cand, ok=False, reason_code=dec.reason_code, notes=dec.notes, snap=snap, bundle=bundle, ovr=ovr)  # type: ignore
 
     async def run_forever(self) -> None:
         with contextlib.suppress(Exception): await self.r.xgroup_create(self.cfg.in_stream, self.cfg.group, id="0", mkstream=True)

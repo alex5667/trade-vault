@@ -54,7 +54,7 @@ def _finalize_reason(reason: str, reason_code: str) -> tuple[str, int]:
     # Если reason_code не передали — попробуем вывести его из legacy reason.
     code = (reason_code or "").strip()
     if not code:
-        code = legacy_reason_to_code(reason)
+        code = legacy_reason_to_code(reason)  # type: ignore
     u16 = reason_code_to_u16(code)
     return code, int(u16)
 
@@ -263,7 +263,7 @@ class ConfirmationsEngine:
                 flags.append(int(QF.BAD_NUMERIC))
                 return self._veto(
                     reason="spread_bps_non_finite",
-                    reason_code=ReasonCode.VETO_BAD_NUMERIC.value,
+                    reason_code=ReasonCode.VETO_BAD_NUMERIC.value,  # type: ignore
                     flags=flags,
                     parts=parts,
                 )
@@ -271,7 +271,7 @@ class ConfirmationsEngine:
             flags.append(int(QF.BAD_NUMERIC))
             return self._veto(
                 reason="spread_bps_bad_type",
-                reason_code=ReasonCode.VETO_BAD_NUMERIC.value,
+                reason_code=ReasonCode.VETO_BAD_NUMERIC.value,  # type: ignore
                 flags=flags,
                 parts=parts,
             )

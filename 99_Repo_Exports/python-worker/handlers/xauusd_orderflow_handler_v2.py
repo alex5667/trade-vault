@@ -24,7 +24,7 @@ class XAUUSDOrderFlowHandlerV2(BaseOrderFlowHandler):
     Переопределяет только специфику инструмента.
     """
 
-    def __init__(self, config: OrderFlowConfig = None, *, health_metrics: object | None = None, dependencies: HandlerDependencies | None = None):
+    def __init__(self, config: OrderFlowConfig = None, *, health_metrics: object | None = None, dependencies: HandlerDependencies | None = None):  # type: ignore
         """
         Инициализация обработчика для XAUUSD.
 
@@ -73,7 +73,7 @@ class XAUUSDOrderFlowHandlerV2(BaseOrderFlowHandler):
         """
         # Получаем текущую цену из последнего тика (если доступно)
         try:
-            last_tick = self.redis_client.xrevrange(self.tick_stream, count=1)
+            last_tick = self.redis_client.xrevrange(self.tick_stream, count=1)  # type: ignore
             if last_tick:
                 fields = last_tick[0][1]
                 bid = float(fields.get("bid", 0))

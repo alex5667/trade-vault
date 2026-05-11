@@ -111,8 +111,8 @@ def run_pipeline(*, redis_url: str, window_hours: float, window_days: int, out_d
     Returns (markdown, json_obj).
     """
     # Lazy imports (so unit tests can import service without tools path issues)
-    from tools.export_trade_closed_ndjson import iter_position_closed
-    from tools.tm_policy_tuner import compute_stats, recommend_tiers, render_markdown
+    from tools.export_trade_closed_ndjson import iter_position_closed  # type: ignore
+    from tools.tm_policy_tuner import compute_stats, recommend_tiers, render_markdown  # type: ignore
 
     r = redis.from_url(redis_url, decode_responses=True)
     now = _now_ms()

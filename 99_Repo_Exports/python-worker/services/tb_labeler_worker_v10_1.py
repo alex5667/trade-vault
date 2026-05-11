@@ -37,19 +37,19 @@ class _NoopMetric:
 
 _METRICS_ENABLE = os.getenv("TB_METRICS_ENABLE", "1") == "1" and Counter is not None
 
-TB_JOBS_TOTAL = Counter("tb_label_jobs_total", "TB labeler jobs processed", ["status"]) if _METRICS_ENABLE else _NoopMetric()
-TB_INPUT_LOOKUP_TOTAL = Counter(
+TB_JOBS_TOTAL = Counter("tb_label_jobs_total", "TB labeler jobs processed", ["status"]) if _METRICS_ENABLE else _NoopMetric()  # type: ignore
+TB_INPUT_LOOKUP_TOTAL = Counter(  # type: ignore
     "tb_label_input_lookup_total", "How OF input was looked up", ["mode"]
 ) if _METRICS_ENABLE else _NoopMetric()
-TB_INPUT_LOOKUP_MS = Histogram(
+TB_INPUT_LOOKUP_MS = Histogram(  # type: ignore
     "tb_label_input_lookup_ms", "OF input lookup latency (ms)", buckets=(1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000)
 ) if _METRICS_ENABLE else _NoopMetric()
-TB_INPUT_LAG_MS = Gauge("tb_label_input_lag_ms", "Lag between now and input ts_ms") if _METRICS_ENABLE else _NoopMetric()
-TB_LABEL_WRITE_TOTAL = Counter("tb_label_write_total", "TB labels written") if _METRICS_ENABLE else _NoopMetric()
-TB_TICK_FETCH_MS = Histogram(
+TB_INPUT_LAG_MS = Gauge("tb_label_input_lag_ms", "Lag between now and input ts_ms") if _METRICS_ENABLE else _NoopMetric()  # type: ignore
+TB_LABEL_WRITE_TOTAL = Counter("tb_label_write_total", "TB labels written") if _METRICS_ENABLE else _NoopMetric()  # type: ignore
+TB_TICK_FETCH_MS = Histogram(  # type: ignore
     "tb_label_tick_fetch_ms", "Tick fetch latency (ms)", buckets=(1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000)
 ) if _METRICS_ENABLE else _NoopMetric()
-TB_TICKS_USED = Histogram(
+TB_TICKS_USED = Histogram(  # type: ignore
     "tb_label_ticks_used", "Number of ticks used per label job", buckets=(50, 100, 200, 500, 1000, 2000, 5000, 10000, 50000)
 ) if _METRICS_ENABLE else _NoopMetric()
 
@@ -356,7 +356,7 @@ class TBLabelerWorker:
                         AND table_name = 'tb_labels'
                     );
                 """)
-                exists = cur.fetchone()[0]
+                exists = cur.fetchone()[0]  # type: ignore
                 if not exists:
                     # Apply migration
                     migration_sql = """
@@ -431,10 +431,10 @@ class TBLabelerWorker:
             "direction": direction,
             "indicators": {
                 # keep minimal set
-                "stop_bps": indicators.get("stop_bps", 0.0),
-                "atr_bps": indicators.get("atr_bps", 0.0),
-                "spread_bps": indicators.get("spread_bps", 0.0),
-                "expected_slippage_bps": indicators.get("expected_slippage_bps", 0.0),
+                "stop_bps": indicators.get("stop_bps", 0.0),  # type: ignore
+                "atr_bps": indicators.get("atr_bps", 0.0),  # type: ignore
+                "spread_bps": indicators.get("spread_bps", 0.0),  # type: ignore
+                "expected_slippage_bps": indicators.get("expected_slippage_bps", 0.0),  # type: ignore
             }
         }
         self.r.set(job_key, json.dumps(job, ensure_ascii=False, separators=(",", ":")), ex=TB_JOB_TTL_SEC)
@@ -484,7 +484,7 @@ class TBLabelerWorker:
                 entry_px = ticks[0][1] if ticks else 0.0
 
                 b = infer_tp_sl_bps(
-                    indicators,
+                    indicators,  # type: ignore
                     tp_k_atr=TP_K_ATR,
                     sl_k_atr=SL_K_ATR,
                     fallback_tp_bps=FALLBACK_TP_BPS,
@@ -509,7 +509,7 @@ class TBLabelerWorker:
                     "tp_bps": float(b.tp_bps),
                     "sl_bps": float(b.sl_bps),
                     "scale_bps": float(b.scale_bps),
-                    "exec_cost_r": exec_cost_r(indicators, b.scale_bps),
+                    "exec_cost_r": exec_cost_r(indicators, b.scale_bps),  # type: ignore
                 }
                 meta["util_r"] = float(primary.get("r_mult", 0.0) or 0.0) - float(meta["exec_cost_r"])  # risk penalty can be added later
 
@@ -651,7 +651,7 @@ class TBLabelerWorker:
 
                             # expect sid/symbol/ts_ms/direction/indicators in payload
                             # fallback to msg_id if sid is missing
-                            self.enqueue_job(inp, msg_id=msg_id)
+                            self.enqueue_job(inp, msg_id=msg_id)  # type: ignore
                             self.r.xack(OF_INPUTS_STREAM, group, msg_id)
             except redis.exceptions.ResponseError as e:
                 if "NOGROUP" in str(e):

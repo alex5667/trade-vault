@@ -15,10 +15,10 @@ class ActiveArmStabilizer:
     hold_down_ms: int = 10 * 60_000
     min_switch_gap_ms: int = 30 * 60_000
 
-    _eff: dict[str, str] = None
-    _eff_ts: dict[str, int] = None
-    _cand: dict[str, str] = None
-    _cand_ts: dict[str, int] = None
+    _eff: dict[str, str] = None  # type: ignore
+    _eff_ts: dict[str, int] = None  # type: ignore
+    _cand: dict[str, str] = None  # type: ignore
+    _cand_ts: dict[str, int] = None  # type: ignore
 
     def __post_init__(self) -> None:
         if self._eff is None:

@@ -108,7 +108,7 @@ class BinanceActiveSymbolGuardRepairWorker:
         self.r = (
             redis_client
             if redis_client is not None
-            else redis.from_url(self.redis_url, decode_responses=True)
+            else redis.from_url(self.redis_url, decode_responses=True)  # type: ignore
         )
         self.client = (
             client

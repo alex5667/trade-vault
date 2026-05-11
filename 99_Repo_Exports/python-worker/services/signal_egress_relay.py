@@ -155,19 +155,19 @@ class SignalEgressRelay:
             if self._sha_notify:
                 return self._sha_notify
             self._sha_notify = self.dual.script_load(_LUA_NOTIFY_XADD_FIELDS_THEN_MARK)
-            return self._sha_notify
+            return self._sha_notify  # type: ignore
         if which == "data":
             if self._sha_data:
                 return self._sha_data
             self._sha_data = self.dual.script_load(_LUA_XADD_DATA_THEN_MARK)
-            return self._sha_data
+            return self._sha_data  # type: ignore
         raise ValueError(which)
 
     def _ensure_finalize_sha(self) -> str:
         if self._sha_finalize:
             return self._sha_finalize
         self._sha_finalize = self.main.script_load(_LUA_ENV_FINALIZE)
-        return self._sha_finalize
+        return self._sha_finalize  # type: ignore
 
     def _try_finalize(self, sid: str) -> bool:
         sha = self._ensure_finalize_sha()
@@ -200,7 +200,7 @@ class SignalEgressRelay:
         dest_stream = str(msg.get("dest_stream") or os.getenv("NOTIFY_STREAM", RS.NOTIFY_TELEGRAM))
         payload = msg.get("payload") or {}
         every_n = int(msg.get("every_n") or 1)
-        counter_key = str(msg.get("counter_key") or os.getenv("NOTIFY_SIGNAL_COUNTER_KEY", RS.NOTIFY_SIGNAL_COUNTER))
+        counter_key = str(msg.get("counter_key") or os.getenv("NOTIFY_SIGNAL_COUNTER_KEY", RS.NOTIFY_SIGNAL_COUNTER))  # type: ignore
 
         if not sid:
             raise ValueError("missing sid")
@@ -285,7 +285,7 @@ class SignalEgressRelay:
             logger.error("dual redis is None; cannot run egress relay")
             return
 
-        helper = SyncRedisStreamHelper(self.main, self.group, self.consumer, group_start_id="0")
+        helper = SyncRedisStreamHelper(self.main, self.group, self.consumer, group_start_id="0")  # type: ignore
         helper.ensure_groups([self.egress_notify_stream, self.egress_manual_stream])
         logger.info("SignalEgressRelay started group=%s consumer=%s", self.group, self.consumer)
 

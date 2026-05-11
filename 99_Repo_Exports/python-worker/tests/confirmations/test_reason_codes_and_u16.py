@@ -17,7 +17,7 @@ class _Metrics:
 
 
 class _BreakoutValidator:
-    def confirm(self, *, ctx, side, level_price):
+    def confirm(self, *, ctx, l2, side, level_price):
         # force wall veto (structured)
         return types.SimpleNamespace(veto=True, score01=0.0, reason="near_big_wall", reason_code="VETO_WALL_NEAR", reason_u16=0, flags={}, reasons=["near_big_wall"])
 

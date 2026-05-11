@@ -21,10 +21,10 @@ except Exception:  # pragma: no cover
 
     _path = Path(__file__).resolve().with_name("risk_policy_engine.py")
     _spec = importlib.util.spec_from_file_location("risk_policy_engine", _path)
-    _mod = importlib.util.module_from_spec(_spec)
-    sys.modules[_spec.name] = _mod
-    assert _spec.loader is not None
-    _spec.loader.exec_module(_mod)
+    _mod = importlib.util.module_from_spec(_spec)  # type: ignore
+    sys.modules[_spec.name] = _mod  # type: ignore
+    assert _spec.loader is not None  # type: ignore
+    _spec.loader.exec_module(_mod)  # type: ignore
     for _name in dir(_mod):
         if not _name.startswith("_"):
             globals()[_name] = getattr(_mod, _name)

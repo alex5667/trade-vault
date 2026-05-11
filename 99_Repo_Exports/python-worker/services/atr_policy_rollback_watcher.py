@@ -52,9 +52,9 @@ c_partial_loss_recovery = Counter(
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 def _redis() -> redis.Redis:
-    if get_atr_redis is not None:
-        return get_atr_redis()
-    return redis.Redis.from_url(os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0"), decode_responses=True)
+    if get_atr_redis is not None:  # type: ignore
+        return get_atr_redis()  # type: ignore
+    return redis.Redis.from_url(os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0"), decode_responses=True)  # type: ignore
 
 
 def _enable() -> bool:
@@ -126,8 +126,8 @@ def rollback_to_last_good(
     active_key = _active_key(policy_ref)
     ks_key = _kill_switch_key(policy_ref)
 
-    raw_lg = r.get(lg_key)
-
+    raw_lg = r.get(lg_key)  # type: ignore
+  # type: ignore
     if raw_lg:
         # ── Path 1: last_good available → restore ─────────────────────────
         try:
@@ -168,8 +168,8 @@ def rollback_to_last_good(
             return result
 
         # Actually restore
-        r.set(active_key, raw_lg)
-        c_rollback_total.labels(reason_code=reason).inc()
+        r.set(active_key, raw_lg)  # type: ignore
+        c_rollback_total.labels(reason_code=reason).inc()  # type: ignore
         c_partial_loss_recovery.labels(status="restored_from_last_good").inc()
         result = {
             "rollback_ok": True,
@@ -268,8 +268,8 @@ def clear_kill_switch(
     ks_key = _kill_switch_key(policy_ref)
     now_ms = int(time.time() * 1000)
     try:
-        r.delete(ks_key)
-        _publish(r, STREAM_ESC, {
+        r.delete(ks_key)  # type: ignore
+        _publish(r, STREAM_ESC, {  # type: ignore
             "event": "KILL_SWITCH_CLEARED",
             **{k: policy_ref.get(k, "") for k in (
                 "source", "symbol", "scenario", "regime", "risk_horizon_bucket"

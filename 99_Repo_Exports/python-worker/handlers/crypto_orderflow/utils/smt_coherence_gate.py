@@ -94,7 +94,7 @@ def _sync_get(val: Any) -> Any:
         try:
             loop = asyncio.get_event_loop()
             if loop.is_running():
-                val.close()
+                val.close()  # type: ignore
                 return None
             return loop.run_until_complete(val)
         except RuntimeError:

@@ -199,7 +199,7 @@ def get_active_invariants() -> list[dict[str, Any]]:
     try:
         with get_conn() as conn, conn.cursor(cursor_factory=__import__('psycopg2').extras.RealDictCursor) as cur:
             cur.execute("SELECT * FROM atr_invariants WHERE is_enabled = true")
-            return cur.fetchall()
+            return cur.fetchall()  # type: ignore
     except Exception as e:
         logger.error(f"Failed to fetch active invariants from DB: {e}")
         return [inv for inv in INITIAL_INVARIANTS]

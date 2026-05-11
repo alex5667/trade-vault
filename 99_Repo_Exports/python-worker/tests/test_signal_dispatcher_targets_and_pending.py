@@ -1,5 +1,6 @@
-from collections import defaultdict
+import collections
 from types import SimpleNamespace
+from typing import Any
 from core.redis_keys import RedisStreams as RS
 
 
@@ -35,6 +36,9 @@ class _FakeRedis:
     def expire(self, *a, **k):
         return True
 
+    def script_load(self, *a, **k):
+        return "sha123"
+
 
 class _FakeHelper:
     def __init__(self):
@@ -42,7 +46,7 @@ class _FakeHelper:
         self._claim_seq = []
 
     def ack(self, stream, msg_id):
-        self.acked.append((str(stream), str(msg_id)))
+        self.acked.append((stream, msg_id))
         return 1
 
     def claim_pending(self, stream, min_idle_ms, start_id, count):
@@ -56,17 +60,20 @@ def _mk_sd():
     import services.dispatch.dispatcher_app
     from services.dispatch.dispatcher_app import SignalDispatcher
     original_get_redis = services.dispatch.dispatcher_app.get_redis
-    services.dispatch.dispatcher_app.get_redis = lambda: _FakeRedis()
+    services.dispatch.dispatcher_app.get_redis = lambda *a, **k: _FakeRedis()
 
     try:
         sd = SignalDispatcher()
         sd.simple_redis = sd.redis
         sd.dual_redis = sd.redis
+        sd._r = lambda: sd.redis  # type: ignore[method-assign]
 
-        sd._ctr = defaultdict(int)
+        sd._ctr = collections.defaultdict(int)
         sd._pending_claimed = 0
         sd.dlq_maxlen = 1000
         sd.outbox_stream = RS.SIGNAL_OUTBOX
+        sd.env_done_prefix = "done:sid"
+        sd.delivery_marker_ttl_sec = 3600
 
         # make leases always available in unit tests
         sd._try_acquire_lease = lambda msg_id: True
@@ -75,7 +82,7 @@ def _mk_sd():
         sd._remember_ack_retry = lambda stream, msg_id: None
 
         # _r() used by _is_outbox_done
-        sd._r = lambda: sd.redis
+        sd._r = lambda: sd.redis  # type: ignore[method-assign]
         return sd
     finally:
         services.dispatch.dispatcher_app.get_redis = original_get_redis
@@ -87,17 +94,20 @@ def test_handle_read_messages_processes_messages_correctly():
     helper = _FakeHelper()
 
     marks = []
-    sd._mark_outbox_done = lambda msg_id: marks.append(str(msg_id))
+    sd._mark_outbox_done = lambda msg_id: marks.append(msg_id)
     sd.outbox_stream = RS.SIGNAL_OUTBOX
 
     # msg A => ack_now True, msg B => ack_now False
-    def _handle_one(msg_id, fields):
+    def _handle_env(msg_id, env, sid):
         return msg_id == "A"
 
-    sd._handle_one = _handle_one
+    sd._handle_env = _handle_env
 
     messages = [
-        (sd.outbox_stream, [SimpleNamespace(msg_id="A", fields={"data": "{}"}), SimpleNamespace(msg_id="B", fields={"data": "{}"})])
+        (sd.outbox_stream, [
+            SimpleNamespace(msg_id="A", fields={"data": '{"sid": "A", "meta": {}, "targets": {"notify": {}}}'}),
+            SimpleNamespace(msg_id="B", fields={"data": '{"sid": "B", "meta": {}, "targets": {"notify": {}}}'})
+        ])
     ]
 
     sd._handle_read_messages(helper, messages)
@@ -113,18 +123,17 @@ def test_maybe_claim_pending_processes_all_batches_not_only_last():
 
     # claim two batches; previously only second would be processed
     helper._claim_seq = [
-        ("1-0", [SimpleNamespace(msg_id="10-0", fields={"data": "{}"}), SimpleNamespace(msg_id="11-0", fields={"data": "{}"})]),
-        ("2-0", [SimpleNamespace(msg_id="12-0", fields={"data": "{}"})]),
+        ("1-0", [SimpleNamespace(msg_id="10-0", fields={"data": '{"sid": "10-0", "meta": {}, "targets": {"notify": {}}}'}), SimpleNamespace(msg_id="11-0", fields={"data": '{"sid": "11-0", "meta": {}, "targets": {"notify": {}}}'})]),
+        ("2-0", [SimpleNamespace(msg_id="12-0", fields={"data": '{"sid": "12-0", "meta": {}, "targets": {"notify": {}}}'})]),
         ("0-0", []),
     ]
 
     called = []
-    def mock_process(*a, **k):
-        called.append(k.get("msg_id"))
-        # Simulate successful processing and ACK
-        msg_id = k.get("msg_id")
-        helper.ack(k.get("stream"), msg_id)
-    sd._process_outbox_message = mock_process
+    def mock_process(msg_id, env, sid):
+        called.append(msg_id)
+        # Simulate successful processing
+        return True
+    sd._handle_env = mock_process
 
     # make claim happen now
     sd.claim_every_ms = 0
@@ -134,7 +143,7 @@ def test_maybe_claim_pending_processes_all_batches_not_only_last():
     sd._pending_start_id = "0-0"
     sd._last_claim_mono = 0.0
 
-    sd._maybe_claim_pending(helper)
+    sd._maybe_claim_pending(helper)  # type: ignore[arg-type]
 
     assert called == ["10-0", "11-0", "12-0"]
     assert (RS.SIGNAL_OUTBOX, "10-0") in helper.acked
@@ -147,17 +156,20 @@ def test_handle_read_messages_marks_outbox_done_only_on_ack_now_true():
     helper = _FakeHelper()
 
     marks = []
-    sd._mark_outbox_done = lambda msg_id: marks.append(str(msg_id))
+    sd._mark_outbox_done = lambda msg_id: marks.append(msg_id)
     sd.outbox_stream = RS.SIGNAL_OUTBOX
 
     # msg A => ack_now True, msg B => ack_now False
-    def _handle_one(msg_id, fields):
+    def _handle_env(msg_id, env, sid):
         return msg_id == "A"
 
-    sd._handle_one = _handle_one
+    sd._handle_env = _handle_env
 
     messages = [
-        (sd.outbox_stream, [SimpleNamespace(msg_id="A", fields={"data": "{}"}), SimpleNamespace(msg_id="B", fields={"data": "{}"})])
+        (sd.outbox_stream, [
+            SimpleNamespace(msg_id="A", fields={"data": '{"sid": "A", "meta": {}, "targets": {"notify": {}}}'}),
+            SimpleNamespace(msg_id="B", fields={"data": '{"sid": "B", "meta": {}, "targets": {"notify": {}}}'})
+        ])
     ]
 
     sd._handle_read_messages(helper, messages)

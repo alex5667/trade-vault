@@ -450,15 +450,16 @@ redis.call("XACK", KEYS[1], KEYS[3], msg_id)
 return 1
 """
 
+    @property
+    def redis(self):
+        return self._redis
+    
+    @redis.setter
+    def redis(self, val):
+        self._redis = val
+
     def __init__(self, redis_client: Any, logger: logging.Logger | None = None):
-        """
-        Initialize Lua script manager.
-        
-        Args:
-            redis_client: Redis client instance
-            logger: Optional logger for debugging
-        """
-        self.redis = redis_client
+        self._redis = redis_client
         self.logger = logger or logging.getLogger(__name__)
         self._sha_cache: dict[str, str] = {}
         self._scripts: dict[str, str] = {
@@ -480,7 +481,7 @@ return 1
             "zpop_due": self.ZPOP_DUE,
         }
 
-    def get_sha(self, script_name: str) -> str:
+    async def get_sha(self, script_name: str) -> str:
         """
         Get SHA hash for script, loading if needed.
         
@@ -498,13 +499,13 @@ return 1
 
         if script_name not in self._sha_cache:
             script = self._scripts[script_name]
-            sha = self.redis.script_load(script)
+            sha = await self.redis.script_load(script)
             self._sha_cache[script_name] = sha
             self.logger.debug(f"Loaded script {script_name}: {sha[:8]}...")
 
         return self._sha_cache[script_name]
 
-    def execute(
+    async def execute(
         self,
         script_name: str,
         keys: list[str],
@@ -525,37 +526,27 @@ return 1
         """
         target_client = client or self.redis
         try:
-            # We need SHA from the target client?
-            # Scripts might not be loaded on target_client.
-            # But get_sha() loads on self.redis only?
-            # Ideally target_client should load it too.
-            # Let's try to use SHA derived from self.redis (it's constant for script content).
-            # But we must ensure it's loaded on target_client.
-
-            sha = self.get_sha(script_name) # This ensures loaded on self.redis.
+            sha = await self.get_sha(script_name)
 
             # Try running on target_client
             try:
-                return target_client.evalsha(sha, len(keys), *keys, *args)
+                return await target_client.evalsha(sha, len(keys), *keys, *args)
             except Exception as e:
                 if "NOSCRIPT" in str(e):
                      # Load on target client then retry
                      script = self._scripts[script_name]
-                     new_sha = target_client.script_load(script)
-                     return target_client.evalsha(new_sha, len(keys), *keys, *args)
+                     new_sha = await target_client.script_load(script)
+                     return await target_client.evalsha(new_sha, len(keys), *keys, *args)
                 raise
         except Exception as e:
-             # Fallback to eval if evalsha fails (and not just noscript handled above)
              if "NOSCRIPT" in str(e):
-                 # This path shouldn't be reached if inner try/except handles it,
-                 # but for safety:
                  self.logger.debug(f"SHA not found for {script_name}, using eval")
                  script = self._scripts[script_name]
-                 return target_client.eval(script, len(keys), *keys, *args)
+                 return await target_client.eval(script, len(keys), *keys, *args)
              raise
 
-    def preload_all(self) -> None:
+    async def preload_all(self) -> None:
         """Preload all scripts to Redis."""
         for script_name in self._scripts:
-            self.get_sha(script_name)
+            await self.get_sha(script_name)
         self.logger.info(f"Preloaded {len(self._scripts)} Lua scripts")

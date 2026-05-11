@@ -30,14 +30,14 @@ class OFITracker:
                      # good value and set a diagnostic flag on runtime.
                      if spr > 0 and mid > 0:
                          runtime.last_spread_bps_l2 = float((spr / mid) * 10_000.0)
-                         runtime.last_spread_bps_l2_ts_ms = int(book_ts_ms)  # track freshness
-                         runtime.book_crossed = 0
+                         runtime.last_spread_bps_l2_ts_ms = int(book_ts_ms)  # track freshness  # type: ignore
+                         runtime.book_crossed = 0  # type: ignore
                          # Mark first successful book snapshot (used for cold-start grace period)
                          if not getattr(runtime, "first_book_ts_ms", 0):
-                             runtime.first_book_ts_ms = int(book_ts_ms)
+                             runtime.first_book_ts_ms = int(book_ts_ms)  # type: ignore
                      else:
                          # Crossed or zero spread: annotate but preserve last good value
-                         runtime.book_crossed = 1
+                         runtime.book_crossed = 1  # type: ignore
 
                      # Depth USD (Top 5)
                      db = 0.0; da = 0.0
@@ -52,7 +52,7 @@ class OFITracker:
                      # L3-lite book updates (ETA fill, cancel-to-trade proxies)
                      try:
                          if getattr(runtime, "l3_stats", None) is not None:
-                             runtime.l3_stats.on_book(book_ts_ms, depth_bid_5=float(db), depth_ask_5=float(da))
+                             runtime.l3_stats.on_book(book_ts_ms, depth_bid_5=float(db), depth_ask_5=float(da))  # type: ignore
                      except Exception:
                          pass
 
@@ -123,21 +123,21 @@ class OFITracker:
                  elif curr_a_px == prev_a_px: delta_ask = curr_a_q - prev_a_q
 
                  # Store OFI (signed, positive = buying pressure)
-                 runtime.last_ofi = delta_bid - delta_ask
+                 runtime.last_ofi = delta_bid - delta_ask  # type: ignore
 
                  # P1 OFI EMA track for better stability
                  ofi_alpha = float(runtime.config.get("ofi_ema_alpha", 0.1))
                  if getattr(runtime, "last_ofi_ema", None) is None:
-                     runtime.last_ofi_ema = runtime.last_ofi
+                     runtime.last_ofi_ema = runtime.last_ofi  # type: ignore
                  else:
-                     runtime.last_ofi_ema = ofi_alpha * runtime.last_ofi + (1 - ofi_alpha) * runtime.last_ofi_ema
+                     runtime.last_ofi_ema = ofi_alpha * runtime.last_ofi + (1 - ofi_alpha) * runtime.last_ofi_ema  # type: ignore
 
              # OFI Update
              try:
-                 ev = runtime.ofi_tracker.update(
+                 ev = runtime.ofi_tracker.update(  # type: ignore
                      ts_ms=book_ts_ms,
-                     bid_px=bb_px, bid_qty=bb_q,
-                     ask_px=ba_px, ask_qty=ba_q,
+                     bid_px=bb_px, bid_qty=bb_q,  # type: ignore
+                     ask_px=ba_px, ask_qty=ba_q,  # type: ignore
                  )
                  if ev is not None:
                      # Reclaim Bonus Logic
@@ -149,7 +149,7 @@ class OFITracker:
                          pass
 
                      runtime.last_ofi_event = {
-                         "ts_ms": _safe_int(ev.ts_ms),
+                         "ts_ms": _safe_int(ev.ts_ms),  # type: ignore
                          "direction": str(ev.direction),
                          "ofi": float(ev.ofi),
                          "ofi_usd": float(ev.ofi_usd),
@@ -175,7 +175,7 @@ class OFITracker:
                      )
                      depth_qty = float(min(snap.depth_5_bid_vol, snap.depth_5_ask_vol))
                      ofi_z, stable_secs, score = runtime.ofi_tracker.update(
-                         ts_ms=_safe_int(book_ts_ms),
+                         ts_ms=_safe_int(book_ts_ms),  # type: ignore
                          ofi=float(ofi_raw),
                          depth_qty=depth_qty,
                          deadband_abs=float(runtime.config.get("ofi_deadband_abs", 0.0) or 0.0),
@@ -185,12 +185,12 @@ class OFITracker:
                      is_stable = bool(stable_secs >= 1.0 and score >= 0.8)
 
                      ev_ofi = {
-                         "ts_ms": _safe_int(book_ts_ms),
+                         "ts_ms": _safe_int(book_ts_ms),  # type: ignore
                          "ofi": float(ofi_raw),
                          "ofi_z": float(ofi_z),
                          "stable_secs": float(stable_secs),
                          "stability_score": float(score),
-                         "stable": _safe_int(is_stable),
+                         "stable": _safe_int(is_stable),  # type: ignore
                      }
                      runtime.last_ofi_event = ev_ofi
                  except Exception:

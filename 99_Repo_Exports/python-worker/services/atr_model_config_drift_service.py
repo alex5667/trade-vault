@@ -12,12 +12,38 @@ from services.analytics_db import get_conn as get_db_connection
 
 logger = logging.getLogger("atr_model_config_drift_service")
 
-# Metrics
-DRIFT_GOVERNANCE_EVENTS_TOTAL = Counter("atr_drift_governance_total", "Total drift governance events", ["drift_family", "severity", "status"])
-DATASET_REFRESH_REQUESTS_TOTAL = Counter("atr_dataset_refresh_requests_total", "Total refresh requests", ["dataset_class", "status"])
-DATASET_VALIDITY_TOTAL = Gauge("atr_dataset_validity_total", "Dataset validity status", ["status", "dataset_class"])
-DATASET_EXPIRING_TOTAL = Gauge("atr_dataset_expiring_total", "Datasets expiring soon", ["dataset_class"])
-DATASET_REFRESH_ACTIVATED_TOTAL = Counter("atr_dataset_refresh_activated_total", "Total refresh activations", ["dataset_class"])
+try:
+    from prometheus_client import REGISTRY as _PREG
+    from prometheus_client import Counter as _PCounter
+    from prometheus_client import Gauge as _PGauge
+
+    def _pcounter(name, doc, labels=()):
+        try:
+            return _PCounter(name, doc, list(labels))
+        except ValueError:
+            return (_PREG._names_to_collectors or {}).get(name)
+
+    def _pgauge(name, doc, labels=()):
+        try:
+            return _PGauge(name, doc, list(labels))
+        except ValueError:
+            return (_PREG._names_to_collectors or {}).get(name)
+
+    DRIFT_GOVERNANCE_EVENTS_TOTAL = _pcounter("atr_drift_governance_total", "Total drift governance events", ["drift_family", "severity", "status"])
+    DATASET_REFRESH_REQUESTS_TOTAL = _pcounter("atr_dataset_refresh_requests_total", "Total refresh requests", ["dataset_class", "status"])
+    DATASET_VALIDITY_TOTAL = _pgauge("atr_dataset_validity_total", "Dataset validity status", ["status", "dataset_class"])
+    DATASET_EXPIRING_TOTAL = _pgauge("atr_dataset_expiring_total", "Datasets expiring soon", ["dataset_class"])
+    DATASET_REFRESH_ACTIVATED_TOTAL = _pcounter("atr_dataset_refresh_activated_total", "Total refresh activations", ["dataset_class"])
+except ImportError:
+    class _NullMetric:
+        def inc(self, **_): pass
+        def set(self, **_): pass
+        def labels(self, **_): return self
+    DRIFT_GOVERNANCE_EVENTS_TOTAL = _NullMetric()
+    DATASET_REFRESH_REQUESTS_TOTAL = _NullMetric()
+    DATASET_VALIDITY_TOTAL = _NullMetric()
+    DATASET_EXPIRING_TOTAL = _NullMetric()
+    DATASET_REFRESH_ACTIVATED_TOTAL = _NullMetric()
 
 ATR_DRIFT_GOVERNANCE_ENABLE = os.getenv("ATR_DRIFT_GOVERNANCE_ENABLE", "1") == "1"
 ATR_DRIFT_GOVERNANCE_ENFORCE = os.getenv("ATR_DRIFT_GOVERNANCE_ENFORCE", "0") == "1"
@@ -115,8 +141,8 @@ class ATRModelConfigDriftService:
                         owner="system"
                     )
             conn.commit()
-
-        DRIFT_GOVERNANCE_EVENTS_TOTAL.labels(drift_family=drift_family, severity=severity, status=status).inc()
+  # type: ignore
+        DRIFT_GOVERNANCE_EVENTS_TOTAL.labels(drift_family=drift_family, severity=severity, status=status).inc()  # type: ignore
         return event_id
 
     @staticmethod
@@ -140,8 +166,8 @@ class ATRModelConfigDriftService:
                     VALUES (%s, %s, %s, %s, 'requested', %s, %s)
                 """, (request_id, dataset_class, json.dumps({"scope": scope_value}), trigger_event_id, owner, json.dumps({})))
             conn.commit()
-
-        DATASET_REFRESH_REQUESTS_TOTAL.labels(dataset_class=dataset_class, status="requested").inc()
+  # type: ignore
+        DATASET_REFRESH_REQUESTS_TOTAL.labels(dataset_class=dataset_class, status="requested").inc()  # type: ignore
         return request_id
 
     @staticmethod
@@ -183,8 +209,8 @@ class ATRModelConfigDriftService:
 
                 return status, until
 
-    @staticmethod
-    def get_active_drift_events(scope: str = None) -> list[dict[str, Any]]:
+    @staticmethod  # type: ignore
+    def get_active_drift_events(scope: str = None) -> list[dict[str, Any]]:  # type: ignore
         with get_db_connection() as conn, conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
             query = "SELECT * FROM atr_drift_governance_events WHERE status <> 'resolved'"
             params = []

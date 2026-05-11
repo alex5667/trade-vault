@@ -168,9 +168,9 @@ def ensure_decision_ctx_fields(
         ask = _first_num(ctx, ("decision_ask", "best_ask", "ask", "best_ask_px", "ask_px"))
 
         if bid is None:
-            bid = _first_num(micro, ("best_bid", "best_bid_px", "bid", "bid_px"))
+            bid = _first_num(micro, ("best_bid", "best_bid_px", "bid", "bid_px"))  # type: ignore
         if ask is None:
-            ask = _first_num(micro, ("best_ask", "best_ask_px", "ask", "ask_px"))
+            ask = _first_num(micro, ("best_ask", "best_ask_px", "ask", "ask_px"))  # type: ignore
 
         if (bid is None or ask is None) and runtime is not None:
             try:
@@ -199,7 +199,7 @@ def ensure_decision_ctx_fields(
                 spread_bps = (spread_raw / mid) * 10_000.0
 
         # If spread_bps already exists in micro/indicators, keep it (but prefer computed if sane)
-        micro_spread = _first_num(micro, ("spread_bps",))
+        micro_spread = _first_num(micro, ("spread_bps",))  # type: ignore
         ind_spread = _first_num(indicators, ("spread_bps", "liq_spread_bps"))
         if spread_bps is None:
             spread_bps = micro_spread if micro_spread is not None else ind_spread
@@ -233,10 +233,10 @@ def ensure_decision_ctx_fields(
             ctx[name] = float(fv)
 
         # already computed elsewhere?
-        _maybe_set("decision_depth_bid_5", indicators.get("depth_bid_5") or indicators.get("depth_5_bid_vol") or micro.get("depth_bid_5"))
-        _maybe_set("decision_depth_ask_5", indicators.get("depth_ask_5") or indicators.get("depth_5_ask_vol") or micro.get("depth_ask_5"))
-        _maybe_set("decision_depth_bid_20", indicators.get("depth_bid_20") or micro.get("depth_bid_20"))
-        _maybe_set("decision_depth_ask_20", indicators.get("depth_ask_20") or micro.get("depth_ask_20"))
+        _maybe_set("decision_depth_bid_5", indicators.get("depth_bid_5") or indicators.get("depth_5_bid_vol") or micro.get("depth_bid_5"))  # type: ignore
+        _maybe_set("decision_depth_ask_5", indicators.get("depth_ask_5") or indicators.get("depth_5_ask_vol") or micro.get("depth_ask_5"))  # type: ignore
+        _maybe_set("decision_depth_bid_20", indicators.get("depth_bid_20") or micro.get("depth_bid_20"))  # type: ignore
+        _maybe_set("decision_depth_ask_20", indicators.get("depth_ask_20") or micro.get("depth_ask_20"))  # type: ignore
 
         # fallback from runtime snapshot top5 sums
         if runtime is not None:
@@ -263,7 +263,7 @@ def ensure_decision_ctx_fields(
             _maybe_set("decision_book_slope_ask", getattr(runtime, "lob_depth_slope_ask", None))
 
         # DWS: if already computed elsewhere
-        _maybe_set("decision_dws_bps", indicators.get("dws_bps") or indicators.get("dw_spread_bps") or micro.get("dws_bps"))
+        _maybe_set("decision_dws_bps", indicators.get("dws_bps") or indicators.get("dw_spread_bps") or micro.get("dws_bps"))  # type: ignore
 
         # If still missing, compute a bounded proxy using top5 VWAP bid/ask
         if "decision_dws_bps" not in ctx:

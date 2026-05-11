@@ -34,10 +34,10 @@ os.environ["PROTECTION_REPLACE_MAX_NAKED_MS"] = "3000"
 
 mod_path = Path(__file__).parent.parent / "binance_executor.py"
 spec = importlib.util.spec_from_file_location("binance_executor_scale_in", mod_path)
-mod = importlib.util.module_from_spec(spec)
-sys.modules[spec.name] = mod
-assert spec.loader is not None
-spec.loader.exec_module(mod)
+mod = importlib.util.module_from_spec(spec)  # type: ignore
+sys.modules[spec.name] = mod  # type: ignore
+assert spec.loader is not None  # type: ignore
+spec.loader.exec_module(mod)  # type: ignore
 
 
 # --- Fakes ---
@@ -51,10 +51,10 @@ class FakeRedis:
         v = self.store.get(key)
         return v.encode() if v else None
 
-    def set(self, key: str, value: str, ex: int = None) -> None:
+    def set(self, key: str, value: str, ex: int = None) -> None:  # type: ignore
         self.store[key] = value
 
-    def xadd(self, key: str, fields: dict, maxlen: int = None, approximate: bool = True) -> str:
+    def xadd(self, key: str, fields: dict, maxlen: int = None, approximate: bool = True) -> str:  # type: ignore
         self.stream.append((key, dict(fields)))
         return "0-1"
 
@@ -235,7 +235,7 @@ def test_place_protective_fallback_to_split():
     tp_qtys = None
 
     if tp_qtys and len(tp_qtys) == len(tps):
-        parts = [float(q) for q in tp_qtys]
+        parts = [float(q) for q in tp_qtys]  # type: ignore
     else:
         parts = ex._split_tp_qtys("BTCUSDT", 0.01, len(tps), filters=FakeFilters())
 

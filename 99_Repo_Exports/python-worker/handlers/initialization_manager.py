@@ -29,7 +29,7 @@ if TYPE_CHECKING:
 
 
 @dataclass(frozen=True)
-class Infra:
+class Infra:  # type: ignore
     redis: Any
     redis_ticks: Any
     tick_stream: str
@@ -101,7 +101,7 @@ class InitializationManager:
 
         # FAST client for tick-loop news/calendar reads (bounded latency)
         try:
-            from news_pipeline.redis_fast import make_news_redis
+            from news_pipeline.redis_fast import make_news_redis  # type: ignore
             redis_url_news = os.getenv("REDIS_NEWS_URL", redis_url_main)
             self.handler.redis_news = make_news_redis(redis_url=redis_url_news, max_connections=32)
         except Exception:

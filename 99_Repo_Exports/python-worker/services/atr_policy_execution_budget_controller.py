@@ -59,7 +59,7 @@ def sync_budgets_and_kill_switches():
             # We don't wipe all kill switches, just update the valid ones to avoid resetting manually set ones.
             # However ideally we prefix wipe. We'll just set them.
             for row in ks_rows:
-                key = build_redis_key("cfg:atr_kill_switch", row)
+                key = build_redis_key("cfg:atr_kill_switch", row)  # type: ignore
                 if key:
                     val = "1" if row["state"] == "active" else "0"
                     pipeline.set(key, val)
@@ -69,7 +69,7 @@ def sync_budgets_and_kill_switches():
             bg_rows = cur.fetchall()
 
             for row in bg_rows:
-                base_key = build_redis_key("cfg:atr_budget", row)
+                base_key = build_redis_key("cfg:atr_budget", row)  # type: ignore
                 if base_key:
                     pipeline.set(base_key.replace("cfg:atr_budget:", "cfg:atr_budget:max_open_risk_pct:"), str(row["max_open_risk_pct"]))
                     pipeline.set(base_key.replace("cfg:atr_budget:", "cfg:atr_budget:max_open_positions:"), str(row["max_open_positions"]))

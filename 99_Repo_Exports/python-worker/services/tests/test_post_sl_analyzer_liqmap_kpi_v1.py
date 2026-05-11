@@ -1,4 +1,4 @@
-from services.post_sl_analyzer import compute_sl_hit_near_liqmap_peak, is_tp1_anchored_by_liqmap
+from services.post_sl_analyzer import compute_sl_hit_near_liqmap_peak, is_tp1_anchored_by_liqmap  # type: ignore
 
 
 def test_sl_hit_near_liqmap_peak_explicit_price_long():

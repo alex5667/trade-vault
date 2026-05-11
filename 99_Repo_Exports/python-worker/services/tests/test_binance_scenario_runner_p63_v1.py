@@ -25,8 +25,8 @@ connections, no Postgres, no Telegram).
 
 import json
 
-from services.binance_executor import _make_cid
-from services.testing.binance_mock_harness import running_binance_mock
+from services.binance_executor import _make_cid  # type: ignore
+from services.testing.binance_mock_harness import running_binance_mock  # type: ignore
 from services.testing.binance_scenario_runner import BinanceScenarioRunner
 
 from core.redis_keys import RedisStreams as RS

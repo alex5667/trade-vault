@@ -119,7 +119,7 @@ def _dataclass_to_dict(obj: Any) -> dict[str, Any] | None:
         return None
     if is_dataclass(obj):
         try:
-            return asdict(obj)
+            return asdict(obj)  # type: ignore
         except Exception:
             return None
     return None

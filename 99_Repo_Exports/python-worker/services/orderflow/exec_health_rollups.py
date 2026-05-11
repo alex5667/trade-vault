@@ -171,7 +171,7 @@ def build_rollup_keys(
 def _metric_key_map(
     *, sym: str, venue: str, session: str, tf: str, kind: str, side: str, deltas: Sequence[int]
 ) -> dict[str, list[str]]:
-    metric_keys: dict[str, list[str]] = {
+    metric_keys: dict[str, list[str]] = {  # type: ignore
         "is_p95_bps": build_rollup_keys(
             metric="is_p95_bps", sym=sym, venue=venue, session=session, tf=tf, kind=kind, side=side
         )

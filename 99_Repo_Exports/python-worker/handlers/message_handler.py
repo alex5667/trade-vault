@@ -34,7 +34,7 @@ class MessageHandler:
     def __init__(
         self,
         *args: Any,
-        health_metrics: HealthMetrics | None = None,
+        health_metrics: HealthMetrics | None = None,  # type: ignore
         **kwargs: Any,
     ) -> None:
         super().__init__()  # in case of mixins
@@ -267,7 +267,7 @@ class MessageHandler:
                 now_curr = get_ny_time_millis()
 
                 if stream == self.tick_stream:
-                    tick = self.data_parser._parse_tick(m.fields)
+                    tick = self.data_parser._parse_tick(m.fields)  # type: ignore
                     if tick is None:
                         invalid_tick += 1
                         if strict_parsing:
@@ -275,11 +275,11 @@ class MessageHandler:
                         ok = True
                     else:
                         raw_ts = getattr(tick, "ts", 0)
-                        msg_ts = int(norm_ts(raw_ts) or 0) if callable(norm_ts) else 0
+                        msg_ts = int(norm_ts(raw_ts) or 0) if callable(norm_ts) else 0  # type: ignore
                         if msg_ts > 0 and hm:
                             hm.on_stream_lag(self.symbol, "ticks", max(0, now_curr - msg_ts))
 
-                        finished_bar, closed_bucket_ts_ms = self.data_processor._process_tick(tick)
+                        finished_bar, closed_bucket_ts_ms = self.data_processor._process_tick(tick)  # type: ignore
                         if closed_bucket_ts_ms is not None and hm and hasattr(hm, "on_bucket_event"):
                             try:
                                 is_suppressed = bool(finished_bar is not None and self.on_bar_closed is not None)
@@ -299,7 +299,7 @@ class MessageHandler:
                         ok = True
 
                 elif stream == self.book_stream:
-                    book = self.data_parser._parse_book(m.fields)
+                    book = self.data_parser._parse_book(m.fields)  # type: ignore
                     if book is None:
                         invalid_book += 1
                         if strict_parsing:
@@ -307,21 +307,21 @@ class MessageHandler:
                         ok = True
                     else:
                         ts_raw = getattr(book, "ts_ms", 0) or 0
-                        ts_ms = int(norm_ts(ts_raw) or 0) if callable(norm_ts) else 0
+                        ts_ms = int(norm_ts(ts_raw) or 0) if callable(norm_ts) else 0  # type: ignore
                         if ts_ms > 0 and hm:
                             hm.on_stream_lag(self.symbol, "book", max(0, now_curr - ts_ms))
-                        self.data_processor._process_book(book)
+                        self.data_processor._process_book(book)  # type: ignore
                         book_cnt += 1
                         ok = True
 
                 elif stream == self.l3_stream:
-                    l3_event = self.data_parser._parse_l3_event(m.fields)
+                    l3_event = self.data_parser._parse_l3_event(m.fields)  # type: ignore
                     if l3_event:
                         ts_raw = getattr(l3_event, "ts_ms", 0) or 0
                         if ts_raw <= 0 and isinstance(l3_event, dict):
                             ts_raw = l3_event.get("ts_ms", 0) or 0
 
-                        ts_ms = int(norm_ts(ts_raw) or 0) if callable(norm_ts) else 0
+                        ts_ms = int(norm_ts(ts_raw) or 0) if callable(norm_ts) else 0  # type: ignore
                         if ts_ms > 0 and hm:
                             hm.on_stream_lag(self.symbol, "l3", max(0, now_curr - ts_ms))
 
@@ -423,7 +423,7 @@ class MessageHandler:
 
             start_id = start_ids.get(stream, "0-0")
             try:
-                next_id, msgs = consumer.claim_pending(
+                next_id, msgs = consumer.claim_pending(  # type: ignore
                     stream,
                     min_idle_ms=self.claim_min_idle_ms,
                     start_id=start_id,

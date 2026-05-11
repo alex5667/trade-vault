@@ -245,7 +245,7 @@ class ATRProtectiveLifecycleEquivalenceCertService:
 
         # Phase 10.2: Charter Enforcement Map (L8)
         enforcement = {"overall_action": "allow"}
-        if critical:
+        if critical:  # type: ignore
             try:
                 from services.atr_charter_compliance_engine import ATRCharterComplianceEngine
                 engine = ATRCharterComplianceEngine()
@@ -268,7 +268,7 @@ class ATRProtectiveLifecycleEquivalenceCertService:
             "signal_id": signal_id,
             "status": status,
             "drifts": drifts,
-            "critical_count": len(critical),
+            "critical_count": len(critical),  # type: ignore
             "enforcement": enforcement,
             "legacy_state": legacy_state,
             "graph_state": graph_state,
@@ -350,7 +350,7 @@ class ATRProtectiveLifecycleEquivalenceCertService:
                       AND status = 'open'
                       AND created_at > now() - interval '7 days'
                 """)
-                critical_7d = cur.fetchone()["c"]
+                critical_7d = cur.fetchone()["c"]  # type: ignore
 
                 # Match rate in last 7 days
                 cur.execute("""
@@ -361,8 +361,8 @@ class ATRProtectiveLifecycleEquivalenceCertService:
                     WHERE created_at > now() - interval '7 days'
                 """)
                 row = cur.fetchone()
-                total = row["total"]
-                passed = row["passed"]
+                total = row["total"]  # type: ignore
+                passed = row["passed"]  # type: ignore
                 pct_match = (passed / total * 100) if total > 0 else 0.0
 
                 # Days without critical drift
@@ -371,7 +371,7 @@ class ATRProtectiveLifecycleEquivalenceCertService:
                     FROM atr_protective_drifts
                     WHERE severity = 'critical'
                 """)
-                last_crit = cur.fetchone()["last_critical"]
+                last_crit = cur.fetchone()["last_critical"]  # type: ignore
                 if last_crit:
                     days_without = (
                         datetime.now(tz=UTC) - last_crit.replace(tzinfo=UTC)

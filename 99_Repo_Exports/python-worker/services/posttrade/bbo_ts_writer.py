@@ -129,7 +129,7 @@ def _validate_payload(p: dict[str, Any]) -> tuple[bool, str]:
         if k not in p or p.get(k) in (None, ""):
             return False, f"missing:{k}"
     try:
-        if int(p.get("ts_ms")) <= 0:
+        if int(p.get("ts_ms")) <= 0:  # type: ignore
             return False, "bad:ts_ms"
     except Exception:
         return False, "bad:ts_ms"
@@ -299,9 +299,9 @@ async def main() -> None:
                             "ts_ms": ts_ms,
                             "sym": (payload.get("symbol") or "").upper(),
                             "venue": (payload.get("venue") or "binance").lower(),
-                            "bid": float(payload.get("bid")),
-                            "ask": float(payload.get("ask")),
-                            "mid": float(payload.get("mid")),
+                            "bid": float(payload.get("bid")),  # type: ignore
+                            "ask": float(payload.get("ask")),  # type: ignore
+                            "mid": float(payload.get("mid")),  # type: ignore
                             "producer": (payload.get("producer") or ""),
                             "schema_version": int(payload.get("schema_version") or 1),
                             "stream_id": mid_s,

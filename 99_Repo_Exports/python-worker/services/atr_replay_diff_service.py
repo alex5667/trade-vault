@@ -44,18 +44,18 @@ def calculate_diff(baseline_results: dict[str, Any], candidate_results: dict[str
     cand_decisions = candidate_results.get("decision_count", 1),
 
     # Simple proxy for drift % in a smoke test scenario
-    drift_diff = abs(base_decisions - cand_decisions),
-    decision_drift_pct = (drift_diff / max(1, base_decisions)) * 100.0,
+    drift_diff = abs(base_decisions - cand_decisions),  # type: ignore
+    decision_drift_pct = (drift_diff / max(1, base_decisions)) * 100.0,  # type: ignore
 
     diff_report = {
-        "decision_drift_pct": round(decision_drift_pct, 2),
+        "decision_drift_pct": round(decision_drift_pct, 2),  # type: ignore
         "new_denies": candidate_results.get("denies", 0) - baseline_results.get("denies", 0),
         "new_allows": candidate_results.get("allows", 0) - baseline_results.get("allows", 0),
         "payload_field_drifts": candidate_results.get("payload_field_drifts", {}),
         "post_trade": {
             "delta_pnl_bps": round(candidate_pnl - baseline_pnl, 2),
             "delta_slippage_bps": round(candidate_slippage - baseline_slippage, 2),
-            "delta_stop_rate": round(candidate_stops - baseline_stops, 4)
+            "delta_stop_rate": round(candidate_stops - baseline_stops, 4)  # type: ignore
         },
         "cert_status": candidate_results.get("cert_status", "unknown"),
         "cluster_crowding_breaches": candidate_results.get("cluster_crowding_breaches", 0),

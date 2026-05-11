@@ -105,7 +105,7 @@ def _brier(p: float, y: int) -> float:
 def main() -> None:
     """Main worker loop: consume events:trades, join with pred cache, emit metrics:ml_outcome (includes exec_risk_norm, bucket)."""
     # Use get_redis() which handles LOADING state with retries
-    r = get_redis(retry_attempts=20, retry_delay=2.0)
+    r = get_redis(retry_attempts=20, retry_delay=2.0)  # type: ignore
 
     trade_stream = os.getenv("TRADE_EVENTS_STREAM", RS.EVENTS_TRADES)
     out_stream = os.getenv("ML_OUTCOME_METRICS_STREAM", RS.ML_OUTCOME_METRICS)

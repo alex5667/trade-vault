@@ -24,11 +24,11 @@ from core.redis_keys import RedisStreams as RS
 
 def _load(alias, path):
     spec = importlib.util.spec_from_file_location(alias, path)
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules[alias] = mod
-    assert spec.loader is not None
-    spec.loader.exec_module(mod)
-    return mod
+    mod = importlib.util.module_from_spec(spec)  # type: ignore
+    sys.modules[alias] = mod  # type: ignore
+    assert spec.loader is not None  # type: ignore
+    spec.loader.exec_module(mod)  # type: ignore
+    return mod  # type: ignore
 
 
 _SVCDIR = Path(__file__).parent.parent

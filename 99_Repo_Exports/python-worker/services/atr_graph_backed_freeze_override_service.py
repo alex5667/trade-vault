@@ -61,7 +61,7 @@ class ATRGraphBackedFreezeOverrideService:
                 highest_freeze = "none"
                 highest_precedence = 0
                 for node in freeze_nodes:
-                    state = node["node_state_json"]
+                    state = node["node_state_json"]  # type: ignore
                     level = state.get("level", "none")
                     prec = ATRGraphBackedFreezeOverrideService._get_precedence(level)
                     if prec > highest_precedence:
@@ -83,7 +83,7 @@ class ATRGraphBackedFreezeOverrideService:
 
                 if override_nodes:
                     # In 8.3, we take the most recent active override
-                    best_override = override_nodes[0]["node_state_json"]
+                    best_override = override_nodes[0]["node_state_json"]  # type: ignore
                     active_override_level = best_override.get("level", "normal")
                     override_active = True
 

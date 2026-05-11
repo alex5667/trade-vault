@@ -164,5 +164,5 @@ def test_shadow_surface_empty_signal():
 
 def test_shadow_surface_none_signal():
     # Should not crash — _ensure_dict converts None to {}
-    out = build_risk_surface_shadow(None)
+    out = build_risk_surface_shadow(None)  # type: ignore
     assert isinstance(out, dict)

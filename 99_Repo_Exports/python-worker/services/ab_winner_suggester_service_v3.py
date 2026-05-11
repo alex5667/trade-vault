@@ -176,7 +176,7 @@ class ABWinnerSuggesterV3:
             created_ts_ms=now,
             updated_ts_ms=now,
             expires_ts_ms=now + int(os.getenv("AB_SUGGEST_EXPIRE_MS", "604800000")),  # 7d
-            symbol=ctx.symbol,
+            symbol=ctx.symbol,  # type: ignore
             regime=ctx.regime,
             group=ctx.group,
             scenario=ctx.scenario,

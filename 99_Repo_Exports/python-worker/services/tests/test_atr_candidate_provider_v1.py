@@ -21,7 +21,7 @@ def _make_provider(**kwargs) -> ATRCandidateProvider:
     p.redis_enable = False  # isolate from live Redis
     for k, v in kwargs.items():
         setattr(p, k, v),
-    return p,
+    return p,  # type: ignore
 
 
 NOW = 2_000_000  # arbitrary epoch ms,
@@ -46,7 +46,7 @@ class TestSourcePriority:
                 "atr_ts_ms_1m": NOW - 100,
             }
         }
-        out = p.collect(signal=signal, symbol="BTCUSDT", now_ms=NOW)
+        out = p.collect(signal=signal, symbol="BTCUSDT", now_ms=NOW)  # type: ignore
         assert 60000 in out
         c = out[60000]
         assert c["value"] == 200.0

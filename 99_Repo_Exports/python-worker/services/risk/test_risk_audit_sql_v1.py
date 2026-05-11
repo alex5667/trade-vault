@@ -6,9 +6,9 @@ from pathlib import Path
 # Load the module standalone so tests work without the full services package
 mod_path = Path(__file__).resolve().parent / 'risk_audit_sql.py'
 spec = importlib.util.spec_from_file_location('risk_audit_sql', mod_path)
-mod = importlib.util.module_from_spec(spec)
-sys.modules[spec.name] = mod
-spec.loader.exec_module(mod)
+mod = importlib.util.module_from_spec(spec)  # type: ignore
+sys.modules[spec.name] = mod  # type: ignore
+spec.loader.exec_module(mod)  # type: ignore
 
 
 class _Cur:

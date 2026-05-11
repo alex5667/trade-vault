@@ -143,13 +143,13 @@ class ControlPlaneGraphService:
                 event_id = ControlPlaneGraphService._emit_event(
                     conn,
                     event_type="state_transition",
-                    aggregate_type=node["node_type"].lower(),
+                    aggregate_type=node["node_type"].lower(),  # type: ignore
                     aggregate_id=node_id,
-                    scope_kind=node["scope_kind"],
-                    scope_value=node["scope_value"],
+                    scope_kind=node["scope_kind"],  # type: ignore
+                    scope_value=node["scope_value"],  # type: ignore
                     actor=actor,
                     reason_code=reason_code,
-                    event_json={"old_state": node["node_state_json"], "new_state": target_state, "evidence": evidence or {}}
+                    event_json={"old_state": node["node_state_json"], "new_state": target_state, "evidence": evidence or {}}  # type: ignore
                 )
 
                 cur.execute("""
@@ -249,7 +249,7 @@ class ControlPlaneGraphService:
     def get_node(node_id: str) -> dict[str, Any] | None:
         with get_conn() as conn, conn.cursor(cursor_factory=__import__('psycopg2').extras.RealDictCursor) as cur:
             cur.execute("SELECT * FROM atr_control_plane_nodes WHERE node_id = %s", (node_id,))
-            return cur.fetchone()
+            return cur.fetchone()  # type: ignore
 
     @staticmethod
     def emit_graph_event(scope_kind: str, scope_value: str, event_type: str, payload: dict[str, Any]):

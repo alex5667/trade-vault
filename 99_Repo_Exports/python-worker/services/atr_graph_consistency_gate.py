@@ -74,9 +74,9 @@ def collect_graph_consistency_inputs(scope_value: str) -> dict[str, Any]:
                     for r in rows:
                         inputs["open_drifts"].append({
                             "family": family,
-                            "drift_kind": r["drift_kind"],
-                            "severity": r["severity"],
-                            "reason_code": r["reason_code"]
+                            "drift_kind": r["drift_kind"],  # type: ignore
+                            "severity": r["severity"],  # type: ignore
+                            "reason_code": r["reason_code"]  # type: ignore
                         })
 
             inputs["pass_scores"]["graph_consistency"] = True
@@ -201,13 +201,13 @@ def request_waiver(drift_id: str, approver: str, reason_code: str, ttl_sec: int)
                 return False
 
             # Forbid waiver for runtime/protective critical drifts or projection missing replay edge
-            if drift["severity"] == "critical" and drift["drift_family"] in ("runtime_gate", "protective"):
+            if drift["severity"] == "critical" and drift["drift_family"] in ("runtime_gate", "protective"):  # type: ignore
                 return False
 
             waiver_id = _generate_id("waiver")
             # Calculate not_after
             cur.execute("SELECT now() + interval '%s seconds'", (ttl_sec,))
-            not_after = cur.fetchone()[0]
+            not_after = cur.fetchone()[0]  # type: ignore
 
             cur.execute("""
                 INSERT INTO atr_graph_consistency_waivers (

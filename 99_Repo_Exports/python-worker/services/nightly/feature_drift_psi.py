@@ -150,7 +150,7 @@ def psi_from_distributions(ref_p: Sequence[float], cur_p: Sequence[float], *, ep
 
 def missing_rate(xs: Sequence[float | int | None], *, total_n: int | None = None) -> float:
     if total_n is None:
-        total_n = len(list(xs)) if not isinstance(xs, np.ndarray) else int(xs.shape[0])
+        total_n = len(list(xs)) if not isinstance(xs, np.ndarray) else int(xs.shape[0])  # type: ignore
     if total_n <= 0:
         return 0.0
     miss = 0
@@ -168,7 +168,7 @@ def zero_rate(xs: Sequence[float | int | None], *, tol: float = 1e-12) -> float:
     z = 0
     for x in xs:
         try:
-            v = float(x)
+            v = float(x)  # type: ignore
             if not math.isfinite(v):
                 continue
             n += 1
@@ -184,7 +184,7 @@ def clip_rate(xs: Sequence[float | int | None], *, lo: float, hi: float) -> floa
     c = 0
     for x in xs:
         try:
-            v = float(x)
+            v = float(x)  # type: ignore
             if not math.isfinite(v):
                 continue
             n += 1

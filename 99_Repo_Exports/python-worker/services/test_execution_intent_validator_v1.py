@@ -3,12 +3,12 @@ from pathlib import Path
 
 mod_path = Path(__file__).with_name("execution_intent_validator.py")
 spec = importlib.util.spec_from_file_location("execution_intent_validator", mod_path)
-mod = importlib.util.module_from_spec(spec)
+mod = importlib.util.module_from_spec(spec)  # type: ignore
 import sys
 
 sys.modules[mod.__name__] = mod
-assert spec.loader is not None
-spec.loader.exec_module(mod)
+assert spec.loader is not None  # type: ignore
+spec.loader.exec_module(mod)  # type: ignore
 
 
 def test_hedge_requires_position_side():

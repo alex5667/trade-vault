@@ -140,9 +140,9 @@ class WinnerDecision:
     min_n: int = 0
     min_edge_lcb: float = 0.0
     # diagnostics
-    lcb_by_arm: dict[str, float] = None
-    mean_by_arm: dict[str, float] = None
-    n_by_arm: dict[str, int] = None
+    lcb_by_arm: dict[str, float] = None  # type: ignore
+    mean_by_arm: dict[str, float] = None  # type: ignore
+    n_by_arm: dict[str, int] = None  # type: ignore
 
 
 def choose_winner_lcb(

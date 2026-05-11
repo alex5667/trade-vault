@@ -67,7 +67,7 @@ def _load_current_snapshots(conn, snapshot_kind: str) -> list[dict[str, Any]]:
             FROM atr_policy_snapshots
             WHERE snapshot_kind = %s
               AND is_current = true
-            """
+            """,
             (snapshot_kind,),
         )
         return [dict(r["snapshot_json"]) for r in cur.fetchall()]
@@ -148,7 +148,7 @@ def _insert_recovery_event(conn, *, event_type: str, obj: dict[str, Any], status
               event_type, source, symbol, scenario, regime, risk_horizon_bucket,
               status, reason_code, payload
             ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb)
-            """
+            """,
             (
                 event_type,
                 (obj.get("source", "")),
@@ -207,8 +207,8 @@ def run_once() -> dict[str, Any]:
             if pending:
                 for obj in pending:
                     pid = str(obj["proposal_id"])
-                    r.set(_proposal_key(pid), json.dumps(obj, ensure_ascii=False, sort_keys=True))
-                    r.sadd("queue:atr_policy:pending", pid)
+                    r.set(_proposal_key(pid), json.dumps(obj, ensure_ascii=False, sort_keys=True))  # type: ignore
+                    r.sadd("queue:atr_policy:pending", pid)  # type: ignore
                     rebuilt_pending += 1
 
         # 4) rebuild decided queue
@@ -216,14 +216,14 @@ def run_once() -> dict[str, Any]:
         if mode != "audit_only":
             for proposal, decision in decided:
                 pid = str(proposal["proposal_id"])
-                r.set(_proposal_key(pid), json.dumps(proposal, ensure_ascii=False, sort_keys=True))
-                r.set(_decision_key(pid), json.dumps(decision, ensure_ascii=False, sort_keys=True))
-                r.sadd("queue:atr_policy:decided", pid)
+                r.set(_proposal_key(pid), json.dumps(proposal, ensure_ascii=False, sort_keys=True))  # type: ignore
+                r.set(_decision_key(pid), json.dumps(decision, ensure_ascii=False, sort_keys=True))  # type: ignore
+                r.sadd("queue:atr_policy:decided", pid)  # type: ignore
                 rebuilt_decided += 1
 
         conn.commit()
         if mode != "audit_only":
-            r.set("atr_policy:bootstrap:last_run_ts_ms", str(_now_ms()))
+            r.set("atr_policy:bootstrap:last_run_ts_ms", str(_now_ms()))  # type: ignore
 
         return {
             "mode": mode,

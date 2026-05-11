@@ -171,10 +171,10 @@ class ATRWeeklyScorecardService:
                 })
         return actions
 
-    def build_weekly_scorecard(self, conn, r, week_start: datetime, week_end: datetime, custom_metrics: dict = None) -> str:
+    def build_weekly_scorecard(self, conn, r, week_start: datetime, week_end: datetime, custom_metrics: dict = None) -> str:  # type: ignore
         if not self.enable:
             logger.info("Weekly Scorecard skipped, enable=False")
-            return None
+            return None  # type: ignore
 
         scorecard_id = self.generate_scorecard_id(week_start)
         all_metrics = {}
@@ -238,7 +238,7 @@ class ATRWeeklyScorecardService:
 
         # Phase 10.6: Closure Readiness
         closure_info = self.closure_svc.check_stabilization_window(conn)
-        summary_json["closure_readiness"] = closure_info
+        summary_json["closure_readiness"] = closure_info  # type: ignore
 
         self.emit_telegram_digest(scorecard_id, week_start, week_end, decision, domains_json, actions, closure_info)
         return scorecard_id

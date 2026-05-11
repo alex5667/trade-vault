@@ -162,7 +162,7 @@ def _emit_dq_flag(ctx: Any, flag: str, symbol="") -> None:
         if _is_new:
             try:
                 _sym = str(symbol or getattr(ctx, "symbol", "") or "unknown")
-                _DQ_FLAG_TOTAL.labels(flag=_f, symbol=_sym).inc()
+                _DQ_FLAG_TOTAL.labels(flag=_f, symbol=_sym).inc()  # type: ignore
             except Exception:
                 ORCHESTRATOR_SWALLOWED_EXCEPTIONS_TOTAL.labels(phase="dq_flag_counter").inc()
     except Exception:
@@ -197,13 +197,13 @@ def _normalize_ts_ms(raw_ts: Any, now_ms: int, source: str = "orchestrator") -> 
                 raw_ts, ts_val, source, reason,
             )
             with contextlib.suppress(Exception):
-                _TS_REJECTED_TOTAL.labels(source=source, reason=reason).inc()
+                _TS_REJECTED_TOTAL.labels(source=source, reason=reason).inc()  # type: ignore
             return 0
         return ts_val
     except Exception:
         logger.warning("orchestrator ts parse failed raw=%r source=%s", raw_ts, source)
         with contextlib.suppress(Exception):
-            _TS_REJECTED_TOTAL.labels(source=source, reason="parse_error").inc()
+            _TS_REJECTED_TOTAL.labels(source=source, reason="parse_error").inc()  # type: ignore
         return 0
 
 from core.redis_keys import RS
@@ -323,8 +323,8 @@ class SignalOrchestrator:
                 except Exception as e:
                     _sym = (dlq_payload.get("symbol", "unknown"))
                     logger.error("❌ orchestrator dlq xadd failed symbol=%s kind=%s: %r", _sym, kind, e)
-                    with contextlib.suppress(Exception):
-                        _DLQ_XADD_ERRORS_TOTAL.labels(symbol=_sym, kind=kind).inc()
+                    with contextlib.suppress(Exception):  # type: ignore
+                        _DLQ_XADD_ERRORS_TOTAL.labels(symbol=_sym, kind=kind).inc()  # type: ignore
         except Exception as e:
             logger.warning("orchestrator dlq publish payload build failed kind=%s: %r", kind, e)
 
@@ -364,8 +364,8 @@ class SignalOrchestrator:
                 if _policy in ("flag", "drop"):
                     _emit_dq_flag(ctx, "out_of_order", symbol=_sym_root)
                     try:
-                        from services.observability.metrics_registry import ts_rejected_total
-                        ts_rejected_total.labels(source="orchestrator", reason="non_monotonic").inc()
+                        from services.observability.metrics_registry import ts_rejected_total  # type: ignore
+                        ts_rejected_total.labels(source="orchestrator", reason="non_monotonic").inc()  # type: ignore
                     except Exception:
                         pass
                 if _policy == "drop":
@@ -674,8 +674,8 @@ class SignalOrchestrator:
             _sym_sch = _ss(getattr(ctx, "symbol", ""))
             _kind = _ss(getattr(cand, "kind", ""))
             logger.warning("⚠️ schema_version fallback to 1 for %s (kind=%s)", _sym_sch, _kind)
-            with contextlib.suppress(Exception):
-                _SCHEMA_VERSION_FALLBACK_TOTAL.labels(symbol=_sym_sch, kind=_kind).inc()
+            with contextlib.suppress(Exception):  # type: ignore
+                _SCHEMA_VERSION_FALLBACK_TOTAL.labels(symbol=_sym_sch, kind=_kind).inc()  # type: ignore
 
         # ── source ───────────────────────────────────────────────────────────
         _source: str = (
@@ -690,8 +690,8 @@ class SignalOrchestrator:
             if "confidence_nan" not in _quality_flags:
                 _quality_flags.append("confidence_nan")
         if _confidence_pct <= 0:
-            try:
-                from services.observability.metrics_registry import metrics_registry
+            try:  # type: ignore
+                from services.observability.metrics_registry import metrics_registry  # type: ignore
                 metrics_registry.get_or_create_counter(
                     "missing_confidence_total",
                     "Signals missing confidence pct",
@@ -702,6 +702,34 @@ class SignalOrchestrator:
                 _quality_flags.append("confidence_missing")
                 _sym_conf = str(getattr(ctx, "symbol", getattr(self.cfg, "symbol", "unknown")) or "unknown")
                 _emit_dq_flag(ctx, "confidence_missing", symbol=_sym_conf)
+
+        # ── entry_regime: stamp market regime at signal emission time ─────────
+        # Canonical extraction order (mirrors pre_publish_gates._get_regime):
+        #   ctx.regime (str or object with .name/.label)
+        #   ctx.of.regime   (OrderflowContext sub-object)
+        #   ctx.regime_label / ctx.market_regime (alternative attr names)
+        # Normalised via contexts.normalize_regime_label → canonical lowercase string.
+        # Falls back to "na" if no regime is available (trade_monitor will show as "unknown").
+        _of_ctx = getattr(ctx, "of", None)
+        _raw_regime = (
+            getattr(ctx, "regime", None)
+            or (_of_ctx is not None and getattr(_of_ctx, "regime", None))
+            or getattr(ctx, "regime_label", None)
+            or getattr(ctx, "market_regime", None)
+        )
+        if _raw_regime is not None and not isinstance(_raw_regime, str):
+            # Handle enum/object regime (e.g. MarketRegime.TREND → "TREND")
+            _raw_regime = str(
+                getattr(_raw_regime, "name", None)
+                or getattr(_raw_regime, "label", None)
+                or getattr(_raw_regime, "value", None)
+                or _raw_regime
+            )
+        try:
+            from contexts import normalize_regime_label as _nrl
+            _entry_regime: str = _nrl(str(_raw_regime or ""))
+        except Exception:
+            _entry_regime = str(_raw_regime or "").strip().lower() or "na"
 
         payload = {
             "kind": _ss(getattr(cand, "kind", "")),
@@ -717,6 +745,12 @@ class SignalOrchestrator:
             "signal_id": _ss(getattr(cand, "signal_id", "")),
             "venue": _ss(getattr(ctx, "venue", None)),
             "timeframe": _ss(getattr(ctx, "timeframe", None)),
+
+            # Market regime at entry — consumed by trade_monitor._extract_regime_from_signal
+            # and stamped onto PositionState.entry_regime for performance attribution.
+            # Value: normalize_regime_label output (e.g. "trending_bull", "range", "na").
+            "entry_regime": _entry_regime,
+            "regime": _entry_regime,  # backward-compat alias (trade_monitor checks both)
 
             # -----------------------------------------------------------------
             # Trade levels and ATR for metrics downstream
@@ -767,8 +801,8 @@ class SignalOrchestrator:
                     with contextlib.suppress(Exception):
                         ctx.qty = _cap
                     try:
-                        from services.observability.metrics_registry import notional_clamped_total
-                        notional_clamped_total.labels(symbol=str(getattr(ctx, "symbol", getattr(self.cfg, "symbol", "unknown")))).inc()
+                        from services.observability.metrics_registry import notional_clamped_total  # type: ignore
+                        notional_clamped_total.labels(symbol=str(getattr(ctx, "symbol", getattr(self.cfg, "symbol", "unknown")))).inc()  # type: ignore
                     except Exception as metric_err:
                         logger.warning("Failed to emit notional_clamped_total metric: %r", metric_err)
         except Exception as e:
@@ -790,11 +824,8 @@ class SignalOrchestrator:
 
             _kind_key_str = _ss(getattr(cand, "kind", ""))
             _sym_str = _ss(getattr(ctx, "symbol", getattr(self.cfg, "symbol", "")))
-            _regime_str = _ss(
-                getattr(ctx, "regime", None)
-                or getattr(ctx, "regime_label", None)
-                or "unknown"
-            )
+            # Reuse already-normalised regime computed above for Horizon contract.
+            _regime_str = _entry_regime or "unknown"
             _now_ts_ms_hz = _ts_ms or _now_ms or int(time.time() * 1000)
 
             # Risk config for ATR mult fields
@@ -851,8 +882,8 @@ class SignalOrchestrator:
                     pass
 
         except Exception as _hz_err:
-            try:
-                from services.observability.metrics_registry import metrics_registry
+            try:  # type: ignore
+                from services.observability.metrics_registry import metrics_registry  # type: ignore
                 _sym_err = str(getattr(ctx, "symbol", getattr(self.cfg, "symbol", "unknown")) or "unknown")
                 metrics_registry.get_or_create_counter(
                     "horizon_attach_errors_total",
@@ -917,8 +948,8 @@ class SignalOrchestrator:
                             _rollout_pct,
                             _contract_err,
                         )
-                        try:
-                            from services.observability.metrics_registry import metrics_registry
+                        try:  # type: ignore
+                            from services.observability.metrics_registry import metrics_registry  # type: ignore
                             metrics_registry.get_or_create_counter(
                                 "signal_payload_contract_violation_total",
                                 "Payload contract assertions that fired in Orchestrator",

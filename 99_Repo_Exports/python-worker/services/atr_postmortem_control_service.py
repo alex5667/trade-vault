@@ -89,7 +89,7 @@ def change_postmortem_status(pm_id: str, new_status: str, actor: str) -> bool:
             if not row:
                 return False
 
-            old_status = row["status"]
+            old_status = row["status"]  # type: ignore
             # Validate transition logic
             valid_transitions = {
                 "draft": ["review"],
@@ -109,8 +109,8 @@ def change_postmortem_status(pm_id: str, new_status: str, actor: str) -> bool:
             if new_status == "closed" or new_status == "verified":
                 cur.execute("SELECT COUNT(*) as open_actions FROM atr_corrective_actions WHERE postmortem_id = %s AND status NOT IN ('verified', 'dropped')", (pm_id,))
                 open_acts = cur.fetchone()
-                if open_acts and open_acts["open_actions"] > 0:
-                    logger.warning(f"Cannot transition to {new_status} for {pm_id} with {open_acts['open_actions']} open actions")
+                if open_acts and open_acts["open_actions"] > 0:  # type: ignore
+                    logger.warning(f"Cannot transition to {new_status} for {pm_id} with {open_acts['open_actions']} open actions")  # type: ignore
                     return False
 
             fields_to_update = {"status": new_status, "updated_at_ms": now_ms}
@@ -122,7 +122,7 @@ def change_postmortem_status(pm_id: str, new_status: str, actor: str) -> bool:
             cur.execute(f"UPDATE atr_postmortems SET {set_clause} WHERE postmortem_id = %s", values)
 
             if atr_postmortems_total:
-                atr_postmortems_total.labels(severity=row["severity"], status=new_status, root_cause_class=row["root_cause_class"]).inc()
+                atr_postmortems_total.labels(severity=row["severity"], status=new_status, root_cause_class=row["root_cause_class"]).inc()  # type: ignore
 
             conn.commit()
 
@@ -181,7 +181,7 @@ def verify_action(action_id: str, actor: str, verification_kind: str, payload: d
                 return False
 
             now_ms = int(time.time() * 1000)
-            pm_id = act["postmortem_id"]
+            pm_id = act["postmortem_id"]  # type: ignore
             vid = f"ver_{int(time.time())}_{uuid.uuid4().hex[:6]}"
 
             cur.execute("""
@@ -211,14 +211,14 @@ def reopen_postmortem(pm_id: str, actor: str, reason: str) -> bool:
 def get_postmortem(pm_id: str) -> dict[str, Any] | None:
     with get_conn() as conn, conn.cursor(cursor_factory=__import__('psycopg2').extras.RealDictCursor) as cur:
         cur.execute("SELECT * FROM atr_postmortems WHERE postmortem_id = %s", (pm_id,))
-        return cur.fetchone()
+        return cur.fetchone()  # type: ignore
 
 def get_open_actions(pm_id: str) -> list[dict[str, Any]]:
     with get_conn() as conn, conn.cursor(cursor_factory=__import__('psycopg2').extras.RealDictCursor) as cur:
         cur.execute("SELECT * FROM atr_corrective_actions WHERE postmortem_id = %s AND status NOT IN ('verified', 'dropped')", (pm_id,))
-        return cur.fetchall()
+        return cur.fetchall()  # type: ignore
 
 def get_active_postmortems() -> list[dict[str, Any]]:
     with get_conn() as conn, conn.cursor(cursor_factory=__import__('psycopg2').extras.RealDictCursor) as cur:
         cur.execute("SELECT * FROM atr_postmortems WHERE status NOT IN ('closed') ORDER BY updated_at_ms DESC")
-        return cur.fetchall()
+        return cur.fetchall()  # type: ignore

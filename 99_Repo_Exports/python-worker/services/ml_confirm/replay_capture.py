@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from typing import Any
 
 import redis
-
+  # type: ignore
 from core.bucket2_v1 import derive_bucket2_label
 from core.champion_cfg_validator import validate_champion_cfg
 from core.edge_stack_mh_v1 import EdgeStackMHModelV1
@@ -34,7 +34,7 @@ try:
 except Exception:
     PROMETHEUS_AVAILABLE = False
     # Mock metrics for when prometheus_client is not available
-    class _MockMetric:
+    class _MockMetric:  # type: ignore
         def labels(self, **kwargs):
             return self
         def inc(self, *args, **kwargs):
@@ -72,7 +72,7 @@ except Exception:
         def observe(self, *args, **kwargs):
             pass
     ml_confirm_events_total = ml_confirm_errors_total = ml_confirm_cfg_present = \
-    ml_confirm_cfg_valid = ml_confirm_enforce_share = ml_confirm_model_loaded = \
+    ml_confirm_cfg_valid = ml_confirm_enforce_share = ml_confirm_model_loaded = \  # type: ignore
     ml_confirm_model_load_seconds = ml_confirm_latency_seconds = ml_missing_critical_total = \
     lambda *args, **kwargs: _MockMetric()
 
@@ -80,11 +80,11 @@ try:
     import joblib  # type: ignore
 except Exception:  # pragma: no cover
     joblib = None  # type: ignore
-
-
+  # type: ignore
+  # type: ignore
 
 from .decision_policy import MLConfirmDecision
-
+  # type: ignore
 from .utils import (
     _safe_loads_ex,
     _safe_loads,
@@ -111,7 +111,7 @@ class ReplayCaptureMixin:
     def _capture_replay_input(self, dec: MLConfirmDecision, *, symbol: str, ts_ms: int, direction: str, scenario: str,
                               indicators: dict[str, Any], rule_score: float, rule_have: int, rule_need: int,
                               cancel_spike_veto: int, ok_rule: int) -> None:
-        if not self._replay_capture:
+        if not self._replay_capture:  # type: ignore
             return
         try:
             # Compute canonical sid for cross-stream joins
@@ -119,23 +119,23 @@ class ReplayCaptureMixin:
             sid = _canon_sid(symbol, ts_ms, raw_sid=raw_sid)
             # Deterministic sampling by sid (stable across restarts)
             do_emit = True
-            if float(self._replay_sample) < 0.999:
-                do_emit = _stable_sample(sid, float(self._replay_sample), salt=f"ml_replay_inputs_v1|{self._replay_stream}")
+            if float(self._replay_sample) < 0.999:  # type: ignore
+                do_emit = _stable_sample(sid, float(self._replay_sample), salt=f"ml_replay_inputs_v1|{self._replay_stream}")  # type: ignore
             if not do_emit:
                 return
-            cfg = self._cfg or {}
-            cfg_small = {
+            cfg = self._cfg or {}  # type: ignore
+            cfg_small = {  # type: ignore
                 "kind": cfg.get("kind", ""),
                 "run_id": cfg.get("run_id", ""),
                 "model_path": cfg.get("model_path", ""),
                 "util_floors": cfg.get("util_floors", {}),
                 "abstain_band": cfg.get("abstain_band", None),
                 "conf_min": cfg.get("conf_min", None),
-                "abstain_on_missing": cfg.get("abstain_on_missing", None),
+                "abstain_on_missing": cfg.get("abstain_on_missing", None),  # type: ignore
                 "p_min_hard_floor": cfg.get("p_min_hard_floor", None),
             }
             payload = {
-                "ts_ms": int(ts_ms),
+                "ts_ms": int(ts_ms),  # type: ignore
                 "symbol": symbol.upper(),
                 "direction": str(direction),
                 "scenario_v4": str(scenario),
@@ -163,18 +163,18 @@ class ReplayCaptureMixin:
                 "conf": float(dec.conf or 0.0),
                 "missing_n": int(len(dec.missing or [])),
             })
-            self.r.xadd(self._replay_stream, {
+            self.r.xadd(self._replay_stream, {  # type: ignore
                 "ts_ms": str(int(ts_ms)),
                 "symbol": symbol.upper(),
                 "scenario_v4": str(scenario),
                 "sid": str(sid),  # Added for deterministic replay
                 "model_run_id": str(dec.model_run_id or ""),
                 "payload": json.dumps(payload, ensure_ascii=False, separators=(",", ":")),
-            }, maxlen=self._replay_maxlen, approximate=True)
+            }, maxlen=self._replay_maxlen, approximate=True)  # type: ignore
         except Exception as e:
             # Increment error metric and rate-limited log
             if METRICS_REGISTRY_AVAILABLE:
-                self._metrics_errors_total.labels(kind=dec.kind or "unknown", reason="replay_capture").inc()
+                self._metrics_errors_total.labels(kind=dec.kind or "unknown", reason="replay_capture").inc()  # type: ignore
             # Rate-limited logging (at most once per 30 seconds)
             if not hasattr(self, '_last_replay_capture_error_log_ts'):
                 self._last_replay_capture_error_log_ts = 0

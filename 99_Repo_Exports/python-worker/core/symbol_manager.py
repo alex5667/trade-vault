@@ -301,7 +301,7 @@ class SymbolManager:
             # Установить список (удалить все кроме указанных, добавить новые)
             # Извлекаем названия символов
             if symbols and isinstance(symbols[0], dict):
-                new_symbols = set(item['symbol'] for item in symbols)
+                new_symbols = set(item['symbol'] for item in symbols)  # type: ignore
             else:
                 new_symbols = set(symbols)
 
@@ -331,7 +331,7 @@ class SymbolManager:
 
         elif action == "update_config":
             # Обновить конфигурацию существующего символа (вручную)
-            symbol = symbols if isinstance(symbols, str) else symbols.get('symbol')
+            symbol = symbols if isinstance(symbols, str) else symbols.get('symbol')  # type: ignore
             config_data = symbols.get('config') if isinstance(symbols, dict) else None
 
             if symbol in self.active_symbols and config_data:
@@ -357,7 +357,7 @@ class SymbolManager:
 
         elif action == "reset_config":
             # Сбросить конфигурацию к defaults (удалить кастомную)
-            symbol = symbols if isinstance(symbols, str) else symbols.get('symbol')
+            symbol = symbols if isinstance(symbols, str) else symbols.get('symbol')  # type: ignore
 
             if symbol in self.active_symbols:
                 # Удаляем кастомную конфигурацию из Redis
@@ -425,7 +425,7 @@ class SymbolManager:
                     handler_config = None
 
                 # Создаем handler с конфигурацией
-                handler = create_handler(symbol, handler_config)
+                handler = create_handler(symbol, handler_config)  # type: ignore
 
                 # Запускаем если manager запущен
                 if self.is_running:

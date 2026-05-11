@@ -15,7 +15,7 @@ except ImportError:
 
 # Logger stub if common.log is missing
 try:
-    from common.log import logger
+    from common.log import logger  # type: ignore
 except ImportError:
     import logging
     logger = logging.getLogger("experiment_manager")
@@ -211,16 +211,16 @@ class ExperimentManager:
 
             new_map: dict[str, ExperimentSpec] = {}
             for r in rows:
-                new_map[r["experiment_id"]] = ExperimentSpec(
-                    experiment_id=r["experiment_id"],
-                    filter_name=r["filter_name"],
-                    signal_family=r["signal_family"],
-                    direction=int(r["direction"]),
-                    status=r["status"],
-                    start_at_ms=int(r["start_at_ms"]),
-                    end_at_ms=int(r["end_at_ms"]) if r["end_at_ms"] is not None else None,
-                    target_metric=r["target_metric"],
-                    config=r["config"],
+                new_map[r["experiment_id"]] = ExperimentSpec(  # type: ignore
+                    experiment_id=r["experiment_id"],  # type: ignore
+                    filter_name=r["filter_name"],  # type: ignore
+                    signal_family=r["signal_family"],  # type: ignore
+                    direction=int(r["direction"]),  # type: ignore
+                    status=r["status"],  # type: ignore
+                    start_at_ms=int(r["start_at_ms"]),  # type: ignore
+                    end_at_ms=int(r["end_at_ms"]) if r["end_at_ms"] is not None else None,  # type: ignore
+                    target_metric=r["target_metric"],  # type: ignore
+                    config=r["config"],  # type: ignore
                 )
 
             self._experiments = new_map

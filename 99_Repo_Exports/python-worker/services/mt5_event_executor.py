@@ -63,7 +63,7 @@ r = redis.from_url(REDIS_URL, decode_responses=True)
 # Trade events logger
 events_logger = None
 if HAS_EVENTS_LOGGER:
-    events_logger = TradeEventsLogger(REDIS_URL)
+    events_logger = TradeEventsLogger(REDIS_URL)  # type: ignore
     log.info("✅ Trade events logger initialized")
 
 # FastAPI app
@@ -142,7 +142,7 @@ def load_trade_state(sid: str) -> dict[str, Any]:
         return json.loads(data)
     except Exception as e:
         log.error("Error loading trade state %s: %s", sid, str(e))
-        return load_trade_state.__defaults__[0]  # Новый state
+        return load_trade_state.__defaults__[0]  # Новый state  # type: ignore
 
 
 def save_trade_state(state: dict[str, Any], ttl: int = 604800):
@@ -180,7 +180,7 @@ def append_event_to_stream(evt: dict[str, Any]):
         log.error("Error publishing to stream: %s", str(e))
 
 
-def price_close_enough(price: float, target: float, tolerance: float = None) -> bool:
+def price_close_enough(price: float, target: float, tolerance: float = None) -> bool:  # type: ignore
     """Проверка попадания цены в уровень с допуском."""
     if tolerance is None:
         tolerance = PRICE_TOLERANCE
@@ -409,26 +409,26 @@ def receive_mt5_event(event: MT5Event):
 
         if events_logger:
             # Extract AB data from signal payload or top-level if available
-            ab_arm = str(signal.get("ab_arm") or (signal.get("payload") or {}).get("ab_arm") or "A")
-            ab_group = str(signal.get("ab_group") or (signal.get("payload") or {}).get("ab_group") or "default")
-            ab_key = str(signal.get("ab_key") or (signal.get("payload") or {}).get("ab_key") or "")
-            regime = str(signal.get("regime") or (signal.get("payload") or {}).get("regime") or "na")
-            zone_id = str(signal.get("zone_id") or (signal.get("payload") or {}).get("zone_id") or "")
+            ab_arm = str(signal.get("ab_arm") or (signal.get("payload") or {}).get("ab_arm") or "A")  # type: ignore
+            ab_group = str(signal.get("ab_group") or (signal.get("payload") or {}).get("ab_group") or "default")  # type: ignore
+            ab_key = str(signal.get("ab_key") or (signal.get("payload") or {}).get("ab_key") or "")  # type: ignore
+            regime = str(signal.get("regime") or (signal.get("payload") or {}).get("regime") or "na")  # type: ignore
+            zone_id = str(signal.get("zone_id") or (signal.get("payload") or {}).get("zone_id") or "")  # type: ignore
 
             # Calculate R-multiple
             r_mult = 0.0
             risk_usd = 0.0
             try:
                 # 1. Try explicit risk from signal
-                risk_usd = float(signal.get("risk_usd") or (signal.get("payload") or {}).get("risk_usd") or 0.0)
+                risk_usd = float(signal.get("risk_usd") or (signal.get("payload") or {}).get("risk_usd") or 0.0)  # type: ignore
 
                 # 2. Fallback: calculate from SL distance
                 if risk_usd <= 0 and "spec_from_symbol_info" in globals():
                     try:
-                        entry_px = float(signal.get("entry_price") or 0.0)
-                        sl_px = float(signal.get("sl") or 0.0)
+                        entry_px = float(signal.get("entry_price") or 0.0)  # type: ignore
+                        sl_px = float(signal.get("sl") or 0.0)  # type: ignore
                         lot = float(event.volume or 0.0)
-                        side = str(signal.get("side") or (signal.get("payload") or {}).get("side") or "LONG")
+                        side = str(signal.get("side") or (signal.get("payload") or {}).get("side") or "LONG")  # type: ignore
 
                         if entry_px > 0 and sl_px > 0 and lot > 0:
                             # Use new get_symbol_info which supports redis fallback locally
@@ -448,8 +448,8 @@ def receive_mt5_event(event: MT5Event):
             close_ts_ms = int(event.ts or now_ms or get_ny_time_millis())
             # Normalize side from signal payload
             side_norm = str(
-                signal.get("side")
-                or (signal.get("payload") or {}).get("side")
+                signal.get("side")  # type: ignore
+                or (signal.get("payload") or {}).get("side")  # type: ignore
                 or "LONG"
             ).upper()
             # For MT5 we map deal id as order_id (unique per fill), position id remains position_id.

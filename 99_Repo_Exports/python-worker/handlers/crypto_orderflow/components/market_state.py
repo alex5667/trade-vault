@@ -66,7 +66,7 @@ class CryptoMarketState:
 
         highs = [b.high for b in hist]
         lows = [b.low for b in hist]
-        vols = [b.volume for b in hist]
+        vols = [b.volume for b in hist]  # type: ignore
 
         # Previous extremes (excluding current bar if not yet appended,
         # BUT usually this checks 'bar' against 'hist' where 'bar' might be the NEW one.
@@ -106,7 +106,7 @@ class CryptoMarketState:
         std_vol = math.sqrt(max(var_vol, 1e-9))
 
         # bar.volume is from the new bar being checked
-        vol_z = (bar.volume - mu_vol) / max(std_vol, 1e-6)
+        vol_z = (bar.volume - mu_vol) / max(std_vol, 1e-6)  # type: ignore
 
         is_new_high = (
             bar.high > prev_high + k_atr * atr_intraday and vol_z >= vol_z_thr

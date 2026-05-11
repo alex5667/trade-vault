@@ -16,7 +16,7 @@ class TestOFInputsDLQDBArchiveParseP98(unittest.TestCase):
             b"payload": b"{\"schema_version\":3,\"ts_ms\":1700000000000,\"symbol\":\"BTCUSDT\",\"dq_code\":\"missing_lob_fields\",\"missing_fields\":[\"microprice\",\"spread_bps\"]}",
         }
 
-        row, last_id = parse_event(stream, mid, fields)
+        row, last_id = parse_event(stream, mid, fields)  # type: ignore
         self.assertEqual(last_id, mid)
         self.assertEqual(row[0], stream)
         self.assertEqual(row[1], mid)
@@ -38,7 +38,7 @@ class TestOFInputsDLQDBArchiveParseP98(unittest.TestCase):
             b"symbol": b"ETHUSDT",
         }
 
-        row, _ = parse_event(stream, mid, fields)
+        row, _ = parse_event(stream, mid, fields)  # type: ignore
         self.assertEqual(row[0], stream)
         self.assertEqual(row[2], 1700000001000)
         self.assertEqual(row[7], "book_state_degraded")

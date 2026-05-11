@@ -68,7 +68,7 @@ class EdgeGateReporter:
             conn = psycopg2.connect(self.config.db_dsn)
             with conn, conn.cursor(cursor_factory=RealDictCursor) as cur:
                 cur.execute(query, (self.config.lookback_hours, self.config.min_trades))
-                return cur.fetchall()
+                return cur.fetchall()  # type: ignore
         finally:
             if conn is not None:
                 with contextlib.suppress(Exception):

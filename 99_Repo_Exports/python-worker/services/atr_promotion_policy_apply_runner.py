@@ -28,7 +28,7 @@ def _audit(conn, proposal: dict, decision: dict, applied: bool, previous_active_
               stop_ttl_mode, trailing_mode, reason_code,
               approved, applied, suggestion_json, decision_json, previous_active_json
             ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s::jsonb,%s::jsonb)
-            """
+            """,
             (
                 proposal["source"],
                 proposal["symbol"],

@@ -71,7 +71,7 @@ async def _run_iteration(r: aioredis.Redis, lock_key: str, lock_ttl_ms: int, rep
         with contextlib.suppress(Exception):
             svc.r = getattr(svc, "r", r) or r
 
-        updates: list[str] = await svc.run_once()
+        updates: list[str] = await svc.run_once()  # type: ignore
         log.info(f"Evaluation complete. Updated {len(updates)} items.")
 
         if updates and os.getenv("AB_WINNER_TELEGRAM_ENABLED", "0") == "1":

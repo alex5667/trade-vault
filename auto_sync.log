@@ -213,3 +213,88 @@ fatal: Could not read from remote repository.
 Please make sure you have the correct access rights
 and the repository exists.
 2026-05-09 05:45:05 - Синхронизация завершена успешно.
+[main c4d354b0] Auto-sync vault notes 2026-05-10 05:45:01
+ 678 files changed, 39799 insertions(+), 21050 deletions(-)
+ create mode 100644 99_Automation/logs/update_2026-05-10_03-37-01.log
+ create mode 100644 99_Repo_Exports/python-worker/core/gates/decision.py
+ create mode 100644 99_Repo_Exports/python-worker/handlers/crypto_orderflow/utils/portfolio_exposure_gate.py
+ create mode 100644 99_Repo_Exports/python-worker/orderflow_services/tests/benchmark_local.py
+ create mode 100644 99_Repo_Exports/python-worker/orderflow_services/tests/benchmark_ml_executor.py
+ create mode 100644 99_Repo_Exports/python-worker/orderflow_services/tests/test_ml_pipeline_lifecycle.py
+ create mode 100644 99_Repo_Exports/python-worker/scripts/check_sl_pg.py
+ create mode 100644 99_Repo_Exports/python-worker/scripts/check_sl_virtual.py
+ create mode 100644 99_Repo_Exports/python-worker/scripts/scratch_sl_atr.py
+ create mode 100644 99_Repo_Exports/python-worker/services/binance_executor_monolith_backup.py
+ create mode 100644 99_Repo_Exports/python-worker/services/dispatch/dispatch_metrics.py
+ create mode 100644 99_Repo_Exports/python-worker/services/dispatch/dispatcher_app.py
+ create mode 100644 99_Repo_Exports/python-worker/services/dispatch/dlq_writer.py
+ create mode 100644 99_Repo_Exports/python-worker/services/dispatch/envelope_parser.py
+ create mode 100644 99_Repo_Exports/python-worker/services/dispatch/idempotency_store.py
+ create mode 100644 99_Repo_Exports/python-worker/services/dispatch/lease_manager.py
+ create mode 100644 99_Repo_Exports/python-worker/services/dispatch/marker_repair.py
+ create mode 100644 99_Repo_Exports/python-worker/services/dispatch/retry_scheduler.py
+ create mode 100644 99_Repo_Exports/python-worker/services/dispatch/target_router.py
+ create mode 100644 99_Repo_Exports/python-worker/services/execution/__init__.py
+ create mode 100644 99_Repo_Exports/python-worker/services/execution/active_symbol_guard.py
+ create mode 100644 99_Repo_Exports/python-worker/services/execution/binance_executor_app.py
+ create mode 100644 99_Repo_Exports/python-worker/services/execution/binance_filters.py
+ create mode 100644 99_Repo_Exports/python-worker/services/execution/binance_order_mapper.py
+ create mode 100644 99_Repo_Exports/python-worker/services/execution/emergency_flatten_service.py
+ create mode 100644 99_Repo_Exports/python-worker/services/execution/execution_event_writer.py
+ create mode 100644 99_Repo_Exports/python-worker/services/execution/execution_state_store.py
+ create mode 100644 99_Repo_Exports/python-worker/services/execution/maker_tp_watchdog.py
+ create mode 100644 99_Repo_Exports/python-worker/services/execution/order_cancel_service.py
+ create mode 100644 99_Repo_Exports/python-worker/services/execution/order_modify_service.py
+ create mode 100644 99_Repo_Exports/python-worker/services/execution/order_open_service.py
+ create mode 100644 99_Repo_Exports/python-worker/services/execution/protection_service.py
+ create mode 100644 99_Repo_Exports/python-worker/services/execution/reconcile_service.py
+ create mode 100644 99_Repo_Exports/python-worker/services/execution/trailing_service.py
+ create mode 100644 99_Repo_Exports/python-worker/services/ml_confirm/config_loader.py
+ create mode 100644 99_Repo_Exports/python-worker/services/ml_confirm/decision_policy.py
+ create mode 100644 99_Repo_Exports/python-worker/services/ml_confirm/feature_vectorizer.py
+ create mode 100644 99_Repo_Exports/python-worker/services/ml_confirm/gate.py
+ create mode 100644 99_Repo_Exports/python-worker/services/ml_confirm/metrics_writer.py
+ create mode 100644 99_Repo_Exports/python-worker/services/ml_confirm/model_loader.py
+ create mode 100644 99_Repo_Exports/python-worker/services/ml_confirm/replay_capture.py
+ create mode 100644 99_Repo_Exports/python-worker/services/ml_confirm/selective_policy.py
+ create mode 100644 99_Repo_Exports/python-worker/services/ml_confirm/utils.py
+ create mode 100644 99_Repo_Exports/python-worker/services/orderflow/atr_resolver.py
+ create mode 100644 99_Repo_Exports/python-worker/services/orderflow/candidate_builder.py
+ create mode 100644 99_Repo_Exports/python-worker/services/orderflow/components/tick_deduper.py
+ create mode 100644 99_Repo_Exports/python-worker/services/orderflow/components/tick_feature_updater.py
+ create mode 100644 99_Repo_Exports/python-worker/services/orderflow/components/tick_metrics.py
+ create mode 100644 99_Repo_Exports/python-worker/services/orderflow/components/tick_quarantine_writer.py
+ create mode 100644 99_Repo_Exports/python-worker/services/orderflow/components/tick_time_policy.py
+ create mode 100644 99_Repo_Exports/python-worker/services/orderflow/components/unknown_side_policy.py
+ create mode 100644 99_Repo_Exports/python-worker/services/orderflow/confidence_service.py
+ create mode 100644 99_Repo_Exports/python-worker/services/orderflow/extract_methods.py
+ create mode 100644 99_Repo_Exports/python-worker/services/orderflow/metrics_emitter.py
+ create mode 100644 99_Repo_Exports/python-worker/services/orderflow/order_payload_builder.py
+ create mode 100644 99_Repo_Exports/python-worker/services/orderflow/signal_payload_builder.py
+ create mode 100644 99_Repo_Exports/python-worker/services/orderflow/smt_snapshot_publisher.py
+ create mode 100644 99_Repo_Exports/python-worker/services/orderflow/strategy_app.py
+ create mode 100644 99_Repo_Exports/python-worker/services/orderflow/tick_decision_engine.py
+ create mode 100644 99_Repo_Exports/python-worker/services/orderflow/tick_processor_legacy.py
+ create mode 100644 99_Repo_Exports/python-worker/services/trade_monitor/__init__.py
+ create mode 100644 99_Repo_Exports/python-worker/services/trade_monitor/_monolith.py
+ create mode 100644 99_Repo_Exports/python-worker/services/trade_monitor/close_detector.py
+ create mode 100644 99_Repo_Exports/python-worker/services/trade_monitor/monitor_app.py
+ create mode 100644 99_Repo_Exports/python-worker/services/trade_monitor/orphan_recovery_policy.py
+ create mode 100644 99_Repo_Exports/python-worker/services/trade_monitor/pnl_calculator.py
+ create mode 100644 99_Repo_Exports/python-worker/services/trade_monitor/position_loader.py
+ create mode 100644 99_Repo_Exports/python-worker/services/trade_monitor/position_state.py
+ create mode 100644 99_Repo_Exports/python-worker/services/trade_monitor/timeout_exit_policy.py
+ create mode 100644 99_Repo_Exports/python-worker/services/trade_monitor/trade_close_writer.py
+ create mode 100644 99_Repo_Exports/python-worker/services/trade_monitor/trade_event_emitter.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/execution/__init__.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/execution/test_execution_services.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/slo_regression/__init__.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/slo_regression/test_gate_orchestrator.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/trade_monitor_test_utils.py
+ create mode 100644 99_Repo_Exports/scripts/drills/drill_timescale_retention.sql
+git@github.com: Permission denied (publickey).
+fatal: Could not read from remote repository.
+
+Please make sure you have the correct access rights
+and the repository exists.
+2026-05-10 05:45:03 - Синхронизация завершена успешно.

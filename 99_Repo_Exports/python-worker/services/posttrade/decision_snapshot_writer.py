@@ -223,7 +223,7 @@ def _normalize_row(evt: dict[str, Any]) -> dict[str, Any]:
     )
 
     row: dict[str, Any] = {
-        "ts_decision_ms": int(ts_decision_ms),
+        "ts_decision_ms": int(ts_decision_ms),  # type: ignore
         "sid": sid,
         "symbol": symbol or "UNKNOWN",
         "venue": (evt.get("venue") or "binance"),
@@ -481,7 +481,7 @@ class DecisionSnapshotStreamWorker:
                 xautoclaim = getattr(self.redis, "xautoclaim", None)
                 if callable(xautoclaim):
                     res = await xautoclaim(
-                        name=self.cfg.stream,
+                        name=self.cfg.stream,  # type: ignore
                         groupname=self.cfg.group,
                         consumername=self.cfg.consumer,
                         min_idle_time=self.cfg.pel_min_idle_ms,
@@ -538,7 +538,7 @@ class DecisionSnapshotStreamWorker:
                     break
 
                 pending = await xpending_range(
-                    self.cfg.stream,
+                    self.cfg.stream,  # type: ignore
                     self.cfg.group,
                     min=cursor,
                     max="+",
@@ -561,7 +561,7 @@ class DecisionSnapshotStreamWorker:
                         ids.append(_decode_id(p[0]))
 
                 claimed = await xclaim(
-                    self.cfg.stream,
+                    self.cfg.stream,  # type: ignore
                     self.cfg.group,
                     self.cfg.consumer,
                     min_idle_time=self.cfg.pel_min_idle_ms,
@@ -620,8 +620,8 @@ class DecisionSnapshotStreamWorker:
         try:
             xpending = getattr(self.redis, "xpending", None)
             if callable(xpending):
-                res = await xpending(self.cfg.stream, self.cfg.group)
-                # redis-py may return dict or tuple
+                res = await xpending(self.cfg.stream, self.cfg.group)  # type: ignore
+                # redis-py may return dict or tuple  # type: ignore
                 if isinstance(res, dict) and "pending" in res:
                     return int(res.get("pending") or 0)
                 if isinstance(res, (list, tuple)) and len(res) >= 1:
@@ -633,8 +633,8 @@ class DecisionSnapshotStreamWorker:
         try:
             xinfo_groups = getattr(self.redis, "xinfo_groups", None)
             if callable(xinfo_groups):
-                groups = await xinfo_groups(self.cfg.stream)
-                for g in groups or []:
+                groups = await xinfo_groups(self.cfg.stream)  # type: ignore
+                for g in groups or []:  # type: ignore
                     # redis-py may decode bytes or keep as bytes
                     name = g.get("name") if isinstance(g, dict) else None
                     name = _decode_bytes(name)

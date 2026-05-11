@@ -91,7 +91,7 @@ def run_once() -> int:
     use_spread = os.getenv("ATR_POLICY_STRESS_USE_DEPTH_SPREAD", "1") == "1"
 
     venue_stress_active = _read_venue_stress(r)
-    portfolio_stress_active = (r.get("state:atr_portfolio:stress_active") == "1")
+    portfolio_stress_active = (r.get("state:atr_portfolio:stress_active") == "1")  # type: ignore
 
     evts = []
 
@@ -108,13 +108,13 @@ def run_once() -> int:
 
         for symbol in symbols:
             # Gather execution proxies
-            spread_half = _safe_float(r.get(f"spread_ema_half_bps:{symbol}"))
+            spread_half = _safe_float(r.get(f"spread_ema_half_bps:{symbol}"))  # type: ignore
             spread_bps = spread_half * 2.0
-            slip_bps = _safe_float(r.get(f"slippage_ema:{symbol}") or 0.0) # depends on your actual key
+            slip_bps = _safe_float(r.get(f"slippage_ema:{symbol}") or 0.0) # depends on your actual key  # type: ignore
 
             # depth approx
-            depth_ask = _safe_float(r.get(f"depth_ask_5:{symbol}") or 999999.0)
-            depth_bid = _safe_float(r.get(f"depth_bid_5:{symbol}") or 999999.0)
+            depth_ask = _safe_float(r.get(f"depth_ask_5:{symbol}") or 999999.0)  # type: ignore
+            depth_bid = _safe_float(r.get(f"depth_bid_5:{symbol}") or 999999.0)  # type: ignore
             depth_top5 = min(depth_ask, depth_bid)
 
             dq_flags = _read_dt_quality(r, symbol)
@@ -122,7 +122,7 @@ def run_once() -> int:
 
             # Regime calculation (in practice from your indicator cache, defaulting to expansion/chop fallback)
             regime = "unknown"
-            r_regime = r.get(f"state:atr_regime_raw:{symbol}")
+            r_regime = r.get(f"state:atr_regime_raw:{symbol}")  # type: ignore
             if r_regime in {"trend_up", "trend_down", "chop", "expansion"}:
                  regime = r_regime
 
@@ -158,13 +158,13 @@ def run_once() -> int:
                  action = "clip" # generic
 
             # Transition detection
-            prev_stress = r.get(f"state:atr_stress:{symbol}")
+            prev_stress = r.get(f"state:atr_stress:{symbol}")  # type: ignore
             if prev_stress != stress:
                  evts.append((symbol, regime, stress, action, "STATE_TRANSITION", reason))
-                 r.set(f"state:atr_stress:{symbol}", stress)
+                 r.set(f"state:atr_stress:{symbol}", stress)  # type: ignore
 
-            if r.get(f"state:atr_regime:{symbol}") != regime:
-                 r.set(f"state:atr_regime:{symbol}", regime)
+            if r.get(f"state:atr_regime:{symbol}") != regime:  # type: ignore
+                 r.set(f"state:atr_regime:{symbol}", regime)  # type: ignore
 
             if conn:
                 with conn.cursor() as cur:

@@ -38,7 +38,7 @@ class TPEventEmulator:
     Эмулятор событий TP/SL для тестирования.
     """
 
-    def __init__(self, redis_url: str = None):
+    def __init__(self, redis_url: str = None):  # type: ignore
         """
         Args:
             redis_url: URL Redis (если None, берётся из REDIS_URL env)

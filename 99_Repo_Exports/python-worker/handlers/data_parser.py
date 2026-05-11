@@ -13,7 +13,7 @@ from utils.time_utils import get_ny_time_millis
 
 # Safe imports
 try:
-    from contexts import L2Level, SimpleL2Snapshot, Tick
+    from contexts import L2Level, SimpleL2Snapshot, Tick  # type: ignore
 except ImportError:
     # Fallback definitions for testing
     class Tick:
@@ -266,7 +266,7 @@ class OrderFlowDataParser:
                 return float(sum(l.size for l in levels[: min(n, len(levels))]))
 
             snapshot = SimpleL2Snapshot(
-                bids=bids, asks=asks, ts_ms=int(ts_ms), mid=float(mid),
+                bids=bids, asks=asks, ts_ms=int(ts_ms), mid=float(mid),  # type: ignore
                 best_bid=float(best_bid), best_ask=float(best_ask),
                 depth_bid_5=_sum_depth(bids, 5), depth_ask_5=_sum_depth(asks, 5),
                 depth_bid_20=_sum_depth(bids, 20), depth_ask_20=_sum_depth(asks, 20),
@@ -305,11 +305,11 @@ class OrderFlowDataParser:
             # лучше явный dataclass, но оставим как есть
             L3LiteEvent = type("L3LiteEvent", (), {})
             ev = L3LiteEvent()
-            ev.ts_ms = int(ts_ms)
-            ev.kind = data.get("kind", "unknown")
-            ev.side = side
-            ev.price = price
-            ev.qty = qty
+            ev.ts_ms = int(ts_ms)  # type: ignore
+            ev.kind = data.get("kind", "unknown")  # type: ignore
+            ev.side = side  # type: ignore
+            ev.price = price  # type: ignore
+            ev.qty = qty  # type: ignore
             return ev
 
         except Exception as e:

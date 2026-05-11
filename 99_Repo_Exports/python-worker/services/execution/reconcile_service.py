@@ -147,7 +147,7 @@ class ReconcileService:
             from binance_futures_client import BinanceAPIError  # type: ignore[no-redef]
 
         try:
-            return client.place_order(**params)
+            return client.place_order(**params)  # type: ignore
         except Exception as exc:
             is_ambiguous = False
             if isinstance(exc, BinanceAPIError):
@@ -197,7 +197,7 @@ class ReconcileService:
             from binance_futures_client import BinanceAPIError  # type: ignore[no-redef]
 
         try:
-            return client.place_algo_order(**params)
+            return client.place_algo_order(**params)  # type: ignore
         except Exception as exc:
             is_ambiguous = False
             if isinstance(exc, BinanceAPIError):

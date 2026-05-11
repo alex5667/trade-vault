@@ -9,7 +9,7 @@ from typing import Any
 
 import redis.asyncio as aioredis  # type: ignore
 
-from services.abc_router import choose_arm_abc
+from services.abc_router import choose_arm_abc, regime_group as _regime_group
 from services.entry_policy_overrides_v1 import EntryPolicyOverridesV1
 from services.smt_entry_abc_config import ABCPolicyLoader, ArmPolicy
 from utils.time_utils import get_ny_time_millis
@@ -143,8 +143,8 @@ def _fsm_step(
     touch_bp: float,
     away_bp: float,
     retest_bp: float,
-    pol: ArmPolicy = None,
-) -> tuple[bool, str]:
+    pol: ArmPolicy = None,  # type: ignore
+) -> tuple[bool, str]:  # type: ignore
     try:
         px = float(snap.get("close_px", 0.0) or 0.0)
         zid = (snap.get("zone_id", "") or "")
@@ -362,15 +362,13 @@ class SmtEntryCandidateService:
                                 salt = str(getattr(self._ovr, "ab_salt", salt) or salt)
                         except Exception: pass
 
-                        A = 1.0 - (sb + sc)/100.0
-                        B = sb/100.0
-                        C = sc/100.0
-                        arm = choose_arm_abc(key=ab_key, split_b=B, split_c=C, salt=salt)
+                        A = 1.0 - (sb + sc) / 100.0
+                        B = sb / 100.0
+                        C = sc / 100.0
+                        arm = choose_arm_abc(key=ab_key, split_b=sb, split_c=sc, salt=salt)
                         split_reason = "overrides_v1" if self._ovr_loaded_ts_ms > 0 else "env_defaults"
 
-                        if regime in ("thin", "news", "illiquid"): grp = "thin"
-                        elif regime == "range": grp = "range"
-                        else: grp = "default"
+                        grp = _regime_group(regime)
                     else:
                         arm = st.ab_arm; ab_key = st.ab_key; grp = st.ab_group
                         A = st.ab_split_a; B = st.ab_split_b; C = st.ab_split_c; split_reason = st.ab_split_reason

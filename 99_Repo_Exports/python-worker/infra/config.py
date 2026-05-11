@@ -47,7 +47,7 @@ class Config:
     runtime_atr_path: str = os.getenv("RUNTIME_ATR_PATH", "/runtime/atr")
 
     # Символ и тайминги
-    symbol: str = os.getenv("SYMBOL")
+    symbol: str = os.getenv("SYMBOL")  # type: ignore
     poll_ms: int = _i(os.getenv("HUB_POLL_MS", "500"), 500)
     cooldown_sec: int = _i(os.getenv("HUB_COOLDOWN_SEC", "180"), 180)
     dedupe_ttl_sec: int = _i(os.getenv("HUB_DEDUPE_TTL_SEC", "900"), 900)

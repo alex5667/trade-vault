@@ -25,11 +25,11 @@ class RetryScheduler:
             jitter_ms=self.config.retry_jitter_ms
         )
 
-    def schedule_target_retry(self, *, target: str, sid: str, env: dict[str, Any], attempt: int, last_error: str) -> None:
+    async def schedule_target_retry(self, *, target: str, sid: str, env: dict[str, Any], attempt: int, last_error: str) -> None:
         if attempt >= self.config.ack_retry_max: # reusing ack_retry_max config or should it be max_attempts?
             # Target-specific DLQ is more useful than generic DLQ here:
             with contextlib.suppress(Exception):
-                self.dlq_writer.send_target_dlq(
+                await self.dlq_writer.send_target_dlq(
                     target=str(target),
                     sid=str(sid),
                     env=env if isinstance(env, dict) else {},
@@ -43,7 +43,7 @@ class RetryScheduler:
         # Next level: retry dedup per (target,sid) to prevent ZSET explosions.
         try:
             dk = DeliveryHelpers.retry_dedup_key(self.config.retry_dedup_prefix, target, sid)
-            ok = self.redis.set(dk, "1", nx=True, px=int(delay) + 1000)
+            ok = await self.redis.set(dk, "1", nx=True, px=int(delay) + 1000)
             if not ok:
                 self.ctr["retry_dedup_hit"] += 1
                 return
@@ -60,16 +60,16 @@ class RetryScheduler:
         }
         member = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
         score = get_ny_time_millis() + delay
-        self.redis.zadd(self.config.retry_zset, {member: score})
+        await self.redis.zadd(self.config.retry_zset, {member: score})
 
-    def drain_retries_best_effort(self) -> None:
+    async def drain_retries_best_effort(self) -> None:
         now = time.monotonic()
         if (now - self._last_retry_drain) * 1000 < self.config.retry_drain_every_ms:
             return
         self._last_retry_drain = now
         try:
             now_ms = get_ny_time_millis()
-            items = self.lua_scripts.execute("zpop_due", keys=[self.config.retry_zset], args=[str(now_ms), str(self.config.retry_pop_limit)])
+            items = await self.lua_scripts.execute("zpop_due", keys=[self.config.retry_zset], args=[str(now_ms), str(self.config.retry_pop_limit)])
         except Exception:
             return
         if not items:
@@ -84,6 +84,6 @@ class RetryScheduler:
                 if not sid or not target or not isinstance(env, dict):
                     continue
                 # Assuming target_router has deliver_targets_with_retry
-                self.target_router.deliver_targets_with_retry(env, sid, targets=[target], base_attempts={"__forced__": attempt})
+                await self.target_router.deliver_targets_with_retry(env, sid, targets=[target], base_attempts={"__forced__": attempt})
             except Exception:
                 continue

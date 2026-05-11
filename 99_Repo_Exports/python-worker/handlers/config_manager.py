@@ -173,10 +173,10 @@ class ConfigManager:
         return self._get_min_confidence_for_symbol(symbol)
 
     # Алиас для обратной совместимости, используемый SignalGenerator.generate()
-    def min_confidence(self, symbol: str | None) -> float:
+    def min_confidence(self, symbol: str | None) -> float:  # type: ignore
         return self.get_min_confidence_for_symbol(symbol)
 
-    def signal_stream(self) -> str:
+    def signal_stream(self) -> str:  # type: ignore
         return self._get_signal_stream()
 
     def signal_stream(self) -> str:

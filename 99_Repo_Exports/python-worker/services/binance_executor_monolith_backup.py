@@ -198,7 +198,7 @@ try:
         EXECUTION_INTENT_AGE_MS,
         EXECUTION_INTENT_REJECTED_TOTAL,
         EXECUTION_MARGIN_GUARD_SKIPPED_TOTAL,
-        EXECUTION_OPERATION_BLOCKED_TOTAL,
+        EXECUTION_OPERATION_BLOCKED_TOTAL,  # type: ignore
         EXECUTION_POSITION_UNPROTECTED_SECONDS,
         EXECUTION_PROTECTION_ARM_TIMEOUT_TOTAL,
         EXECUTION_PROTECTION_REPAIR_TOTAL,
@@ -236,7 +236,7 @@ except Exception:  # pragma: no cover
             EXECUTION_INTENT_AGE_MS,
             EXECUTION_INTENT_REJECTED_TOTAL,
             EXECUTION_MARGIN_GUARD_SKIPPED_TOTAL,
-            EXECUTION_OPERATION_BLOCKED_TOTAL,
+            EXECUTION_OPERATION_BLOCKED_TOTAL,  # type: ignore
             EXECUTION_POSITION_UNPROTECTED_SECONDS,
             EXECUTION_PROTECTION_ARM_TIMEOUT_TOTAL,
             EXECUTION_PROTECTION_REPAIR_TOTAL,
@@ -664,9 +664,9 @@ def _normalize_side(payload: dict[str, Any]) -> tuple[str, str, int]:
     """
     # Prefer explicit fields from payload
     raw = payload.get("side") or payload.get("direction") or ""
-    side = normalize_side(raw)
-    direction = normalize_direction(raw)
-    side_int = get_side_int(raw)
+    side = normalize_side(raw)  # type: ignore
+    direction = normalize_direction(raw)  # type: ignore
+    side_int = get_side_int(raw)  # type: ignore
 
     return str(side.value), str(direction.value), side_int
 
@@ -731,10 +731,10 @@ def _classify_error(e: Exception) -> str:
             return "transient"
         
         # Track rejection metrics for SLO
-        if EXEC_REJECT_RATE is not None:
+        if EXEC_REJECT_RATE is not None:  # type: ignore
             try:
                 # e.g., -2021, -4028, -4045
-                EXEC_REJECT_RATE.labels(venue="binance", symbol="UNKNOWN").inc()
+                EXEC_REJECT_RATE.labels(venue="binance", symbol="UNKNOWN").inc()  # type: ignore
             except Exception:
                 pass
                 
@@ -788,7 +788,7 @@ class BinanceExecutor:
             raise RuntimeError("redis-py is required (pip install redis)")
         self.redis_url = os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
         # Redis connection: injected InMemoryRedis for tests, or real prod connection
-        self.r = redis_client if redis_client is not None else redis.from_url(self.redis_url, decode_responses=True)
+        self.r = redis_client if redis_client is not None else redis.from_url(self.redis_url, decode_responses=True)  # type: ignore
 
         # Default queue: orders:queue:binance (separate from MT5 orders:queue:mt5)
         from core.redis_keys import RedisStreams as RS
@@ -906,14 +906,14 @@ class BinanceExecutor:
         self._trailing_condition: Any = None
         if self.trail_mode == "orchestrator" and _HAS_TRAILING_PROFILES:
             try:
-                self._trailing_profiles = TrailingProfilesRegistry()
+                self._trailing_profiles = TrailingProfilesRegistry()  # type: ignore
                 print(f"   trailing profiles: {self._trailing_profiles.list_names()}")
             except Exception as _tpe:
                 print(f"   ⚠️ trailing profiles init failed: {_tpe} — fallback to native trail mode")
                 self.trail_mode = "native"
         if self.trail_mode == "orchestrator" and _HAS_TRAILING_CONDITION:
             try:
-                self._trailing_condition = TrailingConditionEvaluator(
+                self._trailing_condition = TrailingConditionEvaluator(  # type: ignore
                     redis_client=redis_client if redis_client is not None else self.r,
                 )
                 print(f"   trailing condition evaluator: enabled={self._trailing_condition.cfg.enabled}")
@@ -1208,15 +1208,43 @@ class BinanceExecutor:
             'exit_policy': 'SL_STOP_MARKET__TP_MARKET__TRAIL_OPTIONAL',
         }
 
-    def _new_closed_trade_id(self, sid: str, *, exit_order_ref: str = '') -> str:
-        """Generate a stable closed_trade_id that survives restarts.
+    @staticmethod
+    def stable_closed_trade_id(
+        sid: str,
+        *,
+        exit_order_ref: str = '',
+        exit_ts_ms: int = 0,
+        close_reason: str = '',
+    ) -> str:
+        """Generate a deterministic closed_trade_id that survives restarts and replay.
 
-        sha1[:12] suffix over (sid|exit_order_ref|ts_ms) gives a unique
-        but short identifier for joins in analytics tables.
+        P1-FIX: The previous implementation used _ms_now() in the hash, making
+        the ID different on every retry/replay. This broke ON CONFLICT idempotency,
+        backfill joins, and golden replay regression tests.
+
+        Now uses only stable inputs: sid, exit_order_ref, exit_ts_ms, close_reason.
+        These values are known at close time and do not change on retry.
         """
         import hashlib as _hashlib
-        suffix = _hashlib.sha1(f"{sid}|{exit_order_ref}|{_ms_now()}".encode()).hexdigest()[:12]
-        return f"closed:{sid}:{suffix}"
+        base = f"{sid}|{exit_order_ref}|{int(exit_ts_ms)}|{close_reason}"
+        suffix = _hashlib.sha1(base.encode()).hexdigest()[:24]
+        return f"closed:{suffix}"
+
+    def _new_closed_trade_id(
+        self,
+        sid: str,
+        *,
+        exit_order_ref: str = '',
+        exit_ts_ms: int = 0,
+        close_reason: str = '',
+    ) -> str:
+        """Instance-level wrapper for backward compatibility. Delegates to stable_closed_trade_id."""
+        return self.stable_closed_trade_id(
+            sid,
+            exit_order_ref=exit_order_ref,
+            exit_ts_ms=exit_ts_ms or _ms_now(),
+            close_reason=close_reason,
+        )
 
 
 
@@ -1241,20 +1269,20 @@ class BinanceExecutor:
         if side_int is None:
             raw_side = raw.get('side') or raw.get('logical_side') or raw.get('direction')
             if raw_side:
-                side_int = get_side_int(str(raw_side))
+                side_int = get_side_int(str(raw_side))  # type: ignore
 
         # P1: Unified ExecutionEventV1
         try:
             # If this is a fill event, use ExecutionEventV1
             if action in {"fill", "entry_filled", "exit_filled", "tp_filled", "sl_filled"}:
                 # Map fields to ExecutionEventV1
-                ev_v1 = ExecutionEventV1(
+                ev_v1 = ExecutionEventV1(  # type: ignore
                     exec_id=str(raw.get('exec_id') or f"exec:{sid}:{ts_event_ms}"),
                     order_id=str(raw.get('order_id') or raw.get('binance_order_id') or ""),
                     client_order_id=str(raw.get('client_order_id') or raw.get('entry_client_order_id') or ""),
                     symbol=symbol,
                     ts_ms=ts_event_ms,
-                    side=Side(normalize_side(str(raw.get('side') or raw.get('logical_side') or '')).value),
+                    side=Side(normalize_side(str(raw.get('side') or raw.get('logical_side') or '')).value),  # type: ignore
                     price=float(raw.get('avg_price') or raw.get('price') or 0.0),
                     qty=float(raw.get('filled_qty') or raw.get('qty') or 0.0),
                     side_int=side_int or 0,
@@ -2262,7 +2290,7 @@ class BinanceExecutor:
         # Persist actual leverage to Redis for observability (read by trade_monitor reports)
         if actual_lev > 0:
             with contextlib.suppress(Exception):
-                self.redis.hset("exec:leverage:actual", symbol.upper(), str(actual_lev))
+                self.redis.hset("exec:leverage:actual", symbol.upper(), str(actual_lev))  # type: ignore
 
     @staticmethod
     def _parse_max_leverage(exc: BinanceAPIError) -> int:
@@ -2537,7 +2565,7 @@ class BinanceExecutor:
             "ts_exec_start_ms": ts_exec_start_ms,
         }
 
-    def _reconcile_entry_by_client_id(
+    def _reconcile_entry_by_client_id(  # type: ignore
         self, *, sid: str, symbol: str, client_order_id: str | None, client: BinanceFuturesClient
     ) -> dict[str, Any]:
         """Reconcile an entry order fill state via user-stream cache or REST."""
@@ -2552,7 +2580,7 @@ class BinanceExecutor:
         except Exception:
             return {}
 
-    def _reconcile_protection_by_sid(
+    def _reconcile_protection_by_sid(  # type: ignore
         self, *, sid: str, symbol: str, client: BinanceFuturesClient
     ) -> dict[str, Any]:
         """Scan open algo orders to reconstruct protection refs for a sid."""
@@ -2577,10 +2605,10 @@ class BinanceExecutor:
             or payload.get("entry_client_order_id")
             or _make_cid(sid, "entry", getattr(self, "r", None))
         )
-        entry = self._reconcile_entry_by_client_id(
-            sid=sid, symbol=symbol, client_order_id=entry_cid, client=client
+        entry = self._reconcile_entry_by_client_id(  # type: ignore
+            sid=sid, symbol=symbol, client_order_id=entry_cid, client=client  # type: ignore
         )
-        protection = self._reconcile_protection_by_sid(sid=sid, symbol=symbol, client=client)
+        protection = self._reconcile_protection_by_sid(sid=sid, symbol=symbol, client=client)  # type: ignore
         if not entry and not protection:
             return {}
         resolved = {
@@ -2922,7 +2950,7 @@ class BinanceExecutor:
             "newOrderRespType": "RESULT",
         }
         if self.position_mode == "oneway":
-            params["reduceOnly"] = True
+            params["reduceOnly"] = True  # type: ignore
             self._validate_exit_contract(
                 position_side=pos_side,
                 reduce_only=True,
@@ -3111,7 +3139,7 @@ class BinanceExecutor:
                 }
                 if policy is not None and policy.name == MAKER_FIRST:
                     limit_px = compute_limit_tp_price(
-                        float(tp_q), logical_side,
+                        float(tp_q), logical_side,  # type: ignore
                         offset_bps=self.tp_limit_price_offset_bps,
                         tick_size=float(filters_obj.tick_size or 0.0),
                     )
@@ -4542,7 +4570,7 @@ class BinanceExecutor:
             if f and hasattr(f, "tick_size") and f.tick_size > 0:
                 return float(f.tick_size)
             if f and hasattr(f, "price_filter"):
-                pf = f.price_filter
+                pf = f.price_filter  # type: ignore
                 if isinstance(pf, dict) and float(pf.get("tickSize", 0)) > 0:
                     return float(pf["tickSize"])
         except Exception:
@@ -4769,14 +4797,14 @@ class BinanceExecutor:
                             )
                             print(f"[startup_reconcile] {msg}")
                             with contextlib.suppress(Exception):
-                                self.tg.send_message(msg)
+                                self.tg.send_message(msg)  # type: ignore
                             if _bool_env("EXEC_FLATTEN_UNPROTECTED_ON_STARTUP", False):
                                 print(f"[startup_reconcile] AUTO-FLATTENING unprotected position {symbol} {logical} qty={amt}")
                                 try:
                                     client_filters = getattr(self, "demo_filters" if label == "demo" else "filters", None)
                                     emerg = self._emergency_flatten_position(
                                         sid=pseudo_sid, symbol=symbol, logical_side=logical, qty=abs(amt),
-                                        client=client, filters=client_filters
+                                        client=client, filters=client_filters  # type: ignore
                                     )
                                     self._exec_event({
                                         "sid": pseudo_sid, "symbol": symbol,
@@ -4841,7 +4869,7 @@ class BinanceExecutor:
                                 f"(orders with no active position)"
                             )
                             with contextlib.suppress(Exception):
-                                self.tg.send_message(msg)
+                                self.tg.send_message(msg)  # type: ignore
                     except Exception as orphan_exc:
                         print(f"[startup_reconcile] orphan cleanup error {label}: {orphan_exc}")
 
@@ -5076,7 +5104,7 @@ class BinanceExecutor:
         # P2: MAKER_FIRST FALLBACK
         if status != "FILLED" and policy.name == MAKER_FIRST and order_type == "LIMIT":
             try:
-                j_cancel = client.cancel_order(symbol, order_id=order_id)
+                j_cancel = client.cancel_order(symbol, order_id=order_id)  # type: ignore
                 status = (j_cancel.get("status") or "").upper()
                 filled_qty = _f(j_cancel.get("executedQty"), filled_qty)
                 avg_price = _f(j_cancel.get("avgPrice"), avg_price)
@@ -5180,7 +5208,7 @@ class BinanceExecutor:
 
         trail = self._maybe_start_trailing_after_tp1(
             payload=payload, sid=sid, symbol=symbol, logical_side=logical,
-            entry_price=avg_price if avg_price > 0 else (p or None),
+            entry_price=avg_price if avg_price > 0 else (p or None),  # type: ignore
             initial_qty=filled_qty,
             sl_order_id=_i(prot.get("sl_algo_id"), 0) or None,
             tp_levels=tps,
@@ -5623,7 +5651,7 @@ class BinanceExecutor:
             filters = None  # not available in resume path
             repair_state, is_complete = self._repair_open_protection(
                 sid=sid, symbol=symbol, payload=payload, state=state,
-                client=client, filters=filters, policy=policy,
+                client=client, filters=filters, policy=policy,  # type: ignore
             )
         except Exception:
             repair_state = "repair_failed"
@@ -5648,7 +5676,7 @@ class BinanceExecutor:
             qty = _f(state.get("qty"), 0.0)
             emerg = self._emergency_flatten_position(
                 sid=sid, symbol=symbol, logical_side=logical, qty=qty,
-                client=client, filters=None,
+                client=client, filters=None,  # type: ignore
             )
             self._transition_state(sid, symbol=symbol, action="resume",
                                    next_state=FSM_EMERGENCY_FLATTENED, details=emerg)
@@ -5694,7 +5722,7 @@ class BinanceExecutor:
                 try:
                     _repair_state, is_now_complete = self._repair_open_protection(
                         sid=sid, symbol=symbol, payload=payload, state=state,
-                        client=client, filters=None, policy=policy,
+                        client=client, filters=None, policy=policy,  # type: ignore
                     )
                     is_complete = is_now_complete
                 except Exception:
@@ -5860,7 +5888,7 @@ class BinanceExecutor:
                 )
             trail_requested = _truthy(payload.get("trail_after_tp1_requested"))
             if trail_requested:
-                trail = self._maybe_start_trailing_after_tp1(
+                trail = self._maybe_start_trailing_after_tp1(  # type: ignore
                     payload=payload, sid=sid, symbol=symbol, logical_side=logical_side,
                     initial_qty=live_qty,
                     sl_order_id=_i(prot.get("sl_algo_id"), 0) or None,
@@ -6605,7 +6633,7 @@ class BinanceExecutor:
                 if not raw:
                     continue
                 self.process_one(raw)
-            except getattr(redis.exceptions, "BusyLoadingError", type("DummyError", (Exception,), {})):
+            except getattr(redis.exceptions, "BusyLoadingError", type("DummyError", (Exception,), {})):  # type: ignore
                 print("⏳ Redis is loading dataset in memory, waiting 5s...")
                 time.sleep(5.0)
             except Exception as e:

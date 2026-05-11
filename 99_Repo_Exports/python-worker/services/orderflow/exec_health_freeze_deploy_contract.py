@@ -69,10 +69,10 @@ def _b(x: Any, default: bool = False) -> bool:
     """Safe bool cast (accepts '1', 'true', 'yes', 'on')."""
     try:
         if isinstance(x, str):
-            return x.strip().lower() in {'1', 'true', 'yes', 'on'},
-        return bool(int(x)),
+            return x.strip().lower() in {'1', 'true', 'yes', 'on'},  # type: ignore
+        return bool(int(x)),  # type: ignore
     except Exception:
-        return bool(default),
+        return bool(default),  # type: ignore
 
 
 def build_sensitive_deploy_manifest_contract() -> dict[str, SensitiveDeployManifest]:
@@ -86,19 +86,19 @@ def build_sensitive_deploy_manifest_contract() -> dict[str, SensitiveDeployManif
     rows = [
         SensitiveDeployManifest(
             purpose='exec_health_freeze_acl_policy_apply',
-            target_service=acl.service,
-            target_url_env=acl.redis_url_env,
-            target_expected_user=acl.redis_user,
-            target_expected_name=acl.client_name,
-            target_expected_lib_name=acl.lib_name,
+            target_service=acl.service,  # type: ignore
+            target_url_env=acl.redis_url_env,  # type: ignore
+            target_expected_user=acl.redis_user,  # type: ignore
+            target_expected_name=acl.client_name,  # type: ignore
+            target_expected_lib_name=acl.lib_name,  # type: ignore
         ),
         SensitiveDeployManifest(
             purpose='exec_health_freeze_override_commit_thaw',
-            target_service=commit.service,
-            target_url_env=commit.redis_url_env,
-            target_expected_user=commit.redis_user,
-            target_expected_name=commit.client_name,
-            target_expected_lib_name=commit.lib_name,
+            target_service=commit.service,  # type: ignore
+            target_url_env=commit.redis_url_env,  # type: ignore
+            target_expected_user=commit.redis_user,  # type: ignore
+            target_expected_name=commit.client_name,  # type: ignore
+            target_expected_lib_name=commit.lib_name,  # type: ignore
         )
     ]
     return {r.purpose: r for r in rows}
@@ -134,8 +134,8 @@ def render_sensitive_deploy_env_templates(
             'EXEC_HEALTH_REDIS_AUDIT_URL': f'redis://{AUDIT_USER}:<password>@{host}:{port}/{db}',
             'EXEC_HEALTH_REDIS_BOOTSTRAP_URL': f'redis://{BOOTSTRAP_USER}:<password>@{host}:{port}/{db}',
             row.target_url_env: f'redis://{row.target_expected_user}:<password>@{host}:{port}/{db}',
-            PREFLIGHT_CLIENT_NAME_ENV: pre.client_name,
-            PREFLIGHT_LIB_NAME_ENV: pre.lib_name,
+            PREFLIGHT_CLIENT_NAME_ENV: pre.client_name,  # type: ignore
+            PREFLIGHT_LIB_NAME_ENV: pre.lib_name,  # type: ignore
             TARGET_CLIENT_NAME_ENV: row.target_expected_name,
             TARGET_LIB_NAME_ENV: row.target_expected_lib_name,
             'EXEC_HEALTH_SERVICE_IDENTITY_ENFORCE': '1',

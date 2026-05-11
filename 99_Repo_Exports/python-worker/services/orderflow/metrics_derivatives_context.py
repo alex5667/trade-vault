@@ -21,10 +21,10 @@ except Exception:  # pragma: no cover
     Collector = object  # type: ignore
 
 logger = logging.getLogger("orderflow_metrics_derivatives_context")
-TCollector = TypeVar("TCollector", bound="Collector")
+TCollector = TypeVar("TCollector", bound="Collector")  # type: ignore
 
 
-def _get_or_create[TCollector: "Collector"](name: str, ctor: type[TCollector], documentation: str, labelnames: Sequence[str] = (), **kwargs):
+def _get_or_create[TCollector: "Collector"](name: str, ctor: type[TCollector], documentation: str, labelnames: Sequence[str] = (), **kwargs):  # type: ignore
     if REGISTRY is None:  # pragma: no cover
         return None
     existing = getattr(REGISTRY, "_names_to_collectors", {}).get(name)

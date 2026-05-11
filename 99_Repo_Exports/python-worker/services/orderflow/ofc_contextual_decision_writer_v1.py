@@ -139,7 +139,7 @@ def _parse_stream_fields(fields: dict[Any, Any]) -> dict[str, Any]:
 
 def _extract_ctx_source(evt: dict[str, Any]) -> dict[str, Any]:
     ofc = evt.get("of_confirm") if isinstance(evt.get("of_confirm"), dict) else {}
-    ev = ofc.get("evidence") if isinstance(ofc.get("evidence"), dict) else {}
+    ev = ofc.get("evidence") if isinstance(ofc.get("evidence"), dict) else {}  # type: ignore
     return ev if ev else evt
 
 

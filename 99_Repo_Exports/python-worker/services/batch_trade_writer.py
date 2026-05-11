@@ -36,9 +36,9 @@ from typing import Any
 
 try:
     from services.horizon_contract import (
-        extract_atr_tf_ms,
-        extract_horizon_bucket,
-        extract_horizon_contract_from_payload,
+        extract_atr_tf_ms,  # type: ignore
+        extract_horizon_bucket,  # type: ignore
+        extract_horizon_contract_from_payload,  # type: ignore
     )
 except ImportError:  # pragma: no cover
     def extract_horizon_contract_from_payload(p):  # type: ignore[misc]
@@ -401,7 +401,7 @@ class BatchTradeWriter:
         """
 
         with analytics_db.get_conn() as conn, conn.cursor() as cur:
-            psycopg2.extras.execute_values(cur, sql_main, main_rows, page_size=200)
+            psycopg2.extras.execute_values(cur, sql_main, main_rows, page_size=200)  # type: ignore
             if p0_rows and analytics_db.ANALYTICS_P0_ENABLED:
                 try:
                     # p0 использует to_timestamp() — нужна шаблонная форма
@@ -464,7 +464,7 @@ class BatchTradeWriter:
                             selected_trailing_offset_atr = EXCLUDED.selected_trailing_offset_atr,
                             updated_at = now()
                     """
-                    psycopg2.extras.execute_values(cur, sql_p0_adapted, p0_rows_adapted, page_size=200)
+                    psycopg2.extras.execute_values(cur, sql_p0_adapted, p0_rows_adapted, page_size=200)  # type: ignore
                 except Exception as p0_exc:
                     if analytics_db.ANALYTICS_P0_HARD_FAIL:
                         raise

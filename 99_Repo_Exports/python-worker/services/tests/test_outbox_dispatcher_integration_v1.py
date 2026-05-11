@@ -269,7 +269,7 @@ class TestOutboxDispatcherE2EHappyPath:
         fields = _make_envelope(sid)
         msg_id = "1700000000001-0"
 
-        result = d._handle_one(msg_id, fields, helper=helper, attempt_hint=0)
+        result = d._handle_one(msg_id, fields, helper=helper, attempt_hint=0)  # type: ignore
 
         assert result is True
         assert ds.delivered_count(d.signal_notify_stream) == 1
@@ -283,7 +283,7 @@ class TestOutboxDispatcherE2EHappyPath:
 
         sid = f"SID-{uuid.uuid4().hex[:8]}"
         msg_id = "1700000000002-0"
-        result = d._handle_one(msg_id, _make_envelope(sid), helper=helper, attempt_hint=0)
+        result = d._handle_one(msg_id, _make_envelope(sid), helper=helper, attempt_hint=0)  # type: ignore
 
         assert result is True
         assert ds.delivered_count("stream:signals:live") == 1
@@ -296,7 +296,7 @@ class TestOutboxDispatcherE2EHappyPath:
         helper = _FakeHelper()
 
         sid = f"SID-{uuid.uuid4().hex[:8]}"
-        result = d._handle_one("1700000000003-0", _make_envelope(sid), helper=helper, attempt_hint=0)
+        result = d._handle_one("1700000000003-0", _make_envelope(sid), helper=helper, attempt_hint=0)  # type: ignore
 
         assert result is True
         assert ds.delivered_count("stream:signals:audit") == 1
@@ -309,7 +309,7 @@ class TestOutboxDispatcherE2EHappyPath:
         helper = _FakeHelper()
 
         msg_id = "1700000000004-0"
-        result = d._handle_one(msg_id, _make_envelope("SID-ACK"), helper=helper, attempt_hint=0)
+        result = d._handle_one(msg_id, _make_envelope("SID-ACK"), helper=helper, attempt_hint=0)  # type: ignore
 
         assert result is True
         assert msg_id in helper.acked
@@ -322,7 +322,7 @@ class TestOutboxDispatcherE2EHappyPath:
         d, rq, da, lease, tr = _build_dispatcher_with_delivery_store(r, ds)
         helper = _FakeHelper()
 
-        d._handle_one("1700000000005-0", _make_envelope("SID-CLEAN"), helper=helper, attempt_hint=0)
+        d._handle_one("1700000000005-0", _make_envelope("SID-CLEAN"), helper=helper, attempt_hint=0)  # type: ignore
 
         dlq_entries = r._streams.get(d.dlq_stream, [])
         assert dlq_entries == []
@@ -344,7 +344,7 @@ class TestOutboxDispatcherSchemaVersion:
             consumer=d.consumer, schema_version="1"
         )._value.get()
 
-        d._handle_one("1700000000010-0", _make_envelope("SID-SV"), helper=helper, attempt_hint=0)
+        d._handle_one("1700000000010-0", _make_envelope("SID-SV"), helper=helper, attempt_hint=0)  # type: ignore
 
         after = DISPATCHER_SCHEMA_VERSION_TOTAL.labels(
             consumer=d.consumer, schema_version="1"
@@ -366,7 +366,7 @@ class TestOutboxDispatcherSchemaVersion:
         )._value.get()
 
         # WRONG schema: xack is direct on redis
-        d._handle_one("1700000000011-0", _make_envelope("SID-BAD-SV", schema_version="99"), helper=helper, attempt_hint=0)
+        d._handle_one("1700000000011-0", _make_envelope("SID-BAD-SV", schema_version="99"), helper=helper, attempt_hint=0)  # type: ignore
 
         after = DISPATCHER_SCHEMA_VERSION_TOTAL.labels(
             consumer=d.consumer, schema_version="99"
@@ -390,7 +390,7 @@ class TestOutboxDispatcherVirtualSignal:
         result = d._handle_one(
             "1700000000020-0",
             _make_envelope(sid, is_virtual=True),
-            helper=helper,
+            helper=helper,  # type: ignore
             attempt_hint=0,
         )
 
@@ -410,7 +410,7 @@ class TestOutboxDispatcherVirtualSignal:
         result = d._handle_one(
             msg_id,
             _make_envelope(sid, is_virtual=True),
-            helper=helper,
+            helper=helper,  # type: ignore
             attempt_hint=0,
         )
 
@@ -433,11 +433,11 @@ class TestOutboxDispatcherIdempotency:
         msg_id = "1700000000030-0"
 
         # First call
-        result1 = d._handle_one(msg_id, fields, helper=helper, attempt_hint=0)
+        result1 = d._handle_one(msg_id, fields, helper=helper, attempt_hint=0)  # type: ignore
         count_after_first = ds.delivered_count("stream:signals:live")
 
         # Second call (simulating retry / duplicate consume)
-        result2 = d._handle_one(msg_id, fields, helper=helper, attempt_hint=0)
+        result2 = d._handle_one(msg_id, fields, helper=helper, attempt_hint=0)  # type: ignore
         count_after_second = ds.delivered_count("stream:signals:live")
 
         assert result1 is True
@@ -455,7 +455,7 @@ class TestOutboxDispatcherIdempotency:
             d._handle_one(
                 f"1700000000040-{i}",
                 _make_envelope(f"SID-MULTI-{i}"),
-                helper=helper,
+                helper=helper,  # type: ignore
                 attempt_hint=0,
             )
 
@@ -481,7 +481,7 @@ class TestOutboxDispatcherLatencyHistogram:
             consumer=d.consumer
         )._sum.get()
 
-        d._handle_one("1700000000050-0", _make_envelope("SID-LAT"), helper=helper, attempt_hint=0)
+        d._handle_one("1700000000050-0", _make_envelope("SID-LAT"), helper=helper, attempt_hint=0)  # type: ignore
 
         after_count = DISPATCHER_DISPATCH_LAT_MS.labels(
             consumer=d.consumer
@@ -504,7 +504,7 @@ class TestOutboxDispatcherQueueDepthGauge:
         # Manually add messages to the outbox PENDING set (in redis stub)
         for i in range(3):
             mid = f"170000000009{i}-0"
-            r._pending[d.outbox_stream][d.group][mid] = {"data": "{}"}
+            r._pending[d.outbox_stream][d.group][mid] = {"data": "{}"}  # type: ignore
 
         d._pending_diag_tick()
 

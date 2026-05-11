@@ -5,7 +5,7 @@ from unittest.mock import Mock
 
 import redis
 
-from services.ml_confirm import cache_ml_decision
+from services.ml_confirm_gate.decision_cache import cache_ml_decision
 
 
 def test_cache_ml_decision():

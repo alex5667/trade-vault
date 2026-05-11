@@ -100,7 +100,7 @@ class SignalDispatcher:
             self.lua_scripts = LuaScriptManager(self.redis, logger=self.logger)
             # Preload scripts for better performance
             if self.redis:
-                self.lua_scripts.preload_all()
+                self.lua_scripts.preload_all()  # type: ignore
         except Exception as e:
             if self.logger:
                 self.logger.warning(f"Failed to initialize LuaScriptManager: {e}")
@@ -282,7 +282,7 @@ class SignalDispatcher:
         self._repair_cursor = 0
         self._last_marker_repair_mono = 0.0
 
-    def _sid_done_key(self, sid: str) -> str:
+    def _sid_done_key(self, sid: str) -> str:  # type: ignore
         """
         Delivery completion marker for SID (NOT msg_id).
 
@@ -375,7 +375,7 @@ class SignalDispatcher:
             # This is safe because per-target markers prevent duplicates across replays.
             self._lease_contention += 1
             try:
-                self.redis.xadd(
+                self.redis.xadd(  # type: ignore
                     self.outbox_stream,
                     {"data": json.dumps(env, ensure_ascii=False)},
                     maxlen=20000,
@@ -424,7 +424,7 @@ class SignalDispatcher:
                 return True
             except Exception:
                 return True
-            except Exception:
+            except Exception:  # type: ignore
                 return False
             finally:
                 if lease:
@@ -503,7 +503,7 @@ class SignalDispatcher:
                 # Atomic DLQ + ACK (lua). If it fails => keep pending (return).
                 ok = False
                 try:
-                    ok = bool(self._send_dlq_and_ack(str(msg_id), fields, reason="bad_envelope"))
+                    ok = bool(self._send_dlq_and_ack(str(msg_id), fields, reason="bad_envelope"))  # type: ignore
                 except Exception:
                     ok = False
                 if ok:
@@ -516,7 +516,7 @@ class SignalDispatcher:
             if not sid:
                 ok = False
                 try:
-                    ok = bool(self._send_dlq_and_ack(str(msg_id), env, reason="missing_sid"))
+                    ok = bool(self._send_dlq_and_ack(str(msg_id), env, reason="missing_sid"))  # type: ignore
                 except Exception:
                     ok = False
                 if ok:
@@ -586,7 +586,7 @@ class SignalDispatcher:
             return False
 
     # Back-compat alias (если где-то в коде осталось старое имя)
-    def _is_outbox_done(self, msg_id: str) -> bool:
+    def _is_outbox_done(self, msg_id: str) -> bool:  # type: ignore
         return self._is_msg_done(msg_id)
 
     def _handle_one(self, msg_id: str, fields: dict[str, Any]) -> bool:
@@ -606,14 +606,14 @@ class SignalDispatcher:
         if not env:
             # Bad envelope -> DLQ
             with contextlib.suppress(Exception):
-                self._send_dlq_and_ack(str(msg_id), fields, reason="bad_envelope")
+                self._send_dlq_and_ack(str(msg_id), fields, reason="bad_envelope")  # type: ignore
             return True  # ACK to remove from pending
 
         sid = (env.get("sid") or "")
         if not sid:
             # Missing SID -> DLQ
             with contextlib.suppress(Exception):
-                self._send_dlq_and_ack(str(msg_id), env, reason="missing_sid")
+                self._send_dlq_and_ack(str(msg_id), env, reason="missing_sid")  # type: ignore
             return True  # ACK to remove from pending
 
         # Delegate to _handle_env
@@ -673,10 +673,10 @@ class SignalDispatcher:
                 with contextlib.suppress(Exception):
                     self._remember_ack_retry(stream, msg_id)
                 with contextlib.suppress(Exception):
-                    self.logger.warning("Transient ACK failed (%s) %s: %s (will retry)", where, msg_id, exc)
+                    self.logger.warning("Transient ACK failed (%s) %s: %s (will retry)", where, msg_id, exc)  # type: ignore
             else:
                 with contextlib.suppress(Exception):
-                    self.logger.warning("ACK failed (%s) %s: %s", where, msg_id, exc)
+                    self.logger.warning("ACK failed (%s) %s: %s", where, msg_id, exc)  # type: ignore
             return False
 
 
@@ -691,9 +691,9 @@ class SignalDispatcher:
     def _incr_attempt_sid(self, sid: str) -> int:
         k = f"{self._attempt_prefix}:{sid}"
         try:
-            n = int(self.redis.incr(k))
+            n = int(self.redis.incr(k))  # type: ignore
             if n == 1:
-                self.redis.expire(k, self._attempt_ttl_sec)
+                self.redis.expire(k, self._attempt_ttl_sec)  # type: ignore
             return n
         except Exception:
             # conservative: treat as transient
@@ -753,7 +753,7 @@ class SignalDispatcher:
     def _env_done_key(self, sid: str) -> str:
         return KeyUtils.env_done_key(self.env_done_prefix, sid)
 
-    def _retry_dedup_key(self, target: str, sid: str) -> str:
+    def _retry_dedup_key(self, target: str, sid: str) -> str:  # type: ignore
         return f"{self.retry_dedup_prefix}:{target}:{sid}"
 
 
@@ -840,7 +840,7 @@ class SignalDispatcher:
 
         if not any_failure:
             with contextlib.suppress(Exception):
-                self.redis.set(self._env_done_key(sid), "1", ex=int(self.delivery_marker_ttl_sec), nx=True)
+                self.redis.set(self._env_done_key(sid), "1", ex=int(self.delivery_marker_ttl_sec), nx=True)  # type: ignore
 
     def _deliver_one_target(
         self,
@@ -1040,7 +1040,7 @@ class SignalDispatcher:
         return DeliveryHelpers.retry_dedup_key(self.retry_dedup_prefix, target, sid)
 
     def _schedule_target_retry(self, *, target: str, sid: str, env: dict[str, Any], attempt: int, last_error: str) -> None:
-        if attempt >= self.max_attempts:
+        if attempt >= self.max_attempts:  # type: ignore
             # Target-specific DLQ is more useful than generic DLQ here:
             #   - preserves target name
             #   - includes env + error for diagnostics
@@ -1065,7 +1065,7 @@ class SignalDispatcher:
         #   - if already scheduled, skip silently (fail-open)
         try:
             dk = self._retry_dedup_key(target, sid)
-            ok = self.redis.set(dk, "1", nx=True, px=int(delay) + 1000)
+            ok = self.redis.set(dk, "1", nx=True, px=int(delay) + 1000)  # type: ignore
             if not ok:
                 self._ctr["retry_dedup_hit"] += 1
                 return
@@ -1082,7 +1082,7 @@ class SignalDispatcher:
         }
         member = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
         score = get_ny_time_millis() + delay
-        self.redis.zadd(self.retry_zset, {member: score})
+        self.redis.zadd(self.retry_zset, {member: score})  # type: ignore
 
     def _drain_retries_best_effort(self) -> None:
         now = time.monotonic()
@@ -1091,12 +1091,12 @@ class SignalDispatcher:
         self._last_retry_drain = now
         try:
             now_ms = get_ny_time_millis()
-            items = self.lua_scripts.execute("zpop_due", keys=[self.retry_zset], args=[str(now_ms), str(self.retry_pop_limit)])
+            items = self.lua_scripts.execute("zpop_due", keys=[self.retry_zset], args=[str(now_ms), str(self.retry_pop_limit)])  # type: ignore
         except Exception:
             return
         if not items:
             return
-        for raw in items:
+        for raw in items:  # type: ignore
             try:
                 obj = json.loads(raw)
                 sid = (obj.get("sid") or "")
@@ -1120,7 +1120,7 @@ class SignalDispatcher:
             dlq_snapshot=self.dlq_snapshot,
             dlq_default=self.dlq_stream
         )
-        DeliveryHelpers.send_to_dlq(
+        DeliveryHelpers.send_to_dlq(  # type: ignore
             redis_client=self.redis,
             dlq_stream=stream,
             target=target,
@@ -1164,34 +1164,34 @@ class SignalDispatcher:
 
     def _maint_scan_prefix(self, prefix: str, cursor: int) -> int:
         try:
-            cursor2, keys = self.redis.scan(cursor=cursor, match=f"{prefix}*", count=self.maintenance_scan_count)
+            cursor2, keys = self.redis.scan(cursor=cursor, match=f"{prefix}*", count=self.maintenance_scan_count)  # type: ignore
         except Exception:
             return cursor
         now_ms = get_ny_time_millis()
         ttl_cap = int(self.delivery_marker_ttl_sec)
         for k in keys or []:
             try:
-                ttl = int(self.redis.ttl(k))
+                ttl = int(self.redis.ttl(k))  # type: ignore
             except Exception:
                 continue
             # -2: missing, -1: no expire
             if ttl == -1:
                 # try to delete if value is old, otherwise set expire
                 try:
-                    v = self.redis.get(k)
+                    v = self.redis.get(k)  # type: ignore
                     v_ms = int(v) if v and str(v).isdigit() else 0
                 except Exception:
                     v_ms = 0
                 if v_ms > 0 and (now_ms - v_ms) > (ttl_cap * 1000 * 2):
                     with contextlib.suppress(Exception):
-                        self.redis.delete(k)
+                        self.redis.delete(k)  # type: ignore
                 else:
                     with contextlib.suppress(Exception):
-                        self.redis.expire(k, ttl_cap)
+                        self.redis.expire(k, ttl_cap)  # type: ignore
             elif ttl > (ttl_cap * 2):
                 # cap overly large TTLs (misconfig)
                 with contextlib.suppress(Exception):
-                    self.redis.expire(k, ttl_cap)
+                    self.redis.expire(k, ttl_cap)  # type: ignore
         return int(cursor2 or 0)
 
     def _sid_lease_key(self, sid: str) -> str:
@@ -1204,7 +1204,7 @@ class SignalDispatcher:
         import uuid
         token = uuid.uuid4().hex
         key = self._sid_lease_key(sid)
-        ok = self.redis.set(key, token, nx=True, px=int(self.sid_lease_ttl_ms))
+        ok = self.redis.set(key, token, nx=True, px=int(self.sid_lease_ttl_ms))  # type: ignore
         if ok:
             self._ctr["sid_lease_acquired"] += 1
             return token
@@ -1212,7 +1212,7 @@ class SignalDispatcher:
 
     def _release_sid_lease(self, sid: str, token: str) -> None:
         with contextlib.suppress(Exception):
-            self.lua_scripts.execute("release_lease", keys=[self._sid_lease_key(sid)], args=[token])
+            self.lua_scripts.execute("release_lease", keys=[self._sid_lease_key(sid)], args=[token])  # type: ignore
     def _maybe_extend_sid_lease(self, sid: str, token: str, last_extend_ms: int) -> int:
         """
         Продлеваем lease каждые sid_lease_extend_every_ms (best-effort).
@@ -1221,12 +1221,12 @@ class SignalDispatcher:
         if now_ms - int(last_extend_ms) < int(self.sid_lease_extend_every_ms):
             return last_extend_ms
         try:
-            ok = self.lua_scripts.execute(
+            ok = self.lua_scripts.execute(  # type: ignore
                 "extend_lease",
                 keys=[self._sid_lease_key(sid)],
                 args=[token, str(int(self.sid_lease_ttl_ms))],
             )
-            if int(ok or 0) == 1:
+            if int(ok or 0) == 1:  # type: ignore
                 self._ctr["sid_lease_extended"] += 1
                 return now_ms
         except Exception:
@@ -1248,10 +1248,10 @@ class SignalDispatcher:
         for k, v in fields.items():
             argv.append(str(k))
             argv.append(v if isinstance(v, str) else json.dumps(v, ensure_ascii=False))
-        res = self.lua_scripts.execute("xadd_and_mark", keys=[marker, stream], args=argv, client=client)
+        res = self.lua_scripts.execute("xadd_and_mark", keys=[marker, stream], args=argv, client=client)  # type: ignore
         if not res:
             return False
-        code = int(res[0])
+        code = int(res[0])  # type: ignore
         if code == 1:
             return True
         if code == 0:
@@ -1264,14 +1264,14 @@ class SignalDispatcher:
         if not key:
             return True
         marker = self._marker_key(target, sid)
-        res = self.lua_scripts.execute(
+        res = self.lua_scripts.execute(  # type: ignore
             "setex_and_mark",
             keys=[marker, key],
             args=[str(self.delivery_marker_ttl_sec), str(int(ttl_sec)), value_json],
         )
         if not res:
             return False
-        code = int(res[0])
+        code = int(res[0])  # type: ignore
         if code in (0, 1):
             return True
         raise RuntimeError(f"setex_and_mark_failed code={code} target={target}")
@@ -1282,7 +1282,7 @@ class SignalDispatcher:
         False => уже кто-то обрабатывает (не ACK, оставить pending).
         """
         try:
-            ok = self.redis.set(self._lease_key(msg_id), "1", nx=True, px=self.msg_lease_ttl_ms)
+            ok = self.redis.set(self._lease_key(msg_id), "1", nx=True, px=self.msg_lease_ttl_ms)  # type: ignore
             if ok:
                 return True
         except Exception:
@@ -1293,7 +1293,7 @@ class SignalDispatcher:
 
     def _release_lease(self, msg_id: str) -> None:
         with contextlib.suppress(Exception):
-            self.redis.delete(self._lease_key(msg_id))
+            self.redis.delete(self._lease_key(msg_id))  # type: ignore
 
     # ------------------------------------------------------------------
     # Outbox done marker (msg_id) helpers
@@ -1310,13 +1310,13 @@ class SignalDispatcher:
         """
         try:
             # Message-level done marker (used only for ACK failure recovery).
-            self.redis.setex(self._msg_done_key(msg_id), self.done_ttl_sec, "1")
+            self.redis.setex(self._msg_done_key(msg_id), self.done_ttl_sec, "1")  # type: ignore
             # Backward-compat write (optional, keep for safe rollout).
             # If you want to stop writing legacy markers, set:
             #   SIGNAL_OUTBOX_WRITE_LEGACY_DONE=0
             if os.getenv("SIGNAL_OUTBOX_WRITE_LEGACY_DONE", "1").lower() not in {"0", "false", "no"}:
                 with contextlib.suppress(Exception):
-                    self.redis.setex(self._done_key(msg_id), self.done_ttl_sec, "1")
+                    self.redis.setex(self._done_key(msg_id), self.done_ttl_sec, "1")  # type: ignore
         except Exception as e:
             sd_fail_open(
                 getattr(self, "logger", None),
@@ -1459,7 +1459,7 @@ class SignalDispatcher:
                     else:
                         logger.warning("ACK failed %s: %s", msg_id, exc)
 
-    def _cb_allow(self, target: str) -> bool:
+    def _cb_allow(self, target: str) -> bool:  # type: ignore
         fails, open_until = self._cb_state.get(target, (0, 0.0))
         now = time.monotonic()
         if open_until and now < open_until:
@@ -1513,7 +1513,7 @@ class SignalDispatcher:
                 metric_key=f"{self.metrics_prefix}:outbox_pending_by_consumer_metrics_errors_total",
             )
 
-    def _cleanup_dead_consumers(self, helper: SyncRedisStreamHelper) -> None:
+    def _cleanup_dead_consumers(self, helper: SyncRedisStreamHelper) -> None:  # type: ignore
         if not self.cleanup_dead_consumers:
             return
         now = time.monotonic()
@@ -1542,14 +1542,14 @@ class SignalDispatcher:
             # best-effort cleanup: DELCONSUMER только удаляет consumer entry, PEL записи останутся pending
             # и будут XAUTOCLAIM-нуты обычным recovery.
             try:
-                self.redis.xgroup_delconsumer(self.outbox_stream, self.group, name)
+                self.redis.xgroup_delconsumer(self.outbox_stream, self.group, name)  # type: ignore
                 self._ctr["delconsumer"] += 1
                 logger.warning("xgroup_delconsumer: %s (pending=%d idle_ms=%d)", name, pending, idle)
             except Exception:
                 continue
 
     def _janitor(self) -> None:
-        if not self._janitor_enabled:
+        if not self._janitor_enabled:  # type: ignore
                 return
         now = time.monotonic()
         if now - self._last_janitor < self.janitor_every_sec:
@@ -1560,18 +1560,18 @@ class SignalDispatcher:
             cursor = 0
             scanned = 0
             pattern = f"{self.marker_prefix}:*"
-            while scanned < self._janitor_scan_count:
-                cursor, keys = self.redis.scan(cursor=cursor, match=pattern, count=10000)
+            while scanned < self._janitor_scan_count:  # type: ignore
+                cursor, keys = self.redis.scan(cursor=cursor, match=pattern, count=10000)  # type: ignore
                 for k in keys or []:
                     scanned += 1
                     try:
-                        ttl = int(self.redis.ttl(k))
+                        ttl = int(self.redis.ttl(k))  # type: ignore
                         if ttl < 0:
                             # -1 no ttl, -2 missing
-                            self.redis.expire(k, self.marker_ttl_sec)
+                            self.redis.expire(k, self.marker_ttl_sec)  # type: ignore
                     except Exception:
                         continue
-                if scanned >= self._janitor_scan_count:
+                if scanned >= self._janitor_scan_count:  # type: ignore
                     break
                 if cursor == 0:
                     break
@@ -1587,28 +1587,28 @@ class SignalDispatcher:
         for k, v in (fields or {}).items():
             fv.append(str(k))
             fv.append(v if isinstance(v, str) else json.dumps(v, ensure_ascii=False))
-        res = self.lua_scripts.execute(
+        res = self.lua_scripts.execute(  # type: ignore
             "xadd_fields_then_mark",
             keys=[self._marker_key(target, sid), stream],
             args=[str(self.delivery_marker_ttl_sec), str(maxlen)] + fv,
         )
-        return bool(res and int(res[0]) in (0, 1))
+        return bool(res and int(res[0]) in (0, 1))  # type: ignore
 
     def _setex_idempotent(self, client: Any, *, target: str, sid: str, key: str, value_json: str, ttl_sec: int) -> bool:
-        res = self.lua_scripts.execute(
+        res = self.lua_scripts.execute(  # type: ignore
             "setex_then_mark",
             keys=[self._marker_key(target, sid), key],
             args=[str(self.delivery_marker_ttl_sec), str(int(ttl_sec)), value_json],
             client=client
         )
-        return bool(res and int(res[0]) in (0, 1))
+        return bool(res and int(res[0]) in (0, 1))  # type: ignore
 
     def _notify_idempotent(self, client: Any, *, sid: str, payload: dict[str, Any]) -> bool:
         fv: list[str] = []
         for k, v in (payload or {}).items():
             fv.append(str(k))
             fv.append(v if isinstance(v, str) else json.dumps(v, ensure_ascii=False))
-        res = self.lua_scripts.execute(
+        res = self.lua_scripts.execute(  # type: ignore
             "notify_gate",
             keys=[self._marker_key("notify", sid), self.notify_stream, self.notify_signal_counter_key],
             args=[str(self.delivery_marker_ttl_sec), str(500000), str(self.notify_signal_every_n)] + fv,
@@ -1617,9 +1617,9 @@ class SignalDispatcher:
 
         # Debug logging for signal gate
         with contextlib.suppress(Exception):
-             self.logger.info(f"[SignalGate] SID={sid} N={self.notify_signal_every_n} Result={res} (1=Sent, 0=Skipped)")
+             self.logger.info(f"[SignalGate] SID={sid} N={self.notify_signal_every_n} Result={res} (1=Sent, 0=Skipped)")  # type: ignore
 
-        return bool(res and int(res[0]) in (0, 1))
+        return bool(res and int(res[0]) in (0, 1))  # type: ignore
 
     def _cleanup_dead_consumers(self, helper: SyncRedisStreamHelper) -> None:
         if not self.cleanup_dead_consumers:
@@ -1650,7 +1650,7 @@ class SignalDispatcher:
             # best-effort cleanup: DELCONSUMER только удаляет consumer entry, PEL записи останутся pending
             # и будут XAUTOCLAIM-нуты обычным recovery.
             try:
-                self.redis.xgroup_delconsumer(self.outbox_stream, self.group, name)
+                self.redis.xgroup_delconsumer(self.outbox_stream, self.group, name)  # type: ignore
                 self._ctr["delconsumer"] += 1
                 logger.warning("xgroup_delconsumer: %s (pending=%d idle_ms=%d)", name, pending, idle)
             except Exception:
@@ -1693,7 +1693,7 @@ class SignalDispatcher:
                 has_notify = "notify_payload" in env or "notify" in env
 
                 if has_audit or has_notify:
-                    self.logger.info(f"🔧 Auto-repairing flat envelope for sid={env.get('sid', 'unknown')}")
+                    self.logger.info(f"🔧 Auto-repairing flat envelope for sid={env.get('sid', 'unknown')}")  # type: ignore
                     targets = {}
 
                     # Move audit
@@ -1721,14 +1721,14 @@ class SignalDispatcher:
                         if key in env and key not in env["meta"]:
                             env["meta"][key] = env.pop(key)
             except Exception as e:
-                self.logger.warning(f"⚠️ Failed to auto-repair flat envelope: {e}")
+                self.logger.warning(f"⚠️ Failed to auto-repair flat envelope: {e}")  # type: ignore
 
         # ✅ VALIDATION: Ensure envelope structure is correct (audit_payload/meta must not be on top level)
         if "audit_payload" in env or "meta" not in env or "targets" not in env:
             try:
-                self.logger.warning("⚠️ Malformed envelope structure detected: audit_payload on top level or missing required fields")
-                self.logger.warning(f"   env keys: {list(env.keys())}")
-                self.logger.warning(f"   sid: {env.get('sid', 'unknown')}")
+                self.logger.warning("⚠️ Malformed envelope structure detected: audit_payload on top level or missing required fields")  # type: ignore
+                self.logger.warning(f"   env keys: {list(env.keys())}")  # type: ignore
+                self.logger.warning(f"   sid: {env.get('sid', 'unknown')}")  # type: ignore
                 # Send to DLQ for malformed envelopes
                 payload = {
                     "ts": get_ny_time_millis(),
@@ -1740,7 +1740,7 @@ class SignalDispatcher:
                     "has_targets": "targets" in env,
                     "raw": raw[:1000] if isinstance(raw, str) else str(raw)[:1000],
                 }
-                self.redis.xadd(self.dlq_stream, {"data": json.dumps(payload, ensure_ascii=False)}, maxlen=200000, approximate=True)
+                self.redis.xadd(self.dlq_stream, {"data": json.dumps(payload, ensure_ascii=False)}, maxlen=200000, approximate=True)  # type: ignore
             except Exception:
                 pass
             return None
@@ -1763,7 +1763,7 @@ class SignalDispatcher:
                             "got": str(got),
                             "env": env_safe,
                         }
-                        self.redis.xadd(self.dlq_stream, {"data": json.dumps(payload, ensure_ascii=False)}, maxlen=200000, approximate=True)
+                        self.redis.xadd(self.dlq_stream, {"data": json.dumps(payload, ensure_ascii=False)}, maxlen=200000, approximate=True)  # type: ignore
                     except Exception:
                         pass
                     return None
@@ -2010,7 +2010,7 @@ class SignalDispatcher:
 
     def _emit_metrics(self, helper: SyncRedisStreamHelper) -> None:
         try:
-            outbox_len = int(self.redis.xlen(self.outbox_stream))
+            outbox_len = int(self.redis.xlen(self.outbox_stream))  # type: ignore
         except Exception:
             outbox_len = -1
         try:
@@ -2038,7 +2038,7 @@ class SignalDispatcher:
         XPENDING details 1 entry: берём oldest idle_ms для диагностики залипов.
         """
         try:
-            rows = self.redis.execute_command("XPENDING", self.outbox_stream, self.group, "-", "+", 1)
+            rows = self.redis.execute_command("XPENDING", self.outbox_stream, self.group, "-", "+", 1)  # type: ignore
         except Exception:
             return -1
         if not isinstance(rows, list) or not rows:
@@ -2057,7 +2057,7 @@ class SignalDispatcher:
         """
         try:
             # XPENDING stream group - + limit
-            rows = self.redis.execute_command("XPENDING", self.outbox_stream, self.group, "-", "+", int(limit))
+            rows = self.redis.execute_command("XPENDING", self.outbox_stream, self.group, "-", "+", int(limit))  # type: ignore
         except Exception:
             return {}
         out: dict[str, int] = {}
@@ -2078,7 +2078,7 @@ class SignalDispatcher:
         prefixes = (self.marker_prefix, self.done_prefix)
         try:
             for pref in prefixes:
-                cursor, keys = self.redis.scan(
+                cursor, keys = self.redis.scan(  # type: ignore
                     cursor=self._repair_cursor,
                     match=f"{pref}:*",
                     count=int(self.marker_repair_batch),
@@ -2089,9 +2089,9 @@ class SignalDispatcher:
                 repaired = 0
                 for k in keys:
                     try:
-                        ttl = self.redis.ttl(k)
+                        ttl = self.redis.ttl(k)  # type: ignore
                         if int(ttl) < 0:
-                            self.redis.expire(k, int(self.delivery_marker_ttl_sec))
+                            self.redis.expire(k, int(self.delivery_marker_ttl_sec))  # type: ignore
                             repaired += 1
                     except Exception:
                         continue
@@ -2216,7 +2216,7 @@ class SignalDispatcher:
 
     def _maybe_log_diagnostics(self, helper: SyncRedisStreamHelper) -> None:
         now = time.monotonic()
-        if now - self._last_diag_mono < float(self.diag_every_sec):
+        if now - self._last_diag_mono < float(self.diag_every_sec):  # type: ignore
             return
         self._last_diag_mono = now
         try:

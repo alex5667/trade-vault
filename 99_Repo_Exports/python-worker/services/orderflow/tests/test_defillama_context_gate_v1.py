@@ -18,7 +18,7 @@ def _eval(**overrides):
         tighten_cap_bps=4.0,
     )
     defaults.update(overrides)
-    return evaluate_defillama_context(**defaults)
+    return evaluate_defillama_context(**defaults)  # type: ignore
 
 
 def test_alt_risk_on_detected():

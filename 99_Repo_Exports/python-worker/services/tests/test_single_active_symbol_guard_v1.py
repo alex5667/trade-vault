@@ -6,18 +6,18 @@ from core.redis_keys import RedisStreams as RS
 
 exec_mod_path = Path(__file__).parent.parent / 'binance_executor.py'
 exec_spec = importlib.util.spec_from_file_location('binance_executor_single_active', exec_mod_path)
-exec_mod = importlib.util.module_from_spec(exec_spec)
-sys.modules[exec_spec.name] = exec_mod
-assert exec_spec.loader is not None
-exec_spec.loader.exec_module(exec_mod)
-
+exec_mod = importlib.util.module_from_spec(exec_spec)  # type: ignore
+sys.modules[exec_spec.name] = exec_mod  # type: ignore
+assert exec_spec.loader is not None  # type: ignore
+exec_spec.loader.exec_module(exec_mod)  # type: ignore
+  # type: ignore
 worker_mod_path = Path(__file__).parent.parent / 'execution_projection_worker.py'
 worker_spec = importlib.util.spec_from_file_location('execution_projection_worker_single_active', worker_mod_path)
-worker_mod = importlib.util.module_from_spec(worker_spec)
-sys.modules[worker_spec.name] = worker_mod
-assert worker_spec.loader is not None
-worker_spec.loader.exec_module(worker_mod)
-
+worker_mod = importlib.util.module_from_spec(worker_spec)  # type: ignore
+sys.modules[worker_spec.name] = worker_mod  # type: ignore
+assert worker_spec.loader is not None  # type: ignore
+worker_spec.loader.exec_module(worker_mod)  # type: ignore
+  # type: ignore
 
 class FakeRedis:
     def __init__(self):
@@ -90,8 +90,8 @@ def test_projection_worker_sets_and_clears_active_symbol_key_from_journal():
         'ts_event_ms': '1700000000001',
     })
     worker.run_until_idle()
-    active = json.loads(r.get('orders:active_symbol_sid:BTCUSDT'))
-    assert active['sid'] == 'sid-1'
+    active = json.loads(r.get('orders:active_symbol_sid:BTCUSDT'))  # type: ignore
+    assert active['sid'] == 'sid-1'  # type: ignore
     assert active['fsm_state'] == 'PROTECTED'
 
     r.xadd(RS.ORDERS_EXEC, {
@@ -104,8 +104,8 @@ def test_projection_worker_sets_and_clears_active_symbol_key_from_journal():
         'ts_event_ms': '1700000000002',
     })
     worker.run_until_idle()
-    raw = json.loads(r.get('orders:active_symbol_sid:BTCUSDT'))
-    assert raw['guard_status'] == 'released'
+    raw = json.loads(r.get('orders:active_symbol_sid:BTCUSDT'))  # type: ignore
+    assert raw['guard_status'] == 'released'  # type: ignore
     assert worker._active_symbol_guard_store().load_active('BTCUSDT') == {}
 
 
@@ -138,6 +138,6 @@ def test_executor_releases_terminal_active_symbol_guard_before_new_open():
     ex = _mk_exec(r)
     ex._load_order_state = lambda sid: {'sid': sid, 'fsm_state': 'EXIT_FILLED', 'status': 'closed', 'closed': True}
     ex._guard_single_active_symbol_open(sid='sid-new', symbol='SOLUSDT')
-    raw = json.loads(r.get('orders:active_symbol_sid:SOLUSDT'))
-    assert raw['guard_status'] == 'released'
+    raw = json.loads(r.get('orders:active_symbol_sid:SOLUSDT'))  # type: ignore
+    assert raw['guard_status'] == 'released'  # type: ignore
     assert ex._load_active_symbol_guard('SOLUSDT') == {}

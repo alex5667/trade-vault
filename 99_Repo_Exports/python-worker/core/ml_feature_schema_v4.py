@@ -115,8 +115,8 @@ class MLFeatureSchemaV4:
         confirmations = row.get("confirmations")
         if confirmations:
             try:
-                from core.confirmations_schema_v1 import _CANON_MAP, parse_confirmations_v1
-                conf_map = parse_confirmations_v1(confirmations, indicators)
+                from core.confirmations_schema_v1 import _CANON_MAP, parse_confirmations_v1  # type: ignore
+                conf_map = parse_confirmations_v1(confirmations, indicators)  # type: ignore
                 for k, v in conf_map.items():
                     orig_k = _CANON_MAP.get(k)
                     if orig_k:

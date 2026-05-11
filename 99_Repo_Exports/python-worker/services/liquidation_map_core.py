@@ -199,9 +199,9 @@ class Bucketizer:
 
     def _ratio(self) -> float:
         if self.mode == "log_bps":
-            return 1.0 + float(self.bps) / 10000.0
+            return 1.0 + float(self.bps) / 10000.0  # type: ignore
         if self.mode == "log_pct":
-            return 1.0 + float(self.pct) / 100.0
+            return 1.0 + float(self.pct) / 100.0  # type: ignore
         raise LiqMapError("ratio is only for log_* modes")
 
     def bucket_key(self, price: Decimal) -> str:
@@ -212,8 +212,8 @@ class Bucketizer:
             # round to nearest step
             step = self.abs_step  # type: ignore
             # idx = round(price / step)
-            idx = int((price / step).to_integral_value(rounding="ROUND_HALF_UP"))
-            bucket_price = step * Decimal(idx)
+            idx = int((price / step).to_integral_value(rounding="ROUND_HALF_UP"))  # type: ignore
+            bucket_price = step * Decimal(idx)  # type: ignore
             # normalizing string (no scientific)
             s = format(bucket_price, "f")
             if "." in s:

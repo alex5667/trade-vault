@@ -142,7 +142,7 @@ class UnifiedSignalFormatter:
         # Calculate confidence values safely
         raw_conf = getattr(signal, "confidence", None)
         if hasattr(signal, "confidence_pct"):
-             raw_conf = signal.confidence_pct
+             raw_conf = signal.confidence_pct  # type: ignore
         confidence_pct, confidence_ratio = UnifiedSignalFormatter.normalize_confidence_pct(raw_conf)
 
         payload = {
@@ -196,7 +196,7 @@ class UnifiedSignalFormatter:
                 qf_codes = list(getattr(signal, "qf", None) or getattr(signal, "qf_codes", None) or [])
             if qf_codes:
                 labels.update(qf_labels_from_codes(qf_codes))
-            signal.labels = labels
+            signal.labels = labels  # type: ignore
         except Exception:
             # fail-open: do not break formatting
             pass
@@ -576,7 +576,7 @@ class UnifiedSignalFormatter:
             side=fields.get("side", ""),
             entry=float(fields.get("entry", 0)),
             sl=float(fields.get("sl", 0)),
-            tp_levels=tp_levels,
+            tp_levels=tp_levels,  # type: ignore
             lot=float(fields.get("lot", 0)),
             source=fields.get("source", ""),
             reason=fields.get("reason", ""),

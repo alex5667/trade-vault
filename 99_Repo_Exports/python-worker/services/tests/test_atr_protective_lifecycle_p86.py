@@ -39,7 +39,7 @@ class TestProtectiveLifecyclePhase86(unittest.TestCase):
         self.mirror = ProtectiveLifecycleMirror()
         self.mirror.enabled = True
         self.mirror.bounded_symbols = {"BTCUSDT", "ETHUSDT"}
-        self.mirror._get_conn = lambda: DummyConn()
+        self.mirror._get_conn = lambda: DummyConn()  # type: ignore
 
     def test_mirror_on_position_opened(self):
         """Test OPEN hook."""

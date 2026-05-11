@@ -57,7 +57,7 @@ def _proposal_text(p: dict[str, Any]) -> str:
 def _buttons(proposal_id: str) -> list[list[dict[str, str]]]:
     return [
         [
-            {"text": "✅ Approve", "callback": f"atrpol:approve:{proposal_id}"},
+            {"text": "✅ Approve", "callback": f"atrpol:approve:{proposal_id}"},  # type: ignore
             {"text": "❌ Reject", "callback": f"atrpol:reject:{proposal_id}"},
         ]
         [

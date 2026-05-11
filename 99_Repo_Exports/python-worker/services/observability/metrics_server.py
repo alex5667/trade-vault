@@ -60,14 +60,14 @@ def main() -> None:
         try:
             info = r.info()
             used_mb = float(info.get("used_memory", 0)) / (1024.0 * 1024.0)
-            redis_used_memory_mb.set(float(used_mb))
+            redis_used_memory_mb.set(float(used_mb))  # type: ignore
         except Exception:
             pass
 
         # microbar streams
         try:
-            microbar_symbols_active.set(float(r.scard(symbols_set) or 0))
-            microbar_stream_xlen.labels(stream=legacy).set(float(r.xlen(legacy) or 0))
+            microbar_symbols_active.set(float(r.scard(symbols_set) or 0))  # type: ignore
+            microbar_stream_xlen.labels(stream=legacy).set(float(r.xlen(legacy) or 0))  # type: ignore
         except Exception:
             pass
 
@@ -75,15 +75,15 @@ def main() -> None:
         try:
             bad_syms = _read_set(r, "cfg:atr_bad:symbols", max_syms)
             for sym in bad_syms:
-                atr_bad_active.labels(symbol=sym).set(1.0)
+                atr_bad_active.labels(symbol=sym).set(1.0)  # type: ignore
         except Exception:
             pass
 
         try:
             q_syms = _read_set(r, "cfg:cvd_quarantine:symbols", max_syms)
             for sym in q_syms:
-                cvd_quarantine_active.labels(symbol=sym).set(1.0)
-                delta_fallback_mode.labels(symbol=sym).set(2.0)
+                cvd_quarantine_active.labels(symbol=sym).set(1.0)  # type: ignore
+                delta_fallback_mode.labels(symbol=sym).set(2.0)  # type: ignore
         except Exception:
             pass
 
@@ -92,7 +92,7 @@ def main() -> None:
             syms = list_microbar_symbols(r, max_n=max_syms)
             for sym in syms:
                 k = microbar_stream_for_symbol(sym)
-                microbar_stream_xlen.labels(stream=k).set(float(r.xlen(k) or 0))
+                microbar_stream_xlen.labels(stream=k).set(float(r.xlen(k) or 0))  # type: ignore
         except Exception:
             pass
 

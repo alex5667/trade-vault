@@ -59,7 +59,7 @@ class CostEdgeConfig:
 
     # Множитель затрат - требуемый эдж должен превышать затраты * K
     default_cost_k: float = 4.0
-    symbol_cost_k: dict[str, float] = None  # Специфичные для символа множители
+    symbol_cost_k: dict[str, float] = None  # Специфичные для символа множители  # type: ignore
 
     # Торговые издержки в базисных пунктах (bps)
     fees_bps: float = 4.0  # Комиссия за круг (вход + выход)
@@ -68,7 +68,7 @@ class CostEdgeConfig:
 
     # Buffer BPS (дополнительный запас, не входящий в slippage)
     buffer_bps: float = 0.0
-    symbol_buffer_bps: dict[str, float] = None
+    symbol_buffer_bps: dict[str, float] = None  # type: ignore
 
     # Метод оценки эджа
     edge_mode: str = "tp1"  # tp1 | rr | atr

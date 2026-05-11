@@ -236,10 +236,10 @@ if __name__ == "__main__":
     for name in registry.list_names():
         profile = registry.get(name)
         print(f"\n{name}:")
-        print(f"  Mode: {profile.mode}")
-        print(f"  ATR mult: {profile.atr_mult}")
-        print(f"  Points: {profile.points}")
-        print(f"  Comment: {profile.comment}")
+        print(f"  Mode: {profile.mode}")  # type: ignore
+        print(f"  ATR mult: {profile.atr_mult}")  # type: ignore
+        print(f"  Points: {profile.points}")  # type: ignore
+        print(f"  Comment: {profile.comment}")  # type: ignore
 
     # Сохранение в Redis
     registry.save_to_redis()

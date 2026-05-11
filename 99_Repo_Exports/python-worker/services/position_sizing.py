@@ -21,11 +21,16 @@ class SizingResult:
 def _env_float(name: str, default: float) -> float:
     try:
         v = os.getenv(name, "")
-        if v and str(v).strip():
+        if v and v.strip():
             return float(v)
     except Exception:
         pass
     return default
+
+
+def _env_on(name: str, default: str = "0") -> bool:
+    v = (os.getenv(name, default) or "").strip().lower()
+    return v in {"1", "true", "yes", "on"}
 
 def calculate_qty_fixed_risk(
     risk_usd: float,
@@ -183,55 +188,122 @@ def apply_position_sizing_to_ctx(
     logger: Any = None
 ) -> None:
     """
-    Applies fixed NOTIONAL position sizing based STRICTLY on environment vars.
-    Notional = ACCOUNT_DEPOSIT_USD * (RISK_PERCENT / 100) * ACCOUNT_LEVERAGE.
-    This guarantees that virtual and real trades have identical position sizes.
+    Apply position sizing to ctx.
+
+    Two modes (controlled by RISK_USE_FIXED_DOLLAR_SIZING):
+
+    MODE 1 — Fixed-dollar-risk (RISK_USE_FIXED_DOLLAR_SIZING=1)  [RECOMMENDED]
+        risk_usd = deposit * risk_pct / 100
+        qty      = risk_usd / sl_dist
+        Guarantees: actual_risk_usd <= target_risk_usd * RISK_MAX_ACTUAL_OVER_TARGET
+
+    MODE 0 — Fixed-notional (legacy, backward-compat)
+        notional = deposit * risk_pct / 100 * leverage
+        qty      = notional / entry_price
+        WARNING: actual risk grows proportionally with wider SL — not risk-controlled.
+
+    Stop-noise floor gate (STOP_NOISE_FLOOR_ENABLE=1):
+        Denies the trade if planned stop_bps < noise floor.
     """
+    from common.dq_flags import append_dq_flag
+
     try:
         tp_mode = (cfg.get("TP_MODE") or "").upper()
         if tp_mode != "RR":
             return
 
-        # 1. Config Check
-        deposit_v = _env_float("ACCOUNT_DEPOSIT_USD", 0.0)
-        risk_pct = _env_float("RISK_PERCENT", 0.0)
-        leverage = _env_float("ACCOUNT_LEVERAGE", 100.0)
+        # ── Global SL guard: sl_dist must be positive ────────────────────────
+        sl_dist = getattr(ctx, "stop_dist", 0.0)
+        if sl_dist is None or sl_dist <= 1e-9:
+            append_dq_flag(ctx, "sizing_no_sl_dist")
+            return
+        # ──────────────────────────────────────────────────────────────
 
-        # Do NOT use BalanceProvider to ensure identical sizing for real/virtual
+        # ── P0: Hard deny — SLQ reject must block sizing ─────────────────────
+        # If slq_risk_adjust set sizing_ok=False, honour it here before any
+        # sizing logic runs. This is the canonical enforcement point.
+        if cfg.get("sizing_ok") is False:
+            reason = str(cfg.get("slq_decision") or "sizing_cfg_denied")
+            append_dq_flag(ctx, reason)
+            try:
+                ctx.sizing_ok = False
+                ctx.sizing_deny_reason = reason
+            except Exception:
+                pass
+            if logger:
+                logger.warning(
+                    f"[sizing] {symbol} hard-denied by cfg: reason={reason}"
+                )
+            return
+        # ──────────────────────────────────────────────────────────────
+
+        # ── 1. Risk budget ────────────────────────────────────────────────
+        deposit_v = _env_float("ACCOUNT_DEPOSIT_USD", 0.0)
+        risk_pct  = _env_float("RISK_PERCENT", 0.0)
+        leverage  = _env_float("ACCOUNT_LEVERAGE", 100.0)
+
         if deposit_v <= 0:
             deposit_v = float(getattr(ctx, "deposit_usd", 0.0) or 0.0)
 
-        target_notional = 0.0
-        if deposit_v > 0 and risk_pct > 0 and leverage > 0:
-            target_notional = deposit_v * (risk_pct / 100.0) * leverage
+        risk_usd_target = 0.0
+        if deposit_v > 0 and risk_pct > 0:
+            risk_usd_target = deposit_v * (risk_pct / 100.0)
 
-        # Override with exact risk USD per trade if explicitly needed (fallback)
-        risk_usd = _env_float("RISK_USD_PER_TRADE", 0.0)
-        if risk_usd > 0 and target_notional <= 0:
-            target_notional = risk_usd * leverage
+        # RISK_USD_PER_TRADE override
+        risk_usd_fixed = _env_float("RISK_USD_PER_TRADE", 0.0)
+        if risk_usd_fixed > 0 and risk_usd_target <= 0:
+            risk_usd_target = risk_usd_fixed
 
-        if target_notional <= 0:
+        if risk_usd_target <= 0:
             return
 
-        # ── 2. Data Check ─────────────────────────────────────────────────
+        # ── 2. Price / SL data ────────────────────────────────────────────
         sl_dist = float(getattr(ctx, "stop_dist", 0.0) or 0.0)
-        entry = float(getattr(ctx, "entry_price", 0.0) or 0.0)
+        entry   = float(getattr(ctx, "entry_price", 0.0) or 0.0)
         if entry <= 1e-9:
-            from common.dq_flags import append_dq_flag
-            append_dq_flag(ctx, "sizing_no_levels")
+            append_dq_flag(ctx, "sizing_no_entry_price")
             return
 
-        # ── 3. Specs & Constants ──────────────────────────────────────────
-        lot_step = 0.001
-        min_lot = 0.001
-        max_lot = 1000.0
+        # ── 3. Stop-noise floor gate ──────────────────────────────────────
+        if _env_on("STOP_NOISE_FLOOR_ENABLE"):
+            try:
+                from services.risk.stop_contract import evaluate_stop_noise_floor_from_ctx
+                floor_bps, floor_enabled = evaluate_stop_noise_floor_from_ctx(ctx, symbol)
+                if floor_enabled and entry > 0 and sl_dist > 0:
+                    planned_stop_bps = (sl_dist / entry) * 10_000.0
+                    kind = str(getattr(ctx, "kind", "na") or "na")
+                    # Expose for metrics/logs
+                    try:
+                        ctx.stop_noise_floor_bps = floor_bps
+                        ctx.planned_stop_bps = planned_stop_bps
+                    except Exception:
+                        pass
+                    if planned_stop_bps < floor_bps:
+                        append_dq_flag(ctx, "stop_inside_noise_floor")
+                        ctx.sizing_ok = False
+                        if logger:
+                            logger.warning(
+                                f"[sizing] {symbol} stop_inside_noise_floor "
+                                f"planned={planned_stop_bps:.2f}bps "
+                                f"floor={floor_bps:.2f}bps"
+                            )
+                        return
+            except Exception as e:
+                if logger:
+                    logger.error(f"[sizing] noise_floor check error: {e}")
+                # Fail-open: continue sizing
+
+        # ── 4. Exchange specs ─────────────────────────────────────────────
+        lot_step    = 0.001
+        min_lot     = 0.001
+        max_lot     = 1000.0
         min_notional = _env_float("RISK_MIN_NOTIONAL_USD", 5.0)
 
         specs = getattr(ctx, "specs", None)
         if specs:
             lot_step = float(getattr(specs, "lot_step", 0.001))
-            min_lot = float(getattr(specs, "min_lot", 0.001))
-            max_lot = float(getattr(specs, "max_lot", 1000.0))
+            min_lot  = float(getattr(specs, "min_lot",  0.001))
+            max_lot  = float(getattr(specs, "max_lot",  1000.0))
             if hasattr(specs, "min_notional"):
                 min_notional = float(specs.min_notional)
         else:
@@ -240,46 +312,95 @@ def apply_position_sizing_to_ctx(
                 try:
                     from symbol_specs_store import SymbolSpecsStore
                     sp = SymbolSpecsStore(r).get(symbol)
-                    lot_step = float(sp.lot_step)
-                    min_lot = float(sp.min_lot)
-                    max_lot = float(sp.max_lot)
+                    lot_step = sp.lot_step
+                    min_lot  = sp.min_lot
+                    max_lot  = sp.max_lot
                     if hasattr(sp, "min_notional"):
                         min_notional = float(sp.min_notional)
                 except Exception:
                     pass
 
-        # ENV overrides for safety
         env_max = _env_float("RISK_MAX_QTY", 0.0)
         if env_max > 0:
             max_lot = min(max_lot, env_max)
 
-        # 4. Calculation
-        res = calculate_qty_fixed_notional(
-            target_notional=target_notional,
-            sl_dist=sl_dist,
-            entry_price=entry,
-            lot_step=lot_step,
-            min_lot=min_lot,
-            max_lot=max_lot,
-            min_notional=min_notional
-        )
+        # ── 5. Sizing calculation ─────────────────────────────────────────
+        use_fixed_risk = _env_on("RISK_USE_FIXED_DOLLAR_SIZING", "0")
 
-        if res.ok:
+        if use_fixed_risk:
+            # ── MODE 1: Fixed-dollar-risk (canary/prod) ───────────────────
+            if sl_dist <= 1e-9:
+                append_dq_flag(ctx, "sizing_no_sl_dist")
+                return
+
+            res = calculate_qty_fixed_risk(
+                risk_usd=risk_usd_target,
+                sl_dist=sl_dist,
+                entry_price=entry,
+                lot_step=lot_step,
+                min_lot=min_lot,
+                max_lot=max_lot,
+                min_notional=min_notional,
+            )
+
+            if not res.ok:
+                append_dq_flag(ctx, f"sizing_failed_{res.reason}")
+                return
+
+            # Hard guard: actual_risk_usd <= target * max_over_ratio
+            max_over = _env_float("RISK_MAX_ACTUAL_OVER_TARGET", 1.02)
+            actual_risk_usd = res.qty * sl_dist
+            if actual_risk_usd > risk_usd_target * max_over:
+                append_dq_flag(ctx, "sizing_risk_budget_exceeded")
+                ctx.sizing_ok = False
+                if logger:
+                    logger.error(
+                        f"[sizing] {symbol} risk_budget_exceeded "
+                        f"actual={actual_risk_usd:.4f} "
+                        f"target={risk_usd_target:.4f} "
+                        f"ratio={actual_risk_usd / max(risk_usd_target, 1e-9):.3f}"
+                    )
+                return
+
             ctx.qty = res.qty
-            ctx.risk_usd = res.risk_usd
-            ctx.risk_usd_target = float(deposit_v * (risk_pct / 100.0))
-            ctx.sl_dist = sl_dist
-            ctx.sizing_ok = True
+            ctx.risk_usd        = actual_risk_usd
+            ctx.risk_usd_target = risk_usd_target
+            ctx.sl_dist         = sl_dist
+            ctx.sizing_ok       = True
+            ctx.sizing_mode     = "fixed_risk"
 
             if "min_notional_bumps_risk" in res.reason:
-                 from common.dq_flags import append_dq_flag
-                 append_dq_flag(ctx, "sizing_min_notional_bumps_risk")
+                append_dq_flag(ctx, "sizing_min_notional_bumps_risk")
+
         else:
-            from common.dq_flags import append_dq_flag
-            append_dq_flag(ctx, f"sizing_failed_{res.reason}")
+            # ── MODE 0: Fixed-notional (legacy) ───────────────────────────
+            target_notional = risk_usd_target * leverage
+
+            res = calculate_qty_fixed_notional(
+                target_notional=target_notional,
+                sl_dist=sl_dist,
+                entry_price=entry,
+                lot_step=lot_step,
+                min_lot=min_lot,
+                max_lot=max_lot,
+                min_notional=min_notional,
+            )
+
+            if res.ok:
+                ctx.qty = res.qty
+                ctx.risk_usd        = res.risk_usd
+                ctx.risk_usd_target = risk_usd_target
+                ctx.sl_dist         = sl_dist
+                ctx.sizing_ok       = True
+                ctx.sizing_mode     = "fixed_notional"
+
+                if "min_notional_bumps_risk" in res.reason:
+                    append_dq_flag(ctx, "sizing_min_notional_bumps_risk")
+            else:
+                append_dq_flag(ctx, f"sizing_failed_{res.reason}")
 
     except Exception as e:
         if logger:
-             logger.error(f"Sizing error: {e}")
+            logger.error(f"[sizing] Sizing error: {e}")
         from common.dq_flags import append_dq_flag
         append_dq_flag(ctx, "sizing_exception")

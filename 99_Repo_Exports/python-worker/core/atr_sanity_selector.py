@@ -51,7 +51,7 @@ class AtrCandidate:
     tf: str
     ts_ms: int = 0
     age_ms: int = 0
-    extra: dict[str, Any] = None
+    extra: dict[str, Any] = None  # type: ignore
 
     def __post_init__(self) -> None:
         if self.extra is None:

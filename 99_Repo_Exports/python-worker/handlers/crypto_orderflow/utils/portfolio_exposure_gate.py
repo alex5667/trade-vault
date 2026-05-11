@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -7,7 +8,7 @@ import time
 from typing import Any
 
 import redis
-from core.signal_payload import GateDecisionV1
+from core.gates.decision import GateDecisionV1
 from utils.time_utils import get_ny_time_millis
 
 try:
@@ -33,9 +34,9 @@ _GATE_NAME = "portfolio_exposure"
 
 
 def _make_decision(
-    decision: str,
+    decision: Any,
     reason_code: str,
-    severity: str,
+    severity: Any,
     mode: str,
     ts_event_ms: int,
     latency_us: int,
@@ -77,6 +78,10 @@ class PortfolioExposureGate:
 
         self.account_snapshot_key = os.getenv("ACCOUNT_SNAPSHOT_KEY", "account:snapshot:binance_usdtm")
 
+        # Detect async Redis by testing whether its 'get' method is a coroutine function.
+        # More reliable than inspecting module names, which can change across redis-py versions.
+        self._is_async = asyncio.iscoroutinefunction(getattr(r, "get", None)) if r else False
+
     def _get_max_symbol_notional(self, symbol: str) -> float:
         return float(os.getenv(f"MAX_SYMBOL_NOTIONAL_USD__{symbol}", "250.0"))
 
@@ -92,7 +97,7 @@ class PortfolioExposureGate:
             except Exception:
                 pass
 
-    def evaluate(
+    async def evaluate(
         self,
         symbol: str,
         source: str,
@@ -128,7 +133,14 @@ class PortfolioExposureGate:
 
         # 1. Duplicate Order Check
         dup_key = f"portfolio:duplicate_guard:{symbol}:{source}:{side}"
-        is_new = self.r.set(dup_key, str(now_ms), px=self.duplicate_window_ms, nx=True)
+        try:
+            if self._is_async:
+                is_new = await self.r.set(dup_key, str(now_ms), px=self.duplicate_window_ms, nx=True)
+            else:
+                is_new = self.r.set(dup_key, str(now_ms), px=self.duplicate_window_ms, nx=True)
+        except Exception as e:
+            log.warning("PortfolioExposureGate duplicate check failed: %s", e)
+            is_new = True  # fail-open on duplicate check errors
         if not is_new:
             if _ORDER_DUPLICATE_BLOCKS is not None:
                 try:
@@ -141,42 +153,47 @@ class PortfolioExposureGate:
 
         # 2. Portfolio Snapshot check
         try:
-            snap_raw = self.r.get(self.account_snapshot_key)
+            if self._is_async:
+                snap_raw = await self.r.get(self.account_snapshot_key)
+            else:
+                snap_raw = self.r.get(self.account_snapshot_key)
             if snap_raw:
                 snap_str = snap_raw.decode("utf-8") if isinstance(snap_raw, bytes) else str(snap_raw)
-                snap = json.loads(snap_str)
-                open_pos_n = int(snap.get("open_positions_n", 0))
-                open_notional = float(snap.get("open_notional_usdt", 0.0))
+                snap_str = snap_str.strip()
+                if snap_str:
+                    snap = json.loads(snap_str)
+                    open_pos_n = int(snap.get("open_positions_n", 0))
+                    open_notional = float(snap.get("open_notional_usdt", 0.0))
 
-                if open_pos_n >= self.max_open_positions:
-                    if self.mode == "ENFORCE":
-                        return _deny("PORTFOLIO_MAX_POSITIONS_EXCEEDED",
-                                     {"open_positions": open_pos_n, "limit": self.max_open_positions})
-                    log.debug("[SHADOW] Would reject MAX_POSITIONS: %d >= %d", open_pos_n, self.max_open_positions)
+                    if open_pos_n >= self.max_open_positions:
+                        if self.mode == "ENFORCE":
+                            return _deny("PORTFOLIO_MAX_POSITIONS_EXCEEDED",
+                                         {"open_positions": open_pos_n, "limit": self.max_open_positions})
+                        log.debug("[SHADOW] Would reject MAX_POSITIONS: %d >= %d", open_pos_n, self.max_open_positions)
 
-                if (open_notional + intent_notional) > self.max_total_notional:
-                    if self.mode == "ENFORCE":
-                        return _deny("PORTFOLIO_TOTAL_NOTIONAL_EXCEEDED",
-                                     {"total": open_notional + intent_notional, "limit": self.max_total_notional})
-                    log.debug("[SHADOW] Would reject MAX_TOTAL_NOTIONAL: %.2f > %.2f",
-                              open_notional + intent_notional, self.max_total_notional)
+                    if (open_notional + intent_notional) > self.max_total_notional:
+                        if self.mode == "ENFORCE":
+                            return _deny("PORTFOLIO_TOTAL_NOTIONAL_EXCEEDED",
+                                         {"total": open_notional + intent_notional, "limit": self.max_total_notional})
+                        log.debug("[SHADOW] Would reject MAX_TOTAL_NOTIONAL: %.2f > %.2f",
+                                  open_notional + intent_notional, self.max_total_notional)
 
-                positions = snap.get("positions", [])
-                symbol_notional = sum(float(p.get("notional", 0.0)) for p in positions if p.get("symbol") == symbol)
-                max_sym_notional = self._get_max_symbol_notional(symbol)
-                if (abs(symbol_notional) + intent_notional) > max_sym_notional:
-                    if self.mode == "ENFORCE":
-                        return _deny("PORTFOLIO_SYMBOL_NOTIONAL_EXCEEDED",
-                                     {"symbol_total": abs(symbol_notional) + intent_notional, "limit": max_sym_notional})
-                    log.debug("[SHADOW] Would reject SYMBOL_NOTIONAL: %.2f > %.2f",
-                              abs(symbol_notional) + intent_notional, max_sym_notional)
+                    positions = snap.get("positions", [])
+                    symbol_notional = sum(float(p.get("notional", 0.0)) for p in positions if p.get("symbol") == symbol)
+                    max_sym_notional = self._get_max_symbol_notional(symbol)
+                    if (abs(symbol_notional) + intent_notional) > max_sym_notional:
+                        if self.mode == "ENFORCE":
+                            return _deny("PORTFOLIO_SYMBOL_NOTIONAL_EXCEEDED",
+                                         {"symbol_total": abs(symbol_notional) + intent_notional, "limit": max_sym_notional})
+                        log.debug("[SHADOW] Would reject SYMBOL_NOTIONAL: %.2f > %.2f",
+                                  abs(symbol_notional) + intent_notional, max_sym_notional)
 
-                upnl = float(snap.get("unrealized_pnl", 0.0))
-                if upnl < -self.max_daily_loss:
-                    if self.mode == "ENFORCE":
-                        return _deny("PORTFOLIO_DAILY_LOSS_EXCEEDED",
-                                     {"upnl": upnl, "limit": -self.max_daily_loss})
-                    log.debug("[SHADOW] Would reject DAILY_LOSS: %.2f < -%.2f", upnl, self.max_daily_loss)
+                    upnl = float(snap.get("unrealized_pnl", 0.0))
+                    if upnl < -self.max_daily_loss:
+                        if self.mode == "ENFORCE":
+                            return _deny("PORTFOLIO_DAILY_LOSS_EXCEEDED",
+                                         {"upnl": upnl, "limit": -self.max_daily_loss})
+                        log.debug("[SHADOW] Would reject DAILY_LOSS: %.2f < -%.2f", upnl, self.max_daily_loss)
 
         except Exception as e:
             log.error("PortfolioExposureGate failed to read snapshot: %s", e)

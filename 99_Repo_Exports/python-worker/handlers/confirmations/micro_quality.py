@@ -80,7 +80,7 @@ class MicroQualityValidator:
     def _get_microshift(self, ctx: Any) -> float:
         return float(_f(getattr(ctx, "microprice_shift_bps_20", None), 0.0))
 
-    def _spread_mult(self, spread_bps: float, flags: list[QualityFlag], parts: dict[str, float]) -> float:
+    def _spread_mult(self, spread_bps: float, flags: list[QualityFlag], parts: dict[str, float]) -> float:  # type: ignore
         sp = float(spread_bps)
         parts["spread_bps_ctx"] = sp
         if sp <= self._spread_soft_bps:
@@ -96,7 +96,7 @@ class MicroQualityValidator:
         return mult
 
     def validate(self, *, kind: str, ctx: Any) -> MicroQualityOut:
-        flags: list[QualityFlag] = []
+        flags: list[QualityFlag] = []  # type: ignore
         parts: dict[str, float] = {}
         mult = 1.0
 

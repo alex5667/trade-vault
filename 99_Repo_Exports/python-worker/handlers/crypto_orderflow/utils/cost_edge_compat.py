@@ -50,7 +50,7 @@ def decision_to_legacy_tuple(dec: Any) -> tuple[bool, dict[str, float]]:
         ):
             v = getattr(dec, k, None)
             if _isfinite_num(v):
-                details[k] = float(v)
+                details[k] = float(v)  # type: ignore
 
         # EV-mode extras (safe for dashboards / debugging; ignore if missing)
         for k in (
@@ -62,7 +62,7 @@ def decision_to_legacy_tuple(dec: Any) -> tuple[bool, dict[str, float]]:
         ):
             v = getattr(dec, k, None)
             if _isfinite_num(v):
-                details[k] = float(v)
+                details[k] = float(v)  # type: ignore
 
         # mode is not numeric but sometimes useful
         # Keep it out of numeric details to preserve "dict[str,float]" contract.
@@ -84,12 +84,12 @@ def attach_cost_edge_veto_fields(ctx: Any, dec: Any) -> None:
         for k in ("expected_move_bps", "threshold_bps", "fees_bps", "slippage_bps", "k"):
             v = getattr(dec, k, None)
             if _isfinite_num(v):
-                setattr(ctx, f"veto_{k}", float(v))
+                setattr(ctx, f"veto_{k}", float(v))  # type: ignore
         # EV extras
         for k in ("p_hit_tp1", "p_min", "tp1_bps", "stop_bps", "ev_bps"):
             v = getattr(dec, k, None)
             if _isfinite_num(v):
-                setattr(ctx, f"veto_{k}", float(v))
+                setattr(ctx, f"veto_{k}", float(v))  # type: ignore
         # Notes (bounded)
         note = str(getattr(dec, "notes", "") or "")
         if note:

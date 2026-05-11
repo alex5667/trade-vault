@@ -394,7 +394,7 @@ def compare_sources_reliability():
     reliability_data = []
 
     for source in sources_summary.keys():
-        stats = StatsAggregator.get_stats_by_source(
+        stats = StatsAggregator.get_stats_by_source(  # type: ignore
             redis_client, "orderflow", "tick", source
         )
 

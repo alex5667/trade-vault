@@ -13,10 +13,10 @@ def _load(name: str, rel: str):
     """Load a module by relative path from repo root, bypassing top-level imports."""
     mod_path = root / rel
     spec = importlib.util.spec_from_file_location(name, mod_path)
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = mod
-    assert spec.loader is not None
-    spec.loader.exec_module(mod)
+    mod = importlib.util.module_from_spec(spec)  # type: ignore
+    sys.modules[spec.name] = mod  # type: ignore
+    assert spec.loader is not None  # type: ignore
+    spec.loader.exec_module(mod)  # type: ignore
     return mod
 
 

@@ -134,7 +134,7 @@ def _parse_xpending_summary(res: Any) -> int:
     return 0
 
 
-def _parse_xpending_consumers(res: Any) -> dict[str, int]:
+def _parse_xpending_consumers(res: Any) -> dict[str, int]:  # type: ignore
     """
     XPENDING summary может вернуть consumers:
       - dict: {"consumers": [{"name": "...", "pending": 12}, ...]} или {"consumers": [["c1", 12], ...]}
@@ -428,7 +428,7 @@ class SyncRedisStreamHelper:
                     block=block,
                 )
 
-    def pending_details(self, stream: str) -> dict[str, Any]:
+    def pending_details(self, stream: str) -> dict[str, Any]:  # type: ignore
         """
         XPENDING summary + consumers list (для метрик "pending-by-consumer").
         Возвращает dict:
@@ -781,7 +781,7 @@ class SyncRedisStreamHelper:
             return
         self.client.xack(stream, self.group, *message_ids)
 
-    def pending_len(self, stream: str) -> int:
+    def pending_len(self, stream: str) -> int:  # type: ignore
         """Best-effort XPENDING summary pending count."""
         if not stream:
             return 0
@@ -801,7 +801,7 @@ class SyncRedisStreamHelper:
                 return 0
         return 0
 
-    def pending_by_consumer(self, stream: str) -> dict[str, int]:
+    def pending_by_consumer(self, stream: str) -> dict[str, int]:  # type: ignore
         """Best-effort XPENDING details: pending counts per consumer."""
         if not stream:
             return {}

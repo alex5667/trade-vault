@@ -111,13 +111,13 @@ def orchestrate_replay(change_id: str):
 
         datasets = []
         if manifest:
-            datasets = manifest["datasets_json"]
+            datasets = manifest["datasets_json"]  # type: ignore
         else:
             # If no formal manifest, default to a smoke dataset if available
             logger.warning("No formal manifest found, running zero-dataset mock")
             datasets = ["ds_mock_smoke"]
 
-        change_type = change["change_type"]
+        change_type = change["change_type"]  # type: ignore
 
         # Execute run
         runner_results = run_replay(change_id, change_type, datasets)

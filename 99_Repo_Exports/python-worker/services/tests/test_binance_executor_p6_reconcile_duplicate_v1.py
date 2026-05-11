@@ -29,13 +29,13 @@ def _make_mock_executor():
         except Exception:
             from binance_executor import BinanceExecutor
         e = BinanceExecutor.__new__(BinanceExecutor)
-        e.reconcile_enable = True
-        e.exec_reconcile_on_503_unknown = True
-        e.exec_reconcile_prefer_user_stream = True
-        e.user_stream_cache_prefix = "orders:user_stream:"
-        e._maker_tp_stats = {}
-        e.exec_fee_maker_bps = 2.0
-        e.exec_fee_taker_bps = 5.0
+        e.reconcile_enable = True  # type: ignore
+        e.exec_reconcile_on_503_unknown = True  # type: ignore
+        e.exec_reconcile_prefer_user_stream = True  # type: ignore
+        e.user_stream_cache_prefix = "orders:user_stream:"  # type: ignore
+        e._maker_tp_stats = {}  # type: ignore
+        e.exec_fee_maker_bps = 2.0  # type: ignore
+        e.exec_fee_taker_bps = 5.0  # type: ignore
         e.r = MagicMock()
         return e
 
@@ -52,7 +52,7 @@ class TestReconcileWithUserStreamCache:
 
         with patch.object(e, "_mark_pending_reconcile"), \
              patch.object(e, "_lookup_user_stream_event", return_value={"order": cached_order}):
-            result = e._submit_plain_order_with_reconcile(
+            result = e._submit_plain_order_with_reconcile(  # type: ignore
                 sid="s1", symbol="BTCUSDT", action="open",
                 params={"newClientOrderId": "cid1"}, client=mock_client,
             )
@@ -70,12 +70,12 @@ class TestDuplicatePrevention:
         }
         with patch.object(e, "_load_order_state", return_value=state), \
              patch.object(e, "_exec_event"):
-            result = e._resume_open_from_state("s1", symbol="BTCUSDT", client=MagicMock())
+            result = e._resume_open_from_state("s1", symbol="BTCUSDT", client=MagicMock())  # type: ignore
             assert result is not None
             assert result.get("recovered_from_state") is True
 
     def test_resume_returns_none_for_unknown_sid(self):
         e = _make_mock_executor()
         with patch.object(e, "_load_order_state", return_value=None):
-            result = e._resume_open_from_state("unknown-sid", symbol="BTCUSDT", client=MagicMock())
+            result = e._resume_open_from_state("unknown-sid", symbol="BTCUSDT", client=MagicMock())  # type: ignore
             assert result is None

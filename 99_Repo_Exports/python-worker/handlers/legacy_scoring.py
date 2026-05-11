@@ -27,13 +27,13 @@ def _apply_golden_logic(ctx: "OrderflowSignalContext") -> None:
     # )
 
     label = getattr(ctx, "pattern_label", None) or getattr(ctx, "golden_pattern_label", None)
-    threshold = get_pattern_conf_threshold(label)
+    threshold = get_pattern_conf_threshold(label)  # type: ignore
 
     confidence = getattr(ctx, "confidence", 0.0)
     ctx.is_golden_pattern = confidence >= threshold
     ctx.golden_pattern_label = label if ctx.is_golden_pattern else None
 
-    ctx.pattern_weight = get_pattern_weight(label)
+    ctx.pattern_weight = get_pattern_weight(label)  # type: ignore
 
 
 def _apply_scoring(ctx: "OrderflowSignalContext") -> None:
@@ -51,7 +51,7 @@ def _apply_scoring(ctx: "OrderflowSignalContext") -> None:
     # )
 
     # 1) нормализуем confidence
-    base_score = ctx.confidence * CONFIDENCE_SCALE  # 80 → 0.8 при 0.01
+    base_score = ctx.confidence * CONFIDENCE_SCALE  # 80 → 0.8 при 0.01  # type: ignore
     # можно ещё зажать: base_score = min(max(base_score, 0.0), 1.0)
 
     # 2) умножаем на вес паттерна
@@ -59,10 +59,10 @@ def _apply_scoring(ctx: "OrderflowSignalContext") -> None:
 
     # 3) бустим golden
     if ctx.is_golden_pattern:
-        score *= GOLDEN_SCORE_MULTIPLIER
+        score *= GOLDEN_SCORE_MULTIPLIER  # type: ignore
 
     # 4) защита от разлёта
-    score = min(score, FINAL_SCORE_MAX)
+    score = min(score, FINAL_SCORE_MAX)  # type: ignore
 
     ctx.final_score = score
 

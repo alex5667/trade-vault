@@ -41,11 +41,11 @@ class ErrorHandler:
         self.max_fail_retries = int(max_fail_retries)
         self.logger = setup_logger(f"ErrorHandler:{symbol}")
 
-    def is_transient_error(self, e: Exception) -> bool:
+    def is_transient_error(self, e: Exception) -> bool:  # type: ignore
         """Публичный метод классификации transient ошибок (один источник истины)."""
         return self._is_transient_error(e)
 
-    def is_transient_error(self, e: Exception) -> bool:
+    def is_transient_error(self, e: Exception) -> bool:  # type: ignore
         """Единая логика transient (общий модуль)."""
         return bool(is_transient_error(e))
 

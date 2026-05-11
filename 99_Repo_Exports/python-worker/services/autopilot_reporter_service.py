@@ -120,7 +120,7 @@ async def run_once() -> None:
         o = EntryPolicyOverridesV1(
             updated_ts_ms=_now_ms(),
             enabled=1,
-            symbol=sym,
+            symbol=sym,  # type: ignore
             regime=rg,
             scenario=scn,
             group=grp,

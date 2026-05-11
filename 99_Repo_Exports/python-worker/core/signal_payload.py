@@ -83,14 +83,15 @@ class GateDecisionV1:
     gate: str
     decision: str  # Literal["ALLOW", "DENY", "ABSTAIN", "TIGHTEN", "SHADOW_DENY"]
     reason_code: str
-    severity: str  # Literal["INFO", "WARN", "RISK", "CRITICAL"]
-    profile: str
-    fail_policy: str  # Literal["OPEN", "CLOSED", "VIRTUAL_ONLY"]
-    ts_event_ms: int
-    ts_decision_ms: int
-    latency_us: int
-    inputs_hash: str
     notes: dict[str, Any]
+    # Audit / telemetry fields — optional, default to safe sentinel values
+    severity: str = "WARN"  # Literal["INFO", "WARN", "RISK", "CRITICAL"]
+    profile: str = ""
+    fail_policy: str = "OPEN"  # Literal["OPEN", "CLOSED", "VIRTUAL_ONLY"]
+    ts_event_ms: int = 0
+    ts_decision_ms: int = 0
+    latency_us: int = 0
+    inputs_hash: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return {

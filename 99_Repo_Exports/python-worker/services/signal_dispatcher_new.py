@@ -155,7 +155,7 @@ class SignalDispatcher:
         self._janitor_scan_count = int(os.getenv("SIGNAL_DISPATCHER_JANITOR_SCAN_COUNT", "200"))
 
         self.notify_stream = os.getenv("NOTIFY_STREAM", RS.NOTIFY_TELEGRAM)
-        self.notify_signal_counter_key = os.getenv("NOTIFY_SIGNAL_COUNTER_KEY", RS.NOTIFY_SIGNAL_COUNTER)
+        self.notify_signal_counter_key = os.getenv("NOTIFY_SIGNAL_COUNTER_KEY", RS.NOTIFY_SIGNAL_COUNTER)  # type: ignore
         try:
             self.notify_signal_every_n = max(1, int(os.getenv("CRYPTO_NOTIFY_SIGNAL_EVERY_N", "1")))
         except ValueError:
@@ -169,9 +169,9 @@ class SignalDispatcher:
     def _incr_attempt(self, msg_id: str) -> int:
         k = self._attempt_key(msg_id)
         try:
-            n = int(self.redis.incr(k))
+            n = int(self.redis.incr(k))  # type: ignore
             if n == 1:
-                self.redis.expire(k, self._attempt_ttl_sec)
+                self.redis.expire(k, self._attempt_ttl_sec)  # type: ignore
             return n
         except Exception:
             return 1
@@ -221,14 +221,14 @@ class SignalDispatcher:
             scanned = 0
             pattern = f"{self.marker_prefix}:*"
             while scanned < self._janitor_scan_count:
-                cursor, keys = self.redis.scan(cursor=cursor, match=pattern, count=10000)
+                cursor, keys = self.redis.scan(cursor=cursor, match=pattern, count=10000)  # type: ignore
                 for k in keys or []:
                     scanned += 1
                     try:
-                        ttl = int(self.redis.ttl(k))
+                        ttl = int(self.redis.ttl(k))  # type: ignore
                         if ttl < 0:
                             # -1 no ttl, -2 missing
-                            self.redis.expire(k, self.marker_ttl_sec)
+                            self.redis.expire(k, self.marker_ttl_sec)  # type: ignore
                     except Exception:
                         continue
                     if scanned >= self._janitor_scan_count:
@@ -311,13 +311,13 @@ class SignalDispatcher:
         if not env:
             logger.warning("Bad envelope (no data) msg=%s fields=%s", msg_id, fields)
             self._send_dlq(msg_id, fields, reason="bad_envelope")
-            self.redis.xack(self.outbox_stream, self.group, msg_id)
+            self.redis.xack(self.outbox_stream, self.group, msg_id)  # type: ignore
             return True
         attempt = int(env.get("attempt", 0))
         sid = (env.get("sid") or "")
         if not sid:
             self._send_dlq(msg_id, fields, reason="missing_sid")
-            self.redis.xack(self.outbox_stream, self.group, msg_id)
+            self.redis.xack(self.outbox_stream, self.group, msg_id)  # type: ignore
             return True
         try:
             self._deliver_all(env)
@@ -329,11 +329,11 @@ class SignalDispatcher:
             if attempt >= self.max_attempts:
                 logger.error("DLQ after max attempts sid=%s msg=%s err=%s", sid, msg_id, exc)
                 self._send_dlq(msg_id, env, reason="max_attempts")
-                self.redis.xack(self.outbox_stream, self.group, msg_id)
+                self.redis.xack(self.outbox_stream, self.group, msg_id)  # type: ignore
                 return True
             # Re-enqueue with incremented attempt, ack old to avoid stuck pending
-            self.redis.xadd(self.outbox_stream, {"data": json.dumps(env, ensure_ascii=False)}, maxlen=20000, approximate=True)
-            self.redis.xack(self.outbox_stream, self.group, msg_id)
+            self.redis.xadd(self.outbox_stream, {"data": json.dumps(env, ensure_ascii=False)}, maxlen=20000, approximate=True)  # type: ignore
+            self.redis.xack(self.outbox_stream, self.group, msg_id)  # type: ignore
             logger.warning("Re-enqueued sid=%s attempt=%d err=%s", sid, attempt, exc)
             return True
 
@@ -345,7 +345,7 @@ class SignalDispatcher:
             "data": data,
         }
         try:
-            self.redis.xadd(self.dlq_stream, {"data": json.dumps(payload, ensure_ascii=False)}, maxlen=200000, approximate=True)
+            self.redis.xadd(self.dlq_stream, {"data": json.dumps(payload, ensure_ascii=False)}, maxlen=200000, approximate=True)  # type: ignore
         except Exception as exc:
             logger.error("Failed to write DLQ: %s", exc, exc_info=True)
 
@@ -442,8 +442,8 @@ class SignalDispatcher:
         targets = env.get("targets") or {}
         meta = env.get("meta") or {}
         sid = str(env["sid"])
-        dual_client = self.dual_redis or self.simple_redis or self.redis
-        simple_client = self.simple_redis or self.redis
+        dual_client = self.dual_redis or self.simple_redis or self.redis  # type: ignore
+        simple_client = self.simple_redis or self.redis  # type: ignore
 
         # 1) notify:telegram (dual_redis) + every_n gating
         notify_payload = targets.get("notify")

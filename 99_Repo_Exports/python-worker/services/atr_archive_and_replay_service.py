@@ -142,7 +142,7 @@ class ATRArchiveAndReplayService:
         self._record_integrity_check(check_id, bundle_id, "checksum", "passed", {"files_checked": len(files)})
         return True
 
-    def run_restore_sample(self, bundle_id: str) -> bool:
+    def run_restore_sample(self, bundle_id: str) -> bool:  # type: ignore
         """
         Simulates restoring a bundle to verify sequence reconstructability and control-plane recovery.
         """

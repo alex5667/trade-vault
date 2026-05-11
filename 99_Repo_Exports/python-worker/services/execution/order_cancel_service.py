@@ -166,7 +166,7 @@ class OrderCancelService:
                 params["positionSide"] = logical_side
 
             with contextlib.suppress(Exception):
-                close_resp = client.place_order(**params)
+                close_resp = client.place_order(**params)  # type: ignore
                 result["exit_order_id"] = close_resp.get("orderId")
                 result["exit_client_order_id"] = close_cid
                 result["exit_avg_price"] = _f(close_resp.get("avgPrice"), 0.0)
@@ -260,7 +260,7 @@ class OrderCancelService:
 
         result: dict[str, Any] = {}
         with contextlib.suppress(Exception):
-            resp = client.place_order(**params)
+            resp = client.place_order(**params)  # type: ignore
             result["resize_exit_order_id"] = resp.get("orderId")
             result["resize_exit_avg_price"] = _f(resp.get("avgPrice"), 0.0)
             result["resize_exit_qty"] = close_qty

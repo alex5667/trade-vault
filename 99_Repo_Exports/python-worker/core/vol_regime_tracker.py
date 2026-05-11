@@ -189,7 +189,7 @@ class VolRegimeTracker:
             "vol_ratio":       float(s.ratio),
             "vol_ratio_z":     float(s.ratio_z),
             "vol_ts_ms":       int(s.ts_ms),
-            "vol_regime_label": str(s.regime),
+            "vol_regime_label": str(s.regime),  # type: ignore
         }
 
     # ------------------------------------------------------------------

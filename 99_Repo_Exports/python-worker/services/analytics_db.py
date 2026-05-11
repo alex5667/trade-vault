@@ -51,9 +51,9 @@ except ImportError:
 
 try:
     from services.horizon_contract import (
-        extract_atr_tf_ms,
-        extract_horizon_bucket,
-        extract_horizon_contract_from_payload,
+        extract_atr_tf_ms,  # type: ignore
+        extract_horizon_bucket,  # type: ignore
+        extract_horizon_contract_from_payload,  # type: ignore
     )
 except ImportError:  # pragma: no cover
     def extract_horizon_contract_from_payload(p):  # type: ignore[misc]
@@ -283,7 +283,7 @@ def fetch_trades_closed(
 
     with get_conn() as conn, conn.cursor(cursor_factory=RealDictCursor) as cur:
         cur.execute(sql, params)
-        return cur.fetchall()
+        return cur.fetchall()  # type: ignore
 
 
 def fetch_trade_by_order_id(order_id: str) -> dict[str, Any] | None:
@@ -325,7 +325,7 @@ def fetch_daily_metrics(
 
     with get_conn() as conn, conn.cursor(cursor_factory=RealDictCursor) as cur:
         cur.execute(sql, params)
-        return cur.fetchall()
+        return cur.fetchall()  # type: ignore
 
 
 def fetch_entry_tag_metrics(
@@ -355,10 +355,10 @@ def fetch_entry_tag_metrics(
 
     with get_conn() as conn, conn.cursor(cursor_factory=RealDictCursor) as cur:
         cur.execute(sql, params)
-        return cur.fetchall()
+        return cur.fetchall()  # type: ignore
 
 
-def save_trade_closed(closed: TradeClosed) -> None:
+def save_trade_closed(closed: TradeClosed) -> None:  # type: ignore
     """
     Save a closed trade to the analytics database.
     This function handles the mapping from TradeClosed to database columns.
@@ -701,7 +701,7 @@ def save_trade_closed(closed: TradeClosed) -> None:
     try:
         with get_conn() as conn, conn.cursor() as cur:
             cur.execute(sql, params)
-            _TRADES_CLOSED_MAIN_INSERT.inc()
+            _TRADES_CLOSED_MAIN_INSERT.inc()  # type: ignore
 
             if ANALYTICS_P0_ENABLED:
                 cur.execute("SAVEPOINT trades_closed_p0_upsert")
@@ -710,7 +710,7 @@ def save_trade_closed(closed: TradeClosed) -> None:
                     cur.execute("RELEASE SAVEPOINT trades_closed_p0_upsert")
                 except Exception:
                     cur.execute("ROLLBACK TO SAVEPOINT trades_closed_p0_upsert")
-                    _TRADES_CLOSED_P0_UPSERT_FAIL.inc()
+                    _TRADES_CLOSED_P0_UPSERT_FAIL.inc()  # type: ignore
                     if ANALYTICS_P0_HARD_FAIL:
                         raise
                     logger.warning("trades_closed_p0 upsert failed", exc_info=True)

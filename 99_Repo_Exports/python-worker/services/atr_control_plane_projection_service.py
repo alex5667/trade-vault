@@ -36,14 +36,14 @@ class ControlPlaneProjectionService:
                     logger.warning(f"Node {node_id} not found for projection")
                     return False
 
-                node_type = node["node_type"]
-                scope_value = node["scope_value"]
-                state = node["node_state_json"]
-                version = node["version"]
+                node_type = node["node_type"]  # type: ignore
+                scope_value = node["scope_value"]  # type: ignore
+                state = node["node_state_json"]  # type: ignore
+                version = node["version"]  # type: ignore
 
                 # Build keys based on node type
                 r = _redis()
-                pipeline = r.pipeline()
+                pipeline = r.pipeline()  # type: ignore
 
                 prefix = f"cfg:atr:{node_type.lower()}:{scope_value}"
 
@@ -84,7 +84,7 @@ class ControlPlaneProjectionService:
                 cur.execute("SELECT node_id FROM v_control_plane_active_nodes")
                 nodes = cur.fetchall()
                 for node in nodes:
-                    ControlPlaneProjectionService.project_node(node["node_id"])
+                    ControlPlaneProjectionService.project_node(node["node_id"])  # type: ignore
             logger.info(f"Successfully synced {len(nodes)} active nodes to projection.")
             return True
         except Exception as e:

@@ -32,7 +32,7 @@ def _last_good_key(t: dict[str, str]) -> str:
     return f"cfg:atr_policy:last_good:{t['source']}:{t['symbol']}:{t['scenario']}:{t['regime']}:{t['risk_horizon_bucket']}"
 
 
-def run_once() -> dict[str, any]:
+def run_once() -> dict[str, any]:  # type: ignore
     drill_code = (os.getenv("ATR_POLICY_DRILL_CODE", "ACTIVE_KEY_DELETE") or "ACTIVE_KEY_DELETE")
     mode = (os.getenv("ATR_POLICY_DRILL_MODE", "audit_only") or "audit_only")
     t = _target()

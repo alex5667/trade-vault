@@ -26,7 +26,7 @@ try:
     from services.execution_metrics import (
         EXECUTION_DUST_CLEANUP_TOTAL,
         EXECUTION_DUST_RESIDUAL_QTY,
-        EXECUTION_EMERGENCY_FLATTEN_TOTAL,
+        EXECUTION_EMERGENCY_FLATTEN_TOTAL,  # type: ignore
         EXECUTION_FORCE_FLAT_VERIFY_TOTAL,
     )
 except Exception:
@@ -154,7 +154,7 @@ class EmergencyFlattenService:
     ) -> None:
         """Cancel all open plain and algo orders for symbol (best-effort)."""
         with contextlib.suppress(Exception):
-            client.cancel_all_open_orders(symbol)
+            client.cancel_all_open_orders(symbol)  # type: ignore
         with contextlib.suppress(Exception):
             algos = client.get_open_algo_orders(symbol) or []
             for algo in algos:
@@ -179,9 +179,9 @@ class EmergencyFlattenService:
     ) -> None:
         with contextlib.suppress(Exception):
             if order_id:
-                client.cancel_order(symbol, order_id=order_id)
+                client.cancel_order(symbol, order_id=order_id)  # type: ignore
             elif client_order_id:
-                client.cancel_order(symbol, orig_client_order_id=client_order_id)
+                client.cancel_order(symbol, orig_client_order_id=client_order_id)  # type: ignore
 
     # ------------------------------------------------------------------
     # Verify flat
@@ -269,7 +269,7 @@ class EmergencyFlattenService:
             params.pop("reduceOnly", None)
 
         try:
-            resp = client.place_order(**params)
+            resp = client.place_order(**params)  # type: ignore
             result["flatten_ok"] = True
             result["flatten_order_id"] = resp.get("orderId") or resp.get("id")
         except Exception as exc:

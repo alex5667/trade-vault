@@ -293,7 +293,7 @@ def _try_timescale_insert(cfg: TimescaleConfig, report: dict) -> None:
         champ = (report.get("champion_model") or "")
         chall = (report.get("challenger_model") or "")
 
-        cur.execute(
+        cur.execute(  # type: ignore
             f"""
             INSERT INTO {table} (
               ts, ts_ms, run_id, winner, reason, p_min, n_total, n_eligible,
@@ -306,7 +306,7 @@ def _try_timescale_insert(cfg: TimescaleConfig, report: dict) -> None:
               %s,%s,
               %s,%s,%s
             );
-            """
+            """,
             (
                 datetime.now(UTC),
                 ts_ms,
@@ -432,8 +432,8 @@ def main() -> int:
             ramp_step=_env_float("META_AB_RAMP_STEP", 0.05),
             max_share=_env_float("META_AB_MAX_SHARE", 0.50),
         )
-
-        df = abv2.load_dataset(dataset_parquet, p_min)
+  # type: ignore
+        df = abv2.load_dataset(dataset_parquet, p_min)  # type: ignore
         champ = abv2._load_meta_model(champion_model)
         chall = abv2._load_meta_model(challenger_model)
 

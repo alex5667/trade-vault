@@ -47,7 +47,7 @@ class TestIsCryptoAllSymbols(unittest.TestCase):
     )
     _MARGIN_FX_SYMBOLS = frozenset(
         s.strip().upper()
-        for s in os.getenv("MARGIN_FX_SYMBOLS").split(",")
+        for s in (os.getenv("MARGIN_FX_SYMBOLS") or "").split(",")
         if s.strip()
     )
 

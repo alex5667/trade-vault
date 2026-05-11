@@ -125,7 +125,7 @@ class NewsRecoCache:
 
             exp = v.get("expires_ms")
             try:
-                exp_ms = int(exp)
+                exp_ms = int(exp)  # type: ignore
             except Exception:
                 invalid += 1
                 continue

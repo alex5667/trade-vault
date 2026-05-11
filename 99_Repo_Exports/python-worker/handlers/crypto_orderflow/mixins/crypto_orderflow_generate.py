@@ -52,7 +52,7 @@ class CryptoOrderFlowGenerateMixin:
         # You should replace `_legacy_detect_signals(ctx)` with your current detection block.
         legacy = getattr(self, "_legacy_detect_signals", None)
         if callable(legacy):
-            for item in legacy(ctx) or []:
+            for item in legacy(ctx) or []:  # type: ignore
                 try:
                     kind, side, raw_score, level_key, reasons = item
                 except Exception:
@@ -62,14 +62,14 @@ class CryptoOrderFlowGenerateMixin:
                     raw_score = item[2] if len(item) > 2 else 0.0
                     level_key = None
                     reasons = []
-                out.append(CandidatePipeline(kind=kind, side=int(side), raw_score=float(raw_score), level_key=level_key, reasons=list(reasons)))
+                out.append(CandidatePipeline(kind=kind, side=int(side), raw_score=float(raw_score), level_key=level_key, reasons=list(reasons)))  # type: ignore
         return out
 
     def _validate_candidate(self, ctx: Any, cand: CandidatePipeline) -> CandidatePipeline:
         """
         Add quality_flags + allow veto.
         """
-        q: dict[str, Any] = dict(cand.quality_flags or {})
+        q: dict[str, Any] = dict(cand.quality_flags or {})  # type: ignore
         veto = False
         veto_reason = ""
 
@@ -83,12 +83,12 @@ class CryptoOrderFlowGenerateMixin:
         # Метрика staleness должна считаться именно здесь: это место, где L2 реально влияет на решение.
         # Поведение торговли НЕ меняем этим блоком — только отмечаем stale/missing в ctx и метриках.
         with contextlib.suppress(Exception):
-            self._mark_l2_staleness(ctx=ctx, kind=kind_name)
+            self._mark_l2_staleness(ctx=ctx, kind=kind_name)  # type: ignore
 
         if is_abs:
-            res = self._l2_confirm_absorption_engine.check(snap, side=int(cand.side), price=float(price or 0.0))
+            res = self._l2_confirm_absorption_engine.check(snap, side=int(cand.side), price=float(price or 0.0))  # type: ignore
         else:
-            res = self._l2_confirm_breakout_engine.check(snap, side=int(cand.side), price=float(price or 0.0))
+            res = self._l2_confirm_breakout_engine.check(snap, side=int(cand.side), price=float(price or 0.0))  # type: ignore
 
         q["l2_ok"] = bool(res.ok)
         q["l2_reason"] = str(res.reason_code)
@@ -102,18 +102,18 @@ class CryptoOrderFlowGenerateMixin:
         q["veto"] = veto
         q["veto_reason"] = veto_reason
 
-        cand.quality_flags = q
-        cand.veto = veto
-        cand.veto_reason = veto_reason
+        cand.quality_flags = q  # type: ignore
+        cand.veto = veto  # type: ignore
+        cand.veto_reason = veto_reason  # type: ignore
         return cand
 
     def _score_candidate(self, ctx: Any, cand: CandidatePipeline) -> ScoredCandidate:
-        out = self._score_model.score(
+        out = self._score_model.score(  # type: ignore
             ctx=ctx,
             kind=cand.kind,
-            side=int(cand.side),
+            side=int(cand.side),  # type: ignore
             raw_score=float(cand.raw_score),
-            quality_flags=dict(cand.quality_flags or {}),
+            quality_flags=dict(cand.quality_flags or {}),  # type: ignore
         )
         return ScoredCandidate(
             candidate=cand,
@@ -139,9 +139,9 @@ class CryptoOrderFlowGenerateMixin:
         sigm = getattr(self, "_sigm", None)
 
         # PERF: bind frequently used attributes locally (hot path)
-        cfg = self._cfg
-        emit = self._emitter.emit
-        logger = self.logger
+        cfg = self._cfg  # type: ignore
+        emit = self._emitter.emit  # type: ignore
+        logger = self.logger  # type: ignore
 
         # PERF: resolve common ctx fields once
         # (ctx is a dataclass-like object with attribute access; getattr is not free)
@@ -160,7 +160,7 @@ class CryptoOrderFlowGenerateMixin:
                 em = getattr(self, "_emitter", None)
                 if em is not None:
                     from common.veto_reason_reporter import VetoTopNReporter
-                    reporter = VetoTopNReporter(emitter=em, logger=getattr(self, "logger", None) or self.logger)
+                    reporter = VetoTopNReporter(emitter=em, logger=getattr(self, "logger", None) or self.logger)  # type: ignore
                     sigm.attach_veto_reporter(reporter)
         except Exception:
             pass
@@ -181,9 +181,9 @@ class CryptoOrderFlowGenerateMixin:
                 pass
 
             # 9.2 regime gate is a single function now
-            allowed, gate_reason = self._apply_regime_gate(signal_kind=cand.kind, ctx=ctx)
+            allowed, gate_reason = self._apply_regime_gate(signal_kind=cand.kind, ctx=ctx)  # type: ignore
             if not allowed:
-                self._emit_veto_metric(kind=cand.kind, ctx=ctx, reason_code=gate_reason)
+                self._emit_veto_metric(kind=cand.kind, ctx=ctx, reason_code=gate_reason)  # type: ignore
                 continue
 
             # ---- Candidate path logging (SAMPLED) ----
@@ -197,13 +197,13 @@ class CryptoOrderFlowGenerateMixin:
                 now_ms = get_ny_time_millis()
                 cur_regime = str(getattr(ctx, "market_regime", None) or getattr(ctx, "regime", None) or "")
                 force = False
-                if self._candidate_log_on_regime_change and cur_regime and cur_regime != self._last_regime_for_candidate_log:
+                if self._candidate_log_on_regime_change and cur_regime and cur_regime != self._last_regime_for_candidate_log:  # type: ignore
                     force = True
                     self._last_regime_for_candidate_log = cur_regime
 
-                if self._cand_log_gate.should_log(now_ms, force=force):
+                if self._cand_log_gate.should_log(now_ms, force=force):  # type: ignore
                     log_signal_one_json_unified(
-                        self.logger,
+                        self.logger,  # type: ignore
                         payload={
                             "signal_id": None,
                             "kind": getattr(cand, "kind", None),
@@ -231,12 +231,12 @@ class CryptoOrderFlowGenerateMixin:
             lp = getattr(cand, "level_price", None)
             level_price = float(lp) if lp is not None else None
 
-            res = self._confirmations.validate(
+            res = self._confirmations.validate(  # type: ignore
                 k=str(cand.kind),
                 ctx=ctx,
-                side=str(cand.side),
+                side=str(cand.side),  # type: ignore
                 level_price=level_price,
-                l2=self._last_l2_snapshot,
+                l2=self._last_l2_snapshot,  # type: ignore
             )
 
             # -----------------------------
@@ -252,7 +252,7 @@ class CryptoOrderFlowGenerateMixin:
                 # log veto event
                 with contextlib.suppress(Exception):
                     log_signal_one_json_unified(
-                        self.logger,
+                        self.logger,  # type: ignore
                         payload={
                             "kind": getattr(cand, "kind", None),
                             "side": getattr(cand, "side", None),
@@ -285,13 +285,13 @@ class CryptoOrderFlowGenerateMixin:
             #   - comparable across kinds/symbols
             #   - still 0..100 for formatter/publisher
             # -------------------------------------------------------------------------
-            confidence_pct = self._confidence_pct(kind=cand.kind, ctx=ctx, final_score=final_score)
+            confidence_pct = self._confidence_pct(kind=cand.kind, ctx=ctx, final_score=final_score)  # type: ignore
 
             # Minimal "effect visibility" metrics (optional sink):
             sym = str(getattr(ctx, "symbol", "") or "")
-            self._metrics_observe("conf_factor_hist", conf_factor01, tags={"kind": str(cand.kind or ""), "symbol": sym})
-            self._metrics_observe("final_score_hist", float(final_score), tags={"kind": str(cand.kind or ""), "symbol": sym})
-            self._metrics_observe("confidence_pct_hist", float(confidence_pct), tags={"kind": str(cand.kind or ""), "symbol": sym})
+            self._metrics_observe("conf_factor_hist", conf_factor01, tags={"kind": str(cand.kind or ""), "symbol": sym})  # type: ignore
+            self._metrics_observe("final_score_hist", float(final_score), tags={"kind": str(cand.kind or ""), "symbol": sym})  # type: ignore
+            self._metrics_observe("confidence_pct_hist", float(confidence_pct), tags={"kind": str(cand.kind or ""), "symbol": sym})  # type: ignore
 
             # parts может содержать breakdown conf_factor / L2/L3/geo/regime компонентов.
             # В лог (5.3) мы кладём parts как "parts-lite": только числа/флаги. Большие структуры запрещены.

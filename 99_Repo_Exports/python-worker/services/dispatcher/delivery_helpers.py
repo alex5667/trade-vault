@@ -90,7 +90,7 @@ class DeliveryHelpers:
         return delay + jitter
 
     @staticmethod
-    def send_to_dlq(
+    async def send_to_dlq(
         redis_client: Any,
         dlq_stream: str,
         target: str,
@@ -126,7 +126,7 @@ class DeliveryHelpers:
         }
 
         try:
-            redis_client.xadd(
+            await redis_client.xadd(
                 dlq_stream,
                 {"data": json.dumps(payload, ensure_ascii=False)},
                 maxlen=STREAM_RETENTION.get(dlq_stream, 5_000),

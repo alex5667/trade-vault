@@ -69,13 +69,13 @@ class ReleaseEquivalenceCertService:
                     WHERE scope_value = ANY(%s)
                       AND created_at > now() - interval '%s days'
                     ORDER BY created_at DESC
-                    """
+                    """,
                     (list(_BOUNDED_SYMBOLS), window_days),
                 )
                 checks = cur.fetchall()
 
                 total_checks     = len(checks)
-                failed_checks    = [c for c in checks if c["status"] == "failed"]
+                failed_checks    = [c for c in checks if c["status"] == "failed"]  # type: ignore
                 matching_checks  = total_checks - len(failed_checks)
 
                 # ── Load open critical drifts on bounded scopes ────────────────
@@ -87,7 +87,7 @@ class ReleaseEquivalenceCertService:
                       AND status = 'open'
                       AND severity = 'critical'
                       AND created_at > now() - interval '%s days'
-                    """
+                    """,
                     (list(_BOUNDED_SYMBOLS), window_days),
                 )
                 critical_drifts = cur.fetchall()
@@ -97,10 +97,10 @@ class ReleaseEquivalenceCertService:
 
                 # ── E2/E3 — blocker / warning set mismatch drifts ─────────────
                 blocker_mismatches = [
-                    d for d in critical_drifts if d["drift_kind"] == "blocker_set_mismatch"
+                    d for d in critical_drifts if d["drift_kind"] == "blocker_set_mismatch"  # type: ignore
                 ]
                 warning_mismatches = [
-                    d for d in critical_drifts if d["drift_kind"] == "warning_set_mismatch"
+                    d for d in critical_drifts if d["drift_kind"] == "warning_set_mismatch"  # type: ignore
                 ]
                 e2_pass = len(blocker_mismatches) == 0
                 e3_pass = True  # warn-level; degrades to warning not blocker
@@ -108,14 +108,14 @@ class ReleaseEquivalenceCertService:
                 # ── E4 — missing cert chain ────────────────────────────────────
                 missing_cert_edges = [
                     d for d in critical_drifts
-                    if d["drift_kind"] in ("missing_replay_cert_edge", "missing_rollout_cert_edge")
+                    if d["drift_kind"] in ("missing_replay_cert_edge", "missing_rollout_cert_edge")  # type: ignore
                 ]
                 e4_pass = len(missing_cert_edges) == 0
 
                 # ── E5 — missing freeze/override blocker ──────────────────────
                 missing_blockers = [
                     d for d in critical_drifts
-                    if d["drift_kind"] in ("missing_freeze_blocker", "missing_override_constraint")
+                    if d["drift_kind"] in ("missing_freeze_blocker", "missing_override_constraint")  # type: ignore
                 ]
                 e5_pass = len(missing_blockers) == 0
 
@@ -134,10 +134,10 @@ class ReleaseEquivalenceCertService:
                       AND status = 'open'
                       AND severity != 'critical'
                       AND created_at > now() - interval '%s days'
-                    """
+                    """,
                     (list(_BOUNDED_SYMBOLS), window_days),
                 )
-                warning_drifts = cur.fetchone()["c"]
+                warning_drifts = cur.fetchone()["c"]  # type: ignore
 
                 checks_detail = {
                     "E1_decision_match":        {"pass": e1_pass, "failures": len(failed_checks)},
@@ -173,7 +173,7 @@ class ReleaseEquivalenceCertService:
                         INSERT INTO atr_control_plane_certifications
                             (cert_id, cert_kind, target_node_id, status, checks_json, summary_json)
                         VALUES (%s, %s, %s, %s, %s, %s)
-                        """
+                        """,
                         (
                             cert_id,
                             "release_equivalence_cert",

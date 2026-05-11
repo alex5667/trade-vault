@@ -18,7 +18,7 @@ def setup_logger(name):
     return logging.getLogger(name)
 
 if TYPE_CHECKING:
-    from contexts import BarSample, OrderflowSignalContext, PipelineSignalContext
+    from contexts import BarSample, OrderflowSignalContext, PipelineSignalContext  # type: ignore
     from health_metrics import HealthMetrics
 
 
@@ -109,7 +109,7 @@ class SignalProcessingService:
         """
         Adapter: OrderflowSignalContext -> PipelineSignalContext.
         """
-        from contexts import PipelineSignalContext
+        from contexts import PipelineSignalContext  # type: ignore
         ts_ms = self._normalize_epoch_ms(getattr(of_ctx, "ts", 0))
         return PipelineSignalContext(
             symbol=getattr(of_ctx, "symbol", self.symbol),

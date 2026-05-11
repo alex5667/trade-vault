@@ -31,7 +31,7 @@ class PositionStrategy:
     scale_in_enable: bool       # open→resize redirect active,
 
     def __repr__(self) -> str:
-        return (
+        return (  # type: ignore
             f"PositionStrategy(name={self.name!r}, ",
             f"single_active={self.single_active}, ",
             f"router_enable={self.router_enable}, ",

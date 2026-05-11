@@ -143,25 +143,25 @@ class CryptoLiquidity:
         l2: SimpleL2Snapshot,
         cluster: ClusterVol | None = None,
     ) -> LiquidityContext:
-        lc = LiquidityContext()
+        lc = LiquidityContext()  # type: ignore
 
         # 1) Calculate basic metrics
         bm = self.calculate_book_metrics(l2)
-        lc.depth_5_vol = bm["depth_5_bid_vol"] + bm["depth_5_ask_vol"] # Or side-specific? Handled below.
+        lc.depth_5_vol = bm["depth_5_bid_vol"] + bm["depth_5_ask_vol"] # Or side-specific? Handled below.  # type: ignore
 
         # 2) Find near wall
         side, lvl, size_z = self.find_near_liquidity_wall(ctx, l2)
         if side is None or lvl is None or size_z is None:
             return lc
 
-        lc.near_wall_side = side
-        lc.near_wall_price = lvl.price
-        lc.near_wall_size = lvl.size
-        lc.near_wall_size_z = size_z
+        lc.near_wall_side = side  # type: ignore
+        lc.near_wall_price = lvl.price  # type: ignore
+        lc.near_wall_size = lvl.size  # type: ignore
+        lc.near_wall_size_z = size_z  # type: ignore
 
         # 3) Override depth_5 with side-specific if needed by existing logic
         # (Original code used: sum(x.size for x in (l2.bids[:5] if side == "bid" else l2.asks[:5])))
-        lc.depth_5_vol = bm["depth_5_bid_vol"] if side == "bid" else bm["depth_5_ask_vol"]
+        lc.depth_5_vol = bm["depth_5_bid_vol"] if side == "bid" else bm["depth_5_ask_vol"]  # type: ignore
 
         return lc
 

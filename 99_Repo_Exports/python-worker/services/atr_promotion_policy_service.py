@@ -163,13 +163,13 @@ def run_once() -> int:
                 }
 
                 key = f"cfg:suggestions:atr_policy:{row['source']}:{row['symbol']}:{row['scenario']}:{row['regime']}:{row['risk_horizon_bucket']}"
-                r.set(key, json.dumps(payload, ensure_ascii=False, sort_keys=True))
+                r.set(key, json.dumps(payload, ensure_ascii=False, sort_keys=True))  # type: ignore
 
                 try:
                     from services.atr_policy_workflow import submit_proposal
                     proposal_id = submit_proposal(payload)
                     payload["proposal_id"] = proposal_id
-                    r.set(key, json.dumps(payload, ensure_ascii=False, sort_keys=True))
+                    r.set(key, json.dumps(payload, ensure_ascii=False, sort_keys=True))  # type: ignore
                     from services.atr_policy_telegram_ops import publish_policy_proposal_to_telegram
                     publish_policy_proposal_to_telegram(payload)
                 except Exception:

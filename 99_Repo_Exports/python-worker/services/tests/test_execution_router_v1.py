@@ -48,8 +48,8 @@ class FakeRedis:
         v = self.store.get(key)
         return v.encode() if isinstance(v, str) else v
 
-    def set(self, key: str, value: str, ex: int = None) -> None:
-        self.store[key] = value
+    def set(self, key: str, value: str, ex: int = None) -> None:  # type: ignore
+        self.store[key] = value  # type: ignore
 
     def rpush(self, key: str, *values: str) -> int:
         if key not in self.lists:
@@ -64,8 +64,8 @@ class FakeRedis:
             return (key, lst.pop(0))
         return None
 
-    def xadd(self, key: str, fields: dict, maxlen: int = None, approximate: bool = True) -> str:
-        self.stream.append((key, dict(fields)))
+    def xadd(self, key: str, fields: dict, maxlen: int = None, approximate: bool = True) -> str:  # type: ignore
+        self.stream.append((key, dict(fields)))  # type: ignore
         return "0-1"
 
 

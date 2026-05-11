@@ -155,7 +155,7 @@ class TestInlineExecFeedbackDirect(unittest.TestCase):
         gate = _build_gate(inline_exec_mode="monitor", inline_exec_warn_p95_bps=5.0)
         r = self._rollup_redis(p95=7.0, count=10)
         ctx = _ctx()
-        add, veto, reason = gate._inline_exec_feedback(
+        add, veto, reason = gate._inline_exec_feedback(  # type: ignore
             ctx=ctx, symbol="BTCUSDT", side="LONG", session="london", kind="breakout", tf="5m",
             redis_client=r,
         ),
@@ -171,7 +171,7 @@ class TestInlineExecFeedbackDirect(unittest.TestCase):
             inline_exec_max_perm_impact_p95_bps=6.0,
         ),
         dims = self._dims().norm(),
-        rkey = make_rollup_key(dims, include_session=True),
+        rkey = make_rollup_key(dims, include_session=True),  # type: ignore
         perm_key = "tca:perm_impact_p95_bps:1:BTCUSDT:binance:london:5m:breakout:LONG",
         data = {
             rkey: {
@@ -192,7 +192,7 @@ class TestInlineExecFeedbackDirect(unittest.TestCase):
 
         r2 = _CustomRedis(data)
         ctx = _ctx()
-        add, veto, reason = gate._inline_exec_feedback(
+        add, veto, reason = gate._inline_exec_feedback(  # type: ignore
             ctx=ctx, symbol="BTCUSDT", side="LONG", session="london", kind="breakout", tf="5m",
             redis_client=r2,
         )

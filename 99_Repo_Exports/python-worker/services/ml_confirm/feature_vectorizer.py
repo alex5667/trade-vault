@@ -20,7 +20,7 @@ from core.feature_engineering import (
     bucketize,
     derive_regime_label,
     derive_session_label,
-)
+)  # type: ignore
 from core.meta_model_lr import MetaModelLR
 from services.ml_calibration import PlattLogitCalibrator
 from utils.time_utils import get_ny_time_millis
@@ -34,7 +34,7 @@ try:
 except Exception:
     PROMETHEUS_AVAILABLE = False
     # Mock metrics for when prometheus_client is not available
-    class _MockMetric:
+    class _MockMetric:  # type: ignore
         def labels(self, **kwargs):
             return self
         def inc(self, *args, **kwargs):
@@ -157,8 +157,8 @@ class FeatureVectorizerMixin:
             scaler = rs
         elif isinstance(rs, dict):
             scaler = RobustScalerPack(params=rs)
-        else:
-            scaler = None
+        else:  # type: ignore
+            scaler = None  # type: ignore
 
         # regime/session/buckets (only used when feature_cols contain соответствующие префиксы)
         session_cfg = getattr(model, "session_cfg", None)
@@ -191,8 +191,8 @@ class FeatureVectorizerMixin:
         liq_cfg = getattr(model, "liq_cfg", None)
         if not isinstance(liq_cfg, dict):
             liq_cfg = {}
-        liq_label = derive_regime_label(indicators.get("liq_regime"), fallback_score=_f(indicators.get("liq_score"), None), cfg=liq_cfg)
-        vol_label = derive_regime_label(indicators.get("vol_regime"), fallback_score=_f(indicators.get("vol_score"), None), cfg=liq_cfg)
+        liq_label = derive_regime_label(indicators.get("liq_regime"), fallback_score=_f(indicators.get("liq_score"), None), cfg=liq_cfg)  # type: ignore
+        vol_label = derive_regime_label(indicators.get("vol_regime"), fallback_score=_f(indicators.get("vol_score"), None), cfg=liq_cfg)  # type: ignore
 
         # UTC hour/day-of-week and scenario bucket (legacy bucket:)
         tm = time.gmtime(float(int(ts_ms or 0)) / 1000.0)

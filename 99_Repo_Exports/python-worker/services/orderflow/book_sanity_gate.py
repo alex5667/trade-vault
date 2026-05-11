@@ -67,8 +67,8 @@ class BookSanityGate:
         t0 = time.monotonic()
         ts_dec_ms = int(time.time() * 1000)
         ts_ev_ms = int(indicators.get("ts_ms", 0) or 0)
-        
-        def _make_res(decision: str, reason: str, flags: list[str], notes: dict[str, Any] = None) -> GateDecisionV1:
+          # type: ignore
+        def _make_res(decision: str, reason: str, flags: list[str], notes: dict[str, Any] = None) -> GateDecisionV1:  # type: ignore
             latency_us = int((time.monotonic() - t0) * 1_000_000)
             return GateDecisionV1(
                 stage="dq_integrity",

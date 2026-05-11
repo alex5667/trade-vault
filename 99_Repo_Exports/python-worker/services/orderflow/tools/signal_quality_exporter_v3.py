@@ -30,7 +30,7 @@ def _env_int(name: str, default: str) -> int:
     try:
         return int(_env(name, default))
     except Exception:
-        return default
+        return default  # type: ignore
 
 def _as_float(v: Any) -> float:
     try:

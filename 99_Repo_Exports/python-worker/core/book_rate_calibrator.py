@@ -98,8 +98,8 @@ class BookRateCalibrator:
             wn = max(lo, min(hi, wn))
             return BookRateThresholds(min_hz=mn, warn_hz=wn, n=n, src="static")
 
-        p10 = self._p10.get(r).value() if self._p10.get(r) else None
-        p50 = self._p50.get(r).value() if self._p50.get(r) else None
+        p10 = self._p10.get(r).value() if self._p10.get(r) else None  # type: ignore
+        p50 = self._p50.get(r).value() if self._p50.get(r) else None  # type: ignore
 
         # Fail-open fallback (should be rare after ready)
         if not (p10 and p10 > 0 and math.isfinite(p10)):
@@ -125,8 +125,8 @@ class BookRateCalibrator:
             "min_samples": int(self.min_samples),
             "dt_max_ms": int(self.dt_max_ms),
             "n": int(self._n.get(r, 0)),
-            "p10": (self._p10.get(r).to_state() if self._p10.get(r) else None),
-            "p50": (self._p50.get(r).to_state() if self._p50.get(r) else None),
+            "p10": (self._p10.get(r).to_state() if self._p10.get(r) else None),  # type: ignore
+            "p50": (self._p50.get(r).to_state() if self._p50.get(r) else None),  # type: ignore
         }
 
     def load_regime_state(self, state: dict[str, Any]) -> None:

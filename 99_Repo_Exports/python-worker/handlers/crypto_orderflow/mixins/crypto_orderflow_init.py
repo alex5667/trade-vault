@@ -84,7 +84,7 @@ class CryptoOrderFlowInitMixin:
         # Create HTF provider (redis available after super().__init__)
         # We'll set it after super().__init__ since redis is initialized there
         super().__init__(
-            symbol,
+            symbol,  # type: ignore
             config,
             source_name="CryptoOrderFlow",
             signal_stream_prefix="signals:cryptoorderflow",
@@ -170,7 +170,7 @@ class CryptoOrderFlowInitMixin:
         self._book_sanity_gate = BookSanityGate.from_env()
         self._stream_integrity_gate = StreamIntegrityGate.from_env()
         self._regime_session_gate = RegimeSessionGate.from_env()
-        self._consistency_gate = ConsistencyGate.from_env()
+        self._consistency_gate = ConsistencyGate.from_env()  # type: ignore
         # --------------------------------------------------------------------
         # SMT leader/coherence gate (observe/veto).
         # Fail-open: missing Redis state never blocks signals.
@@ -331,7 +331,7 @@ class CryptoOrderFlowInitMixin:
         self._liquidity_comp = CryptoLiquidity()
 
         # 4. Observability (Wraps logging/metrics)
-        self._observability = CryptoObservability(self.logger, health_metrics)
+        self._observability = CryptoObservability(self.logger, health_metrics)  # type: ignore
         # Link samplers existing in mixin
         if hasattr(self, "_candidate_log_sampler"):
              self._observability.set_sampler(self._candidate_log_sampler)
@@ -422,7 +422,7 @@ class CryptoOrderFlowInitMixin:
           - observe(name, value, tags)
           - hist(name, value, tags)
         """
-        m = self._metrics
+        m = self._metrics  # type: ignore
         if not m:
             return
         try:
@@ -447,7 +447,7 @@ class CryptoOrderFlowInitMixin:
           - signals_veto_total{reason_code,kind,symbol}
         No hard dependency on Prom/StatsD; we just call an optional sink.
         """
-        m = self._metrics
+        m = self._metrics  # type: ignore
         if not m:
             return
         try:

@@ -146,7 +146,7 @@ class BinanceStreamConsumer(StreamConsumer):
         while self.running:
             try:
                 # Читаем сообщения из всех стримов
-                messages = self.redis_client.xreadgroup(
+                messages = self.redis_client.xreadgroup(  # type: ignore
                     groupname=self.consumer_group,
                     consumername=self.consumer_name,
                     streams=dict.fromkeys(self.streams_to_consume, '>'),
@@ -173,7 +173,7 @@ class BinanceStreamConsumer(StreamConsumer):
                                 self.process_stream_message(stream_name, message_id, fields)
 
                                 # Подтверждаем обработку
-                                self.redis_client.xack(stream_name, self.consumer_group, message_id)
+                                self.redis_client.xack(stream_name, self.consumer_group, message_id)  # type: ignore
 
                                 # Обновляем статистику
                                 self.stats.update_stats(stream_name, message_id)

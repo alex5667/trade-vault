@@ -66,7 +66,7 @@ def create_postmortem_inline_keyboard(payload: dict) -> dict:
     pm_id = payload.get("postmortem_id")
     return {
         "inline_keyboard": [
-            [
+            [  # type: ignore
                 {"text": "📖 Review PM", "callback_data": f"postmortem|review_pm|{pm_id}"},
                 {"text": "⏳ Mark In Progress", "callback_data": f"postmortem|mark_in_progress|{pm_id}"}
             ]

@@ -44,7 +44,7 @@ class BatchProcessor:
 
         if use_gpu and GPU_SERVICE_AVAILABLE:
             try:
-                self.gpu_service = get_gpu_service()
+                self.gpu_service = get_gpu_service()  # type: ignore
                 if self.gpu_service and self.gpu_service.is_gpu_available():
                     log.info("🚀 Batch processor: GPU acceleration enabled")
                 else:
@@ -162,7 +162,7 @@ class BatchProcessor:
 
         if self.gpu_service and self.gpu_service.is_gpu_available():
             try:
-                buy_vols, sell_vols, deltas = self.gpu_service.compute_delta_batch(
+                buy_vols, sell_vols, deltas = self.gpu_service.compute_delta_batch(  # type: ignore
                     volumes_arr, taker_buy_arr
                 )
                 return buy_vols.tolist(), sell_vols.tolist(), deltas.tolist()
@@ -200,7 +200,7 @@ class BatchProcessor:
 
         if self.gpu_service and self.gpu_service.is_gpu_available():
             try:
-                z_scores = self.gpu_service.compute_z_scores(values_arr, window=window)
+                z_scores = self.gpu_service.compute_z_scores(values_arr, window=window)  # type: ignore
                 return z_scores.tolist()
             except Exception as e:
                 log.warning(f"⚠️ GPU z-score computation failed: {e}")

@@ -26,6 +26,7 @@ from core.atr_sanity_guard import RangeTfAggregator
 from core.pressure_tier_calibrator import PressureTierCalibrator
 
 from utils.time_utils import get_ny_time_millis
+from handlers.crypto_orderflow.components.liquidity import CryptoLiquidity
 
 
 @dataclass(slots=True)
@@ -266,6 +267,11 @@ from services.orderflow.liquidity_resiliency import LiquidityResiliencyTracker
 from services.persistence_manager import get_persistence_manager
 import contextlib
 
+try:
+    from handlers.crypto_orderflow.components.liquidity import CryptoLiquidity
+except ImportError:
+    CryptoLiquidity = Any
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Настройки по умолчанию
 # ──────────────────────────────────────────────────────────────────────────────
@@ -319,7 +325,7 @@ class SymbolRuntime:
     iceberg_detector: IcebergDetector = field(init=False)
     cvd_state: TickCVDState = field(init=False)
     l3_queue: L3QueueEventsProxy = field(init=False)
-    liquidity: CryptoLiquidity = field(init=False)
+    liquidity: CryptoLiquidity = field(init=False)  # type: ignore
     l3_stats: Any | None = None  # Stores L3BucketStats
     hawkes_state: dict[str, Any] = field(default_factory=dict)
     hawkes_snapshot: dict[str, Any] = field(default_factory=dict)
@@ -399,11 +405,11 @@ class SymbolRuntime:
     # Backward-compat alias: older name -> canonical disabled_hard_until_ms
     @property
     def of_inputs_v3_hard_disabled_until_ms(self) -> int:
-        return int(self.of_inputs_v3_disabled_hard_until_ms or 0)
+        return self.of_inputs_v3_disabled_hard_until_ms or 0
 
     @of_inputs_v3_hard_disabled_until_ms.setter
     def of_inputs_v3_hard_disabled_until_ms(self, v: int) -> None:
-        self.of_inputs_v3_disabled_hard_until_ms = int(v or 0)
+        self.of_inputs_v3_disabled_hard_until_ms = v or 0
 
 
     # Separate: last emitted signal (even if strong gate did NOT pass)
@@ -613,10 +619,6 @@ class SymbolRuntime:
     last_delta_z: float = 0.0
     last_delta_eff_norm: float = 0.0
     last_abs_lvl_ok: int = 0
-    # NEW: RSI and CVD state for orderflow_strategy
-    rsi_price: Any | None = None
-    rsi_cvd: Any | None = None
-    cvd_state: Any | None = None
     # NEW: Regime state (canonical name used by some components)
     last_regime: str = "na"
     tick_uid_ring: deque[str] = field(default_factory=lambda: deque(maxlen=4096), repr=False)
@@ -626,6 +628,16 @@ class SymbolRuntime:
     tick_count: int = 0
     heartbeat_counter: int = 0
     last_trade_id: int = 0
+
+    # Data Quality and CVD Quarantine state
+    source_inconsistent_until_ms: int = 0
+    cvd_prev: float = 0.0
+    cvd_last: float = 0.0
+    tick_gaps_ms: deque[int] = field(default_factory=lambda: deque(maxlen=1024))
+    last_tick_seen_ts: int = 0
+    cvd_quarantine_active: int = 0
+    cvd_quarantine_until_ms: int = 0
+    delta_fallback_mode: str = "cvd"
 
     # DQ gap / missing-seq metrics
     tick_gap_p50_ms: float = 0.0
@@ -721,7 +733,7 @@ class SymbolRuntime:
             now = get_ny_time_millis()
             # Default TTL 30s
             ttl = int(self.config.get("overrides_cache_ttl_ms", 30000))
-            if ttl > 0 and (now - int(self.overrides_loaded_ts_ms or 0)) < ttl:
+            if ttl > 0 and (now - (self.overrides_loaded_ts_ms or 0)) < ttl:
                 return
 
             # 1. Get active pointer
@@ -785,10 +797,10 @@ class SymbolRuntime:
         try:
             now_ms = get_ny_time_millis()
             ttl_ms = int(self.config.get("crossasset_cache_ttl_ms", 5_000))
-            if ttl_ms > 0 and (now_ms - int(self._crossasset_last_load_ms or 0)) < ttl_ms:
+            if ttl_ms > 0 and (now_ms - (self._crossasset_last_load_ms or 0)) < ttl_ms:
                 return
 
-            redis_key = f"runtime:crossasset:{str(self.symbol).upper()}"
+            redis_key = f"runtime:crossasset:{self.symbol.upper()}"
             raw = await r.hgetall(redis_key)
             if not raw:
                 self._crossasset_last_load_ms = now_ms
@@ -831,10 +843,10 @@ class SymbolRuntime:
         try:
             now_ms = get_ny_time_millis()
             ttl_ms = int(self.config.get("crossasset_v13_cache_ttl_ms", 5_000))
-            if ttl_ms > 0 and (now_ms - int(self._crossasset_v13_last_load_ms or 0)) < ttl_ms:
+            if ttl_ms > 0 and (now_ms - (self._crossasset_v13_last_load_ms or 0)) < ttl_ms:
                 return
 
-            redis_key = f"runtime:crossasset:v13:{str(self.symbol).upper()}"
+            redis_key = f"runtime:crossasset:v13:{self.symbol.upper()}"
             raw = await r.hgetall(redis_key)
             if not raw:
                 self._crossasset_v13_last_load_ms = now_ms
@@ -1174,7 +1186,7 @@ class SymbolRuntime:
             w = int(os.getenv("FLOW_OFI_NORM_Z_WINDOW", str(self.config.get("flow_ofi_norm_z_window", 256))) or 256)
         except Exception:
             w = 256
-        self.ofi_norm_stats = RollingRobustZ(window=max(32, int(w)))
+        self.ofi_norm_stats = RollingRobustZ(window=max(32, w))
         self.ofi_norm_z = 0.0
 
         # Phase E / P4: Message rate and manipulation pattern trackers
@@ -1222,7 +1234,7 @@ class SymbolRuntime:
         self.l3_queue = L3QueueEventsProxy(bucket_ms=bucket_ms, alpha=l3_alpha)
         # L3-lite stats (taker/cancel rates, ETA fill proxies)
         try:
-            self.l3_stats = L3LiteTracker(bucket_ms=bucket_ms, alpha=l3_alpha)
+            self.l3_stats = L3LiteTracker(alpha=l3_alpha)
         except Exception:
             self.l3_stats = None
 
@@ -1351,7 +1363,7 @@ class SymbolRuntime:
 
     def is_duplicate_tick_uid(self, uid: str) -> bool:
         """Return True if uid has been seen in recent window; otherwise record and return False."""
-        return _dedup_seen_uid(uid, self.tick_uid_ring, self.tick_uid_set, int(self.tick_dedup_window or 0))
+        return _dedup_seen_uid(uid, self.tick_uid_ring, self.tick_uid_set, self.tick_dedup_window or 0)
 
     async def ensure_history_loaded(self) -> None:
         """
@@ -1390,11 +1402,15 @@ class SymbolRuntime:
                 )
                 # Feed to detectors
                 try:
-                    if hasattr(self, "swing"): self.swing.update(mb)
+                    new_swings = []
+                    if hasattr(self, "swing"):
+                        new_swings = self.swing.update(mb)
                     if hasattr(self, "rsi_price"): self.rsi_price.update(mb.close)
                     if hasattr(self, "rsi_cvd"): self.rsi_cvd.update(mb.cvd_close)
-                    # Update pools
-                    if hasattr(self, "eq_pools"): self.eq_pools.on_bar(mb)
+                    # Update pools using structural swing points
+                    if hasattr(self, "eq_pools") and self.eq_pools:
+                        for sp in new_swings:
+                            self.eq_pools.on_swing(sp, getattr(self, "last_atr", 0.0) or 0.0)
                 except Exception:
                     pass
 
@@ -1602,7 +1618,7 @@ class SymbolRuntime:
             return
 
         try:
-            sym = str(self.symbol)
+            sym = self.symbol
             _trail_prefix = os.getenv("TRAIL_CALIB_KEY_PREFIX", "trail:calib") or "trail:calib"
             _regime = str(getattr(self, "last_regime", "na") or "na").strip().lower() or "na"
             _trail_key = f"{_trail_prefix}:{sym}:{_regime}"
@@ -1683,7 +1699,7 @@ class SymbolRuntime:
                         if _v in (None, "", "na"):
                             continue
                         with contextlib.suppress(Exception):
-                            _coeff_map[str(_b)] = float(_v)
+                            _coeff_map[_b] = float(_v)
                 if _coeff_map:
                     self.dynamic_cfg[DK.SLIPPAGE_DECOMP_IMPACT_COEFF_BPS] = _coeff_map
             except Exception:
@@ -1711,10 +1727,10 @@ class SymbolRuntime:
 
                 if sd:
                     with contextlib.suppress(Exception):
-                        self.dynamic_cfg[DK.SLIPPAGE_DECOMP_ENFORCE_BUCKETS] = str(sd)
+                        self.dynamic_cfg[DK.SLIPPAGE_DECOMP_ENFORCE_BUCKETS] = sd
                     try:
                         if isinstance(self.config, dict):
-                            self.config["slippage_decomp_enforce_buckets"] = str(sd)
+                            self.config["slippage_decomp_enforce_buckets"] = sd
                     except Exception:
                         pass
                 if tf:
@@ -1728,12 +1744,25 @@ class SymbolRuntime:
             except Exception:
                 pass
 
+            if not hasattr(self, "eq_pools"):
+                self.eq_pools = EQPoolTracker(
+                    symbol=self.symbol,
+                    eq_ttl_ms=int(self.config.get("pool_expiry_bars", 3600)) * 1000,
+                )
+            else:
+                self.eq_pools.eq_ttl_ms = int(self.config.get("pool_expiry_bars", 3600)) * 1000
+
+            if not hasattr(self, "rsi_price"):
+                self.rsi_price = StreamingRSI(period=int(self.config.get("rsi_period", 14)))
+            else:
+                self.rsi_price.apply_config(self.config, key="rsi_period")
+
         except Exception as exc:
             # fail-open, retry next time
             log_silent_error(exc, 'redis_read_failure', self.symbol, 'ensure_specs_fresh:outer')
             pass
 
-    async def maybe_load_htf_zones(self, *, now_ts_ms: int, redis_client: aioredis.Redis) -> None:
+    async def maybe_load_htf_zones(self, *, now_ts_ms: int, redis_client: Any) -> None:
         """
         Best-effort load zones:htf:v1:<symbol> into runtime cache.
         Called on bar_close or snapshot publish, throttled.
@@ -1745,7 +1774,7 @@ class SymbolRuntime:
             last = int(getattr(self, "zones_last_load_ts_ms", 0) or 0)
             if last > 0 and now_ts_ms - last < refresh_ms:
                 return
-            key = str(self.config.get("htf_zones_key_prefix", "zones:htf:v1:")) + str(self.symbol)
+            key = self.config.get("htf_zones_key_prefix", "zones:htf:v1:") + self.symbol
             raw = await redis_client.get(key)
             if not raw:
                 self.zones_pack = None
@@ -1759,6 +1788,7 @@ class SymbolRuntime:
             log_silent_error(exc, 'calib_load_failure', self.symbol, 'maybe_load_htf_zones:load_pack')
             return
 
+        # Phase C: liquidity pools + sweeps
         try:
             if not hasattr(self, "rsi_price"):
                 self.rsi_price = StreamingRSI(period=int(self.config.get("rsi_period", 14)))
@@ -1769,29 +1799,8 @@ class SymbolRuntime:
                 self.rsi_cvd = StreamingRSI(period=int(self.config.get("rsi_period", 14)))
             else:
                 self.rsi_cvd.apply_config(self.config, key="rsi_period")
-        except Exception as exc:
-            log_silent_error(exc, 'config_parse_failure', self.symbol, 'maybe_load_htf_zones:rsi_config')
-            if not hasattr(self, "rsi_price"): self.rsi_price = StreamingRSI()
-            if not hasattr(self, "rsi_cvd"): self.rsi_cvd = StreamingRSI()
 
-        # Phase C: liquidity pools + sweeps
-        try:
-            if hasattr(self, "eq_pools") and self.eq_pools:
-                pass
-            else:
-                self.eq_pools = EQPoolTracker(
-                    mature_bars=int(self.config.get("pool_mature_bars", 60)),
-                    expiry_bars=int(self.config.get("pool_expiry_bars", 3600)),
-                )
-        except Exception as exc:
-            log_silent_error(exc, 'init_failure', self.symbol, 'maybe_load_htf_zones:eq_pools_init')
-            self.eq_pools = EQPoolTracker()
-
-
-        try:
-            if hasattr(self, "eq_pools"):
-                self.eq_pools.apply_config(self.config)
-            else:
+            if not hasattr(self, "eq_pools") or self.eq_pools is None:
                 self.eq_pools = EQPoolTracker(
                     symbol=self.symbol,
                     eq_tol_bp=float(self.config.get("eq_tol_bp", 6.0)),
@@ -1800,10 +1809,13 @@ class SymbolRuntime:
                     eq_ttl_ms=int(self.config.get("eq_ttl_ms", 3_600_000)),
                     eq_max_pools=int(self.config.get("eq_max_pools", 64)),
                 )
+            else:
+                self.eq_pools.apply_config(self.config)
         except Exception as exc:
-            log_silent_error(exc, 'config_parse_failure', self.symbol, 'maybe_load_htf_zones:eq_pools_config')
-            if not hasattr(self, "eq_pools"):
-                self.eq_pools = EQPoolTracker(symbol=self.symbol)
+            log_silent_error(exc, 'config_parse_failure', self.symbol, 'maybe_load_htf_zones:rsi_eq_config')
+            if not hasattr(self, "rsi_price"): self.rsi_price = StreamingRSI()
+            if not hasattr(self, "rsi_cvd"): self.rsi_cvd = StreamingRSI()
+            if not hasattr(self, "eq_pools"): self.eq_pools = EQPoolTracker(symbol=self.symbol)
 
         try:
             if hasattr(self, "sweep") and self.sweep:

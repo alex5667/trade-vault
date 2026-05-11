@@ -27,14 +27,12 @@ def _make_gate_async(**overrides) -> MLConfirmGate:
 
     gate._cfg = {}
     gate._model = None
-    gate._cache_loaded_ms = None
+    gate._cache_loaded_ms = 0
     gate._cache_ttl_ms = 60_000
     gate._model_load_error = ""
     gate._cfg_key_used = ""
     gate._cfg_source = ""
     gate._cfg_hash_key = "cfg:ml_confirm:hash"
-    gate._champion_kinds = []
-    gate._cfgs = {}
     gate._metrics_enable = False
     gate._replay_capture = False
 
@@ -84,12 +82,11 @@ async def test_refresh_async_test_override_preserved():
     gate = _make_gate_async(
         _cfg={"kind": "util_mh_v1"},
         _model=object(),
-        _cache_loaded_ms=None  # не загружено
+        _cache_loaded_ms=0  # не загружено
     )
     mock_redis = AsyncMock()
 
-    with patch.object(gate, '_load_per_kind_configs_async', new=AsyncMock(return_value=0.0)):
-        await gate.refresh_async(mock_redis)
+    await gate.refresh_async(mock_redis)
 
     # Пломбирует кеш
     assert gate._cache_loaded_ms is not None

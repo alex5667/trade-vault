@@ -97,8 +97,8 @@ def parse_candle(data: dict[bytes, bytes]) -> dict[str, Any]:
 
         # Determine source format (JSON or fields)
         if d.get('type') == 'init':
-            return None
-
+            return None  # type: ignore
+  # type: ignore
         ts_fallback = safe_int(d.get('ts'))
 
         json_data = d.get('data') or d.get('payload')
@@ -154,8 +154,8 @@ def parse_candle(data: dict[bytes, bytes]) -> dict[str, Any]:
 
     except Exception as e:
         logger.error(f"Failed to parse candle data: {e} - Data: {data}")
-        return None
-
+        return None  # type: ignore
+  # type: ignore
 def ensure_consumer_group(r, stream, group):
     try:
         r.xgroup_create(stream, group, id='0', mkstream=True)

@@ -19,11 +19,12 @@ import argparse
 import html
 import json
 import os
-from typing import Any
+from typing import Any, Callable, Awaitable, Dict, TypeVar
 
-import redis
+import redis.asyncio as redis
+import asyncio
 
-from common.redis_errors import retry_redis_operation
+from common.redis_errors import is_transient_error, get_redis_error_category
 from tools.cfg_suggestions_lifecycle import check_suggestions_health
 from utils.time_utils import get_ny_time_millis
 import contextlib
@@ -51,12 +52,38 @@ def pctl(xs: list[float], q: float) -> float:
     if not xs:
         return 0.0
     xs = sorted(xs)
-    i = int(round((len(xs) - 1) * q))
+    i = round((len(xs) - 1) * q)
     i = max(0, min(len(xs) - 1, i))
-    return float(xs[i])
+    return xs[i]
 
 
-def _read_stream_window(r, stream: str, start_ms: int, window_ms: int, *, max_scan: int = 200000) -> list[dict[str, Any]]:
+async def async_retry_redis_operation[T](
+    operation: Callable[[], Awaitable[T]],
+    operation_name: str = "Redis operation",
+    max_retries: int = 10,
+    base_delay: float = 1.0,
+    max_delay: float = 30.0,
+    on_final_failure: Callable[[Exception], T] | None = None,
+) -> T:
+    last_exception: Exception | None = None
+    for attempt in range(max_retries):
+        try:
+            return await operation()
+        except Exception as e:
+            last_exception = e
+            if not is_transient_error(e):
+                raise
+            if attempt < max_retries - 1:
+                delay = min(max_delay, base_delay * (2 ** attempt))
+                await asyncio.sleep(delay)
+            else:
+                if on_final_failure is not None:
+                    return on_final_failure(e)
+                raise
+    raise last_exception or RuntimeError("Retry failed")
+
+
+async def _read_stream_window(r: redis.Redis, stream: str, start_ms: int, window_ms: int, *, max_scan: int = 200000) -> list[dict[str, Any]]:
     """Read stream items in [start_ms, start_ms+window_ms] by ts_ms field, return chronological with _ts_ms."""
     end_ms = start_ms + window_ms
     rows: list[dict[str, Any]] = []
@@ -64,13 +91,10 @@ def _read_stream_window(r, stream: str, start_ms: int, window_ms: int, *, max_sc
     scanned = 0
     while scanned < max_scan:
         try:
-            batch = retry_redis_operation(
+            batch = await async_retry_redis_operation(
                 operation=lambda: r.xrevrange(stream, max=last_id, min="-", count=2000),
                 operation_name="xrevrange",
                 max_retries=10,
-                base_delay=1.0,
-                max_delay=30.0,
-                on_final_failure=lambda e: [],
             )
         except Exception:
             batch = []
@@ -97,25 +121,22 @@ def _read_stream_window(r, stream: str, start_ms: int, window_ms: int, *, max_sc
     return rows
 
 
-def _notify(r, text: str) -> None:
+async def _notify(r: redis.Redis, text: str) -> None:
     stream = os.getenv("NOTIFY_TELEGRAM_STREAM", RS.NOTIFY_TELEGRAM)
     lock_key = "sre:alert:lock:ml_confirm:_notify"
     # Deduplicate: only one process sends per 60s
-    if not r.set(lock_key, "1", nx=True, ex=60):
+    if not await r.set(lock_key, "1", nx=True, ex=60):
         return
 
     with contextlib.suppress(Exception):
-        retry_redis_operation(
+        await async_retry_redis_operation(
             operation=lambda: r.xadd(stream, {"type": "report", "text": text, "ts": str(now_ms())}, maxlen=200000, approximate=True),
             operation_name="xadd_notify",
             max_retries=5,
-            base_delay=1.0,
-            max_delay=10.0,
-            on_final_failure=lambda e: None,
         )
 
 
-def _tb_health(
+async def _tb_health(
     r: redis.Redis,
     *,
     input_stream: str,
@@ -128,9 +149,9 @@ def _tb_health(
     now = now_ms()
     alerts: list[str] = []
 
-    last_ts_ms = _i(r.get("tb:last_ts_ms"), 0)
-    last_label_ts_ms = _i(r.get("tb:last_label_ts_ms"), 0)
-    last_err_ts_ms = _i(r.get("tb:last_err_ts_ms"), 0)
+    last_ts_ms = _i(await r.get("tb:last_ts_ms"), 0)
+    last_label_ts_ms = _i(await r.get("tb:last_label_ts_ms"), 0)
+    last_err_ts_ms = _i(await r.get("tb:last_err_ts_ms"), 0)
 
     input_lag_ms = (now - last_ts_ms) if last_ts_ms else 0
     label_stale_ms = (now - last_label_ts_ms) if last_label_ts_ms else 0
@@ -138,7 +159,7 @@ def _tb_health(
 
     if not last_label_ts_ms:
         try:
-            tail = r.xrevrange(labels_stream, max="+", min="-", count=1)
+            tail = await r.xrevrange(labels_stream, max="+", min="-", count=1)
             if tail:
                 _, fields = tail[0]
                 last_label_ts_ms = _i(fields.get("ts_ms", fields.get("ts", 0)), 0)
@@ -151,11 +172,11 @@ def _tb_health(
     group_lag_ms = 0
     if group:
         try:
-            info = r.xpending(input_stream, group)
+            info = await r.xpending(input_stream, group)
             pending = _i(info.get("pending", 0), 0) if isinstance(info, dict) else 0
         except Exception:
             try:
-                groups = r.xinfo_groups(input_stream)
+                groups = await r.xinfo_groups(input_stream)
                 for g in groups or []:
                     if (g.get("name", "")) == group:
                         pending = _i(g.get("pending", 0), 0)
@@ -167,13 +188,13 @@ def _tb_health(
             alerts.append(f"tb_pending>{max_pending}")
 
         try:
-            groups = r.xinfo_groups(input_stream)
+            groups = await r.xinfo_groups(input_stream)
             last_delivered = None
             for g in groups or []:
                 if (g.get("name", "")) == group:
                     last_delivered = (g.get("last-delivered-id", "") or "")
                     break
-            stream_info = r.xinfo_stream(input_stream)
+            stream_info = await r.xinfo_stream(input_stream)
             last_id = (stream_info.get("last-generated-id", "") or "")
             if last_id and last_delivered and last_delivered != "0-0":
                 try:
@@ -209,7 +230,7 @@ def _tb_health(
     return out, alerts
 
 
-def main() -> None:
+async def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--window-min", type=float, default=float(os.getenv("ML_SRE_WINDOW_MIN", "10") or 10))
     ap.add_argument("--dry-run", action="store_true")
@@ -227,19 +248,8 @@ def main() -> None:
     r = redis.Redis.from_url(redis_url, decode_responses=True)
 
     # Wrap critical initial reads in retry_redis_operation
-    def _safe_get_thresholds():
-        return {
-            "p50_min": float(os.getenv("ML_SRE_PEDGE_P50_MIN", "0.20") or 0.20),
-            "miss_max": float(os.getenv("ML_SRE_MISSING_RATE_MAX", "0.02") or 0.02),
-            "err_max": float(os.getenv("ML_SRE_ERR_RATE_MAX", "0.01") or 0.01),
-            "lat_p99_max": float(os.getenv("ML_SRE_LAT_P99_MAX_MS", "8.0") or 8.0),
-            "p0_rate_max": float(os.getenv("ML_SRE_PEDGE_ZERO_RATE_MAX", "0.05") or 0.05),
-            "req_miss_rate_max": float(os.getenv("ML_SRE_REQUIRED_MISS_RATE_MAX", "0.01") or 0.01),
-            "max_stale_ms": int(float(os.getenv("ML_SRE_MAX_STALE_MS", str(window_ms)) or window_ms)),
-        }
-
     # Verify Redis is UP and responsive before proceeding
-    retry_redis_operation(
+    await async_retry_redis_operation(
         operation=lambda: r.ping(),
         operation_name="ping_redis",
         max_retries=10
@@ -261,14 +271,15 @@ def main() -> None:
     meta_train_stale_ms = None
     if meta_enable:
         try:
-            meta_status = retry_redis_operation(
-                operation=lambda: (r.get("meta_model:last_status") or ""),
+            meta_status = await async_retry_redis_operation(
+                operation=lambda: r.get("meta_model:last_status"),
                 operation_name="get_meta_status"
-            )
-            meta_train_ts = retry_redis_operation(
-                operation=lambda: _i(r.get("meta_model:last_train_ts_ms"), 0),
+            ) or ""
+            meta_train_ts = await async_retry_redis_operation(
+                operation=lambda: r.get("meta_model:last_train_ts_ms"),
                 operation_name="get_meta_train_ts"
             )
+            meta_train_ts = _i(meta_train_ts, 0)
             if meta_train_ts:
                 meta_train_stale_ms = now_ms() - meta_train_ts
                 max_train_stale = _i(os.getenv("META_SRE_MAX_TRAIN_STALE_MS", "21600000"), 21600000)  # 6h
@@ -290,8 +301,8 @@ def main() -> None:
     if meta_ab_enable:
         try:
             # A/B health
-            rep_ab = r.get("meta_ab:last_report") or ""
-            rep_ab_ts = _i(r.get("meta_ab:last_ts_ms"), 0)
+            rep_ab = await r.get("meta_ab:last_report") or ""
+            rep_ab_ts = _i(await r.get("meta_ab:last_ts_ms"), 0)
             max_ab_stale = _i(os.getenv("META_AB_MAX_STALE_MS", str(window_ms)), window_ms)
             if rep_ab_ts <= 0 or (now_ms() - rep_ab_ts) > max_ab_stale:
                 meta_alerts.append("ab_stale")
@@ -302,8 +313,8 @@ def main() -> None:
                     meta_alerts.append("ab_chal_win")
 
             # Drift health
-            rep_drift = r.get("meta_drift:last_report") or ""
-            rep_drift_ts = _i(r.get("meta_drift:last_ts_ms"), 0)
+            rep_drift = await r.get("meta_drift:last_report") or ""
+            rep_drift_ts = _i(await r.get("meta_drift:last_ts_ms"), 0)
             max_drift_stale = _i(os.getenv("META_DRIFT_MAX_STALE_MS", str(window_ms)), window_ms)
             if rep_drift_ts <= 0 or (now_ms() - rep_drift_ts) > max_drift_stale:
                 meta_alerts.append("drift_stale")
@@ -331,7 +342,7 @@ def main() -> None:
             cfg_sugg_max_approved_age = _i(os.getenv("CFG_SUGGESTIONS_MAX_APPROVED_AGE_MS", "600000"), 600000)
             cfg_sugg_strict = os.getenv("CFG_SUGGESTIONS_SRE_STRICT", "0") == "1"
 
-            cfg_sugg_summary, cfg_sugg_alerts = check_suggestions_health(
+            cfg_sugg_summary, cfg_sugg_alerts = await check_suggestions_health(
                 r,
                 prefix=cfg_sugg_prefix,
                 kind=cfg_sugg_kind,
@@ -343,7 +354,7 @@ def main() -> None:
         except Exception as e:
             cfg_sugg_alerts.append(f"cfg_sugg_err:{str(e)[:50]}")
 
-    rows = _read_stream_window(r, stream, start_ms, window_ms)
+    rows = await _read_stream_window(r, stream, start_ms, window_ms)
 
     ml_alerts = []
     n = len(rows)
@@ -445,7 +456,7 @@ def main() -> None:
     else:
         stale_ms = 0
         try:
-            tail = r.xrevrange(stream, max="+", min="-", count=1)
+            tail = await r.xrevrange(stream, max="+", min="-", count=1)
             if tail:
                 _, fields = tail[0]
                 last_ts = _i(fields.get("ts_ms", fields.get("ts", 0)), 0)
@@ -468,7 +479,7 @@ def main() -> None:
     tb_alerts: list[str] = []
     tb = None
     if os.getenv("TB_SRE_ENABLE", "1") != "0":
-        tb, tb_alerts = _tb_health(
+        tb, tb_alerts = await _tb_health(
             r,
             input_stream=os.getenv("TB_INPUT_STREAM", os.getenv("OF_INPUT_STREAM", RS.OF_INPUTS)),
             labels_stream=os.getenv("TB_LABELS_STREAM", RS.TB_LABELS),
@@ -510,7 +521,7 @@ def main() -> None:
         f"meta_status=<code>{meta_status}</code> meta_train_stale_ms=<code>{meta_train_stale_ms}</code>\n"
     )
     if ml_alerts:
-        safe_ml_alerts = [html.escape(str(x), quote=True) for x in ml_alerts]
+        safe_ml_alerts = [html.escape(x, quote=True) for x in ml_alerts]
         alerts_str = ", ".join(safe_ml_alerts)
         txt += f"alerts=<code>{alerts_str}</code>\n"
 
@@ -523,11 +534,13 @@ def main() -> None:
             f"group_lag_ms=<code>{tb.get('group_lag_ms', 0)}</code>\n"
         )
         if tb_alerts:
-            tb_alerts_str = ", ".join(html.escape(str(x), quote=True) for x in tb_alerts)
+            tb_alerts_str = ", ".join(html.escape(x, quote=True) for x in tb_alerts)
             txt += f"tb_alerts=<code>{tb_alerts_str}</code>\n"
 
     if cfg_sugg_summary:
-        scopes_esc = html.escape((cfg_sugg_summary.get('scopes', [])), quote=True)
+        scopes_raw = cfg_sugg_summary.get('scopes', [])
+        scopes_str = ",".join(scopes_raw) if isinstance(scopes_raw, list) else str(scopes_raw)
+        scopes_esc = html.escape(scopes_str, quote=True)
         txt += (
             f"\n<b>CFG_SUGGESTIONS</b> {html.escape((cfg_sugg_summary.get('kind', '')), quote=True)} "
             f"scopes=<code>{scopes_esc}</code>\n"
@@ -540,7 +553,7 @@ def main() -> None:
         if stuck:
             txt += "stuck=[" + ", ".join([html.escape(f"{s['sid']}({s['reason']},{s['age_s']}s)", quote=True) for s in stuck]) + "]\n"
         if cfg_sugg_alerts:
-            cfg_alerts_str = ", ".join(html.escape(str(x), quote=True) for x in cfg_sugg_alerts)
+            cfg_alerts_str = ", ".join(html.escape(x, quote=True) for x in cfg_sugg_alerts)
             txt += f"cfg_sugg_alerts=<code>{cfg_alerts_str}</code>\n"
 
     if err_counts:
@@ -554,8 +567,8 @@ def main() -> None:
         return
 
     if args.notify:
-        _notify(r, txt)
-    r.close()
+        await _notify(r, txt)
+    await r.aclose() if hasattr(r, "aclose") else await r.close()
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())

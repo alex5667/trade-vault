@@ -47,7 +47,7 @@ def insert_confirm_request(
               payload_json, status, created_at_ms, expires_at_ms
             ) VALUES (%s,%s,%s,%s,%s,%s,%s::jsonb,'PENDING',%s,%s)
             ON CONFLICT (token) DO NOTHING
-            """
+            """,
             (
                 token,
                 actor,
@@ -71,7 +71,7 @@ def mark_confirm_consumed(conn, token: str) -> None:
                 consumed_at_ms = %s
             WHERE token = %s
               AND status = 'PENDING'
-            """
+            """,
             (int(time.time() * 1000), token),
         )
 

@@ -114,7 +114,7 @@ class MarketStateService:
         Retrieve ATR with full metadata (age, source, consistency).
         """
         try:
-            return self.atr_cache.get_with_meta(
+            return self.atr_cache.get_with_meta(  # type: ignore
                 symbol=symbol,
                 timeframe=tf,
                 now_ms=(now_ms if now_ms > 0 else None),

@@ -73,9 +73,9 @@ from services.execution.order_cancel_service import OrderCancelService
 # ── Metrics (optional) ───────────────────────────────────────────────────
 try:
     from services.execution_metrics import (
-        EXECUTION_ORDERS_PROCESSED_TOTAL,
-        EXECUTION_ORDERS_FAILED_TOTAL,
-        EXECUTION_PROCESSING_LATENCY,
+        EXECUTION_ORDERS_PROCESSED_TOTAL,  # type: ignore
+        EXECUTION_ORDERS_FAILED_TOTAL,  # type: ignore
+        EXECUTION_PROCESSING_LATENCY,  # type: ignore
     )
 except Exception:
     EXECUTION_ORDERS_PROCESSED_TOTAL = EXECUTION_ORDERS_FAILED_TOTAL = None  # type: ignore
@@ -120,7 +120,7 @@ class BinanceExecutor:
         self.r = (
             redis_client
             if redis_client is not None
-            else redis.from_url(self.redis_url, decode_responses=True)
+            else redis.from_url(self.redis_url, decode_responses=True)  # type: ignore
         )
 
         # ── Queue keys ───────────────────────────────────────────────────
@@ -244,7 +244,7 @@ class BinanceExecutor:
         )
 
         # Inject project_fn back into event_writer after state_store is created
-        self.event_writer._project_fn = self.state_store.project_from_event
+        self.event_writer._project_fn = self.state_store.project_from_event  # type: ignore
 
         self.active_guard = ActiveSymbolGuard(
             r=self.r,

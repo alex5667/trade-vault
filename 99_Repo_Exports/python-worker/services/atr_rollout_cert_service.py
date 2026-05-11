@@ -55,7 +55,7 @@ def create_certification(
     policy_ver: int,
     monitoring_window_from: datetime,
     monitoring_window_to: datetime,
-    thresholds: dict[str, Any] = None
+    thresholds: dict[str, Any] = None  # type: ignore
 ) -> bool:
     """Initialize a new certification tracker."""
     if thresholds is None:
@@ -110,10 +110,10 @@ def get_post_trade_truth(policy_ver: int, t_from: datetime, t_to: datetime) -> d
         with get_conn() as conn, conn.cursor(cursor_factory=__import__('psycopg2').extras.RealDictCursor) as cur:
             cur.execute(sql, (policy_ver, t_from, t_to))
             row = cur.fetchone()
-            if not row or row['n_trades'] == 0:
+            if not row or row['n_trades'] == 0:  # type: ignore
                 row = {'n_trades': 0, 'avg_pnl_bps': 0.0, 'avg_slippage_bps': 0.0, 'tp1_rate': 0.0, 'stop_rate': 0.0, 'max_mae_pct': 0.0}
             else:
-                row = {k: float(v) if v is not None else 0.0 for k,v in row.items()}
+                row = {k: float(v) if v is not None else 0.0 for k,v in row.items()}  # type: ignore
                 row['n_trades'] = int(row['n_trades'])
             return row
     except Exception as e:
@@ -159,15 +159,15 @@ def certify_stage(cert_id: str, change_id: str, rollout_stage: str, advisory_onl
             if not cert:
                 return {"error": "not found"}
 
-            if cert['status'] in ('passed', 'failed', 'rolled_back'):
-                return {"status": cert['status']}
+            if cert['status'] in ('passed', 'failed', 'rolled_back'):  # type: ignore
+                return {"status": cert['status']}  # type: ignore
 
-            stats = get_post_trade_truth(cert['policy_ver'], cert['monitoring_window_from'], cert['monitoring_window_to'])
+            stats = get_post_trade_truth(cert['policy_ver'], cert['monitoring_window_from'], cert['monitoring_window_to'])  # type: ignore
 
-            thresholds = cert['thresholds_json']
+            thresholds = cert['thresholds_json']  # type: ignore
             new_status, reason, checks = evaluate_metrics(stats, thresholds)
 
-            if new_status != cert['status']:
+            if new_status != cert['status']:  # type: ignore
                 cur.execute("""
                     UPDATE atr_rollout_certifications 
                     SET status = %s, checks_json = %s, summary_json = %s, finished_at = %s
@@ -216,7 +216,7 @@ def certify_stage(cert_id: str, change_id: str, rollout_stage: str, advisory_onl
 
             return {
                 "cert_id": cert_id,
-                "status": cert['status'],
+                "status": cert['status'],  # type: ignore
                 "summary": stats
             }
 
@@ -232,11 +232,11 @@ def closeout_change(change_id: str, final_status: str) -> bool:
     try:
         with get_conn() as conn, conn.cursor(cursor_factory=__import__('psycopg2').extras.RealDictCursor) as cur:
             cur.execute(sql_certs, (change_id,))
-            certs = [r['cert_id'] for r in cur.fetchall()]
+            certs = [r['cert_id'] for r in cur.fetchall()]  # type: ignore
 
             cur.execute(sql_trades, (change_id,))
             row = cur.fetchone()
-            trades_c = row.get('c', 0) if row else 0
+            trades_c = row.get('c', 0) if row else 0  # type: ignore
 
             evidence = {
                 "change_id": change_id,

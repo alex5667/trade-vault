@@ -357,11 +357,11 @@ def normalize_position_closed_event(
     if not fee_bps_str:
         # Attempt to compute from fees_usd + turnover_roundtrip
         try:
-            fees_usd_val = float(d.get("fees_usd")) if d.get("fees_usd") not in (None, "") else None
+            fees_usd_val = float(d.get("fees_usd")) if d.get("fees_usd") not in (None, "") else None  # type: ignore
         except Exception:
             fees_usd_val = None
         try:
-            turnover_val = float(d.get("turnover_roundtrip")) if d.get("turnover_roundtrip") not in (None, "") else None
+            turnover_val = float(d.get("turnover_roundtrip")) if d.get("turnover_roundtrip") not in (None, "") else None  # type: ignore
         except Exception:
             turnover_val = None
         qty_f = None

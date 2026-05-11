@@ -13,6 +13,7 @@ CVD Reclaim (bonus-only)
 Мы сохраняем last_cvd_reclaim ТОЛЬКО когда reclaim подтверждён (как вы хотите).
 """
 
+from typing import Optional, Any
 from dataclasses import dataclass
 
 

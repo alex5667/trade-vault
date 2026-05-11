@@ -26,10 +26,10 @@ if str(root) not in sys.path:
 
 mod_path = root / "services" / "binance_runtime_integrity_check.py"
 spec = importlib.util.spec_from_file_location("services.binance_runtime_integrity_check_p4", mod_path)
-mod = importlib.util.module_from_spec(spec)
-sys.modules[spec.name] = mod
-assert spec.loader is not None
-spec.loader.exec_module(mod)
+mod = importlib.util.module_from_spec(spec)  # type: ignore
+sys.modules[spec.name] = mod  # type: ignore
+assert spec.loader is not None  # type: ignore
+spec.loader.exec_module(mod)  # type: ignore
 
 
 def test_runtime_source_has_no_duplicate_critical_defs():

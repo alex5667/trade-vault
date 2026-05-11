@@ -121,7 +121,7 @@ def mirror_after_verified_apply(
 
     # Kill-switch check: never update last_good while kill_switch is active
     ks_key = _kill_switch_key(policy)
-    ks_raw = r.get(ks_key)
+    ks_raw = r.get(ks_key)  # type: ignore
     if ks_raw:
         try:
             ks = json.loads(ks_raw)
@@ -168,8 +168,8 @@ def mirror_after_verified_apply(
     try:
         policy_json = json.dumps(policy, ensure_ascii=False, sort_keys=True)
         meta_json = json.dumps(meta, ensure_ascii=False, sort_keys=True)
-        r.set(lg_key, policy_json)
-        r.set(meta_key, meta_json)
+        r.set(lg_key, policy_json)  # type: ignore
+        r.set(meta_key, meta_json)  # type: ignore
 
         try:
             with get_conn() as conn:
@@ -217,7 +217,7 @@ def read_last_good(
         "source": source, "symbol": symbol, "scenario": scenario,
         "regime": regime, "risk_horizon_bucket": risk_horizon_bucket,
     }
-    raw = r.get(_last_good_key(ref))
+    raw = r.get(_last_good_key(ref))  # type: ignore
     if not raw:
         return None
     try:
@@ -242,7 +242,7 @@ def read_last_good_meta(
         "source": source, "symbol": symbol, "scenario": scenario,
         "regime": regime, "risk_horizon_bucket": risk_horizon_bucket,
     }
-    raw = r.get(_last_good_meta_key(ref))
+    raw = r.get(_last_good_meta_key(ref))  # type: ignore
     if not raw:
         return None
     try:

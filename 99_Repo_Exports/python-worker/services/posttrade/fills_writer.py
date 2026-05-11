@@ -110,7 +110,7 @@ def _best_effort_fee_bps(ev: dict[str, Any]) -> float | None:
     for k in ("fee_bps", "fees_bps"):
         if k in ev and ev.get(k) not in (None, ""):
             try:
-                return float(ev.get(k))
+                return float(ev.get(k))  # type: ignore
             except Exception:
                 pass
     # Derive from fees_usd and turnover_roundtrip (if present)

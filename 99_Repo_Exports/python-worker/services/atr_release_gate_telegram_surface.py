@@ -65,7 +65,7 @@ def render_scorecard_message(change_id: str) -> dict[str, Any]:
 
     keyboard = {
         "inline_keyboard": [
-            [
+            [  # type: ignore
                 {"text": "Approve release", "callback_data": f"/release approve {change_id}"},
                 {"text": "Deny release",    "callback_data": f"/release deny {change_id}"}
             ]
@@ -232,7 +232,7 @@ def handle_telegram_callback(callback_query: dict[str, Any]) -> dict[str, Any]:
                 ),
             }
         record_release_decision(
-            change_id, scorecard_id, from_user, "approve_release", "OPERATOR_APPROVED", scorecard
+            change_id, scorecard_id, from_user, "approve_release", "OPERATOR_APPROVED", scorecard  # type: ignore
         ),
         return {
             "text": f"✅ Change <code>{change_id}</code> approved by {from_user}",
@@ -241,7 +241,7 @@ def handle_telegram_callback(callback_query: dict[str, Any]) -> dict[str, Any]:
 
     elif action_type == "deny":
         record_release_decision(
-            change_id, scorecard_id, from_user, "deny_release", "OPERATOR_DENIED", scorecard
+            change_id, scorecard_id, from_user, "deny_release", "OPERATOR_DENIED", scorecard  # type: ignore
         ),
         return {
             "text": f"🚫 Change <code>{change_id}</code> denied by {from_user}",
@@ -257,7 +257,7 @@ def handle_telegram_callback(callback_query: dict[str, Any]) -> dict[str, Any]:
                 ),
             }
         record_release_decision(
-            change_id, scorecard_id, from_user, "override_release", "OPERATOR_OVERRIDE", scorecard
+            change_id, scorecard_id, from_user, "override_release", "OPERATOR_OVERRIDE", scorecard  # type: ignore
         ),
         return {
             "text": (

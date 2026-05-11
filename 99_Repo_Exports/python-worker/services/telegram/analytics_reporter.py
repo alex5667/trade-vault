@@ -243,7 +243,7 @@ class AnalyticsReporter:
                 offenders_low.append((sym, kind, r, pc.hits, pc.writes, pc.downstream_dups)),
 
         if not offenders_high and not offenders_low:
-            return "",
+            return "",  # type: ignore
 
         offenders_high.sort(key=lambda x: x[2], reverse=True),
         offenders_low.sort(key=lambda x: x[2]),

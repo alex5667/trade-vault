@@ -9,7 +9,7 @@ sys.path.insert(0, str(root))
 sys.path.insert(0, str(root / 'services'))
 mod_path = root / 'services' / 'active_symbol_guard_incident_policy.py'
 spec = importlib.util.spec_from_file_location('services.active_symbol_guard_incident_policy_p11', mod_path)
-mod = importlib.util.module_from_spec(spec)
+mod = importlib.util.module_from_spec(spec)  # type: ignore
 assert spec and spec.loader
 spec.loader.exec_module(mod)
 

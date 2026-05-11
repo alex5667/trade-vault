@@ -9,7 +9,7 @@ from utils.time_utils import get_ny_time_millis
 
 def _env_int(name: str, default: int) -> int:
     try:
-        return int(os.getenv(name, str(default)) or str(default))
+        return int(os.getenv(name, str(default)) or str(default))  # type: ignore
     except Exception:
         return default
 
@@ -222,7 +222,7 @@ class OutboxPublisherAdapter:
             except TypeError:
                 pass
             try:
-                return pub.publish(source, strategy, symbol, side, kind, level_key, ts_ms, envelope)
+                return pub.publish(source, strategy, symbol, side, kind, level_key, ts_ms, envelope)  # type: ignore
             except Exception:
                 return None
         except Exception:

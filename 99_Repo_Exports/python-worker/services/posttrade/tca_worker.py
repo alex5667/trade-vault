@@ -488,7 +488,7 @@ async def main() -> None:
                             redis=r,
                             sid=sid,
                             dims=InlineExecDims(symbol=sym, side=side, session=session, kind=kind, tf=tf),
-                            decision_mid=float(decision_mid),
+                            decision_mid=float(decision_mid),  # type: ignore
                             fill_px=float(f["px"]),
                             fill_qty=float(f["qty"]),
                             fee_bps=float(f["fee_bps"]),

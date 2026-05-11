@@ -39,7 +39,7 @@ def get_signals_redis(retry_attempts=3, retry_delay=1) -> redis.Redis:
     # Получаем хост и порт Redis для сигналов из переменных окружения
     # По умолчанию используем redis-worker-1:6379 (внутренний порт контейнера)
     redis_host = get_env("REDIS_SIGNALS_HOST", "redis-worker-1")
-    redis_port = int(get_env("REDIS_SIGNALS_PORT", "6379"))
+    redis_port = int(get_env("REDIS_SIGNALS_PORT", "6379"))  # type: ignore
 
     # Попытки подключения с повторами при ошибках
     for attempt in range(retry_attempts):

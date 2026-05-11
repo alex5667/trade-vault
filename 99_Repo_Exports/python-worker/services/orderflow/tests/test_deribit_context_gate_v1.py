@@ -20,7 +20,7 @@ def _eval(**kwargs):
         tighten_cap_bps=6.0,
     )
     defaults.update(kwargs)
-    return evaluate_deribit_context(**defaults)
+    return evaluate_deribit_context(**defaults)  # type: ignore
 
 
 # ─── No veto contract ─────────────────────────────────────────────────────────

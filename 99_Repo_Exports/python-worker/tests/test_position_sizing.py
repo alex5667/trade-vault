@@ -63,6 +63,7 @@ class TestPositionSizing(unittest.TestCase):
         # RISK_USD_PER_TRADE=0, DEPOSIT=100, RISK_PCT=5 => risk 5.0
         # qty = 5.0 / 2.0 = 2.5
         with patch.dict(os.environ, {
+            "RISK_USE_FIXED_DOLLAR_SIZING": "1",
             "RISK_USD_PER_TRADE": "0",
             "ACCOUNT_DEPOSIT_USD": "100",
             "RISK_PERCENT": "5.0",
@@ -78,21 +79,41 @@ class TestPositionSizing(unittest.TestCase):
                 self.assertEqual(ctx.qty, 2.5)
                 self.assertTrue(ctx.sizing_ok)
 
-    def test_failure_dq(self):
+    def test_failure_dq_no_sl_dist(self):
         import os
         from unittest.mock import MagicMock, patch
 
         from services.position_sizing import apply_position_sizing_to_ctx
 
         ctx = MagicMock()
-        ctx.stop_dist = 0.0 # Invalid
+        ctx.stop_dist = 0.0
         ctx.entry_price = 100.0
 
-        with patch.dict(os.environ, {"RISK_USD_PER_TRADE": "10"}), \
-             patch("common.dq_flags.append_dq_flag") as mock_dq:
+        with patch.dict(os.environ, {
+            "RISK_USE_FIXED_DOLLAR_SIZING": "1",
+            "RISK_USD_PER_TRADE": "10"
+        }), patch("common.dq_flags.append_dq_flag") as mock_dq:
 
              apply_position_sizing_to_ctx(ctx, {"TP_MODE": "RR"}, "BTCUSDT")
-             mock_dq.assert_called_with(ctx, "sizing_no_levels")
+             mock_dq.assert_called_with(ctx, "sizing_no_sl_dist")
+
+    def test_failure_dq_no_entry_price(self):
+        import os
+        from unittest.mock import MagicMock, patch
+
+        from services.position_sizing import apply_position_sizing_to_ctx
+
+        ctx = MagicMock()
+        ctx.stop_dist = 2.0
+        ctx.entry_price = 0.0
+
+        with patch.dict(os.environ, {
+            "RISK_USE_FIXED_DOLLAR_SIZING": "1",
+            "RISK_USD_PER_TRADE": "10"
+        }), patch("common.dq_flags.append_dq_flag") as mock_dq:
+
+             apply_position_sizing_to_ctx(ctx, {"TP_MODE": "RR"}, "BTCUSDT")
+             mock_dq.assert_called_with(ctx, "sizing_no_entry_price")
 
 if __name__ == "__main__":
     unittest.main()

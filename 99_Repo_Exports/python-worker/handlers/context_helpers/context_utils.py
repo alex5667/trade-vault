@@ -126,7 +126,7 @@ def normalize_side_int(side: Any) -> int | None:
 
     # strings
     try:
-        s = side.strip().lower()
+        s = side.strip().lower()  # type: ignore
     except Exception:
         return None
 
@@ -192,7 +192,7 @@ def ensure_levels(ctx: Any, *, side: Any = None) -> None:
 
     # Import DQ flag functions
     try:
-        from common.dq_flags import append_dq_flag
+        from common.dq_flags import append_dq_flag  # type: ignore
     except ImportError:
         def append_dq_flag(c, f):
             pass

@@ -29,7 +29,7 @@ class ControlPlaneCertService:
                       )
                 """)
                 for row in cur.fetchall():
-                    issues.append(f"G7_ORPHAN_LIVE_NODE_WITHOUT_CERT: {row['node_id']}")
+                    issues.append(f"G7_ORPHAN_LIVE_NODE_WITHOUT_CERT: {row['node_id']}")  # type: ignore
 
                 # G2: Active override without valid TTL
                 cur.execute("""
@@ -40,9 +40,9 @@ class ControlPlaneCertService:
                 import time
                 now_ms = int(time.time() * 1000)
                 for row in cur.fetchall():
-                    expires = int(row['expires'] or 0)
+                    expires = int(row['expires'] or 0)  # type: ignore
                     if expires < now_ms:
-                        issues.append(f"G2_EXPIRED_ACTIVE_OVERRIDE: {row['node_id']}")
+                        issues.append(f"G2_EXPIRED_ACTIVE_OVERRIDE: {row['node_id']}")  # type: ignore
 
             return {
                 "status": "passed" if not issues else "failed",

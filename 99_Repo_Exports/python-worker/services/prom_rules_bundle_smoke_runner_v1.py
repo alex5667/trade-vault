@@ -48,7 +48,7 @@ def _now_ms() -> int:
     return get_ny_time_millis()
 
 
-def _connect_redis() -> redis.Redis | None:
+def _connect_redis() -> redis.Redis | None:  # type: ignore
     if redis is None:
         return None
     url = (os.getenv("REDIS_URL") or os.getenv("CRYPTO_NOTIFY_REDIS_URL") or "redis://redis-worker-1:6379/0").strip()

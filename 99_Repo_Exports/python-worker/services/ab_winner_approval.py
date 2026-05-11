@@ -76,7 +76,7 @@ def decide_approve(
                 continue
             if "mean_r" in r and r.get("mean_r") is not None:
                 with contextlib.suppress(Exception):
-                    mean_r[a] = float(r.get("mean_r"))
+                    mean_r[a] = float(r.get("mean_r"))  # type: ignore
         have_r = len(mean_r) >= 2
         if have_r:
             # compute edge vs best runner-up

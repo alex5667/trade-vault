@@ -13,13 +13,13 @@ from handlers.crypto_orderflow.utils.edge_cost_gate import EdgeCostGate
 from handlers.crypto_orderflow.utils.portfolio_exposure_gate import PortfolioExposureGate
 from handlers.crypto_orderflow.utils.entry_policy_gate import EntryPolicyGate
 import contextlib
-from core.signal_payload import GateDecisionV1
+from core.gates.decision import GateDecisionV1
 from handlers.crypto_orderflow.utils.pre_publish_gates import HardDataQualityGate, AtrFloorGate, BreadthGate
 from services.orderflow.book_sanity_gate import BookSanityGate
 from services.orderflow.stream_integrity_gate import StreamIntegrityGate
 from core.atr_floor_policy import compute_atr_bps_threshold
 from core.fees_aware_policy import fees_aware_min_atr_bps
-from core.instrument_config import symbol_env_prefix
+import core.instrument_config as _ic
 from dataclasses import replace
 from services.orderflow.derivatives_context import aread_derivatives_context
 from services.orderflow.derivatives_context_gate import evaluate_derivatives_context_v2
@@ -113,9 +113,9 @@ def _record_gate_decision(dec, symbol: str, kind: str, profile: str) -> None:
 
 def _record_gate_eval(gate: str) -> None:
     """Increment gates_eval_total counter."""
-    if _GATES_METRICS:
+    if _GATES_EVAL_TOTAL is not None:
         with contextlib.suppress(Exception):
-            _GATES_EVAL_TOTAL.labels(gate=gate).inc()
+            _GATES_EVAL_TOTAL.labels(gate=gate).inc()  # type: ignore
 
 def _fast_hash(**kwargs) -> str:
     try:
@@ -501,7 +501,7 @@ class GateOrchestrator:
                      atr_bps = indicators.get("atr_bps_exec", 0.0)
 
                 # Meme Relaxation
-                is_meme = symbol_env_prefix(sym) in ("PEPE", "SHIB", "DOGE", "BONK", "FLOKI", "WIF")
+                is_meme = _ic.symbol_env_prefix(sym) in ("PEPE", "SHIB", "DOGE", "BONK", "FLOKI", "WIF")  # type: ignore
                 effective_th = unified_th
                 if is_meme:
                     effective_th *= 0.05
@@ -1355,7 +1355,7 @@ class GateOrchestrator:
             notes={"msg": "Trading disabled in Squeeze regime" if veto else ""}
         )
 
-    def check_portfolio(
+    async def check_portfolio(
         self,
         ctx: Any,
         *,
@@ -1379,7 +1379,7 @@ class GateOrchestrator:
                 latency_us=0, inputs_hash="", notes={}
             )
 
-        dec = self.portfolio_gate.evaluate(
+        dec = await self.portfolio_gate.evaluate(
             symbol=sym,
             source=source,
             side=side,
@@ -1387,7 +1387,7 @@ class GateOrchestrator:
             ts_event_ms=ts_ev_ms,
         )
         _record_gate_decision(dec, symbol=sym, kind=kind, profile=profile)
-        return dec
+        return dec  # type: ignore
 
 
 CryptoSignalGates = GateOrchestrator

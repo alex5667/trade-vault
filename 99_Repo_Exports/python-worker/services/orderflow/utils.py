@@ -10,11 +10,11 @@ import orjson
 from services.orderflow.configuration import _safe_float, _safe_int
 
 
-def hour_of_week_utc(ts_ms: int) -> int:
+def hour_of_week_utc(ts_ms: int) -> int:  # type: ignore
     dt = datetime.fromtimestamp(ts_ms / 1000.0, tz=UTC)
     return dt.weekday() * 24 + dt.hour  # 0..167
 
-def session_utc(ts_ms: int) -> str:
+def session_utc(ts_ms: int) -> str:  # type: ignore
     """
     UTC sessions (simple and stable; no overlaps)
     ASIA: 00:00 - 08:00
@@ -31,7 +31,7 @@ def session_utc(ts_ms: int) -> str:
         return "NY"
     return "OFF"
 
-def fmt_utc_dow_hour(ts_ms: int) -> str:
+def fmt_utc_dow_hour(ts_ms: int) -> str:  # type: ignore
     dt = datetime.fromtimestamp(ts_ms / 1000.0, tz=UTC)
     return dt.strftime("%a %H:00 UTC")
 

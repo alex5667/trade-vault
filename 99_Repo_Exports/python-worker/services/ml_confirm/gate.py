@@ -28,21 +28,18 @@ import contextlib
 from core.redis_keys import RedisStreams as RS
 
 # Prometheus metrics (optional, fail-open if not available)
+class _MockMetric:
+    def labels(self, **kwargs): return self
+    def inc(self, *args, **kwargs): pass
+    def set(self, *args, **kwargs): pass
+    def observe(self, *args, **kwargs): pass
+    def dec(self, *args, **kwargs): pass
+
 try:
     from prometheus_client import Counter, Gauge, Histogram
     PROMETHEUS_AVAILABLE = True
 except Exception:
     PROMETHEUS_AVAILABLE = False
-    # Mock metrics for when prometheus_client is not available
-    class _MockMetric:
-        def labels(self, **kwargs):
-            return self
-        def inc(self, *args, **kwargs):
-            pass
-        def set(self, *args, **kwargs):
-            pass
-        def observe(self, *args, **kwargs):
-            pass
     Counter = Gauge = Histogram = lambda *args, **kwargs: _MockMetric()
 
 # Import centralized metrics from registry (fail-open if not available)
@@ -61,20 +58,10 @@ try:
     METRICS_REGISTRY_AVAILABLE = True
 except Exception:
     METRICS_REGISTRY_AVAILABLE = False
-    # Mock metrics for when registry is not available
-    class _MockMetric:
-        def labels(self, **kwargs):
-            return self
-        def inc(self, *args, **kwargs):
-            pass
-        def set(self, *args, **kwargs):
-            pass
-        def observe(self, *args, **kwargs):
-            pass
     ml_confirm_events_total = ml_confirm_errors_total = ml_confirm_cfg_present = \
     ml_confirm_cfg_valid = ml_confirm_enforce_share = ml_confirm_model_loaded = \
     ml_confirm_model_load_seconds = ml_confirm_latency_seconds = ml_missing_critical_total = \
-    lambda *args, **kwargs: _MockMetric()
+    _MockMetric()
 
 try:
     import joblib  # type: ignore
@@ -172,6 +159,10 @@ class MLConfirmGate(ConfigLoaderMixin, ModelLoaderMixin, FeatureVectorizerMixin,
         except Exception:
             self._p_min_hard_floor = 0.0
 
+        # per-symbol mode overrides
+        self._mode_by_symbol: dict[str, str] = {}
+        self._enforce_share_by_symbol: dict[str, float] = {}
+
         # golden replay capture
         self._replay_capture = int(os.getenv("ML_REPLAY_CAPTURE_ENABLE", "0") or 0) == 1
         self._replay_stream = os.getenv("ML_REPLAY_INPUTS_STREAM", RS.ML_CONFIRM_INPUTS)
@@ -190,15 +181,16 @@ class MLConfirmGate(ConfigLoaderMixin, ModelLoaderMixin, FeatureVectorizerMixin,
         # Note: metrics_registry defines metrics with same names, so we can use them directly
         # We keep local references for backward compatibility and to handle mock metrics
         if METRICS_REGISTRY_AVAILABLE:
-            self._metrics_events_total = ml_confirm_events_total
-            self._metrics_errors_total = ml_confirm_errors_total
-            self._metrics_cfg_present = ml_confirm_cfg_present
-            self._metrics_cfg_valid = ml_confirm_cfg_valid
-            self._metrics_enforce_share = ml_confirm_enforce_share
-            self._metrics_model_loaded = ml_confirm_model_loaded
-            self._metrics_model_load_seconds = ml_confirm_model_load_seconds
-            self._metrics_latency_seconds = ml_confirm_latency_seconds
+            self._metrics_events_total = ml_confirm_events_total or _MockMetric()
+            self._metrics_errors_total = ml_confirm_errors_total or _MockMetric()
+            self._metrics_cfg_present = ml_confirm_cfg_present or _MockMetric()
+            self._metrics_cfg_valid = ml_confirm_cfg_valid or _MockMetric()
+            self._metrics_enforce_share = ml_confirm_enforce_share or _MockMetric()
+            self._metrics_model_loaded = ml_confirm_model_loaded or _MockMetric()
+            self._metrics_model_load_seconds = ml_confirm_model_load_seconds or _MockMetric()
+            self._metrics_latency_seconds = ml_confirm_latency_seconds or _MockMetric()
             # Additional local metric for last successful load timestamp
+            self._metrics_last_successful_load_ts: Any = _MockMetric()
             if PROMETHEUS_AVAILABLE:
                 try:
                     self._metrics_last_successful_load_ts = Gauge(
@@ -206,38 +198,16 @@ class MLConfirmGate(ConfigLoaderMixin, ModelLoaderMixin, FeatureVectorizerMixin,
                         "Timestamp of last successful model load",
                         ["kind"]
                     )
-                except ValueError:
+                except Exception:
                     # In tests/multiple instances, might already be registered
-                    # Try to retrieve from global registry or just mock it if we can't find it
-                    # For simplicity, we can use a mock if it fails here or assume it's already there
-                    # Better: use a module-level lock or registry.
                     from prometheus_client import REGISTRY
-                    self._metrics_last_successful_load_ts = REGISTRY._names_to_collectors.get("ml_confirm_last_successful_load_ts_seconds")
-                    if self._metrics_last_successful_load_ts is None:
-                        class _MockMetric:
-                            def labels(self, **kwargs): return self
-                            def set(self, *args, **kwargs): pass
-                        self._metrics_last_successful_load_ts = _MockMetric()
-            else:
-                class _MockMetric:
-                    def labels(self, **kwargs):
-                        return self
-                    def set(self, *args, **kwargs):
-                        pass
-                self._metrics_last_successful_load_ts = _MockMetric()
+                    collector = REGISTRY._names_to_collectors.get("ml_confirm_last_successful_load_ts_seconds")
+                    if collector is not None:
+                        self._metrics_last_successful_load_ts = collector
             # cfg_defaulted_total is tracked via ml_missing_critical_total
             self._metrics_cfg_defaulted_total = ml_missing_critical_total
         else:
             # Mock metrics when registry is not available
-            class _MockMetric:
-                def labels(self, **kwargs):
-                    return self
-                def inc(self, *args, **kwargs):
-                    pass
-                def set(self, *args, **kwargs):
-                    pass
-                def observe(self, *args, **kwargs):
-                    pass
             self._metrics_events_total = _MockMetric()
             self._metrics_errors_total = _MockMetric()
             self._metrics_cfg_present = _MockMetric()
@@ -332,7 +302,7 @@ class MLConfirmGate(ConfigLoaderMixin, ModelLoaderMixin, FeatureVectorizerMixin,
             dec.latency_us = int((time.perf_counter_ns() - t0_ns) / 1000)
             latency_sec = time.time() - t0_sec
             if METRICS_REGISTRY_AVAILABLE:
-                self._metrics_events_total.labels(ab_variant=str(self.ab_variant or ""), kind="none", outcome="OFF").inc()
+                self._metrics_events_total.labels(ab_variant=(self.ab_variant or ""), kind="none", outcome="OFF").inc()
                 self._metrics_latency_seconds.labels(kind="none").observe(latency_sec)
             sid = _canonical_sid(indicators, symbol, ts_ms)
             self._emit_metrics(dec, symbol=symbol, ts_ms=ts_ms, direction=direction, scenario=scenario,
@@ -352,7 +322,7 @@ class MLConfirmGate(ConfigLoaderMixin, ModelLoaderMixin, FeatureVectorizerMixin,
             dec.status = "ERR_NO_CFG" if err == "no_cfg" else "ERR_BAD_CFG"
             dec.cfg_key_used = self._cfg_key_used
             dec.cfg_source = self._cfg_source
-            dec.cfg_raw_len = int(self._cfg_raw_len)
+            dec.cfg_raw_len = self._cfg_raw_len
             dec.cfg_parse_err = self._cfg_parse_err
             dec.effective_mode = effective_mode
             dec.mode_source = _mode_source
@@ -360,7 +330,7 @@ class MLConfirmGate(ConfigLoaderMixin, ModelLoaderMixin, FeatureVectorizerMixin,
             latency_sec = time.time() - t0_sec
             kind_for_metrics = "unknown"
             if METRICS_REGISTRY_AVAILABLE:
-                self._metrics_events_total.labels(ab_variant=str(self.ab_variant or ""), kind=kind_for_metrics, outcome="ERR").inc()
+                self._metrics_events_total.labels(ab_variant=(self.ab_variant or ""), kind=kind_for_metrics, outcome="ERR").inc()
                 self._metrics_errors_total.labels(kind=kind_for_metrics, reason=err).inc()
                 self._metrics_latency_seconds.labels(kind=kind_for_metrics).observe(latency_sec)
             # Extract sid from indicators or generate in format crypto-of:{symbol}:{ts_ms}
@@ -377,7 +347,7 @@ class MLConfirmGate(ConfigLoaderMixin, ModelLoaderMixin, FeatureVectorizerMixin,
                 # Priority: 1. Redis Config, 2. Env Var, 3. Default 0.0
                 env_share = float(os.getenv("ML_CONFIRM_ENFORCE_SHARE", "0.0") or 0.0)
                 # Override via per-symbol config if available
-                enforce_share = float(self._enforce_share_by_symbol.get(symbol_up, self._cfg.get("enforce_share", env_share) or 0.0))
+                enforce_share = self._enforce_share_by_symbol.get(symbol_up, self._cfg.get("enforce_share", env_share) or 0.0)
 
                 if enforce_share > 0.0:
                     # CANARY: deterministic routing by sid.
@@ -386,19 +356,22 @@ class MLConfirmGate(ConfigLoaderMixin, ModelLoaderMixin, FeatureVectorizerMixin,
                     sid = _canon_sid(symbol, ts_ms, raw_sid=raw_sid)
                     run_id = str(self._cfg.get("run_id", "unknown"))
                     salt = f"{run_id}|{kind}"
-                    if _stable_u01(f"canary|{sid}", salt=salt) < float(enforce_share):
+                    if _stable_u01(f"canary|{sid}", salt=salt) < enforce_share:
                         effective_mode = "ENFORCE"
             except Exception:
                 pass
 
         if kind.lower().startswith("util_mh"):
             dec = self._decide_util_mh(symbol=symbol, ts_ms=ts_ms, direction=direction, scenario=scenario, indicators=indicators, effective_mode=effective_mode)
+            dec.effective_mode = effective_mode
             # apply selective prediction (only matters in ENFORCE + ok_rule)
             self._apply_selective(dec, ok_rule=ok_rule)
             dec.cfg_key_used = self._cfg_key_used
             dec.cfg_source = self._cfg_source
-            dec.cfg_raw_len = int(self._cfg_raw_len)
+            dec.cfg_raw_len = self._cfg_raw_len
             dec.cfg_parse_err = self._cfg_parse_err
+            dec.effective_mode = effective_mode
+            dec.mode_source = _mode_source
             dec.latency_us = int((time.perf_counter_ns() - t0_ns) / 1000)
             latency_sec = time.time() - t0_sec
 
@@ -415,7 +388,7 @@ class MLConfirmGate(ConfigLoaderMixin, ModelLoaderMixin, FeatureVectorizerMixin,
                     outcome = "ALLOW"
                 else:
                     outcome = "DENY"
-                self._metrics_events_total.labels(ab_variant=str(self.ab_variant or ""), kind=kind_for_metrics, outcome=outcome).inc()
+                self._metrics_events_total.labels(ab_variant=(self.ab_variant or ""), kind=kind_for_metrics, outcome=outcome).inc()
                 self._metrics_latency_seconds.labels(kind=kind_for_metrics).observe(latency_sec)
 
             # Extract sid from indicators or generate in format crypto-of:{symbol}:{ts_ms}
@@ -431,12 +404,15 @@ class MLConfirmGate(ConfigLoaderMixin, ModelLoaderMixin, FeatureVectorizerMixin,
 
         if kind.lower() == "edge_stack_v1":
             dec = self._decide_edge_stack_v1(symbol=symbol, ts_ms=ts_ms, direction=direction, scenario=scenario, indicators=indicators, effective_mode=effective_mode)
+            dec.effective_mode = effective_mode
             # apply selective prediction (only matters in ENFORCE + ok_rule)
             self._apply_selective(dec, ok_rule=ok_rule)
             dec.cfg_key_used = self._cfg_key_used
             dec.cfg_source = self._cfg_source
-            dec.cfg_raw_len = int(self._cfg_raw_len)
+            dec.cfg_raw_len = self._cfg_raw_len
             dec.cfg_parse_err = self._cfg_parse_err
+            dec.effective_mode = effective_mode
+            dec.mode_source = _mode_source
             dec.latency_us = int((time.perf_counter_ns() - t0_ns) / 1000)
             latency_sec = time.time() - t0_sec
 
@@ -453,10 +429,9 @@ class MLConfirmGate(ConfigLoaderMixin, ModelLoaderMixin, FeatureVectorizerMixin,
                     outcome = "ALLOW"
                 else:
                     outcome = "DENY"
-                self._metrics_events_total.labels(ab_variant=str(self.ab_variant or ""), kind=kind_for_metrics, outcome=outcome).inc()
+                self._metrics_events_total.labels(ab_variant=(self.ab_variant or ""), kind=kind_for_metrics, outcome=outcome).inc()
                 self._metrics_latency_seconds.labels(kind=kind_for_metrics).observe(latency_sec)
 
-            # Extract sid from indicators or generate in format crypto-of:{symbol}:{ts_ms}
             sid = _canonical_sid(indicators, symbol, ts_ms)
             self._emit_metrics(dec, symbol=symbol, ts_ms=ts_ms, direction=direction, scenario=scenario,
                                rule_score=rule_score, rule_have=rule_have, rule_need=rule_need,
@@ -472,8 +447,10 @@ class MLConfirmGate(ConfigLoaderMixin, ModelLoaderMixin, FeatureVectorizerMixin,
             self._apply_selective(dec, ok_rule=ok_rule)
             dec.cfg_key_used = self._cfg_key_used
             dec.cfg_source = self._cfg_source
-            dec.cfg_raw_len = int(self._cfg_raw_len)
+            dec.cfg_raw_len = self._cfg_raw_len
             dec.cfg_parse_err = self._cfg_parse_err
+            dec.effective_mode = effective_mode
+            dec.mode_source = _mode_source
             dec.latency_us = int((time.perf_counter_ns() - t0_ns) / 1000)
             latency_sec = time.time() - t0_sec
 
@@ -488,7 +465,7 @@ class MLConfirmGate(ConfigLoaderMixin, ModelLoaderMixin, FeatureVectorizerMixin,
                     outcome = "ALLOW"
                 else:
                     outcome = "DENY"
-                self._metrics_events_total.labels(ab_variant=str(self.ab_variant or ""), kind=kind_for_metrics, outcome=outcome).inc()
+                self._metrics_events_total.labels(ab_variant=(self.ab_variant or ""), kind=kind_for_metrics, outcome=outcome).inc()
                 self._metrics_latency_seconds.labels(kind=kind_for_metrics).observe(latency_sec)
 
             sid = _canonical_sid(indicators, symbol, ts_ms)
@@ -507,8 +484,10 @@ class MLConfirmGate(ConfigLoaderMixin, ModelLoaderMixin, FeatureVectorizerMixin,
             self._apply_selective(dec, ok_rule=ok_rule)
             dec.cfg_key_used = self._cfg_key_used
             dec.cfg_source = self._cfg_source
-            dec.cfg_raw_len = int(self._cfg_raw_len)
+            dec.cfg_raw_len = self._cfg_raw_len
             dec.cfg_parse_err = self._cfg_parse_err
+            dec.effective_mode = effective_mode
+            dec.mode_source = _mode_source
             dec.latency_us = int((time.perf_counter_ns() - t0_ns) / 1000)
             latency_sec = time.time() - t0_sec
 
@@ -525,7 +504,7 @@ class MLConfirmGate(ConfigLoaderMixin, ModelLoaderMixin, FeatureVectorizerMixin,
                     outcome = "ALLOW"
                 else:
                     outcome = "DENY"
-                self._metrics_events_total.labels(ab_variant=str(self.ab_variant or ""), kind=kind_for_metrics, outcome=outcome).inc()
+                self._metrics_events_total.labels(ab_variant=(self.ab_variant or ""), kind=kind_for_metrics, outcome=outcome).inc()
                 self._metrics_latency_seconds.labels(kind=kind_for_metrics).observe(latency_sec)
 
             # Extract sid from indicators or generate in format crypto-of:{symbol}:{ts_ms}
@@ -545,13 +524,15 @@ class MLConfirmGate(ConfigLoaderMixin, ModelLoaderMixin, FeatureVectorizerMixin,
         dec.status = "ERR_UNSUPPORTED_KIND"
         dec.cfg_key_used = self._cfg_key_used
         dec.cfg_source = self._cfg_source
-        dec.cfg_raw_len = int(self._cfg_raw_len)
+        dec.cfg_raw_len = self._cfg_raw_len
         dec.cfg_parse_err = self._cfg_parse_err
+        dec.effective_mode = effective_mode
+        dec.mode_source = _mode_source
         dec.latency_us = int((time.perf_counter_ns() - t0_ns) / 1000)
         latency_sec = time.time() - t0_sec
         kind_for_metrics = kind or "unknown"
         if METRICS_REGISTRY_AVAILABLE:
-            self._metrics_events_total.labels(ab_variant=str(self.ab_variant or ""), kind=kind_for_metrics, outcome="ERR").inc()
+            self._metrics_events_total.labels(ab_variant=(self.ab_variant or ""), kind=kind_for_metrics, outcome="ERR").inc()
             self._metrics_errors_total.labels(kind=kind_for_metrics, reason="unsupported_kind").inc()
             self._metrics_latency_seconds.labels(kind=kind_for_metrics).observe(latency_sec)
         # Extract sid from indicators or generate in format crypto-of:{symbol}:{ts_ms}

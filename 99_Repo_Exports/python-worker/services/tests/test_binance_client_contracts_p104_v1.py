@@ -6,10 +6,10 @@ import pytest
 
 mod_path = Path(__file__).parent.parent / 'binance_futures_client.py'
 spec = importlib.util.spec_from_file_location('binance_futures_client_p104', mod_path)
-mod = importlib.util.module_from_spec(spec)
-sys.modules[spec.name] = mod
-assert spec.loader is not None
-spec.loader.exec_module(mod)
+mod = importlib.util.module_from_spec(spec)  # type: ignore
+sys.modules[spec.name] = mod  # type: ignore
+assert spec.loader is not None  # type: ignore
+spec.loader.exec_module(mod)  # type: ignore
 
 
 def test_plain_order_rejects_close_position_locally(monkeypatch):

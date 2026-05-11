@@ -71,7 +71,7 @@ class SignalBridgeDispatcher:
         if self._sha:
             return self._sha
         self._sha = self.dual.script_load(_LUA_DUAL_XADD_AND_MARK)
-        return self._sha
+        return self._sha  # type: ignore
 
     def _marker_key(self, target: str, sid: str) -> str:
         # marker stored in DUAL redis to avoid "marker-before-delivery" loss on that side

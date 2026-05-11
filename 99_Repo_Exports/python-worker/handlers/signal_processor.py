@@ -145,7 +145,7 @@ class SignalProcessor:
         Args:
             symbol: Символ пары для очистки. Если None - очищает все
         """
-        self.kline_handler.clear_history(symbol)
+        self.kline_handler.clear_history(symbol)  # type: ignore
 
     def wait_forever(self) -> None:
         """Ждет завершения работы обработчиков"""

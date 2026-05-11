@@ -4,10 +4,10 @@ from pathlib import Path
 
 mod_path = Path(__file__).parent.parent / 'execution_contracts.py'
 spec = importlib.util.spec_from_file_location('execution_contracts_p104', mod_path)
-mod = importlib.util.module_from_spec(spec)
-sys.modules[spec.name] = mod
-assert spec.loader is not None
-spec.loader.exec_module(mod)
+mod = importlib.util.module_from_spec(spec)  # type: ignore
+sys.modules[spec.name] = mod  # type: ignore
+assert spec.loader is not None  # type: ignore
+spec.loader.exec_module(mod)  # type: ignore
 
 
 def test_materialized_state_builds_nested_algo_refs():

@@ -58,7 +58,7 @@ def _f(x: Any, d: float = 0.0) -> float:
 class DataHealth:
     # aggregate
     score: float = 1.0
-    reasons: list[str] = None
+    reasons: list[str] = None  # type: ignore
 
     # components (0/1)
     tick_time_ok: int = 1

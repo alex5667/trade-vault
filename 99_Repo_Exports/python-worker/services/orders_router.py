@@ -195,7 +195,7 @@ def route_open(r: redis.Redis, parts: list) -> None:
 
     if sl_price is not None and entry_price is not None:
         adjusted_sl = _ensure_min_distance(entry_price, sl_price, side, min_distance)
-        adjusted_sl = _round_price(adjusted_sl, specs.point)
+        adjusted_sl = _round_price(adjusted_sl, specs.point)  # type: ignore
         if not math.isclose(adjusted_sl, sl_price, rel_tol=0.0, abs_tol=10 ** (-decimals)):
             corrected = True
         sl_price = adjusted_sl
@@ -254,7 +254,7 @@ def route_sltp(r: redis.Redis, parts: list) -> None:
     ]
 
     specs_store = SymbolSpecsStore(r)
-    specs: SymbolSpecs = specs_store.get(symbol)
+    specs: SymbolSpecs = specs_store.get(symbol)  # type: ignore
     min_distance = abs(specs.point * specs.min_stop_points)
     decimals = _decimals_from_point(specs.point)
 
@@ -264,7 +264,7 @@ def route_sltp(r: redis.Redis, parts: list) -> None:
 
     if sl_price is not None and entry_price is not None:
         adjusted_sl = _ensure_min_distance(entry_price, sl_price, side, min_distance)
-        adjusted_sl = _round_price(adjusted_sl, specs.point)
+        adjusted_sl = _round_price(adjusted_sl, specs.point)  # type: ignore
         if not math.isclose(adjusted_sl, sl_price, rel_tol=0.0, abs_tol=10 ** (-decimals)):
             corrected = True
         sl_price = adjusted_sl

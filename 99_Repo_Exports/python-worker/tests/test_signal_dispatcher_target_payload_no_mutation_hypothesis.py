@@ -11,19 +11,30 @@ st = pytest.importorskip("hypothesis.strategies")
 class _FakeRedis:
     def __init__(self):
         self.kv = {}
+    def evalsha(self, sha, numkeys, *keys_and_args):
+
+        marker_key = str(keys_and_args[0])
+
+        import time
+
+        self.set(marker_key, str(int(time.time() * 1000)))
+
+        return 1
+
     def set(self, *a, **k):
         self.kv[a[0]] = a[1]
         return True
 
 
 @hypothesis.given(payload=st.dictionaries(st.text(min_size=1, max_size=16), st.integers(min_value=0, max_value=10), max_size=16))
-@hypothesis.settings(max_examples=120, deadline=None)
+@hypothesis.settings(max_examples=120, deadline=None, suppress_health_check=[hypothesis.HealthCheck.function_scoped_fixture])
 def test_deliver_one_target_does_not_mutate_env_targets(payload, monkeypatch):
     d = SignalDispatcher.__new__(SignalDispatcher)
     d.redis = _FakeRedis()
     d.simple_redis = _FakeRedis()
-    d._sha_main = "sha"
-    d.marker_gc_zset = "gc"
+    d.dual_redis = _FakeRedis()
+    setattr(d, "_sha_main", "sha")
+    setattr(d, "marker_gc_zset", "gc")
     d.delivery_marker_ttl_sec = 30
 
     calls = []
@@ -31,7 +42,7 @@ def test_deliver_one_target_does_not_mutate_env_targets(payload, monkeypatch):
         # argv contains payload_json at the end
         calls.append(argv)
         return "OK"
-    d._evalsha_or_eval = fake_eval
+    setattr(d, "_evalsha_or_eval", fake_eval)
 
     env = {
         "sid": "S1",
@@ -43,11 +54,27 @@ def test_deliver_one_target_does_not_mutate_env_targets(payload, monkeypatch):
     orig_audit = dict(env["targets"]["audit_payload"])
 
     # signal_stream
-    d._deliver_one_target(target="signal_stream", sid="S1", env=env, attempt=0)
+    d._deliver_one_target(
+        target="signal_stream", 
+        sid="S1", 
+        env=env, 
+        targets_obj=env["targets"],
+        meta=env["meta"],
+        dual_client=d.dual_redis,
+        simple_client=d.simple_redis
+    )
     assert env["targets"]["signal_stream_payload"] == orig_stream
 
     # audit
-    d._deliver_one_target(target="audit", sid="S1", env=env, attempt=0)
+    d._deliver_one_target(
+        target="audit", 
+        sid="S1", 
+        env=env, 
+        targets_obj=env["targets"],
+        meta=env["meta"],
+        dual_client=d.dual_redis,
+        simple_client=d.simple_redis
+    )
     assert env["targets"]["audit_payload"] == orig_audit
 
     # payload_json sent to lua must include sid/trace_id

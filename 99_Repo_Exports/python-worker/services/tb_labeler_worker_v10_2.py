@@ -179,25 +179,25 @@ class _NoopMetric:
         return
 
 
-TB_JOBS_TOTAL = Counter("tb_label_jobs_total", "TB labeler jobs processed", ["status"]) if TB_METRICS_ENABLE else _NoopMetric()
-TB_INPUT_LOOKUP_TOTAL = Counter("tb_label_input_lookup_total", "OF input lookup mode", ["mode"]) if TB_METRICS_ENABLE else _NoopMetric()
-TB_INPUT_LOOKUP_MS = Histogram(
+TB_JOBS_TOTAL = Counter("tb_label_jobs_total", "TB labeler jobs processed", ["status"]) if TB_METRICS_ENABLE else _NoopMetric()  # type: ignore
+TB_INPUT_LOOKUP_TOTAL = Counter("tb_label_input_lookup_total", "OF input lookup mode", ["mode"]) if TB_METRICS_ENABLE else _NoopMetric()  # type: ignore
+TB_INPUT_LOOKUP_MS = Histogram(  # type: ignore
     "tb_label_input_lookup_ms", "OF input lookup latency (ms)",
     buckets=(1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000)
 ) if TB_METRICS_ENABLE else _NoopMetric()
-TB_TICK_FETCH_MS = Histogram(
+TB_TICK_FETCH_MS = Histogram(  # type: ignore
     "tb_label_tick_fetch_ms", "Tick fetch latency (ms)",
     buckets=(1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000)
 ) if TB_METRICS_ENABLE else _NoopMetric()
-TB_TICKS_USED = Histogram(
+TB_TICKS_USED = Histogram(  # type: ignore
     "tb_label_ticks_used", "Ticks used per label job",
     buckets=(50, 100, 200, 500, 1000, 2000, 5000, 10000, 50000)
 ) if TB_METRICS_ENABLE else _NoopMetric()
-TB_LABEL_WRITE_TOTAL = Counter("tb_label_write_total", "TB labels written") if TB_METRICS_ENABLE else _NoopMetric()
+TB_LABEL_WRITE_TOTAL = Counter("tb_label_write_total", "TB labels written") if TB_METRICS_ENABLE else _NoopMetric()  # type: ignore
 
-TB_GROUP_PENDING = Gauge("tb_of_inputs_group_pending", "OF inputs consumer group pending") if TB_METRICS_ENABLE else _NoopMetric()
-TB_GROUP_LAG_MS = Gauge("tb_of_inputs_group_lag_ms", "Approx lag between stream head and group last-delivered (ms)") if TB_METRICS_ENABLE else _NoopMetric()
-TB_GROUP_CLAIM_TOTAL = Counter("tb_of_inputs_claim_total", "Claimed pending OF inputs", ["mode"]) if TB_METRICS_ENABLE else _NoopMetric()
+TB_GROUP_PENDING = Gauge("tb_of_inputs_group_pending", "OF inputs consumer group pending") if TB_METRICS_ENABLE else _NoopMetric()  # type: ignore
+TB_GROUP_LAG_MS = Gauge("tb_of_inputs_group_lag_ms", "Approx lag between stream head and group last-delivered (ms)") if TB_METRICS_ENABLE else _NoopMetric()  # type: ignore
+TB_GROUP_CLAIM_TOTAL = Counter("tb_of_inputs_claim_total", "Claimed pending OF inputs", ["mode"]) if TB_METRICS_ENABLE else _NoopMetric()  # type: ignore
 
 
 # ----------------------------

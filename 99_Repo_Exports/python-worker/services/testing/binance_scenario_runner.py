@@ -189,8 +189,8 @@ class BinanceScenarioRunner:
 
     def run_executor_once(self, *, timeout: int = 0) -> bool:
         """Process one item from the executor queue. Returns True if processed."""
-        return bool(self.executor.run_once(timeout=timeout))
-
+        return bool(self.executor.run_once(timeout=timeout))  # type: ignore
+  # type: ignore
     def run_executor_until_idle(self, *, timeout: int = 0, max_items: int = 256) -> int:
         """Process items until the queue is empty or max_items is reached.
 

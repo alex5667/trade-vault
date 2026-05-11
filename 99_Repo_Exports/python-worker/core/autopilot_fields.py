@@ -118,8 +118,8 @@ def extract_autopilot_fields(payload: dict[str, Any]) -> AutopilotFields:
     # 2) ctx block (used by SMT entry policy)
     ctx = payload.get("ctx") if isinstance(payload.get("ctx"), dict) else {}
 
-    symbol = _s(payload.get("symbol") or ctx.get("symbol") or "", "").upper()
-    regime = _s(payload.get("regime") or ctx.get("regime") or payload.get("entry_regime") or "na", "na").lower()
+    symbol = _s(payload.get("symbol") or ctx.get("symbol") or "", "").upper()  # type: ignore
+    regime = _s(payload.get("regime") or ctx.get("regime") or payload.get("entry_regime") or "na", "na").lower()  # type: ignore
 
     # Scenario can live in multiple places:
     # - payload["scenario"] (preferred)
@@ -129,11 +129,11 @@ def extract_autopilot_fields(payload: dict[str, Any]) -> AutopilotFields:
     raw_scn = (
         payload.get("scenario")
         or payload.get("decision")
-        or ind.get("scenario")
-        or ind.get("strong_gate_scn")
+        or ind.get("scenario")  # type: ignore
+        or ind.get("strong_gate_scn")  # type: ignore
         or payload.get("strong_gate_scn")
-        or ctx.get("scenario")
-        or ctx.get("decision")
+        or ctx.get("scenario")  # type: ignore
+        or ctx.get("decision")  # type: ignore
     )
     scenario = normalize_scenario(raw_scn)
 
@@ -145,37 +145,37 @@ def extract_autopilot_fields(payload: dict[str, Any]) -> AutopilotFields:
         else payload.get("abs_lvl_tier_used")
     )
     if raw_tier is None:
-        raw_tier = ind.get("abs_lvl_tier") if ind.get("abs_lvl_tier") is not None else payload.get("tier")
+        raw_tier = ind.get("abs_lvl_tier") if ind.get("abs_lvl_tier") is not None else payload.get("tier")  # type: ignore
 
     abs_lvl_tier = _i(raw_tier, default=-1)
 
     dn_tier = _i(
         payload.get("dn_tier")
         if payload.get("dn_tier") is not None
-        else ind.get("dn_tier", None),
+        else ind.get("dn_tier", None),  # type: ignore
         default=-1,
     )
     of_confirm_ok = _i(
         payload.get("of_confirm_ok")
         if payload.get("of_confirm_ok") is not None
-        else ind.get("of_confirm_ok", ind.get("strong_gate_ok", None)),
+        else ind.get("of_confirm_ok", ind.get("strong_gate_ok", None)),  # type: ignore
         default=0, # Default to 0 (False) if unknown, to be safe/conservative
     )
     book_health_ok = _i(
         payload.get("book_health_ok")
         if payload.get("book_health_ok") is not None
-        else ind.get("book_health_ok", 1), # Default to 1 (True) if unknown
+        else ind.get("book_health_ok", 1), # Default to 1 (True) if unknown  # type: ignore
         default=1,
     )
     pressure_sps = _f(
         payload.get("pressure_sps")
         if payload.get("pressure_sps") is not None
-        else ind.get("pressure_sps", payload.get("micro", {}).get("pressure_sps") if isinstance(payload.get("micro"), dict) else None),
+        else ind.get("pressure_sps", payload.get("micro", {}).get("pressure_sps") if isinstance(payload.get("micro"), dict) else None),  # type: ignore
         default=0.0,
     )
 
     return AutopilotFields(
-        symbol=symbol,
+        symbol=symbol,  # type: ignore
         regime=regime,
         scenario=scenario,
         abs_lvl_tier=abs_lvl_tier,

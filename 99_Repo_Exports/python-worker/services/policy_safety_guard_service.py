@@ -168,7 +168,7 @@ class PolicySafetyGuard:
             return mu
         std = math.sqrt(max(0.0, var))  # biased but OK for safety guard
         xs = [mu - std, mu, mu + std]  # fallback sample proxy (avoid storing full list)
-        ml = mean_lcb(xs, alpha_one_sided=self.alpha, winsor=(-5.0, 5.0))
+        ml = mean_lcb(xs, alpha_one_sided=self.alpha, winsor=(-5.0, 5.0))  # type: ignore
         # scale stderr by sqrt(n/3) approx
         if ml.stderr > 0:
             return float(mu - 1.64485 * (std / math.sqrt(float(n))))
@@ -221,7 +221,7 @@ class PolicySafetyGuard:
         et = str(fields.get("event_type") or fields.get("event") or "").upper()
         if et != "POSITION_CLOSED":
             return
-        sym = _sym(fields.get("symbol"))
+        sym = _sym(fields.get("symbol"))  # type: ignore
         rg = _rg(fields.get("regime") or "na")
         scn = _scn(fields.get("scenario") or fields.get("decision") or "na")
         grp = _grp(fields.get("ab_group") or "default")

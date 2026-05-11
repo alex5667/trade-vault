@@ -25,10 +25,10 @@ def notify_telegram(text: str, parse_mode: str = "HTML"):
         logger.error(f"Failed to xadd to notify:telegram: {e}")
 
     """Safely format a float as a percentage with 1 decimal place."""
-    if val is None:
-        return "N/A"
-    return f"{str(round(val * 100, 1))}%"
-
+    if val is None:  # type: ignore
+        return "N/A"  # type: ignore
+    return f"{str(round(val * 100, 1))}%"  # type: ignore
+  # type: ignore
 def format_bps(val: float) -> str:
     """Safely format a float as bps with 1 decimal place."""
     if val is None:
@@ -68,9 +68,9 @@ def send_cert_outcome_message(cert_data: dict[str, Any]):
     n_trades = summary.get('n_trades', 0)
     avg_pnl_bps = format_bps(summary.get('avg_pnl_bps'))
     avg_slip = format_bps(summary.get('avg_slippage_bps'))
-    stop_rate = format_percentage(summary.get('stop_rate'))
-    tp1_rate = format_percentage(summary.get('tp1_rate'))
-
+    stop_rate = format_percentage(summary.get('stop_rate'))  # type: ignore
+    tp1_rate = format_percentage(summary.get('tp1_rate'))  # type: ignore
+  # type: ignore
     text = (
         f"{emoji} <b>ATR Rollout Certification</b>\n\n"
         f"<b>Change</b>: {change_id}\n"

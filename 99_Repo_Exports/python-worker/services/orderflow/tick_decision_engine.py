@@ -1,19 +1,62 @@
-import logging
-import json
-import time
-import math
-from typing import Any, Sequence
-from utils.time_utils import get_ny_time_millis
-from services.orderflow.runtime import SymbolRuntime
-from core.microbar import MicroBar
-
-from utils.task_manager import safe_create_task
-from services.orderflow.metrics import *
-from handlers.crypto_orderflow.utils.log_sampler import sampled_warning, sampled_info
+import asyncio
 import contextlib
 import hashlib
+import json
+import logging
+import math
+import os
+import time
+from typing import Any
+
+from common.normalization import generate_signal_id, normalize_direction
+from common.time_utils import normalize_epoch_ms_v2
+from core.atr_floor_policy import compute_atr_bps_threshold
+from core.cvd_reclaim import compute_cvd_reclaim
+from core.data_health import compute_data_health, apply_book_evidence_policy
+from core.dyn_cfg_keys import DynCfgKeys as DK
+from core.exec_regime_bucket_v1 import compute_exec_regime_bucket
+from core.footprint_policy import is_soft_confirmation, fp_confirmations_from_microbar
+from core.instrument_config import get_default_delta_tiers, symbol_env_prefix
+from core.microbar import MicroBar
+from core.of_inputs_contract import OFInputsV1, OFInputsV2
+from services.orderflow.of_inputs_v3_circuit import refresh_disabled_state
+from core.redis_keys import RedisStreams as RS
+from core.strong_of_gate import hidden_trend_dir
+from core.weak_progress import compute_weak_progress
+from core.slippage_model import expected_slippage_bps
+from core.expected_slippage_decomp_v1 import expected_slippage_decomp_bps
+from domain.evidence_keys import MetaKeys
+from handlers.crypto_orderflow.utils.log_sampler import sampled_info, sampled_warning
+from services.orderflow.configuration import _ensure_list_levels, _safe_float, _safe_int, _to_bool
+from services.orderflow.log_sampler import sampled_debug
+from services.orderflow.metrics import *
+from services.orderflow.of_gate_metrics_contract import enrich_schema_fields
+from services.orderflow.runtime import SymbolRuntime
+from services.orderflow.utils import LogSamplerFactory, _calc_pressure_sps, _should_sample, hour_of_week_utc, session_utc
+from services.orderflow.utils import _normalize_epoch_ms as normalize_epoch_ms
+from services.signal_preprocess import preprocess_signal_for_publish
+from services.tp_config import parse_tp_ratio
+from utils.task_manager import safe_create_task
+from utils.time_utils import get_ny_time_millis
 
 logger = logging.getLogger("crypto_tick_engine")
+
+# ── OrderFlow Gate Metrics Constants ──────────────────────────────────────────
+OF_GATE_METRICS_STREAM = os.getenv("OF_GATE_METRICS_STREAM", RS.OF_GATE_METRICS)
+OF_GATE_METRICS_ENABLE = os.getenv("OF_GATE_METRICS_ENABLE", "1").strip().lower() in ("1", "true", "yes", "on")
+OF_GATE_METRICS_SAMPLE = float(os.getenv("OF_GATE_METRICS_SAMPLE", "0.10") or 0.10)
+OF_GATE_METRICS_MAXLEN = int(os.getenv("OF_GATE_METRICS_MAXLEN", "200000") or 200000)
+OF_GATE_METRICS_QUARANTINE_STREAM = os.getenv("OF_GATE_METRICS_QUARANTINE_STREAM", RS.OF_GATE_METRICS_QUARANTINE)
+OF_GATE_METRICS_QUARANTINE_ENABLE = os.getenv("OF_GATE_METRICS_QUARANTINE_ENABLE", "1").strip().lower() in ("1", "true", "yes", "on")
+OF_GATE_METRICS_QUARANTINE_MAXLEN = int(os.getenv("OF_GATE_METRICS_QUARANTINE_MAXLEN", "200000") or 200000)
+OF_GATE_METRICS_SAMPLE_SALT = os.getenv("OF_GATE_METRICS_SAMPLE_SALT", "").strip()
+OF_GATE_METRICS_SAMPLE_KEY_MODE = "symbol_ts_v1"
+
+# ── Fail-open Defaults ────────────────────────────────────────────────────────
+DATA_HEALTH_ON_SPREAD_MISSING = float(os.getenv("DATA_HEALTH_ON_SPREAD_MISSING", "0.5") or 0.5)
+DEBUG_DELTAS = os.getenv("DEBUG_DELTAS", "0") == "1"
+SLIPPAGE_BPS_MISSING_DEFAULT = float(os.getenv("SLIPPAGE_BPS_MISSING_DEFAULT", "2.0") or 2.0)
+SPREAD_BPS_MISSING_DEFAULT = float(os.getenv("SPREAD_BPS_MISSING_DEFAULT", "15.0") or 15.0)
 
 def _stable_hash01(s: str) -> float:
     try:
@@ -22,6 +65,15 @@ def _stable_hash01(s: str) -> float:
         return v / float((1 << 64) - 1)
     except Exception:
         return 0.0
+
+def _sample_uid_symbol_ts(symbol: str, ts_ms: int) -> int:
+    """
+    Sampling-invariant key: make sampling stable AND de-correlated across symbols.
+    Important: key must NOT depend on ok/ok_soft to avoid bias.
+    """
+    b = f"{OF_GATE_METRICS_SAMPLE_SALT}|{symbol}|{ts_ms}".encode("utf-8", errors="replace")
+    h = hashlib.sha1(b).digest()
+    return int.from_bytes(h[:8], byteorder="big", signed=False)
 
 def _ml_should_enforce(rollout_mode: str, sid: str, canary_rate: float) -> bool:
     m = (rollout_mode or "shadow").strip().lower()
@@ -37,6 +89,12 @@ def _ml_should_enforce(rollout_mode: str, sid: str, canary_rate: float) -> bool:
 class TickDecisionEngine:
     def __init__(self, facade: Any):
         self.facade = facade
+        self.dn_gate_relaxed_counters: dict[str, int] = {}
+        self.dn_gate_proxy_relaxed_counters: dict[str, int] = {}
+        self.strong_gate_counters: dict[str, int] = {}
+        self.conf_relax_counters: dict[str, int] = {}
+        self.adverse_continuation_counters: dict[str, int] = {}
+        self.swing_point_counters: dict[str, int] = {}
 
     @property
     def _env(self): return self.facade._env
@@ -54,6 +112,41 @@ class TickDecisionEngine:
     def _atr_sanity(self): return self.facade._atr_sanity
     @property
     def of_engine(self): return self.facade.of_engine
+    @property
+    def ticks(self): return self.facade.ticks
+    @property
+    def calib_svc(self): return getattr(self.facade, "calib_svc", None)
+    @property
+    def atr_cache(self): return getattr(self.facade, "atr_cache", None)
+    @property
+    def cg_macro_gate(self): return self.facade.cg_macro_gate
+    @property
+    def conf_cal_gating_mode(self): return getattr(self.facade, "conf_cal_gating_mode", "raw")
+    @property
+    def conf_cal_runtime(self): return getattr(self.facade, "conf_cal_runtime", None)
+    @property
+    def conf_cal_proof(self): return getattr(self.facade, "conf_cal_proof", None)
+    @conf_cal_proof.setter
+    def conf_cal_proof(self, v): self.facade.conf_cal_proof = v
+
+    def _ensure_proof_state(self, now_ms: int):
+        """Reload proof state from file if mtime changed."""
+        path = getattr(self.facade, "conf_cal_proof_path", "")
+        if not path or not os.path.exists(path):
+            return
+
+        try:
+            mtime = os.path.getmtime(path)
+            if mtime > getattr(self.facade, "conf_cal_proof_mtime", 0.0):
+                with open(path, "r") as f:
+                    self.facade.conf_cal_proof = json.load(f)
+                self.facade.conf_cal_proof_mtime = mtime
+                self.logger.info("Loaded confidence calibration proof from %s", path)
+        except Exception as e:
+            self.logger.error("Failed to load confidence calibration proof from %s: %s", path, e)
+
+    async def publish_signal(self, runtime, signal: dict[str, Any]) -> None:
+        await self.facade.publish_signal(runtime, signal)
 
     async def _emit_payload(self, runtime, payload, now_ms):
         return await self.facade._emit_payload(runtime, payload, now_ms)
@@ -64,21 +157,39 @@ class TickDecisionEngine:
     async def _compute_confidence(self, runtime, indicators, confirmations, *, side, kind, features=None):
         return await self.facade._compute_confidence(runtime, indicators, confirmations, side=side, kind=kind, features=features)
 
-    def _get_atr_for_symbol(self, symbol, cfg, tf_override=None, runtime=None):
+    def _get_atr_for_symbol(self, symbol, cfg, tf_override=None, runtime=None):  # type: ignore
         return self.facade._get_atr_for_symbol(symbol, cfg, tf_override, runtime)
 
     def _log_metrics(self, runtime):
         return self.facade._log_metrics(runtime)
 
-    async def _maybe_poll_symbol_overrides(self, runtime, now_ms):
+    async def _maybe_poll_symbol_overrides(self, runtime, now_ms):  # type: ignore
         pass # To be migrated if needed
 
     async def _publish_smt_snapshot(self, runtime, bar):
         return await self.facade._publish_smt_snapshot(runtime, bar)
 
-    async def process_tick(self, runtime: SymbolRuntime, tick: dict[str, Any]) -> dict[str, Any] | None:
+    async def process_tick(self, runtime: SymbolRuntime, tick: dict[str, Any]) -> dict[str, Any] | None:  # type: ignore
             # Lazy ENV refresh (every 30s, cheap monotonic check)
             self._env.maybe_refresh()
+
+            # ------------------------------------------------------------------
+            # Circuit Breaker Synchronization (P100)
+            # ------------------------------------------------------------------  # type: ignore
+            try:
+                # Throttled refresh (default 10s internally in refresh_disabled_state)
+                # This ensures parity between TickDecisionEngine and SignalDispatcher
+                now_ms = get_ny_time_millis()
+                disabled, until_ms, reason = await refresh_disabled_state(self.redis, runtime, now_ms)
+                
+                # Update Prometheus telemetry (metrics imported via wildcard at module level)
+                if of_inputs_v3_circuit_disabled:
+                    of_inputs_v3_circuit_disabled.labels(symbol=runtime.symbol).set(1 if disabled else 0)
+                if of_inputs_v3_circuit_disabled_until_ms:
+                    of_inputs_v3_circuit_disabled_until_ms.labels(symbol=runtime.symbol).set(until_ms)
+            except Exception as exc:
+                # Fail-open for telemetry/refresh failures
+                log_silent_error(exc, 'cb_refresh_failure', runtime.symbol, 'process_tick')
             # Initialize variables that may not be set if exceptions occur
             ofc = None
             dec = None
@@ -96,8 +207,6 @@ class TickDecisionEngine:
             if tick.get("price") is None:
                 # Без цены не обрабатываем
                 return None
-            if not hasattr(self, "logger"):
-                self.logger = logger
 
             # ------------------------------------------------------------------
             # Robust Time Normalization (Expert Recommendation 3, Patch 1)
@@ -136,7 +245,7 @@ class TickDecisionEngine:
                         indicators["tick_oood"] = 1
                     if prev > 0 and tick_ts > prev:
                         gap = tick_ts - prev
-                        if gap >= int(cfg.get("tick_gap_warn_ms", 2000)):
+                        if gap >= _safe_int(cfg.get("tick_gap_warn_ms", 2000), 2000):
                             indicators["tick_gap_ms"] = gap
             except Exception:
                 pass
@@ -191,7 +300,7 @@ class TickDecisionEngine:
             # - consumer policy: turn book evidences off, optionally shadow-only
             # ------------------------------------------------------------------
             try:
-                px = float(tick.get("price") or 0.0)
+                px = _safe_float(tick.get("price") or 0.0, 0.0)
                 cvd = (getattr(runtime, "cvd_last", 0.0) or 0.0)
                 cvd_prev = (getattr(runtime, "cvd_prev", cvd) or cvd)
                 # compute jump in USD
@@ -199,21 +308,21 @@ class TickDecisionEngine:
                 if px > 0:
                     jump_usd = abs(cvd - cvd_prev) * px
                 # thresholds: default high to avoid false triggers
-                j_usd_th = float(cfg.get("source_jump_usd_th", 50_000_000.0))
+                j_usd_th = _safe_float(cfg.get("source_jump_usd_th", 50_000_000.0), 50_000_000.0)
                 if jump_usd > j_usd_th:
                     indicators["source_consistency_ok"] = 0
                     indicators["source_jump_usd"] = jump_usd
                     # cool down period (ms) during which we keep it marked inconsistent
-                    until = tick_ts + int(cfg.get("source_inconsistent_ttl_ms", 60_000))
-                    setattr(runtime, "source_inconsistent_until_ms", until)
+                    until = tick_ts + _safe_int(cfg.get("source_inconsistent_ttl_ms", 60_000), 60_000)
+                    runtime.source_inconsistent_until_ms = until
                 else:
                     until = (getattr(runtime, "source_inconsistent_until_ms", 0) or 0)
                     if until > tick_ts:
                         indicators["source_consistency_ok"] = 0
                     else:
                         indicators["source_consistency_ok"] = 1
-                setattr(runtime, "cvd_prev", cvd)
-                setattr(runtime, "cvd_last", cvd)
+                runtime.cvd_prev = cvd
+                runtime.cvd_last = cvd
             except Exception:
                 pass
 
@@ -222,8 +331,8 @@ class TickDecisionEngine:
             if lt_seen > 0 and tick_ts > lt_seen:
                  gap = tick_ts - lt_seen
                  with contextlib.suppress(Exception):
-                     getattr(runtime, "tick_gaps_ms").append(gap)
-            setattr(runtime, "last_tick_seen_ts", tick_ts)
+                     runtime.tick_gaps_ms.append(gap)
+            runtime.last_tick_seen_ts = tick_ts
 
             # Runtime overrides (cooldown/pressure tuning) — throttled, fail-open
             try:
@@ -233,6 +342,11 @@ class TickDecisionEngine:
                 # SRE Versioned Overrides V1 (High Priority)
                 # self.redis is safe to use here? self.redis is async client.
                 safe_create_task(runtime.maybe_load_overrides(self.redis))
+                
+                # Expert calibration loading: get pre-computed thresholds from Redis
+                atr_cache = getattr(self, "atr_cache", None)
+                if atr_cache is not None:
+                    calib_map = atr_cache.get_candidates(runtime.symbol, now_ms=tick_ts)
             except Exception:
                 pass
 
@@ -404,7 +518,7 @@ class TickDecisionEngine:
                     if cvd_guard is None:
                         from core.cvd_consistency import CVDConsistencyGuard
                         cvd_guard = CVDConsistencyGuard()
-                        setattr(runtime, "_cvd_guard", cvd_guard)
+                        runtime._cvd_guard = cvd_guard
 
                     ts_ms = int(tick.get("ts", 0) or 0)
                     dec = cvd_guard.update(
@@ -414,16 +528,16 @@ class TickDecisionEngine:
                         delta_usd=delta_usd
                     )
                     if dec.quarantine_active:
-                        setattr(runtime, "cvd_quarantine_active", 1)
-                        setattr(runtime, "cvd_quarantine_until_ms", dec.quarantine_until_ms)
-                        setattr(runtime, "delta_fallback_mode", "volume")
+                        runtime.cvd_quarantine_active = 1
+                        runtime.cvd_quarantine_until_ms = dec.quarantine_until_ms
+                        runtime.delta_fallback_mode = "volume"
                         # IMPORTANT: disable CVD-derived deltas/divergences
                         # 1) don't update cvd-based slope/divergence features
                         # 2) compute delta_usd from volume-based aggregation (buy_qty - sell_qty) * mid
                         # (exact computation depends on your tick payload/aggregation)
                     else:
-                        setattr(runtime, "cvd_quarantine_active", 0)
-                        setattr(runtime, "delta_fallback_mode", "cvd")
+                        runtime.cvd_quarantine_active = 0
+                        runtime.delta_fallback_mode = "cvd"
             except Exception:
                 pass
 
@@ -726,7 +840,7 @@ class TickDecisionEngine:
             # useful calibration signals. If we are at min_tier=0, we allow a 50% tolerance
             # below T0 to capture more "warm-up" trades for the report.
             if not passed and min_tier == 0 and tier == -1:
-                from core.instrument_config import symbol_env_prefix
+                # prefix = symbol_env_prefix(runtime.symbol) - using top-level import
                 prefix = symbol_env_prefix(runtime.symbol)
                 is_meme = prefix in ("PEPE", "SHIB", "DOGE", "BONK", "FLOKI", "WIF")
                 if is_meme:
@@ -1208,7 +1322,7 @@ class TickDecisionEngine:
                     # NOTE: replace self.redis -> your redis client if it differs
                     safe_create_task(self.redis.set(f"cfg:cvd_quarantine_meta:{runtime.symbol}", json.dumps(meta, ensure_ascii=False), ex=ttl_sec))
                     safe_create_task(self.redis.sadd("cfg:cvd_quarantine:symbols", runtime.symbol))
-                    safe_create_task(self.redis.expire("cfg:cvd_quarantine:symbols", int(os.getenv("CVD_QUAR_SYMBOLS_SET_TTL_SEC", "86400"))))
+                    safe_create_task(self.redis.expire("cfg:cvd_quarantine:symbols", int(os.getenv("CVD_Q_SYMBOLS_SET_TTL_SEC", "86400"))))
                     # SRE counter: cvd_quarantine_activations_total{symbol}
                     try:
                         safe_create_task(self.redis.incr(f"metrics:cvd_quarantine_activations_total:{runtime.symbol}"))
@@ -1443,7 +1557,7 @@ class TickDecisionEngine:
 
                 if th > 1.0 and notional_usd < th:
                     # EXPERT RELAXATION (2026-01-30): Consistent with main DN-GATE
-                    from core.instrument_config import symbol_env_prefix
+                    # prefix = symbol_env_prefix(runtime.symbol) - using top-level import
                     prefix = symbol_env_prefix(runtime.symbol)
                     is_meme = prefix in ("PEPE", "SHIB", "DOGE", "BONK", "FLOKI", "WIF")
 
@@ -1514,7 +1628,7 @@ class TickDecisionEngine:
                 try:
                     div_k = getattr(runtime.last_div, "kind", None) if runtime.last_div else None
                     t_dir = hidden_trend_dir(div_k)
-                    veto_th = float(cfg2.get("abs_lvl_cont_veto_score", 0.75))
+                    veto_th = _safe_float(cfg2.get("abs_lvl_cont_veto_score", 0.75), 0.75)
                     abs_bias = (indicators.get("abs_lvl_bias", "NONE") or "NONE").upper()
                     abs_score = indicators.get("abs_lvl_score", 0.0) or 0.0
                     if indicators.get("abs_lvl_ready", 0) == 1 and t_dir is not None:
@@ -1524,11 +1638,11 @@ class TickDecisionEngine:
                     pass
 
                 # Threshold and weighting overrides
-                cfg2["of_score_min"] = float(cfg2.get("of_score_min", os.getenv("OF_SCORE_MIN", "0.60")))
+                cfg2["of_score_min"] = _safe_float(cfg2.get("of_score_min", os.getenv("OF_SCORE_MIN", "0.60")), 0.60)
 
                 # Divergence Sensitivity
-                cfg2["div_strength_min"] = float(cfg2.get("div_strength_min", 1.5))
-                cfg2["div_min_price_bp"] = float(cfg2.get("div_min_price_bp", 3.0))
+                cfg2["div_strength_min"] = _safe_float(cfg2.get("div_strength_min", 1.5), 1.5)
+                cfg2["div_min_price_bp"] = _safe_float(cfg2.get("div_min_price_bp", 3.0), 3.0)
                 if hasattr(runtime, "divergence") and runtime.divergence:
                     runtime.divergence.apply_config(cfg2)
 
@@ -1575,14 +1689,14 @@ class TickDecisionEngine:
                 # 3. Cold-start race (python-worker restarted before first L2 snapshot arrives) ->
                 #    suppress data_health penalty for SPREAD_MISSING_COLD_START_MS.
                 try:
-                    _stale_ms = int(cfg2.get(
+                    _stale_ms = _safe_int(cfg2.get(
                         "spread_stale_book_gap_ms",
                         self._env.spread_stale_book_gap_ms,
-                    ))
-                    _cold_start_ms = int(cfg2.get(
+                    ), 15000)
+                    _cold_start_ms = _safe_int(cfg2.get(
                         "spread_missing_cold_start_ms",
                         self._env.spread_missing_cold_start_ms,
-                    ))
+                    ), 30000)
                     _book_ts_gap = indicators.get("book_ts_gap_ms", 0) or 0
                     _book_never_seen = _book_ts_gap >= 10**8
                     _book_stale = (not _book_never_seen) and (_book_ts_gap > _stale_ms)
@@ -1602,11 +1716,11 @@ class TickDecisionEngine:
                     if spr <= 0:
                         spr = indicators.get("liq_spread_bps", 0.0) or 0.0
                     if spr <= 0:
-                        spr = float(cfg2.get("spread_bps_missing_default", SPREAD_BPS_MISSING_DEFAULT))
+                        spr = _safe_float(cfg2.get("spread_bps_missing_default", SPREAD_BPS_MISSING_DEFAULT), SPREAD_BPS_MISSING_DEFAULT)
                         indicators["spread_bps_missing"] = 1
                         if not _in_cold_start:
                             dh = indicators.get("data_health", 1.0) or 1.0
-                            indicators["data_health"] = min(dh, float(cfg2.get("data_health_on_spread_missing", DATA_HEALTH_ON_SPREAD_MISSING)))
+                            indicators["data_health"] = min(dh, _safe_float(cfg2.get("data_health_on_spread_missing", DATA_HEALTH_ON_SPREAD_MISSING), DATA_HEALTH_ON_SPREAD_MISSING))
                             r_str = (indicators.get("data_health_reasons", ""))
                             indicators["data_health_reasons"] = (r_str + ",spread_missing") if r_str else "spread_missing"
                             indicators["book_health_ok"] = 0
@@ -1617,7 +1731,7 @@ class TickDecisionEngine:
                     indicators["spread_bps"] = spr
 
                     if "expected_slippage_bps" not in indicators or (indicators.get("expected_slippage_bps", 0.0) or 0.0) <= 0:
-                        indicators["expected_slippage_bps"] = float(cfg2.get("expected_slippage_bps_missing_default", SLIPPAGE_BPS_MISSING_DEFAULT))
+                        indicators["expected_slippage_bps"] = _safe_float(cfg2.get("expected_slippage_bps_missing_default", SLIPPAGE_BPS_MISSING_DEFAULT), SLIPPAGE_BPS_MISSING_DEFAULT)
                         indicators["expected_slippage_missing"] = 1
                 except Exception:
                     pass
@@ -1636,7 +1750,7 @@ class TickDecisionEngine:
                 # Persist anomaly keys for reporters (best-effort, async)
                 # ------------------------------------------------------------------
                 try:
-                    ttl = int(os.getenv("REPORT_KEYS_TTL_SEC", "7200"))
+                    ttl = _safe_int(os.getenv("REPORT_KEYS_TTL_SEC", "7200"), 7200)
                     sym = (runtime.symbol or "").upper()
                     if sym:
                         # ATR bad keys
@@ -1654,7 +1768,7 @@ class TickDecisionEngine:
 
                         # CVD quarantine keys
                         if (indicators.get("cvd_quarantine_active", 0) or 0) == 1:
-                            until_ms = int(indicators.get("cvd_quarantine_until_ms", 0) or getattr(runtime, "cvd_quarantine_until_ms", 0) or 0)
+                            until_ms = _safe_int(indicators.get("cvd_quarantine_until_ms", 0) or getattr(runtime, "cvd_quarantine_until_ms", 0) or 0, 0)
                             o = {
                                 "ts_ms": tick_ts or 0,
                                 "until_ms": until_ms,
@@ -1669,7 +1783,7 @@ class TickDecisionEngine:
 
                 # Capture inputs for golden replay (fail-open, sampled)
                 CAP = os.getenv("OFC_CAPTURE_ENABLE", "0") == "1"
-                CAP_EVERY = int(os.getenv("OFC_CAPTURE_EVERY_N", "200"))
+                CAP_EVERY = _safe_int(os.getenv("OFC_CAPTURE_EVERY_N", "200"), 200)
                 CAP_PATH = os.getenv("OFC_CAPTURE_PATH", "/tmp/ofc_inputs.ndjson")
                 if CAP and (runtime.tick_count % CAP_EVERY == 0):
                     row = {
@@ -1733,8 +1847,8 @@ class TickDecisionEngine:
                             need_bump = 1
 
                         if indicators.get("exec_regime_bucket") == "HIGH_VOL_LOW_LIQ":
-                            need_bump += int(cfg.get("regime_need_bump_high_vol_low_liq", 1) or 0)
-                            if int(cfg.get("regime_enforce_strong_high_vol_low_liq", 1) or 0) == 1:
+                            need_bump += int(cfg2.get("regime_need_bump_high_vol_low_liq", 1) or 0)
+                            if int(cfg2.get("regime_enforce_strong_high_vol_low_liq", 1) or 0) == 1:
                                 # We can force "need" higher if required
                                 pass
 
@@ -2320,7 +2434,7 @@ class TickDecisionEngine:
             # ------------------------------------------------------------
             # Add as SOFT confirmation after gates (won't affect min_confirmations).
             try:
-                if int(runtime.config.get("cvd_reclaim_enable", 1) or 0) == 1:
+                if _safe_int(runtime.config.get("cvd_reclaim_enable", 1), 1) == 1:
                     ev = runtime.last_cvd_reclaim
                     if ev and (tick_ts - ev.ts_ms) <= 120_000:
                         if ev.bias == direction:
@@ -2333,21 +2447,13 @@ class TickDecisionEngine:
                                 cvd_reclaim_age_ms_gauge.labels(symbol=runtime.symbol, bias=direction).set(tick_ts - ev.ts_ms)
             except Exception:
                 pass
-
-            if tick.get("mock_force"):
-                 self.logger.warning("TRACE 5: Computing Confidence")
-
             # Фильтр по минимальной уверенности
-            try:
-                min_conf_pct = float(os.getenv("CRYPTO_SIGNAL_MIN_CONF", "70"))
-            except Exception:
-                min_conf_pct = 80.0
-
+            min_conf_pct = _safe_float(os.getenv("CRYPTO_SIGNAL_MIN_CONF", "70"), 70.0)
+ 
             # Override из config, который загрузился через OrderFlowConfigLoader
             spec_min_conf = runtime.config.get("signal_min_conf", runtime.config.get("min_conf"))
             if spec_min_conf is not None:
-                with contextlib.suppress(Exception):
-                    min_conf_pct = float(spec_min_conf)
+                min_conf_pct = _safe_float(spec_min_conf, min_conf_pct)
 
             # EXPERT RELAXATION (2026-01-30):
             # Meme coins often have volatile confidence scores. For calibration purposes,
@@ -2355,7 +2461,7 @@ class TickDecisionEngine:
             # Standard floor for memes in Instance 2 is 30%.
             # Can be disabled via env: {PREFIX}_CONF_RELAX_DISABLE=true or CONF_RELAX_DISABLE=true
             # Can be overridden via env: {PREFIX}_CONF_RELAX_MAX=70 (sets max relaxation threshold)
-            from core.instrument_config import symbol_env_prefix
+            # prefix = symbol_env_prefix(runtime.symbol) - using top-level import
             prefix = symbol_env_prefix(runtime.symbol)
             is_meme = prefix in ("PEPE", "SHIB", "DOGE", "BONK", "FLOKI", "WIF")
             if is_meme:
@@ -2369,10 +2475,7 @@ class TickDecisionEngine:
                 else:
                     # Check for per-symbol override of max relaxation threshold
                     relax_max_str = os.getenv(f"{prefix}_CONF_RELAX_MAX", os.getenv("CONF_RELAX_MAX", "30.0"))
-                    try:
-                        relax_max = float(relax_max_str)
-                    except (ValueError, TypeError):
-                        relax_max = 30.0
+                    relax_max = _safe_float(relax_max_str, 30.0)
 
                     original_min_conf = min_conf_pct
                     min_conf_pct = min(min_conf_pct, relax_max)
@@ -2814,13 +2917,13 @@ class TickDecisionEngine:
 
             return await self._emit_payload(runtime, payload, tick_ts)
 
-    async def _on_microbar_closed(self, runtime: SymbolRuntime, bar: MicroBar) -> None:
+    async def _on_microbar_closed(self, runtime: SymbolRuntime, bar: MicroBar) -> None:  # type: ignore
             """
             In-memory обработка события bar_close.
             Здесь можно делать более тяжелые вычисления (но только на bar_close, не на каждом тике):
             - swings
             - divergences
-            - RSI(price) и RSI(CVD)
+            - RSI(price) и RSI(CVD)  # type: ignore
             - New: CVD Snapshots & Dedicated Div Stream
             """
             now_ts = int(getattr(bar, "end_ts_ms", 0) or 0)
@@ -2874,7 +2977,7 @@ class TickDecisionEngine:
                                 # EMIT
                                 final_sig = await self._emit_payload(runtime, sig, now_ts)
                                 if final_sig:
-                                    preprocess_signal_for_publish(final_sig, runtime.symbol, "CryptoOrderFlow", logger)
+                                    preprocess_signal_for_publish(final_sig, runtime.symbol, "CryptoOrderFlow", self.logger)
                                     await self.publish_signal(runtime, final_sig)
                             else:
                                 pass
@@ -2954,11 +3057,13 @@ class TickDecisionEngine:
                         cands = ["1m", "5m", "15m"]
 
                     atr_bps_by_tf: dict[str, float] = {}
-                    for tf in cands:
-                        v, _ = self.atr_cache.get_with_meta(symbol=runtime.symbol, timeframe=tf, now_ms=now_ts)
-                        vv = v or 0.0
-                        if vv > 0:
-                            atr_bps_by_tf[tf] = 10000.0 * (vv / close_px)
+                    cache = getattr(self, "atr_cache", None)
+                    if cache is not None:
+                        for tf in cands:
+                            v, _ = cache.get_with_meta(symbol=runtime.symbol, timeframe=tf, now_ms=now_ts)
+                            vv = v or 0.0
+                            if vv > 0:
+                                atr_bps_by_tf[tf] = 10000.0 * (vv / close_px)
 
                     if atr_bps_by_tf:
                         runtime.atr_tf_calib.update_many(regime=rg, atr_bps_by_tf=atr_bps_by_tf)
@@ -2976,6 +3081,11 @@ class TickDecisionEngine:
                     runtime.dynamic_cfg[DK.ATR_TF_N] = dec.n
                     runtime.dynamic_cfg[DK.ATR_TF_READY] = 1 if dec.n >= runtime.atr_tf_calib.min_samples else 0
                     runtime.dynamic_cfg[DK.ATR_TF_P50_BPS] = dec.picked_p50_bps
+                    
+                    calib_svc = getattr(self, "calib_svc", None)
+                    if calib_svc is not None:
+                        await calib_svc.persist_atr_sanity(runtime, regime=rg, ts_ms=now_ts)
+                    
                     runtime.dynamic_cfg[DK.ATR_TF_TARGET_BPS] = dec.target_bps
                     runtime.dynamic_cfg[DK.ATR_TF_TFS_P50] = dec.tfs_p50
             except Exception:
@@ -2991,15 +3101,21 @@ class TickDecisionEngine:
                     atr_tf = str(runtime.config.get("atr_tf", "1m") or "1m")
                     # Normalize TF
                     try:
-                        tf_norm = getattr(self.atr_cache, "_normalize_tracker_tf", lambda x: str(x).upper())(atr_tf) # type: ignore[attr-defined]
+                        if getattr(self, "atr_cache", None) is not None:
+                            atr_tf_norm_func = getattr(self.atr_cache, "_normalize_tracker_tf", lambda x: str(x).upper())
+                            tf_norm = atr_tf_norm_func(atr_tf) # type: ignore[attr-defined]
+                        else:
+                            tf_norm = str(atr_tf).upper()
                     except Exception:
                         tf_norm = atr_tf.upper()
 
                     cands_src = []
-                    try:
-                        cands_src = self.atr_cache.get_candidates(symbol=runtime.symbol, timeframe=atr_tf, now_ms=close_ts)
-                    except Exception:
-                        cands_src = []
+                    cache = getattr(self, "atr_cache", None)
+                    if cache is not None:
+                        try:
+                            cands_src = cache.get_candidates(symbol=runtime.symbol, timeframe=atr_tf, now_ms=close_ts)
+                        except Exception:
+                            cands_src = []
 
                     dec_src = runtime.atr_sanity.decide(tf_norm=tf_norm, candidates=cands_src)
 
@@ -3013,16 +3129,17 @@ class TickDecisionEngine:
 
                     # Persist state (throttled)
                     try:
-                        min_iv_ms = int(runtime.config.get("atr_sanity_persist_min_interval_ms", 300_000) or 300_000)
-                        min_bars = int(runtime.config.get("atr_sanity_persist_min_bars", 30) or 30)
-                        runtime._atr_sanity_bars_since_persist = int(getattr(runtime, "_atr_sanity_bars_since_persist", 0) or 0) + 1
-                        last_p = int(getattr(runtime, "_atr_sanity_last_persist_ts_ms", 0) or 0)
+                        min_iv_ms = _safe_int(runtime.config.get("atr_sanity_persist_min_interval_ms", 300_000), 300_000)
+                        min_bars = _safe_int(runtime.config.get("atr_sanity_persist_min_bars", 30), 30)
+                        runtime._atr_sanity_bars_since_persist = _safe_int(getattr(runtime, "_atr_sanity_bars_since_persist", 0)) + 1
+                        last_p = _safe_int(getattr(runtime, "_atr_sanity_last_persist_ts_ms", 0))
                         due_by_time = (last_p <= 0) or (close_ts - last_p >= min_iv_ms)
                         due_by_bars = runtime._atr_sanity_bars_since_persist >= min_bars
 
                         if dec_src.n >= 5 and (due_by_time or due_by_bars):
-                            if self.calib_svc:
-                                await self.calib_svc.persist_atr_sanity(runtime, tf_norm=str(tf_norm), ts_ms=close_ts)
+                            svc = getattr(self, "calib_svc", None)
+                            if svc is not None:
+                                await svc.persist_atr_sanity(runtime, tf_norm=str(tf_norm), ts_ms=close_ts)
                             runtime._atr_sanity_last_persist_ts_ms = close_ts
                             runtime._atr_sanity_bars_since_persist = 0
                     except Exception:
@@ -3033,11 +3150,12 @@ class TickDecisionEngine:
 
             # Throttled persist per regime
             try:
-                gap_ms = int(runtime.config.get("atr_tf_calib_persist_gap_ms", self._env.atr_tf_calib_persist_gap_ms))
+                gap_ms = _safe_int(runtime.config.get("atr_tf_calib_persist_gap_ms", self._env.atr_tf_calib_persist_gap_ms), 120_000)
                 last_p = int(getattr(runtime, "_atr_tf_last_persist_ts_ms", 0) or 0)
                 if gap_ms > 0 and (now_ts - last_p) >= gap_ms:
-                    if self.calib_svc:
-                        await self.calib_svc.persist_atr_tf_regime(runtime, regime=rg, ts_ms=now_ts)
+                    svc = getattr(self, "calib_svc", None)
+                    if svc is not None:
+                        await svc.persist_atr_tf_regime(runtime, regime=rg, ts_ms=now_ts)
                     runtime._atr_tf_last_persist_ts_ms = now_ts
             except Exception as exc:
                 log_silent_error(exc, 'persist_failure', runtime.symbol, '_handle_tick:atr_tf_persist')
@@ -3059,8 +3177,9 @@ class TickDecisionEngine:
                         min_bars = int(runtime.config.get("calib_persist_min_bars", 60))
                         if runtime._calib_bars_since_persist >= min_bars:
                             runtime._calib_bars_since_persist = 0
-                            if self.calib_svc:
-                                await self.calib_svc.persist_effq(runtime, regime=rg, ts_ms=now_ts)
+                            svc = getattr(self, "calib_svc", None)
+                            if svc is not None:
+                                await svc.persist_effq(runtime, regime=rg, ts_ms=now_ts)
 
             except Exception as exc:
                 log_silent_error(exc, 'calib_update_failure', runtime.symbol, '_handle_tick:eff_calib_update')
@@ -3100,7 +3219,7 @@ class TickDecisionEngine:
                     runtime.dynamic_cfg[DK.ATR_BPS_SRC] = floors.src
                     runtime.dynamic_cfg[DK.ATR_BPS_N] = floors.n
                     runtime.dynamic_cfg[DK.ATR_CALIB_READY] = int(
-                        1 if floors.n >= runtime.config.get("atr_bps_calib_min_samples", self._env.atr_bps_calib_min_samples) else 0
+                        1 if floors.n >= (runtime.config.get("atr_bps_calib_min_samples") or self._env.atr_bps_calib_min_samples or 500) else 0
                     )
 
                     # SELECT threshold by regime tier (this is the missing link)
@@ -3116,11 +3235,12 @@ class TickDecisionEngine:
 
                     # Persist (throttled)
                     try:
-                        gap_ms = int(runtime.config.get("atr_bps_calib_persist_gap_ms", self._env.atr_bps_calib_persist_gap_ms))
+                        gap_ms = int(runtime.config.get("atr_bps_calib_persist_gap_ms") or self._env.atr_bps_calib_persist_gap_ms or 120000)
                         last_p = int(getattr(runtime, "_atr_bps_last_persist_ts_ms", 0) or 0)
                         if self._env.atr_bps_calib_enable and gap_ms > 0 and (bar.end_ts_ms - last_p) >= gap_ms:
-                            if self.calib_svc:
-                                await self.calib_svc.persist_atr_bps(runtime, regime=rg, ts_ms=bar.end_ts_ms)
+                            svc = getattr(self, "calib_svc", None)
+                            if svc is not None:
+                                await svc.persist_atr_bps(runtime, regime=rg, ts_ms=bar.end_ts_ms)
                             runtime._atr_bps_last_persist_ts_ms = bar.end_ts_ms
                     except Exception as exc:
                         log_silent_error(exc, 'persist_failure', runtime.symbol, '_handle_tick:atr_bps_persist')
@@ -3157,7 +3277,7 @@ class TickDecisionEngine:
                         t_decis = runtime.dn_calib.tiers(regime=rg, ts_ms=0, default_t0=d0, default_t1=d1, default_t2=d2)
 
                         # Metrics
-                        from services.orderflow.metrics import of_dn_how_ratio_t1_gauge, dn_how_scale_gauge
+                        from services.orderflow.metrics import dn_how_scale_gauge, of_dn_how_ratio_t1_gauge
                         with contextlib.suppress(Exception):
                             dn_how_scale_gauge.labels(symbol=runtime.symbol, regime=rg).set(t_telem.scale)
 
@@ -3189,10 +3309,11 @@ class TickDecisionEngine:
                         min_bars = int(runtime.config.get("calib_persist_min_bars", 60))
                         if getattr(runtime, "_calib_bars_since_persist", 0) >= min_bars:
                             runtime._calib_bars_since_persist = 0
-                            if self.calib_svc:
+                            svc = getattr(self, "calib_svc", None)
+                            if svc is not None:
                                 await asyncio.gather(
-                                    self.calib_svc.persist_dn(runtime, regime=rg, ts_ms=bar.end_ts_ms),
-                                    self.calib_svc.persist_tick_dn(runtime, regime=rg, ts_ms=bar.end_ts_ms)
+                                    svc.persist_dn(runtime, regime=rg, ts_ms=bar.end_ts_ms),
+                                    svc.persist_tick_dn(runtime, regime=rg, ts_ms=bar.end_ts_ms)
                                 )
 
             except Exception as exc:
@@ -3239,15 +3360,17 @@ class TickDecisionEngine:
 
                         # Collect atr_bps for each TF (best-effort; if tf missing -> skip)
                         atr_bps_by_tf: dict[str, float] = {}
-                        for tf in tfs:
-                            try:
-                                # Use raw cache lookup to bypass calibration logic itself
-                                atr_tf = self.atr_cache.get(runtime.symbol, tf) or 0.0
-                                if atr_tf > 0:
-                                    atr_bps_by_tf[tf] = 10000.0 * (atr_tf / close_px)
-                            except Exception as exc:
-                                log_silent_error(exc, 'calib_update_failure', runtime.symbol, '_handle_tick:atr_tf_update')
-                                continue
+                        cache = getattr(self, "atr_cache", None)
+                        if cache is not None:
+                            for tf in tfs:
+                                try:
+                                    # Use raw cache lookup to bypass calibration logic itself
+                                    atr_tf = cache.get(runtime.symbol, tf) or 0.0
+                                    if atr_tf > 0:
+                                        atr_bps_by_tf[tf] = 10000.0 * (atr_tf / close_px)
+                                except Exception as exc:
+                                    log_silent_error(exc, 'calib_update_failure', runtime.symbol, '_handle_tick:atr_tf_update')
+                                    continue
 
                         if atr_bps_by_tf:
                             runtime.atr_tf_calib.update_many(regime=rg, atr_bps_by_tf=atr_bps_by_tf)
@@ -3314,8 +3437,9 @@ class TickDecisionEngine:
                                     "src": choice.src,
                                     "updated_ts_ms": now_ts
                                 }
-                                if self.calib_svc:
-                                    await self.calib_svc.persist_atr_tf_choice(runtime, choice_state=choice_state, ts_ms=now_ts)
+                                svc = getattr(self, "calib_svc", None)
+                                if svc is not None:
+                                    await svc.persist_atr_tf_choice(runtime, choice_state=choice_state, ts_ms=now_ts)
             except Exception:
                 pass
 
@@ -3369,16 +3493,18 @@ class TickDecisionEngine:
                     # 2) fetch ATR using selected TF (best-effort)
                     atr_tmp = 0.0
                     atr_meta = None
-                    try:
-                        atr_tmp, atr_meta = self.atr_cache.get_with_meta(symbol=runtime.symbol, timeframe=tf_sel, now_ms=now_ts)
-                        atr_tmp = atr_tmp or 0.0
-                        # expose meta for audit/debug
-                        if isinstance(atr_meta, dict):
-                            runtime.dynamic_cfg[DK.ATR_LIVE_SRC] = (atr_meta.get("src", "na"))
-                            runtime.dynamic_cfg[DK.ATR_LIVE_KEY] = (atr_meta.get("key", ""))
-                            runtime.dynamic_cfg[DK.ATR_LIVE_AGE_MS] = int(atr_meta.get("age_ms", 0) or 0)
-                    except Exception:
-                        atr_tmp = 0.0
+                    cache = getattr(self, "atr_cache", None)
+                    if cache is not None:
+                        try:
+                            atr_tmp, atr_meta = cache.get_with_meta(symbol=runtime.symbol, timeframe=tf_sel, now_ms=now_ts)
+                            atr_tmp = atr_tmp or 0.0
+                            # expose meta for audit/debug
+                            if isinstance(atr_meta, dict):
+                                runtime.dynamic_cfg[DK.ATR_LIVE_SRC] = (atr_meta.get("src", "na"))
+                                runtime.dynamic_cfg[DK.ATR_LIVE_KEY] = (atr_meta.get("key", ""))
+                                runtime.dynamic_cfg[DK.ATR_LIVE_AGE_MS] = int(atr_meta.get("age_ms", 0) or 0)
+                        except Exception:
+                            atr_tmp = 0.0
 
                     if atr_tmp > 0:
                         # Sanitize live ATR too (keeps last_atr consistent across the system)
@@ -3895,7 +4021,13 @@ class TickDecisionEngine:
             """
             try:
                 # Single source of truth: atr_tf_selected (via canonical resolver)
-                tf = str(tf_override or (runtime.get_atr_tf_selected() if runtime else None) or cfg.get("atr_tf") or os.getenv("ATR_TF", "1m") or "1m")
+                tf = str(
+                    tf_override or
+                    (runtime.get_atr_tf_selected() if runtime else None) or
+                    cfg.get("atr_tf") or
+                    os.getenv("ATR_TF", "1m") or
+                    "1m"
+                )
                 return self.market_state.get_atr(symbol, tf)
             except Exception:
                 return None

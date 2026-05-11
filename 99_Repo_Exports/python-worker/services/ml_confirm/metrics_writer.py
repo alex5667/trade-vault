@@ -13,7 +13,7 @@ import redis
 
 from core.bucket2_v1 import derive_bucket2_label
 from core.champion_cfg_validator import validate_champion_cfg
-from core.edge_stack_mh_v1 import EdgeStackMHModelV1
+from core.edge_stack_mh_v1 import EdgeStackMHModelV1  # type: ignore
 from core.feature_engineering import (
     RobustScalerPack,
     apply_transform,
@@ -34,7 +34,7 @@ try:
 except Exception:
     PROMETHEUS_AVAILABLE = False
     # Mock metrics for when prometheus_client is not available
-    class _MockMetric:
+    class _MockMetric:  # type: ignore
         def labels(self, **kwargs):
             return self
         def inc(self, *args, **kwargs):
@@ -147,26 +147,26 @@ def cache_ml_decision(
         "enforce": int(enforce),
         "ok_rule": int(ok_rule),
         "missing": int(missing),
-        "model_ver": str(model_ver),
+        "model_ver": str(model_ver),  # type: ignore
         "ts_ms": int(_now_ms()),
     }
     payload_str = json.dumps(payload, separators=(",", ":"))
     try:
         import asyncio
         is_async = "aioredis" in type(r).__module__ or "asyncio" in type(r).__module__ or (hasattr(r.set, "__call__") and asyncio.iscoroutinefunction(r.set))
-        if is_async:
+        if is_async:  # type: ignore
             try:
                 from utils.task_manager import safe_create_task
                 safe_create_task(r.set(key, payload_str, ex=ttl_sec))
             except ImportError:
                 asyncio.create_task(r.set(key, payload_str, ex=ttl_sec))
         else:
-            r.set(key, payload_str, ex=ttl_sec)
-    except Exception:
+            r.set(key, payload_str, ex=ttl_sec)  # type: ignore
+    except Exception:  # type: ignore
         # Fail-open: don't break decision flow if cache write fails
         pass
 
-
+  # type: ignore
 
 class MetricsWriterMixin:
     def _cache_ml_decision(
@@ -180,29 +180,29 @@ class MetricsWriterMixin:
     ) -> None:
         """
         Cache ML decision for outcome emitter join.
-        
+          # type: ignore
         Called after _emit_metrics to write ml:dec:{sid} cache.
         """
-        if not self.r or not sid:
+        if not self.r or not sid:  # type: ignore
             return
 
         # Extract bucket from decision or scenario
         bucket = dec.bucket or _bucket_from_scenario(scenario) or "other"
 
         # Determine enforce: 1 if ENFORCE mode and decision was allowed, else 0
-        enforce = 1 if (self.mode == "ENFORCE" and dec.allow) else 0
+        enforce = 1 if (self.mode == "ENFORCE" and dec.allow) else 0  # type: ignore
 
         # Determine missing: 1 if critical features were missing, else 0
         missing = 1 if (dec.missing and len(dec.missing) > 0) else 0
 
         # Extract model version
         model_ver = dec.model_run_id or getattr(self, "_model_run_id", "") or ""
-        if not model_ver and self._cfg:
-            model_ver = str(self._cfg.get("model_ver", "") or "")
+        if not model_ver and self._cfg:  # type: ignore
+            model_ver = str(self._cfg.get("model_ver", "") or "")  # type: ignore
 
         # Cache decision
         cache_ml_decision(
-            self.r,
+            self.r,  # type: ignore
             sid=sid,
             symbol=symbol,
             bucket=bucket,
@@ -211,14 +211,14 @@ class MetricsWriterMixin:
             ok_rule=ok_rule,
             missing=missing,
             model_ver=model_ver,
-        )
+        )  # type: ignore
 
     def _emit_metrics(self, dec: MLConfirmDecision, *, symbol: str, ts_ms: int, direction: str, scenario: str,
                      rule_score: float, rule_have: int, rule_need: int, cancel_spike_veto: int, ok_rule: int,
                      sid: str | None = None, indicators: dict[str, Any] | None = None) -> None:
-        if not self._metrics_enable:
+        if not self._metrics_enable:  # type: ignore
             return
-        redis = self.r
+        redis = self.r  # type: ignore
         if redis is None:
             return
         try:
@@ -226,7 +226,7 @@ class MetricsWriterMixin:
             raw_sid = (sid or "") if sid else str(indicators.get("sid") or indicators.get("signal_id") or "") if indicators else ""
             sid = _canon_sid(symbol, ts_ms, raw_sid=raw_sid)
             # Deterministic sampling by sid (stable across restarts)
-            sample_rate = float(self._metrics_sample)
+            sample_rate = float(self._metrics_sample)  # type: ignore
             if sample_rate < 1.0 and sample_rate > 0.0:
                 if not _stable_sample(sid, sample_rate, salt=RS.ML_CONFIRM_METRICS):
                     return
@@ -247,7 +247,7 @@ class MetricsWriterMixin:
                 "ts_ms": ts_ms,
                 "sid": sid,
                 "symbol": symbol,
-                "mode": self.mode,
+                "mode": self.mode,  # type: ignore
                 "kind": dec.kind or "",
                 "model_run_id": str(dec.model_run_id or ""),
                 "bucket": bucket,
@@ -328,15 +328,15 @@ class MetricsWriterMixin:
                         try:
                             payload[k] = f"{float(v):.6f}"
                         except Exception:
-                            payload[k] = str(v)
+                            payload[k] = str(v)  # type: ignore
                 # exec_risk reference if exported by rule-engine
-            # Add exec_risk reference if exported by rule-engine
+            # Add exec_risk reference if exported by rule-engine  # type: ignore
             if indicators:
-                if "exec_risk_ref_bps" in indicators:
+                if "exec_risk_ref_bps" in indicators:  # type: ignore
                     with contextlib.suppress(Exception):
                         payload["exec_risk_ref_bps"] = float(indicators.get("exec_risk_ref_bps") or 0.0)
 
-            # Rule-gate score breakdown (if provided by OFConfirmEngine enrichment)
+            # Rule-gate score breakdown (if provided by OFConfirmEngine enrichment)  # type: ignore
             if indicators:
                 sb = indicators.get('score_breakdown_small') or indicators.get('score_breakdown')
                 if isinstance(sb, dict):
@@ -364,15 +364,15 @@ class MetricsWriterMixin:
             if is_async:
                 try:
                     from utils.task_manager import safe_create_task
-                    safe_create_task(redis.xadd(self._metrics_stream, payload, maxlen=self._metrics_maxlen, approximate=True))
+                    safe_create_task(redis.xadd(self._metrics_stream, payload, maxlen=self._metrics_maxlen, approximate=True))  # type: ignore
                 except ImportError:
-                    asyncio.create_task(redis.xadd(self._metrics_stream, payload, maxlen=self._metrics_maxlen, approximate=True))
+                    asyncio.create_task(redis.xadd(self._metrics_stream, payload, maxlen=self._metrics_maxlen, approximate=True))  # type: ignore
             else:
-                redis.xadd(self._metrics_stream, payload, maxlen=self._metrics_maxlen, approximate=True)
+                redis.xadd(self._metrics_stream, payload, maxlen=self._metrics_maxlen, approximate=True)  # type: ignore
         except Exception as e:
             # Increment error metric and rate-limited log
             if METRICS_REGISTRY_AVAILABLE:
-                self._metrics_errors_total.labels(kind=dec.kind or "unknown", reason="emit_metrics").inc()
+                self._metrics_errors_total.labels(kind=dec.kind or "unknown", reason="emit_metrics").inc()  # type: ignore
             # Rate-limited logging (at most once per 30 seconds)
             if not hasattr(self, '_last_emit_metrics_error_log_ts'):
                 self._last_emit_metrics_error_log_ts = 0

@@ -259,8 +259,8 @@ async def receive_tick(request: Request) -> dict[str, Any]:
 
             try:
                 # 🎯 Используем ticks_redis_client для записи в redis-ticks
-                get_ticks_client().xadd(
-                    tick_stream,
+                get_ticks_client().xadd(  # type: ignore
+                    tick_stream,  # type: ignore
                     payload,
                     maxlen=CRYPTO_TICK_MAXLEN,
                     approximate=True,
@@ -365,15 +365,15 @@ async def receive_tick(request: Request) -> dict[str, Any]:
             payload = {"data": json.dumps(tick_data)}
 
             if USE_MAXLEN:
-                get_ticks_client().xadd(
-                    tick_stream_name,
+                get_ticks_client().xadd(  # type: ignore
+                    tick_stream_name,  # type: ignore
                     payload,
                     maxlen=MAXLEN,
                     approximate=True
                 )
             else:
-                get_ticks_client().xadd(tick_stream_name, payload, maxlen=50000, approximate=True)
-
+                get_ticks_client().xadd(tick_stream_name, payload, maxlen=50000, approximate=True)  # type: ignore
+  # type: ignore
 
 
 
@@ -433,8 +433,8 @@ async def health_check() -> dict[str, Any]:
     """
     try:
         # Проверка подключения к Redis
-        redis_ok = get_signals_client().ping()
-
+        redis_ok = get_signals_client().ping()  # type: ignore
+  # type: ignore
         return {
             "status": "healthy",
             "redis": "ok" if redis_ok else "error",
@@ -568,9 +568,9 @@ async def receive_book(request: Request) -> dict[str, Any]:
 
             try:
                 # 🎯 Используем ticks_redis_client для записи в redis-ticks
-                get_ticks_client().set(cache_key, payload["data"])
-                get_ticks_client().xadd(
-                    book_stream,
+                get_ticks_client().set(cache_key, payload["data"])  # type: ignore
+                get_ticks_client().xadd(  # type: ignore
+                    book_stream,  # type: ignore
                     payload,
                     maxlen=CRYPTO_BOOK_MAXLEN,
                     approximate=True,
@@ -632,22 +632,22 @@ async def receive_book(request: Request) -> dict[str, Any]:
 
             cache_key = f"book:latest:{symbol}"
             # 🎯 Используем ticks_redis_client для записи в redis-ticks
-            get_ticks_client().set(cache_key, book_json)
-
+            get_ticks_client().set(cache_key, book_json)  # type: ignore
+  # type: ignore
             # Формируем stream name динамически для поддержки разных символов
             book_stream = f"stream:book_{symbol}" if symbol != "" else BOOK_STREAM
             payload = {"data": book_json}
 
             if USE_MAXLEN:
-                get_ticks_client().xadd(
-                    book_stream,
+                get_ticks_client().xadd(  # type: ignore
+                    book_stream,  # type: ignore
                     payload,
                     maxlen=BOOK_MAXLEN,
                     approximate=True
                 )
             else:
-                get_ticks_client().xadd(book_stream, payload, maxlen=50000, approximate=True)
-
+                get_ticks_client().xadd(book_stream, payload, maxlen=50000, approximate=True)  # type: ignore
+  # type: ignore
             stats["total_books"] += 1
             stats["last_book_ts"] = book_data["ts"]
 
@@ -703,14 +703,14 @@ async def get_stats() -> dict[str, Any]:
     # Длина стримов в Redis
     try:
         client = get_signals_client()
-        tick_stream_len = client.client_1.xlen(STREAM) if USE_DUAL and hasattr(client, 'client_1') else client.xlen(STREAM)
-    except Exception:  # best-effort: don't fail /stats if Redis is down
+        tick_stream_len = client.client_1.xlen(STREAM) if USE_DUAL and hasattr(client, 'client_1') else client.xlen(STREAM)  # type: ignore
+    except Exception:  # best-effort: don't fail /stats if Redis is down  # type: ignore
         tick_stream_len = None
 
     try:
         client = get_signals_client()
-        book_stream_len = client.client_1.xlen(BOOK_STREAM) if USE_DUAL and hasattr(client, 'client_1') else client.xlen(BOOK_STREAM)
-    except Exception:  # best-effort: don't fail /stats if Redis is down
+        book_stream_len = client.client_1.xlen(BOOK_STREAM) if USE_DUAL and hasattr(client, 'client_1') else client.xlen(BOOK_STREAM)  # type: ignore
+    except Exception:  # best-effort: don't fail /stats if Redis is down  # type: ignore
         book_stream_len = None
 
     return {

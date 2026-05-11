@@ -294,8 +294,8 @@ def _precision_top_p(rows: list[Row], top_p: float) -> float | None:
     scored = [r for r in rows if r.rank_score is not None and not math.isnan(float(r.rank_score))]
     if not scored:
         return None
-    scored.sort(key=lambda x: float(x.rank_score), reverse=True)
-    n = len(scored)
+    scored.sort(key=lambda x: float(x.rank_score), reverse=True)  # type: ignore
+    n = len(scored)  # type: ignore
     k = max(1, int(math.ceil(n * float(top_p))))
     top = scored[:k]
     return sum(r.y for r in top) / float(len(top))
@@ -310,8 +310,8 @@ def _ece(rows: list[Row], bins: int) -> float | None:
     sum_p = [0.0] * bins
     sum_y = [0.0] * bins
     for r in pp:
-        p = float(r.p)
-        b = min(bins - 1, int(p * bins))
+        p = float(r.p)  # type: ignore
+        b = min(bins - 1, int(p * bins))  # type: ignore
         counts[b] += 1
         sum_p[b] += p
         sum_y[b] += float(r.y)

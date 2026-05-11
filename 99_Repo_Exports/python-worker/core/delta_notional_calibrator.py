@@ -123,7 +123,7 @@ class DeltaNotionalCalibrator:
 
 
     @staticmethod
-    def _clamp(x: float, lo: float, hi: float) -> float:
+    def _clamp(x: float, lo: float, hi: float) -> float:  # type: ignore
         if x < lo:
             return lo
         if x > hi:
@@ -181,9 +181,9 @@ class DeltaNotionalCalibrator:
             )
 
         # Ready -> calibrated percentiles (in USD space)
-        t0 = float(math.expm1(self._q50[r].value())) * scale
-        t1 = float(math.expm1(self._q80[r].value())) * scale
-        t2 = float(math.expm1(self._q95[r].value())) * scale
+        t0 = float(math.expm1(self._q50[r].value())) * scale  # type: ignore
+        t1 = float(math.expm1(self._q80[r].value())) * scale  # type: ignore
+        t2 = float(math.expm1(self._q95[r].value())) * scale  # type: ignore
 
         return DeltaNotionalTiers(
             tier0_usd=self._clamp(float(t0), *clamp_usd),
@@ -206,9 +206,9 @@ class DeltaNotionalCalibrator:
             "regime": r,
             "updated_ts_ms": int(updated_ts_ms),
             "n": int(self._n.get(r, 0)),
-            "q50_log": (self._q50.get(r).to_state() if self._q50.get(r) else None),
-            "q80_log": (self._q80.get(r).to_state() if self._q80.get(r) else None),
-            "q95_log": (self._q95.get(r).to_state() if self._q95.get(r) else None),
+            "q50_log": (self._q50.get(r).to_state() if self._q50.get(r) else None),  # type: ignore
+            "q80_log": (self._q80.get(r).to_state() if self._q80.get(r) else None),  # type: ignore
+            "q95_log": (self._q95.get(r).to_state() if self._q95.get(r) else None),  # type: ignore
             "liq_global": float(self._global_liq.get(r, 0.0)),
             "liq_bucket": dict(self._bucket_liq.get(r, {})),
         }

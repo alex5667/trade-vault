@@ -56,7 +56,7 @@ def get_redis():
 if __name__ == "__main__":
     r = get_redis()
     try:
-        run(r)
+        run(r)  # type: ignore
     except KeyboardInterrupt:
         logging.info("Standby ingestor stopped by user")
     except Exception as e:

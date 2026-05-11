@@ -303,7 +303,7 @@ class ATRReplayCertificationService:
                 with get_db_connection() as conn:
                     with conn.cursor() as cur:
                         cur.execute("SELECT count(1) FROM atr_golden_datasets WHERE dataset_class = %s AND status = 'ACTIVE'", (req,))
-                        has_active = cur.fetchone()[0] > 0
+                        has_active = cur.fetchone()[0] > 0  # type: ignore
                 if has_active:
                     return "incomplete"
 

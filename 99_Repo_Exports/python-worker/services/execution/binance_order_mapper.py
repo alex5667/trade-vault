@@ -194,7 +194,7 @@ def _normalize_side(payload: dict[str, Any]) -> tuple[str, str, int]:
     side = normalize_side(raw) if normalize_side else type("_", (), {"value": "BUY"})()
     direction = normalize_direction(raw) if normalize_direction else type("_", (), {"value": "LONG"})()
     side_int: int = get_side_int(raw) if get_side_int else 1
-    return str(side.value), str(direction.value), side_int
+    return str(side.value), str(direction.value), side_int  # type: ignore
 
 
 def _normalize_qty(

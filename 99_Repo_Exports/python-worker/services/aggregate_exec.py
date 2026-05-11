@@ -351,7 +351,7 @@ def stream_and_write(
                 csv_writer.writeheader()
 
             csv_writer.writerows(rows)
-            csv_fh.flush()
+            csv_fh.flush()  # type: ignore
 
             # ── 7. Discard chunk memory ──────────────────────────────
             del raw_rows, chunk_sids, snapshots, rows

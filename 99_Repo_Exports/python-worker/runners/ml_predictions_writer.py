@@ -175,9 +175,9 @@ class PgWriter:
             cur = conn.cursor()
             sql = (
                 "INSERT INTO ml_predictions ("
-                "ts_ms,sid,symbol,model_ver,mode,p_edge,p_min,p_margin"
+                "ts_ms,sid,symbol,model_ver,mode,p_edge,p_min,p_margin,"
                 "allow,bucket,missing,latency_us) "
-                "VALUES (%(ts_ms)s,%(sid)s,%(symbol)s,%(model_ver)s,%(mode)s,%(p_edge)s,%(p_min)s,%(p_margin)s"
+                "VALUES (%(ts_ms)s,%(sid)s,%(symbol)s,%(model_ver)s,%(mode)s,%(p_edge)s,%(p_min)s,%(p_margin)s,"
                 "%(allow)s,%(bucket)s,%(missing)s,%(latency_us)s) "
                 "ON CONFLICT (ts_ms, sid) DO NOTHING"
             )

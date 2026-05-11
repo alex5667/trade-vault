@@ -22,8 +22,8 @@ class TestBookParserContract(unittest.TestCase):
             "BTCUSDT",
         )
         self.assertIsNotNone(book)
-        self.assertEqual(book["symbol"], "BTCUSDT")
-        self.assertEqual(book["ts_ms"], 1700000000000)
+        self.assertEqual(book["symbol"], "BTCUSDT")  # type: ignore
+        self.assertEqual(book["ts_ms"], 1700000000000)  # type: ignore
 
     def test_wrapper_propagates_ts_from_redis_payload(self):
         raw = {
@@ -35,11 +35,11 @@ class TestBookParserContract(unittest.TestCase):
         }
         book = OrderFlowParsing.parse_book_payload(raw, "BTCUSDT")
         self.assertIsNotNone(book)
-        self.assertEqual(book["ts_ms"], 1776510205261)
-        self.assertEqual(book["symbol"], "BTCUSDT")
-        self.assertEqual(book["u"], 10355273119130)
-        self.assertEqual(book["bids"], [["76020.00", "78.145"]])
-        self.assertEqual(book["asks"], [["76020.10", "8.762"]])
+        self.assertEqual(book["ts_ms"], 1776510205261)  # type: ignore
+        self.assertEqual(book["symbol"], "BTCUSDT")  # type: ignore
+        self.assertEqual(book["u"], 10355273119130)  # type: ignore
+        self.assertEqual(book["bids"], [["76020.00", "78.145"]])  # type: ignore
+        self.assertEqual(book["asks"], [["76020.10", "8.762"]])  # type: ignore
 
     def test_all_wrappers_match_util_arity(self):
         import inspect

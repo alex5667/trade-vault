@@ -1,4 +1,11 @@
-from .concurrency import _get_ml_executor, is_of_sync_build, run_bounded_of_build
+from .concurrency import (
+    _ML_INFER_EXECUTOR,
+    _OF_BUILD_SEMAPHORE,
+    _get_ml_executor,
+    _shutdown_ml_executor,
+    is_of_sync_build,
+    run_bounded_of_build,
+)
 from .config_loader import MLConfirmConfig, _safe_loads, _safe_loads_ex
 from .dto import MLConfirmDecision, MLConfirmInput, MLConfirmOutput
 from .facade import MLConfirmGate
@@ -21,4 +28,7 @@ __all__ = [
     "is_of_sync_build",
     "run_bounded_of_build",
     "_get_ml_executor",
+    "_shutdown_ml_executor",
+    "_ML_INFER_EXECUTOR",
+    "_OF_BUILD_SEMAPHORE",
 ]

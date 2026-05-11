@@ -14,14 +14,14 @@ if str(REPO_ROOT) not in sys.path:
 from services.archivers.stream_archiver import StreamArchiver
 
 
-def _dummy_archiver():
+def _dummy_archiver():  # type: ignore
     # StreamArchiver needs env for Redis/PG in __init__, but this test calls only the pure row builder.
     # We bypass __init__ by constructing the object without running it.
     a = StreamArchiver.__new__(StreamArchiver)
     return a
 
 
-def test_post_sl_liqmap_kpi_row_extracts_liqmap_subset_and_scalars():
+def test_post_sl_liqmap_kpi_row_extracts_liqmap_subset_and_scalars():  # type: ignore
     a = _dummy_archiver()
     payload = {
         "trade_id": "t-001",
@@ -67,7 +67,7 @@ def test_post_sl_liqmap_kpi_row_extracts_liqmap_subset_and_scalars():
     assert row[11] == 250000.0  # sl_liqmap_peak_usd
 
 
-def test_post_sl_liqmap_kpi_row_requires_trade_symbol_side():
+def test_post_sl_liqmap_kpi_row_requires_trade_symbol_side():  # type: ignore
     a = _dummy_archiver()
     try:
         a.post_sl_liqmap_kpi_row("1700000000123-0", {"symbol": "BTCUSDT", "side": "LONG"})

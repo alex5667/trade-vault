@@ -6,9 +6,9 @@ from pathlib import Path
 # Load module standalone without needing the full services package installed
 mod_path = Path(__file__).resolve().parent / 'risk_policy_engine.py'
 spec = importlib.util.spec_from_file_location('risk_policy_engine', mod_path)
-mod = importlib.util.module_from_spec(spec)
-sys.modules[spec.name] = mod
-spec.loader.exec_module(mod)
+mod = importlib.util.module_from_spec(spec)  # type: ignore
+sys.modules[spec.name] = mod  # type: ignore
+spec.loader.exec_module(mod)  # type: ignore
 
 
 def test_decision_snapshot_contains_latency_and_clamp_ratio():

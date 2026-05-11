@@ -20,7 +20,7 @@ class EmbeddedPeriodicReporter:
 
     def __init__(self) -> None:
         self.logger = setup_logger("EmbeddedPeriodicReporter")
-        self._reporter: PeriodicReporter | None = None
+        self._reporter: PeriodicReporter | None = None  # type: ignore
 
         if PeriodicReporter is None:
             self.logger.warning("PeriodicReporter module is not available, reports disabled")

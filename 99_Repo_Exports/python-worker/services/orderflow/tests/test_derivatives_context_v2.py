@@ -71,7 +71,7 @@ def _make_v2_snap(**overrides) -> DerivativesContextSnapshot:
         oi_accel_abs_usd=100_000.0,
     )
     defaults.update(overrides)
-    return build_snapshot_v2(**defaults)
+    return build_snapshot_v2(**defaults)  # type: ignore
 
 
 def test_build_snapshot_v2_schema_version():

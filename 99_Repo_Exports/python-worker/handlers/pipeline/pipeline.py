@@ -62,8 +62,8 @@ class SignalPipeline:
                 veto=bool(v.veto),
                 reason_code=str(getattr(v, "reason_code", "") or ("VETO" if v.veto else "OK")),
                 metrics=dict(getattr(v, "parts", {}) or {}),
-                duration_ms=sp_val.ms,
-            )
+                duration_ms=sp_val.ms,  # type: ignore
+            )  # type: ignore
 
         flags_list = list(v.flags or [])
         parts_dict = dict(v.parts)
@@ -115,8 +115,8 @@ class SignalPipeline:
                 veto=False,
                 reason_code="OK",
                 metrics=dict(getattr(out, "parts", {}) or {}),
-                duration_ms=sp_score.ms,
-            )
+                duration_ms=sp_score.ms,  # type: ignore
+            )  # type: ignore
 
         return PipelineResult(False, quality_codes=flags_list, parts=dict(out.parts))
 

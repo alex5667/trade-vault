@@ -393,7 +393,7 @@ class EntryPolicyCircuitBreakerService:
         # Create freeze object
         fz = EntryPolicyFreezeV1(
             ver=1,
-            symbol=sym,
+            symbol=sym,  # type: ignore
             group=group,
             scenario=scn,
             until_ts_ms=until,

@@ -130,7 +130,7 @@ class EntryPolicyOverridesV1:
                 kind=_s(d.get("kind", "overrides_v1"), "overrides_v1"),
                 updated_ts_ms=_i(d.get("updated_ts_ms", 0), 0),
                 enabled=_i(d.get("enabled", 1), 1),
-                symbol=_sym(d.get("symbol", "")),
+                symbol=_sym(d.get("symbol", "")),  # type: ignore
                 regime=_rg(d.get("regime", "na")),
                 scenario=_scn(d.get("scenario", "")),
                 group=_grp(d.get("group", "default")),

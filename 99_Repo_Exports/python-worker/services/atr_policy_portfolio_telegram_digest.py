@@ -61,7 +61,7 @@ def run_once() -> bool:
         if chat_id:
             payload["chat_id"] = chat_id
 
-        _redis().xadd(os.getenv("NOTIFY_STREAM", RS.NOTIFY_TELEGRAM), payload, maxlen=STREAM_RETENTION[RS.NOTIFY_TELEGRAM], approximate=True)
+        _redis().xadd(os.getenv("NOTIFY_STREAM", RS.NOTIFY_TELEGRAM), payload, maxlen=STREAM_RETENTION[RS.NOTIFY_TELEGRAM], approximate=True)  # type: ignore
         logger.info("Sent Portfolio Telegram Digest")
         return True
     except Exception as e:

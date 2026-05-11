@@ -162,7 +162,7 @@ def evaluate_adverse_gate(
         AdverseGateCalibResult with per-symbol recommendation.
     """
     result = AdverseGateCalibResult(
-        symbol=symbol,
+        symbol=symbol,  # type: ignore
         window_h=window_h,
         proof_streak_required=proof_streak_required,
         rollback_streak_required=rollback_streak_required,

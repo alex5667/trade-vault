@@ -90,7 +90,7 @@ async def health_check():
     """Health check endpoint."""
     try:
         # Simple query to test database connection
-        analytics_db.get_conn().close()
+        analytics_db.get_conn().close()  # type: ignore
         return {"status": "healthy", "timestamp": datetime.now().isoformat()}
     except Exception as e:
         raise HTTPException(status_code=503, detail=f"Database unhealthy: {e}")

@@ -466,7 +466,7 @@ class SignalEnsemble:
         try:
             raw = self.r.hgetall(f"weights:ensemble:{self.symbol}")
             if raw and len(raw) > 0:
-                return {
+                return {  # type: ignore
                     str(k): float(v)
                     for k, v in raw.items()
                     if str(k) in self.SOURCES

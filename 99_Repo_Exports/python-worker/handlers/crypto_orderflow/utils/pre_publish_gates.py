@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import functools
 import os
 
@@ -12,7 +13,7 @@ import math
 import time
 from dataclasses import dataclass
 from typing import Any
-from core.signal_payload import GateDecisionV1
+from core.gates.decision import GateDecisionV1
 
 from core.atr_floor_policy import compute_atr_bps_threshold
 from domain.gate_profile import strict_enabled
@@ -64,7 +65,7 @@ def _get_epoch_ms(ctx: Any) -> int | None:
         return None
 
 
-def _safe_float(v: Any, default: float = 0.0) -> float:
+def _safe_float(v: Any, default: float = 0.0) -> float:  # type: ignore
     try:
         f = float(v)
         return f if math.isfinite(f) else default
@@ -122,7 +123,7 @@ class HardDataQualityGate:
         ts_dec_ms = int(time.time() * 1000)
         ts_ev_ms = _get_epoch_ms(ctx) or 0
         
-        def _make_res(decision: str, reason: str, notes: dict[str, Any] = None) -> GateDecisionV1:
+        def _make_res(decision: Any, reason: str, notes: dict[str, Any] | None = None) -> GateDecisionV1:
             latency_us = int((time.monotonic() - t0) * 1_000_000)
             return GateDecisionV1(
                 stage="dq_integrity", gate="HardDataQualityGate", decision=decision,
@@ -152,9 +153,9 @@ class HardDataQualityGate:
             if self.strict_missing_atr_ts:
                 return _make_res("DENY", "VETO_ATR_TS_MISSING")
         else:
-            try: age = int(now_ms) - int(atr_ts)
+            try: age = now_ms - atr_ts
             except Exception: age = 0
-            if now_ms and age > int(self.atr_stale_max_ms):
+            if now_ms and age > self.atr_stale_max_ms:
                 return _make_res("DENY", "VETO_ATR_STALE", {"age_ms": age})
 
         # 3) Touch snapshot staleness
@@ -260,7 +261,7 @@ class RegimeSessionGate:
         ts_dec_ms = int(time.time() * 1000)
         ts_ev_ms = _get_epoch_ms(ctx) or 0
         
-        def _make_res(decision: str, reason: str, notes: dict[str, Any] = None) -> GateDecisionV1:
+        def _make_res(decision: Any, reason: str, notes: dict[str, Any] | None = None) -> GateDecisionV1:
             latency_us = int((time.monotonic() - t0) * 1_000_000)
             return GateDecisionV1(
                 stage="regime_session", gate="RegimeSessionGate", decision=decision,
@@ -313,14 +314,14 @@ class RegimeSessionGate:
         if rs_drift_tighten:
             try:
                 redis_client = getattr(ctx, "redis", None) or getattr(ctx, "_redis", None)
-                tsm = int(normalize_ts_ms(getattr(ctx, "ts_ms", None) or getattr(ctx, "ts", None) or 0))
+                tsm = normalize_ts_ms(getattr(ctx, "ts_ms", None) or getattr(ctx, "ts", None) or 0)
                 if tsm > 0:
                     sess = str(getattr(ctx, "session", None) or session_from_ts_ms(tsm) or "na")
                     tfv = str(getattr(ctx, "tf", None) or getattr(ctx, "timeframe", None) or "na")
                     ven = str(getattr(ctx, "venue", None) or "na")
                     drift_factor, drift_score, drift_feat = load_drift_active_factor(
-                        redis_client, symbol=str(sym).upper(), venue=str(ven),
-                        session=str(sess), tf=str(tfv), kind=str(kind_l),
+                        redis_client, symbol=sym.upper(), venue=ven,
+                        session=sess, tf=tfv, kind=kind_l,
                     )
                     if not math.isfinite(drift_factor) or drift_factor <= 0: drift_factor = 1.0
             except Exception: drift_factor = 1.0
@@ -331,10 +332,9 @@ class RegimeSessionGate:
 
         d_min = self._pick_float("RS_DEPTH_MIN", sym, kind_l, regime, self.depth_min_default)
         strict = strict_enabled()
-        try: power = int(float(_cached_getenv("RS_DRIFT_POWER", "2" if strict else "1")))
-        except Exception: power = 2 if strict else 1
-        drift_mult = float(drift_factor) ** float(max(0, power))
-        d_min_eff = float(d_min) * drift_mult
+        power = int(_env_float("RS_DRIFT_POWER", 2.0 if strict else 1.0))
+        drift_mult = drift_factor ** max(0, power)
+        d_min_eff = d_min * drift_mult
         if d_min_eff > 0.0 and min(depth_bid_5, depth_ask_5) < d_min_eff:
             return _make_res("DENY", "VETO_RS_DEPTH", {"min_depth": min(depth_bid_5, depth_ask_5), "limit": d_min_eff, "drift": drift_factor})
 
@@ -346,7 +346,7 @@ class RegimeSessionGate:
                 depth_bid_20 = max(depth_bid_20, _safe_float(getattr(of, "depth_bid_20", None), 0.0))
                 depth_ask_20 = max(depth_ask_20, _safe_float(getattr(of, "depth_ask_20", None), 0.0))
             if depth_bid_20 > 0 and depth_ask_20 > 0:
-                d_min_20_eff = float(d_min_20) * drift_mult
+                d_min_20_eff = d_min_20 * drift_mult
                 if d_min_20_eff > 0.0 and min(depth_bid_20, depth_ask_20) < d_min_20_eff:
                     return _make_res("DENY", "VETO_RS_DEPTH20", {"min_depth20": min(depth_bid_20, depth_ask_20), "limit": d_min_20_eff, "drift": drift_factor})
 
@@ -411,7 +411,7 @@ class ConsistencyGate:
         ts_dec_ms = int(time.time() * 1000)
         ts_ev_ms = _get_epoch_ms(ctx) or 0
         
-        def _make_res(decision: str, reason: str, notes: dict[str, Any] = None) -> GateDecisionV1:
+        def _make_res(decision: Any, reason: str, notes: dict[str, Any] | None = None) -> GateDecisionV1:
             latency_us = int((time.monotonic() - t0) * 1_000_000)
             return GateDecisionV1(
                 stage="consistency", gate="ConsistencyGate", decision=decision,
@@ -488,14 +488,6 @@ def _b2s(x: Any) -> str:
     return str(x if x is not None else "")
 
 
-def _safe_float(x: Any, d: float = 0.0) -> float:
-    try:
-        v = float(x)
-        if not math.isfinite(v):
-            return d
-        return v
-    except Exception:
-        return d
 
 
 class SmtCoherenceGate:
@@ -524,38 +516,37 @@ class SmtCoherenceGate:
         diag_enabled: bool,
         diag_maxlen: int,
     ) -> None:
-        self.enabled = bool(enabled)
+        self.enabled = enabled
         self.mode = (mode or "observe").strip().lower()
         if self.mode not in ("observe", "veto"):
             self.mode = "observe"
         self.bundle_id = (bundle_id or "").strip()
-        self.coh_min = float(coh_min)
-        self.state_stale_ms = int(max(0, state_stale_ms))
+        self.coh_min = coh_min
+        self.state_stale_ms = max(0, state_stale_ms)
         self.diag_stream = (diag_stream or "")
-        self.diag_enabled = bool(diag_enabled)
-        self.diag_maxlen = int(max(1000, diag_maxlen))
+        self.diag_enabled = diag_enabled
+        self.diag_maxlen = max(1000, diag_maxlen)
 
     @classmethod
     def from_env(cls) -> SmtCoherenceGate:
         def _i(name: str, d: int) -> int:
             try:
-                return int(float(_cached_getenv(name, str(d))))
+                v = _cached_getenv(name)
+                if v is None: return d
+                return int(float(v))
             except Exception:
                 return d
         def _f(name: str, d: float) -> float:
-            try:
-                return float(_cached_getenv(name, str(d)))
-            except Exception:
-                return d
-        enabled = _cached_getenv("SMT_GATE_ENABLED", "1").strip() not in ("0", "false", "no", "off")
+            return _env_float(name, d)
+        enabled = (_cached_getenv("SMT_GATE_ENABLED") or "1").strip().lower() not in ("0", "false", "no", "off")
         return cls(
             enabled=enabled,
             mode=(_cached_getenv("SMT_LEADER_MODE", "observe") or "observe"),
             bundle_id=(_cached_getenv("SMT_COH_BUNDLE", "") or "").strip(),
             coh_min=_f("SMT_COH_MIN", 0.65),
             state_stale_ms=_i("SMT_STATE_STALE_MS", 5_000),
-            diag_stream=str(_cached_getenv("SMT_DIAG_STREAM", "") or ""),
-            diag_enabled=_cached_getenv("SMT_DIAG_ENABLED", "0").strip() in ("1", "true", "yes", "on"),
+            diag_stream=_cached_getenv("SMT_DIAG_STREAM", "") or "",
+            diag_enabled=(_cached_getenv("SMT_DIAG_ENABLED", "0") or "0").strip() in ("1", "true", "yes", "on"),
             diag_maxlen=_i("SMT_DIAG_MAXLEN", 20000),
         )
 
@@ -565,6 +556,24 @@ class SmtCoherenceGate:
         key = f"smt:bundle:v1:{self.bundle_id}"
         try:
             d = redis_client.hgetall(key) or {}
+            
+            import asyncio
+            if asyncio.iscoroutine(d):
+                d.close()  # suppress "coroutine never awaited" warning
+                d = {}
+                try:
+                    from handlers.crypto_orderflow.config.handler_config import _get_sync_redis
+                    sync_redis = _get_sync_redis()
+                    if sync_redis is not None:
+                        d = sync_redis.hgetall(key) or {}
+                    else:
+                        import logging as _log
+                        _log.getLogger(__name__).warning(
+                            "SmtCoherenceGate: async redis_client passed but sync client unavailable; "
+                            "SMT state will be empty for key=%s", key
+                        )
+                except Exception:
+                    pass
         except Exception:
             return None
         dd: dict[str, str] = {}
@@ -595,7 +604,7 @@ class SmtCoherenceGate:
         ts_dec_ms = int(time.time() * 1000)
         ts_ev_ms = _get_epoch_ms(ctx) or 0
         
-        def _make_res(decision: str, reason: str, notes: dict[str, Any] = None) -> GateDecisionV1:
+        def _make_res(decision: Any, reason: str, notes: dict[str, Any] | None = None) -> GateDecisionV1:
             latency_us = int((time.monotonic() - t0) * 1_000_000)
             return GateDecisionV1(
                 stage="smt", gate="SmtCoherenceGate", decision=decision,
@@ -609,26 +618,26 @@ class SmtCoherenceGate:
             return _make_res("ABSTAIN", "OK", {"msg": "disabled"})
 
         st = self._read_state(redis_client)
-        now = int(math.floor(get_ny_time_millis()))
+        now = math.floor(get_ny_time_millis())
         leader, leader_dir, leader_confirm, coh, st_ts, stale = "", "", 0, 0.0, 0, True
 
         if st is not None:
             leader, leader_dir = st.get("leader", ""), st.get("leader_dir", "")
             leader_confirm = int(_safe_float(st.get("leader_confirm") or 0.0, 0.0))
-            coh = float(_safe_float(st.get("coh") or 0.0, 0.0))
+            coh = _safe_float(st.get("coh") or 0.0, 0.0)
             st_ts = int(_safe_float(st.get("ts_ms") or 0.0, 0.0))
             if st_ts > 0: stale = (abs(now - st_ts) > self.state_stale_ms) if self.state_stale_ms > 0 else False
 
         # audit into ctx
         sig_ud = (side or "").upper()
         if sig_ud not in ("LONG", "SHORT"): sig_ud = "NA"
-        lead_ud = "LONG" if str(leader_dir).upper() == "UP" else "SHORT" if str(leader_dir).upper() == "DOWN" else "NA"
+        lead_ud = "LONG" if leader_dir.upper() == "UP" else "SHORT" if leader_dir.upper() == "DOWN" else "NA"
         countertrend = (sig_ud in ("LONG", "SHORT")) and (sig_ud != lead_ud)
         
         try:
             ctx.smt_leader_dir = leader_dir
-            ctx.smt_coh = float(coh)
-            ctx.smt_state_stale = bool(stale)
+            ctx.smt_coh = coh
+            ctx.smt_state_stale = stale
         except Exception: pass
 
         if st is None or stale or not leader_dir:
@@ -637,7 +646,7 @@ class SmtCoherenceGate:
         if self.mode == "observe":
             return _make_res("ALLOW", "OK", {"msg": "observe_only", "countertrend": countertrend})
 
-        if countertrend and int(leader_confirm) == 1 and float(coh) >= float(self.coh_min):
+        if countertrend and leader_confirm == 1 and coh >= self.coh_min:
             return _make_res("DENY", "VETO_SMT_COUNTERTREND", {"leader_dir": leader_dir, "coh": coh})
 
         return _make_res("ALLOW", "OK")
@@ -676,7 +685,7 @@ class AtrFloorGate:
         ts_dec_ms = int(time.time() * 1000)
         ts_ev_ms = _get_epoch_ms(ctx) or 0
         
-        def _make_res(decision: str, reason: str, notes: dict[str, Any] = None) -> GateDecisionV1:
+        def _make_res(decision: Any, reason: str, notes: dict[str, Any] | None = None) -> GateDecisionV1:
             latency_us = int((time.monotonic() - t0) * 1_000_000)
             return GateDecisionV1(
                 stage="atr_floor", gate="AtrFloorGate", decision=decision,
@@ -701,7 +710,7 @@ class AtrFloorGate:
             regime=regime, cfg=cfg, t0=self.t0_bps, t1=self.t1_bps, t2=self.t2_bps
         )
 
-        if float(atr_bps) < float(threshold):
+        if atr_bps < threshold:
             return _make_res("DENY", "VETO_ATR_FLOOR", {"atr": atr_bps, "thr": threshold, "tier": tier, "regime": rg})
 
         return _make_res("ALLOW", "OK")
@@ -746,7 +755,7 @@ class BreadthGate:
         ts_dec_ms = int(time.time() * 1000)
         ts_ev_ms = _get_epoch_ms(ctx) or 0
         
-        def _make_res(decision: str, reason: str, notes: dict[str, Any] = None) -> GateDecisionV1:
+        def _make_res(decision: Any, reason: str, notes: dict[str, Any] | None = None) -> GateDecisionV1:
             latency_us = int((time.monotonic() - t0) * 1_000_000)
             return GateDecisionV1(
                 stage="breadth", gate="BreadthGate", decision=decision,

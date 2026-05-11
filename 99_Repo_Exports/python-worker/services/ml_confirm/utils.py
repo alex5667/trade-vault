@@ -13,7 +13,7 @@ import redis
 
 from core.bucket2_v1 import derive_bucket2_label
 from core.champion_cfg_validator import validate_champion_cfg
-from core.edge_stack_mh_v1 import EdgeStackMHModelV1
+from core.edge_stack_mh_v1 import EdgeStackMHModelV1  # type: ignore
 from core.feature_engineering import (
     RobustScalerPack,
     apply_transform,
@@ -34,7 +34,7 @@ try:
 except Exception:
     PROMETHEUS_AVAILABLE = False
     # Mock metrics for when prometheus_client is not available
-    class _MockMetric:
+    class _MockMetric:  # type: ignore
         def labels(self, **kwargs):
             return self
         def inc(self, *args, **kwargs):
@@ -92,7 +92,7 @@ def _make_sid(symbol: str, ts_ms: int) -> str:
     # NOTE: direction is intentionally NOT part of SID (1 signal per symbol+ts_ms).
     sym = (symbol or "").upper()
     try:
-        t = int(ts_ms)
+        t = ts_ms
     except Exception:
         t = 0
     return f"crypto-of:{sym}:{t}"
@@ -125,7 +125,7 @@ def _normalize_sid(raw_sid: Any, *, symbol: str, ts_ms: int) -> str:
             try:
                 t = int(parts[2])
             except Exception:
-                t = int(ts_ms) if str(ts_ms).isdigit() else 0
+                t = ts_ms if str(ts_ms).isdigit() else 0
             return f'crypto-of:{sym}:{t}'
     if '|' in s:
         parts = s.split('|')
@@ -134,7 +134,7 @@ def _normalize_sid(raw_sid: Any, *, symbol: str, ts_ms: int) -> str:
             try:
                 t = int(parts[1])
             except Exception:
-                t = int(ts_ms) if str(ts_ms).isdigit() else 0
+                t = ts_ms if str(ts_ms).isdigit() else 0
             return f'crypto-of:{sym}:{t}'
     return _make_sid(symbol, ts_ms)
 
@@ -148,7 +148,7 @@ def _stable_u01(key: str, *, salt: str = "") -> float:
 
 
 def _should_sample(key: str, *, rate: float, salt: str = "") -> bool:
-    r = float(rate)
+    r = rate
     if r >= 1.0:
         return True
     if r <= 0.0:
@@ -305,7 +305,7 @@ def _canon_sid(symbol: str, ts_ms: int, raw_sid: str = "") -> str:
     """Canonical sid for cross-stream joins: crypto-of:{SYMBOL}:{TS_MS} (no direction)."""
     sym = (symbol or "").upper() or "NA"
     try:
-        ts = int(ts_ms)
+        ts = ts_ms
     except Exception:
         ts = 0
     s = (raw_sid or "")
@@ -336,7 +336,7 @@ def _canon_sid(symbol: str, ts_ms: int, raw_sid: str = "") -> str:
 def _stable_sample(key: str, sample_rate: float, *, salt: str) -> bool:
     """Deterministic sampling based on stable hash of (salt|key)."""
     try:
-        r = float(sample_rate)
+        r = sample_rate
     except Exception:
         r = 1.0
     if r >= 1.0:
@@ -345,12 +345,12 @@ def _stable_sample(key: str, sample_rate: float, *, salt: str) -> bool:
         return False
     u = int.from_bytes(hashlib.blake2b(f"{salt}|{key}".encode(), digest_size=8).digest(), "big")
     thr = int(r * 1_000_000)
-    return int(u % 1_000_000) < thr
+    return (u % 1_000_000) < thr
 
 
 def _mk_crypto_sid(symbol: str, ts_ms: int) -> str:
     """Create canonical SID: crypto-of:{symbol}:{ts_ms}"""
-    return f"crypto-of:{symbol}:{int(ts_ms)}"
+    return f"crypto-of:{symbol}:{ts_ms}"
 
 
 def _normalize_crypto_sid(raw: object, *, symbol: str, ts_ms: int) -> str:
@@ -363,7 +363,7 @@ def _normalize_crypto_sid(raw: object, *, symbol: str, ts_ms: int) -> str:
       - {symbol}:{ts} (legacy without prefix)
       - empty -> generate from symbol+ts_ms
     """
-    s = (raw or "").strip()
+    s = str(raw or "").strip()
     if s.startswith("crypto-of:"):
         return s
     if "|" in s:
@@ -373,7 +373,7 @@ def _normalize_crypto_sid(raw: object, *, symbol: str, ts_ms: int) -> str:
             try:
                 t = int(parts[1])
             except Exception:
-                t = int(ts_ms)
+                t = ts_ms
             if sym and t > 0:
                 return _mk_crypto_sid(sym, t)
     # Accept legacy "SYMBOL:TS" without prefix (not "crypto-of:SYMBOL:TS")
@@ -384,8 +384,8 @@ def _normalize_crypto_sid(raw: object, *, symbol: str, ts_ms: int) -> str:
             t = int(p[1].strip())
             if sym and t > 0:
                 return _mk_crypto_sid(sym, t)
-    if (not s) and symbol and int(ts_ms) > 0:
-        return _mk_crypto_sid(symbol, int(ts_ms))
+    if (not s) and symbol and ts_ms > 0:
+        return _mk_crypto_sid(symbol, ts_ms)
     return s
 
 
@@ -396,7 +396,7 @@ def _canonical_sid(indicators: dict[str, Any], symbol: str, ts_ms: int) -> str:
     This is critical for join: metrics:ml_confirm ↔ trades:closed.
     """
     raw_sid = indicators.get("sid", "") or indicators.get("signal_id", "") or indicators.get("signalId", "") or ""
-    return _normalize_crypto_sid(raw_sid, symbol=symbol.upper(), ts_ms=int(ts_ms))
+    return _normalize_crypto_sid(raw_sid, symbol=symbol.upper(), ts_ms=ts_ms)
 
 
 
@@ -406,9 +406,7 @@ def _stable_hash_u64(s: str) -> int:
     return int.from_bytes(h, "big", signed=False)
 
 
-def _stable_u01(s: str) -> float:
-    """Generate stable uniform [0,1) value from string"""
-    return _stable_hash_u64(s) / float(2**64 - 1)
+# _stable_u01 is already defined at line 143 with salt support.
 
 
 

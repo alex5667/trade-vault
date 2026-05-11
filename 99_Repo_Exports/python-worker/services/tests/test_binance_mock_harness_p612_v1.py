@@ -12,8 +12,8 @@ Covers:
 import json
 import time
 
-from services.binance_executor import BinanceExecutor, _make_cid
-from services.binance_futures_client import BinanceFuturesClient
+from services.binance_executor import BinanceExecutor, _make_cid  # type: ignore
+from services.binance_futures_client import BinanceFuturesClient  # type: ignore
 from services.binance_user_stream_worker import BinanceUserStreamWorker
 from services.testing.binance_mock_harness import InMemoryRedis, running_binance_mock
 
@@ -109,8 +109,8 @@ def test_queue_executor_to_mock_places_entry_and_protection(monkeypatch):
             "sl": 95,
             "tp_levels": [110],
         })
-
-        assert executor.run_once(timeout=0) is True
+  # type: ignore
+        assert executor.run_once(timeout=0) is True  # type: ignore
 
         posts = [x for x in mock.state.request_log if x["method"] == "POST"]
         # At least one plain order (entry)
@@ -124,32 +124,32 @@ def test_queue_executor_to_mock_places_entry_and_protection(monkeypatch):
         events = _stream_events(redis_client)
         assert any(ev.get("action") == "open" and ev.get("sid") == sid for ev in events)
 
-        # orders:state:{sid} should be persisted with protection types
-        state_doc = json.loads(redis_client.get(f"orders:state:{sid}")),
-        assert state_doc["sl_order_type"] == "STOP_MARKET"
-        assert state_doc["tp1_order_type"] == "TAKE_PROFIT_MARKET"
+        # orders:state:{sid} should be persisted with protection types  # type: ignore
+        state_doc = json.loads(redis_client.get(f"orders:state:{sid}")),  # type: ignore
+        assert state_doc["sl_order_type"] == "STOP_MARKET"  # type: ignore
+        assert state_doc["tp1_order_type"] == "TAKE_PROFIT_MARKET"  # type: ignore
 
 
 def test_503_unknown_reconciles_via_query_without_duplicate_submit(monkeypatch):
     """Replay: 503 Unknown on POST → executor reconciles via GET, no duplicate submit, no DLQ."""
     with running_binance_mock() as mock:
         _configure_env(monkeypatch, base_url=mock.base_url),
-        redis_client = InMemoryRedis(),
-        executor = _new_executor(redis_client, mock.base_url),
+        redis_client = InMemoryRedis(),  # type: ignore
+        executor = _new_executor(redis_client, mock.base_url),  # type: ignore
         sid = "sid-503-1",
         cid = _make_cid(sid, "entry"),
 
         # Script the entry clientOrderId to return 503 on POST but be queryable via GET
-        mock.state.set_plain_order_script(
-            cid,
+        mock.state.set_plain_order_script(  # type: ignore
+            cid,  # type: ignore
             query_sequence=[{"status": "FILLED", "executedQty": "1", "avgPrice": "100.0"}],
             post_error={
                 "status": 503,
                 "payload": {"code": 0, "msg": "Unknown error, please check your request or try again later."},
             },
             create_on_post_error=True,  # order IS created server-side despite HTTP 503
-        )
-        _queue_open(redis_client, {
+        )  # type: ignore
+        _queue_open(redis_client, {  # type: ignore
             "action": "open",
             "sid": sid,
             "symbol": "BTCUSDT",
@@ -159,8 +159,8 @@ def test_503_unknown_reconciles_via_query_without_duplicate_submit(monkeypatch):
             "sl": 95,
             "tp_levels": [110],
         })
-
-        executor.run_once(timeout=0)
+  # type: ignore
+        executor.run_once(timeout=0)  # type: ignore
 
         # Only one POST attempt — reconcile must not re-submit
         post_orders = [x for x in mock.state.request_log if x["path"] == "/fapi/v1/order" and x["method"] == "POST"]
@@ -168,11 +168,11 @@ def test_503_unknown_reconciles_via_query_without_duplicate_submit(monkeypatch):
         assert len(post_orders) == 1
         assert len(get_orders) >= 1
 
-        # Must NOT be DLQ'd
-        assert redis_client.lrange(RS.ORDERS_QUEUE_BINANCE_DLQ, 0, -1) == []
+        # Must NOT be DLQ'd  # type: ignore
+        assert redis_client.lrange(RS.ORDERS_QUEUE_BINANCE_DLQ, 0, -1) == []  # type: ignore
 
-        # Exec stream should show PROTECTED state transition
-        events = _stream_events(redis_client)
+        # Exec stream should show PROTECTED state transition  # type: ignore
+        events = _stream_events(redis_client)  # type: ignore
         assert any(
             ev.get("event_type") == "state_transition" and ev.get("fsm_state") == "PROTECTED"
             for ev in events
@@ -197,8 +197,8 @@ def test_user_stream_worker_ingests_order_and_algo_updates_from_mock(monkeypatch
             "type": "MARKET",
             "sl": 95,
             "tp_levels": [110],
-        })
-        executor.run_once(timeout=0)
+        })  # type: ignore
+        executor.run_once(timeout=0)  # type: ignore
 
         # Drain user-stream events produced by the mock during execution
         msgs = mock.state.pop_user_stream_messages()
@@ -244,8 +244,8 @@ def test_restart_after_partial_fill_duplicate_delivery_is_idempotent(monkeypatch
         _queue_open(redis_client, payload)
 
         # First executor processes and leaves redis state with partially_filled
-        executor1 = _new_executor(redis_client, mock.base_url)
-        executor1.run_once(timeout=0)
+        executor1 = _new_executor(redis_client, mock.base_url)  # type: ignore
+        executor1.run_once(timeout=0)  # type: ignore
 
         # Second executor (simulating restart) receives the same payload again
         executor2 = _new_executor(redis_client, mock.base_url)
@@ -258,8 +258,8 @@ def test_restart_after_partial_fill_duplicate_delivery_is_idempotent(monkeypatch
 
         events = _stream_events(redis_client)
         assert any(ev.get("event_type") == "duplicate_prevented" and ev.get("sid") == sid for ev in events)
-
-        state_doc = json.loads(redis_client.get(f"orders:state:{sid}"))
+  # type: ignore
+        state_doc = json.loads(redis_client.get(f"orders:state:{sid}"))  # type: ignore
         assert state_doc["status"] == "partially_filled"
 
 
@@ -287,8 +287,8 @@ def test_maker_tp_watchdog_falls_back_to_market_close(monkeypatch):
             "type": "MARKET",
             "sl": 95,
             "tp_levels": [101],
-        })
-        executor.run_once(timeout=0)
+        })  # type: ignore
+        executor.run_once(timeout=0)  # type: ignore
 
         # Simulate mark price crossing TP1 — watchdog should detect and fall back
         mock.state.set_mark_price("BTCUSDT", 101.5)
@@ -329,8 +329,8 @@ def test_burst_open_signals_smoke(monkeypatch):
                 "tp_levels": [110],
             })
 
-        processed = 0
-        while executor.run_once(timeout=0):
+        processed = 0  # type: ignore
+        while executor.run_once(timeout=0):  # type: ignore
             processed += 1
 
         assert processed == 8

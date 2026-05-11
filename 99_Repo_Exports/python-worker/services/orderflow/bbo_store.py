@@ -220,8 +220,8 @@ async def maybe_publish_bbo(
         return
 
     async def _do_publish():
-        async with _bbo_semaphore:
-            try:
+        async with _bbo_semaphore:  # type: ignore
+            try:  # type: ignore
                 await publisher.xadd_json(
                     sink=sink,
                     payload=payload,

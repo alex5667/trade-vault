@@ -125,7 +125,7 @@ class TestInlineIsFromCumulativeState(unittest.TestCase):
             cum_fee_usd=5.0,     # small fee
         )
         self.assertIsNotNone(is_bps)
-        self.assertGreater(float(is_bps), 0.0)
+        self.assertGreater(float(is_bps), 0.0)  # type: ignore
 
     def test_basic_sell_short_is_positive_when_fill_below_mid(self):
         """Sell-SHORT fill below decision_mid → IS should be positive (we got less)."""
@@ -137,7 +137,7 @@ class TestInlineIsFromCumulativeState(unittest.TestCase):
             cum_fee_usd=5.0,
         )
         self.assertIsNotNone(is_bps)
-        self.assertGreater(float(is_bps), 0.0)
+        self.assertGreater(float(is_bps), 0.0)  # type: ignore
 
     def test_returns_none_for_zero_qty(self):
         v = inline_is_from_cumulative_state(
@@ -169,7 +169,7 @@ class TestInlineIsFromCumulativeState(unittest.TestCase):
             cum_fee_usd=0.0,
         )
         self.assertIsNotNone(is_bps)
-        self.assertGreater(float(is_bps), 0.0)
+        self.assertGreater(float(is_bps), 0.0)  # type: ignore
 
 
 @unittest.skipIf(SKIP_REASON, f"import failed: {SKIP_REASON}")

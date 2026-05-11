@@ -316,7 +316,7 @@ if __name__ == "__main__":
             print("   Saved to /tmp/test_depth.png")
 
         print("\nTesting events fetch...")
-        events = await fetch_events(last=5)
+        events = await fetch_events(last=5)  # type: ignore
         if events:
             print(f"✅ Fetched {events['count']} events")
             for evt in events.get("events", []):

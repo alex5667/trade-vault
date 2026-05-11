@@ -9,7 +9,7 @@ import pytest
 
 @pytest.fixture(autouse=True)
 def _reset_executor_state(monkeypatch):
-    from services import ml_confirm_gate as mg
+    from services.ml_confirm_gate import concurrency as mg
 
     monkeypatch.setenv("OF_BUILD_MAX_INFLIGHT", "1")
     monkeypatch.setenv("ML_CONFIRM_THREADS", "1")
@@ -22,7 +22,7 @@ def _reset_executor_state(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_run_bounded_of_build_rejects_when_slot_busy():
-    from services import ml_confirm_gate as mg
+    from services.ml_confirm_gate import concurrency as mg
 
     pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="test-of-build")
     monkeypatch_executor = pytest.MonkeyPatch()
@@ -33,8 +33,8 @@ async def test_run_bounded_of_build_rejects_when_slot_busy():
             time.sleep(0.15)
             return ("ok", "done")
 
-        slow_build._of_build_symbol = "BTCUSDT"
-        slow_build._of_build_tf = "1s"
+        setattr(slow_build, "_of_build_symbol", "BTCUSDT")
+        setattr(slow_build, "_of_build_tf", "1s")
 
         first = asyncio.create_task(mg.run_bounded_of_build(slow_build, timeout_s=0.5, acquire_timeout_s=0.01))
         await asyncio.sleep(0.02)
@@ -50,7 +50,7 @@ async def test_run_bounded_of_build_rejects_when_slot_busy():
 
 @pytest.mark.asyncio
 async def test_run_bounded_of_build_timeout_keeps_slot_until_thread_finishes():
-    from services import ml_confirm_gate as mg
+    from services.ml_confirm_gate import concurrency as mg
 
     pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="test-of-build")
     monkeypatch_executor = pytest.MonkeyPatch()
@@ -61,8 +61,8 @@ async def test_run_bounded_of_build_timeout_keeps_slot_until_thread_finishes():
             time.sleep(0.2)
             return ("ok", "late")
 
-        very_slow_build._of_build_symbol = "ETHUSDT"
-        very_slow_build._of_build_tf = "1s"
+        setattr(very_slow_build, "_of_build_symbol", "ETHUSDT")
+        setattr(very_slow_build, "_of_build_tf", "1s")
 
         timed_out = await mg.run_bounded_of_build(very_slow_build, timeout_s=0.05, acquire_timeout_s=0.01)
         rejected_while_old_thread_still_runs = await mg.run_bounded_of_build(

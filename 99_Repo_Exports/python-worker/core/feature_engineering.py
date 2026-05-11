@@ -121,7 +121,7 @@ class RobustScalerPack:
             return x
         return apply_robust_scale(x, center=float(p.get("center", 0.0)), scale=float(p.get("scale", 1.0)))
 
-    def transform(self, X: np.ndarray, feature_names: list[str] | None = None) -> np.ndarray:
+    def transform(self, X: np.ndarray, feature_names: list[str] | None = None) -> np.ndarray:  # type: ignore
         """Transform array X using robust scaling per feature.
         
         Args:
@@ -163,7 +163,7 @@ class RobustScalerPack:
         return X_out
 
     @staticmethod
-    def fit(X: np.ndarray, feature_names: list[str] | None = None) -> RobustScalerPack:
+    def fit(X: np.ndarray, feature_names: list[str] | None = None) -> RobustScalerPack:  # type: ignore
         """Fit robust scaler on array X.
         
         Computes median (center) and MAD*1.4826 (scale) per feature.

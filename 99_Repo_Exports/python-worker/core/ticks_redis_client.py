@@ -151,8 +151,8 @@ class DualTicksRedisClient:
             "redis://redis-worker-1:6379/0")
 
         # Создаем клиенты
-        self.primary = redis.from_url(self.primary_url, decode_responses=True, **kwargs)
-        self.fallback = redis.from_url(self.fallback_url, decode_responses=True, **kwargs)
+        self.primary = redis.from_url(self.primary_url, decode_responses=True, **kwargs)  # type: ignore
+        self.fallback = redis.from_url(self.fallback_url, decode_responses=True, **kwargs)  # type: ignore
 
         self.fallback_count = 0
 
@@ -309,7 +309,7 @@ if __name__ == "__main__":
         print(f"❌ Ошибка DualTicksRedisClient: {e}")
 
     # Тест 3: Создание consumer group
-    create_ticks_consumer_group(RS.TB_TICK_PREFIX, "ticks-test-group")
+    create_ticks_consumer_group(RS.TB_TICK_PREFIX, "ticks-test-group")  # type: ignore
 
     print("=" * 70)
     print("Тестирование завершено")

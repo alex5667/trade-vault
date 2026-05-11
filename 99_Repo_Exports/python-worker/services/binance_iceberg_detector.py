@@ -73,7 +73,7 @@ def _build_iceberg_signal_payload(
         kind="iceberg",
         symbol=symbol,
         ts_ms=ts_ms,
-        direction=side_norm.internal
+        direction=side_norm.internal  # type: ignore
     )
 
     # NOTE: confidence historically used 0..1 in this detector.
@@ -84,9 +84,9 @@ def _build_iceberg_signal_payload(
         "signal_id": sid,          # canonical mirror for unified consumers
         "trace_id": sid,           # correlation id for DecisionTrace
         "symbol": symbol,
-        "direction": side_norm.internal,  # legacy
-        "side": side_norm.execution,      # normalized mirror (BUY/SELL)
-        "side_int": side_norm.numeric,    # numeric mirror (1/-1)
+        "direction": side_norm.internal,  # legacy  # type: ignore
+        "side": side_norm.execution,      # normalized mirror (BUY/SELL)  # type: ignore
+        "side_int": side_norm.numeric,    # numeric mirror (1/-1)  # type: ignore
         "kind": "iceberg",          # normalized kind for unified pipeline
         "venue": "binance",         # explicit venue
         "entry": float(price),      # legacy
@@ -546,7 +546,7 @@ class BinanceIcebergDetector:
                 # ------------------------------------------------------------
                 meta_obj = None
                 try:
-                    ctx_min = SimpleNamespace()
+                    ctx_min = SimpleNamespace()  # type: ignore
                     ctx_min.ts_ms = get_ny_time_millis()
                     try:
                         ctx_min.symbol = (env.get("symbol") or "")
@@ -556,7 +556,7 @@ class BinanceIcebergDetector:
                     if trace_enabled():
                         ensure_trace(ctx_min, sid=str(sid))
                         trace_gate(ctx_min, stage="detector", name="iceberg_detector", passed=True, veto=False, reason_code="OK", duration_ms=0.0)
-                        meta_obj = build_trace_sidecar_meta(ctx=ctx_min, sid=str(sid))
+                        meta_obj = build_trace_sidecar_meta(ctx=ctx_min, sid=str(sid))  # type: ignore
                 except Exception:
                     meta_obj = None
 
@@ -581,19 +581,19 @@ class BinanceIcebergDetector:
             return
 
         try:
-            preprocess_signal_for_publish(signal_payload, symbol=str(self.symbol), source="IcebergDetector", logger=log)
+            preprocess_signal_for_publish(signal_payload, symbol=str(self.symbol), source="IcebergDetector", logger=log)  # type: ignore
             self.r_core.set(f"signals:{sid}", json.dumps(signal_payload, ensure_ascii=False, default=str), ex=3600)
 
-            pub = SyncSignalPublisher(redis_client=self.r_core, source="IcebergDetector", metrics_prefix="iceberg_publish", logger=log)
+            pub = SyncSignalPublisher(redis_client=self.r_core, source="IcebergDetector", metrics_prefix="iceberg_publish", logger=log)  # type: ignore
             if RAW_SIGNAL_STREAM:
                 pub.xadd_json(
-                    sink=StreamSink(name=str(RAW_SIGNAL_STREAM), field="payload", maxlen=2000),
+                    sink=StreamSink(name=str(RAW_SIGNAL_STREAM), field="payload", maxlen=2000),  # type: ignore
                     payload=signal_payload,
                     symbol=str(self.symbol),
                 )
             if NOTIFY_STREAM:
                 pub.xadd_json(
-                    sink=StreamSink(name=str(NOTIFY_STREAM), field="payload", maxlen=1000),
+                    sink=StreamSink(name=str(NOTIFY_STREAM), field="payload", maxlen=1000),  # type: ignore
                     payload=signal_payload,
                     symbol=str(self.symbol),
                 )
