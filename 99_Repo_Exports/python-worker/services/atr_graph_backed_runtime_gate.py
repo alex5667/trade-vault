@@ -1,7 +1,7 @@
 import json
 import logging
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from services.analytics_db import get_conn
@@ -95,7 +95,7 @@ class ATRGraphBackedRuntimeGateService:
                 return
 
         check_id = f"rt_chk_{uuid.uuid4().hex[:12]}"
-        created_at = datetime.utcnow()
+        created_at = datetime.now(timezone.utc)
         summary = {
             "legacy_decision": legacy_decision,
             "graph_decision": graph_decision,
@@ -159,7 +159,7 @@ class ATRGraphBackedRuntimeGateService:
                     VALUES (%s, %s, %s, %s, 'open', %s, %s, %s)
                 """, (
                     drift_id, scope_value, drift_kind, severity, reason_code,
-                    json.dumps(drift_json), datetime.utcnow()
+                    json.dumps(drift_json), datetime.now(timezone.utc)
                 ))
                 conn.commit()
             logger.info(f"Recorded runtime gate drift for {scope_value}: {drift_kind} ({severity})")
@@ -179,7 +179,7 @@ class ATRGraphBackedRuntimeGateService:
                     (readiness_id, component, status, summary_json, created_at)
                     VALUES (%s, 'runtime_gate', %s, %s, %s)
                 """, (
-                    readiness_id, status, json.dumps(summary), datetime.utcnow()
+                    readiness_id, status, json.dumps(summary), datetime.now(timezone.utc)
                 ))
                 conn.commit()
         except Exception as e:

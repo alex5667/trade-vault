@@ -1,6 +1,7 @@
 # services/trade_monitor_service.py
 from __future__ import annotations
 
+import bisect
 import collections
 # ruff: noqa: E501, S110, E402, UP037, I001
 import contextlib
@@ -1040,15 +1041,23 @@ class TradeMonitorService:
             logger.warning("[FSM] _fsm_transition %s→%s failed: %s", getattr(pos, "id", "?"), to, exc)
 
     def _fsm_publish_async(self, fsm: Any) -> None:
-        """Publish last FSM transition to Redis Stream (non-blocking, fail-open)."""
+        """Publish last FSM transition to Redis Stream (truly non-blocking, fail-open).
+        
+        P0 FIX: was synchronous self.redis.xadd() despite the name.
+        Now offloaded to _db_executor to avoid blocking the hot path.
+        """
         try:
             payload = fsm.to_redis_payload()
-            self.redis.xadd(
-                fsm.AUDIT_STREAM,
-                payload,
-                maxlen=fsm.AUDIT_MAXLEN,
-                approximate=True,
-            )
+            stream = fsm.AUDIT_STREAM
+            maxlen = fsm.AUDIT_MAXLEN
+
+            def _do_publish():
+                try:
+                    self.redis.xadd(stream, payload, maxlen=maxlen, approximate=True)
+                except Exception:
+                    pass  # never break hot path for audit publishing
+
+            self._db_executor.submit(_do_publish)
         except Exception:
             pass  # never break hot path for audit publishing
 
@@ -2687,9 +2696,9 @@ class TradeMonitorService:
 
         # [JITTER BUFFER] Enqueue for processing
         with self._lock:
-            # Add to buffer and keep it sorted by timestamp
-            self._signal_buffer.append(sig)  # type: ignore
-            self._signal_buffer.sort(key=lambda s: s.entry_ts_ms)  # type: ignore
+            # P0 FIX: bisect.insort O(log n) replaces full sort O(n log n) — critical at backlog
+            # Python 3.10+ supports key= in bisect.insort
+            bisect.insort(self._signal_buffer, sig, key=lambda s: s.entry_ts_ms)  # type: ignore
 
             # Simple telemetry (metrics added later)
             if len(self._signal_buffer) > 100:
@@ -2900,12 +2909,27 @@ class TradeMonitorService:
         # ✅ PERSIST/OPEN OUTSIDE LOCK (split-lock architecture)
         # Includes rollback if critical I/O fails to avoid zombies.
         try:
-            self.repo.persist_signal(sig)
-            self.repo.save_open(pos)
-            self._sid_finalize(sig.sid, ttl_days=7)
+            # P0 LATENCY FIX: pipeline persist — 1 RTT instead of 5
+            # Feature flag: TM_PIPELINE_PERSIST=1 (default ON)
+            # Rollback: TM_PIPELINE_PERSIST=0 → sequential Redis calls
+            if os.getenv("TM_PIPELINE_PERSIST", "1") == "1":
+                pipe = self.redis.pipeline(transaction=False)
+                self.repo.persist_signal_pipe(sig, pipe)
+                self.repo.save_open_pipe(pos, pipe)
+                # sid_finalize into pipeline
+                if sig.sid:
+                    _dedup_key = self._sid_dedup_key(sig.sid)
+                    pipe.set(_dedup_key, "done", ex=7 * 24 * 3600)
+                # event OPEN into pipeline
+                self.repo.append_event_pipe(ev=_ev_open(pos), pipe=pipe)
+                pipe.execute()
+            else:
+                # Legacy sequential path (rollback)
+                self.repo.persist_signal(sig)
+                self.repo.save_open(pos)
+                self._sid_finalize(sig.sid, ttl_days=7)
+                self.repo.append_event(ev=_ev_open(pos))
 
-            # event OPEN (also IO)
-            self.repo.append_event(ev=_ev_open(pos))
             if getattr(self, "_protective_mirror", None):
                 try:
                     self._protective_mirror.on_position_opened(
@@ -4026,7 +4050,6 @@ class TradeMonitorService:
             return
 
         symbol = tick.symbol
-        float(getattr(tick, "mid", 0.0) or getattr(tick, "price", 0.0) or 0.0)
         ts_ms = int(tick.ts_ms)
 
         # Update Simulation Time (Time Sync)
@@ -4034,8 +4057,19 @@ class TradeMonitorService:
             self._max_tick_ts_ms = ts_ms
 
         # [PHASE 2: Jitter Sync]
-        # Whenever market time advances, try to release buffered signals.
-        self._flush_signal_buffer()
+        # P0 FIX: Throttle flush to avoid signal persist blocking tick processing.
+        # Previously called on every tick — now only if 10ms+ elapsed since last flush
+        # or buffer is large (>5 signals). This prevents head-of-line blocking where
+        # signal persist (even pipelined) delays tick drain during high-frequency data.
+        _flush_now = False
+        _buf_len = len(getattr(self, "_signal_buffer", []))
+        if _buf_len > 0:
+            _last_flush = getattr(self, "_last_flush_ts_ms", 0)
+            if _buf_len >= 5 or (ts_ms - _last_flush) >= 10:
+                _flush_now = True
+                self._last_flush_ts_ms = ts_ms  # type: ignore
+        if _flush_now:
+            self._flush_signal_buffer()
 
         # --- Метрика возраста тика (задержка ingestion → Python обработка) ---
         try:
@@ -4301,7 +4335,8 @@ class TradeMonitorService:
                     # IO steps for close (repo + analytics + stats)
                     hs = {}
                     try:
-                        hs = self._get_health_snapshot_for_trade(str(closed.symbol))
+                        # P0 FIX: use cached variant to avoid sync HGETALL per close
+                        hs = self._get_health_snapshot_cached(str(closed.symbol))
                     except Exception:
                         hs = {}
                     io_steps.append(("save_closed", {"closed": closed, "health_snapshot": hs}))
@@ -4318,10 +4353,13 @@ class TradeMonitorService:
                         self._pop_pos(pos.id)
 
             # 4) Flush IO steps strictly OUTSIDE _lock (but still inside symbol-lock)
+            #    P0 FIX: Batch multiple append_event XADD calls into a single pipeline
+            #    to reduce per-tick Redis RTTs from 3-5 down to 1.
+            event_batch: list = []   # TradeEvent objects to batch
             for kind, payload in io_steps:
                 try:
                     if kind == "append_event":
-                        self.repo.append_event(payload)
+                        event_batch.append(payload)
                     elif kind == "save_tp_hit":
                         try:
                             _d = payload if isinstance(payload, dict) else {}
@@ -4391,6 +4429,22 @@ class TradeMonitorService:
                         self._maybe_paper_vs_demo_report()
                 except Exception as e:
                     logger.warning("⚠️ on_tick IO step failed kind=%s err=%s", kind, e)
+
+            # P0 FIX: Flush batched events in single pipeline (1 RTT for N events)
+            if event_batch:
+                try:
+                    pipe = self.redis.pipeline(transaction=False)
+                    for ev in event_batch:
+                        self.repo.append_event_pipe(ev, pipe)
+                    pipe.execute()
+                except Exception as e:
+                    # Fallback: sequential (ensures no silent data loss)
+                    logger.warning("⚠️ Batched event pipeline failed, falling back to sequential: %s", e)
+                    for ev in event_batch:
+                        try:
+                            self.repo.append_event(ev)
+                        except Exception:
+                            pass
 
             # ✅ Report triggers (outside all locks)
             for trigger in report_triggers:

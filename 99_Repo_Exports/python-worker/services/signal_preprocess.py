@@ -72,6 +72,12 @@ def preprocess_signal_for_publish(signal: dict[str, Any], symbol: str, source: s
     signal["ts_ms"] = int(ts_ms)
     signal["tick_ts"] = int(signal.get("tick_ts") or ts_ms)
 
+    # Ensure source and strategy are populated to prevent 'unknown' reports
+    if not signal.get("source") and source:
+        signal["source"] = source
+    if not signal.get("strategy") and source:
+        signal["strategy"] = source.lower()
+
     # Direction / side (keep legacy `side` for consumers)
     direction = (signal.get("direction") or "").upper().strip()
     if not direction:

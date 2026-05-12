@@ -27,7 +27,7 @@ import math
 import os
 import subprocess
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from utils.time_utils import get_ny_time_millis
@@ -144,7 +144,7 @@ def main(argv: list[str] | None = None) -> None:
 
     now_ms = _now_ms()
     since_ms = now_ms - int(args.lookback_days) * 86400 * 1000
-    stamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
 
     # Paths
     dataset_jsonl = os.path.join(args.reports_dir, f"edge_train_confcal_{stamp}.jsonl")

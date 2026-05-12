@@ -102,7 +102,7 @@ class MT5TrailingMoveLogger:
             signal_data = self.r.get(signal_key)
             if signal_data:
                 import json
-                signal = json.loads(signal_data)
+                signal = json.loads(signal_data)  # type: ignore
                 entry = signal.get("entry")
                 side = signal.get("side")
 

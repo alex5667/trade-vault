@@ -7,7 +7,7 @@ Extended data structures for TTD, risk management, and performance tracking.
 
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import StrEnum
 
 
@@ -130,7 +130,7 @@ class ExecutionPlan:
     partials: list[float] = field(default_factory=list)  # доли позиции на каждом TP
 
     # Служебное
-    created_at: datetime = field(default_factory=datetime.utcnow)
+    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 @dataclass

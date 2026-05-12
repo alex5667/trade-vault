@@ -200,7 +200,7 @@ class RiskAuditSqlSink:
                             clamp_ratio = excluded.clamp_ratio,
                             decision_latency_ms = excluded.decision_latency_ms,
                             reasons_jsonb = excluded.reasons_jsonb,
-                            snapshot_jsonb = excluded.snapshot_jsonb
+                            snapshot_jsonb = excluded.snapshot_jsonb,
                             signal_jsonb = excluded.signal_jsonb
                         """,
                     (

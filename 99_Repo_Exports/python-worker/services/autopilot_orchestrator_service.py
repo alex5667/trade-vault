@@ -58,11 +58,11 @@ class AutopilotSchedule:
             # fallback: run at UTC 09:05
             import datetime as dt
 
-            now = dt.datetime.utcfromtimestamp(now_ms / 1000.0)
+            now = dt.datetime.fromtimestamp(now_ms / 1000.0, tz=dt.timezone.utc)
             return (now.hour == 9) and (now.minute == 5)
 
 
-def _run_cmd(cmd: str, cwd: str) -> tuple[int, str]:
+def _run_cmd(cmd: str, cwd: str, timeout_sec: int = 3600) -> tuple[int, str]:
     """Run a shell command and return (rc, combined_output)."""
     try:
         p = subprocess.run(
@@ -72,8 +72,11 @@ def _run_cmd(cmd: str, cwd: str) -> tuple[int, str]:
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
+            timeout=timeout_sec,
         )
         return int(p.returncode), str(p.stdout or "")
+    except subprocess.TimeoutExpired as e:
+        return 1, f"timeout_error: exceeded {timeout_sec}s"
     except Exception as e:
         return 1, f"run_error:{e}"
 

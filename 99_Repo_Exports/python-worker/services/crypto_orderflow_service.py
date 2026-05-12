@@ -19,7 +19,6 @@ import logging
 import os
 import random
 import time
-import time as _time
 import traceback
 from collections import deque
 from typing import Any
@@ -89,10 +88,7 @@ try:
     # P3: deterministic Redis/data-quality veto — blocks publishing when infra is degraded
     from services.redis_dq_policy import RedisDQSnapshot, RedisDQThresholds, evaluate_redis_dq
 except Exception:
-    try:
-        from redis_dq_policy import RedisDQSnapshot, RedisDQThresholds, evaluate_redis_dq
-    except Exception:  # pragma: no cover
-        RedisDQSnapshot = RedisDQThresholds = evaluate_redis_dq = None  # type: ignore
+    RedisDQSnapshot = RedisDQThresholds = evaluate_redis_dq = None  # type: ignore
 
 try:
     # P4: unified risk policy engine — per-trade sizing + tier policy + exposure caps
@@ -107,64 +103,35 @@ try:
         infer_symbol_tier,
     )
 except Exception:
-    try:
-        from risk.risk_policy_engine import (
-            RISK_DENY_HARD,
-            RISK_DENY_SOFT,
-            RISK_FORCE_FLATTEN,
-            PortfolioPosition,
-            PortfolioRiskInput,
-            PortfolioRiskLimits,
-            evaluate_portfolio_risk,
-            infer_symbol_tier,
-        )
-    except Exception:
-        # Fall back to legacy portfolio_risk_engine (old API, no infer_symbol_tier)
-        try:
-            from services.risk.portfolio_risk_engine import (
-                RISK_DENY_HARD,
-                RISK_DENY_SOFT,
-                RISK_FORCE_FLATTEN,
-                PortfolioPosition,
-                PortfolioRiskInput,
-                PortfolioRiskLimits,
-                evaluate_portfolio_risk,
-            )
-            infer_symbol_tier = None  # type: ignore
-        except Exception:
-            try:
-                from risk.portfolio_risk_engine import (
-                    RISK_DENY_HARD,
-                    RISK_DENY_SOFT,
-                    RISK_FORCE_FLATTEN,
-                    PortfolioPosition,
-                    PortfolioRiskInput,
-                    PortfolioRiskLimits,
-                    evaluate_portfolio_risk,
-                )
-                infer_symbol_tier = None  # type: ignore
-            except Exception:  # pragma: no cover
-                PortfolioPosition = PortfolioRiskInput = PortfolioRiskLimits = evaluate_portfolio_risk = infer_symbol_tier = None  # type: ignore
-                RISK_DENY_HARD = "DENY_HARD"
-                RISK_DENY_SOFT = "DENY_SOFT"
-                RISK_FORCE_FLATTEN = "FORCE_FLATTEN"
+    PortfolioPosition = PortfolioRiskInput = PortfolioRiskLimits = evaluate_portfolio_risk = infer_symbol_tier = None  # type: ignore
+    RISK_DENY_HARD = "DENY_HARD"
+    RISK_DENY_SOFT = "DENY_SOFT"
+    RISK_FORCE_FLATTEN = "FORCE_FLATTEN"
+
+try:
+    from services.risk.portfolio_risk_engine import (
+        RISK_DENY_HARD,
+        RISK_DENY_SOFT,
+        RISK_FORCE_FLATTEN,
+        PortfolioPosition,
+        PortfolioRiskInput,
+        PortfolioRiskLimits,
+        evaluate_portfolio_risk,
+    )
+    infer_symbol_tier = None  # type: ignore
+except Exception:
+    pass
 
 try:
     # P4.5: SQL audit sink for risk decisions (fail-open: publish path not blocked by DB outages)
     from services.risk.risk_audit_sql import RiskAuditSqlSink
 except Exception:
-    try:
-        from risk.risk_audit_sql import RiskAuditSqlSink
-    except Exception:  # pragma: no cover
-        RiskAuditSqlSink = None  # type: ignore
+    RiskAuditSqlSink = None  # type: ignore
 
 try:
     from services.quarantine_denylist import check_signal_against_quarantine_cache
 except Exception:
-    try:
-        from quarantine_denylist import check_signal_against_quarantine_cache
-    except Exception:  # pragma: no cover
-        check_signal_against_quarantine_cache = None  # type: ignore
+    check_signal_against_quarantine_cache = None  # type: ignore
 
 
 
@@ -188,8 +155,8 @@ def ensure_audit_chain_fields(signal: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(signal, dict):
         return signal
     decision_id = str(signal.get('decision_id') or signal.get('id') or '').strip()
-    signal_id = str(signal.get('signal_id') or decision_id or signal.get('sid') or '').strip()
-    execution_plan_id = str(signal.get('execution_plan_id') or decision_id or signal_id or '').strip()
+    signal_id = str(signal.get('signal_id') or signal.get('sid') or '').strip() or decision_id
+    execution_plan_id = str(signal.get('execution_plan_id') or '').strip() or signal_id or decision_id
     if signal_id:
         signal['signal_id'] = signal_id
     if execution_plan_id:
@@ -229,12 +196,12 @@ def _utc_epoch_ms() -> int:
 
 def _mono_ms() -> int:
     """Monotonic timestamp used only for local latency deltas."""
-    return int(_time.monotonic() * 1000)
+    return int(time.monotonic() * 1000)
 
 
 def _safe_latency_delta_ms(start_mono_ms: int, end_mono_ms: int) -> int:
     try:
-        return max(0, int(end_mono_ms) - int(start_mono_ms))
+        return max(0, end_mono_ms - start_mono_ms)
     except Exception:
         return 0
 
@@ -289,7 +256,7 @@ class CryptoOrderflowService:
             self.pm = get_persistence_manager()
         except Exception as exc:
             logger.error("Failed to init PersistenceManager: %s", exc, exc_info=True)
-            self.pm = None
+            self.pm = None  # type: ignore
 
         # Calibration Service (SRP Phase A)
         self.calib_repo = CalibrationRepository(redis_ticks=self.ticks, pm=self.pm)
@@ -449,11 +416,11 @@ class CryptoOrderflowService:
     def _adaptive_tick_read_count(self, symbol: str, configured_count: int) -> int:
         """Reduce batch size when Redis-entry lag is high to limit HOL blocking."""
         try:
-            count = max(1, int(configured_count))
+            count = max(1, configured_count)
             if not self._env_bool("CRYPTO_OF_ADAPTIVE_READ_COUNT", "1"):
                 return count
-            high_lag_ms = int(os.getenv("CRYPTO_OF_ADAPTIVE_LAG_HIGH_MS", "100"))
-            burst_count = max(1, int(os.getenv("CRYPTO_OF_ADAPTIVE_READ_COUNT_BURST", "50")))
+            high_lag_ms = int(os.getenv("CRYPTO_OF_ADAPTIVE_LAG_HIGH_MS", "50"))
+            burst_count = max(1, int(os.getenv("CRYPTO_OF_ADAPTIVE_READ_COUNT_BURST", "10")))
             tracker = self._lag_trackers.get(f"_redis_{symbol}")
             if tracker is None:
                 return count
@@ -462,7 +429,7 @@ class CryptoOrderflowService:
                 return min(count, burst_count)
             return count
         except Exception:
-            return max(1, int(configured_count or 1))
+            return max(1, configured_count or 1)
 
     async def run_forever(self) -> None:
         """
@@ -518,12 +485,13 @@ class CryptoOrderflowService:
         )
 
         # Start metrics server — respects PROMETHEUS_PORT env var (fallback: METRICS_PORT, then 8000)
+        port = None
         try:
             port = int(os.getenv("PROMETHEUS_PORT") or os.getenv("METRICS_PORT") or "8000")
             start_http_server(port)
             logger.info("✅ Metrics server started on port %d", port)
         except Exception as e:
-            logger.error("❌ Failed to start metrics server on port %d: %s", port, e)
+            logger.error("❌ Failed to start metrics server on port %s: %s", port, e)
 
         # Initial ML config/model load (async) before blocking fast-path
         # Must run BEFORE load_dynamic_symbols so that backlog ticks don't hit ERR_NO_CFG
@@ -558,7 +526,7 @@ class CryptoOrderflowService:
                     startup_symbols = list(DEFAULT_SYMBOLS)
                     try:
                         symbols_key = os.getenv("CRYPTO_SYMBOLS_SET_KEY", "crypto:symbols")
-                        redis_syms = await self.ticks.smembers(symbols_key)
+                        redis_syms = await self.ticks.smembers(symbols_key)  # type: ignore
                         startup_symbols.extend(s.upper() for s in redis_syms)
                     except Exception:
                         pass
@@ -717,8 +685,8 @@ class CryptoOrderflowService:
         self.symbol_tasks.clear()
 
         await self._pools.close_all()
-        self.main = None
-        self.ticks = None
+        self.main = None  # type: ignore
+        self.ticks = None  # type: ignore
 
         crypto_of_shutdown_duration_ms.observe((time.time() - t0_shutdown) * 1000)
         logger.info("✅ Завершено")
@@ -742,7 +710,7 @@ class CryptoOrderflowService:
 
             symbols_key = os.getenv("CRYPTO_SYMBOLS_SET_KEY", "crypto:symbols")
             try:
-                redis_symbols = await self.main.smembers(symbols_key)
+                redis_symbols = await self.main.smembers(symbols_key)  # type: ignore
                 symbols.update(sym.upper() for sym in redis_symbols)
             except RedisError as exc:
                 log_silent_error(exc, 'redis_read_failure', 'global', 'load_dynamic_symbols:smembers')
@@ -1205,7 +1173,7 @@ class CryptoOrderflowService:
             # Read publisher internal queue depth if available
             pending = getattr(self.publisher, "_q", None)
             if pending is not None and hasattr(pending, "qsize"):
-                outbox_backlog = int(pending.qsize())
+                outbox_backlog = pending.qsize()
         except Exception:
             outbox_backlog = 0
         return RedisDQSnapshot(
@@ -1240,18 +1208,18 @@ class CryptoOrderflowService:
         cur = self._adx_cache.get(sym)
         if cur is not None:
             ts0, v0 = cur
-            if 0 <= now_ms - int(ts0) <= cache_ms:
-                return float(v0 or 0.0)
+            if 0 <= now_ms - ts0 <= cache_ms:
+                return v0 or 0.0
         try:
             raw = await self.main.get(f"adx:{sym}")
             v = float(raw) if raw is not None else 0.0
             if v < 0:
                 v = 0.0
-            self._adx_cache[sym] = (now_ms, float(v))
-            return float(v)
+            self._adx_cache[sym] = (now_ms, v)
+            return v
         except Exception as exc:
             log_silent_error(exc, 'redis_read_failure', sym, '_get_adx_cached')
-            return float(self._adx_cache.get(sym, (0, 0.0))[1] or 0.0)
+            return self._adx_cache.get(sym, (0, 0.0))[1] or 0.0
 
 
     # ── Основные рабочие циклы ────────────────────────────────────────────────
@@ -1404,11 +1372,11 @@ class CryptoOrderflowService:
                 else:
                     if is_transient_redis_error(exc):
                         delay = backoff.get_delay()
-                        sampled_warning(logger, "REDIS_READ_TRANSIENT", "⚠️ (%s) Transient ошибка чтения стрима [%s]: %s (backoff=%.2fs)", symbol, str(stream), exc, delay)
+                        sampled_warning(logger, "REDIS_READ_TRANSIENT", "⚠️ (%s) Transient ошибка чтения стрима [%s]: %s (backoff=%.2fs)", symbol, stream, exc, delay)
                         await asyncio.sleep(delay)
                         continue
                     else:
-                        logger.error("❌ (%s) Ошибка чтения стрима [%s]: %s", symbol, str(stream), exc)
+                        logger.error("❌ (%s) Ошибка чтения стрима [%s]: %s", symbol, stream, exc)
                         delay = backoff.get_delay()
                         await asyncio.sleep(delay)
                         continue
@@ -1416,11 +1384,11 @@ class CryptoOrderflowService:
                 if redis_errors_total: redis_errors_total.labels(op="read_ticks", symbol=symbol).inc()
                 if is_transient_redis_error(exc):
                     delay = backoff.get_delay()
-                    sampled_warning(logger, "REDIS_READ_TRANSIENT", "⚠️ (%s) Transient ошибка чтения стрима [%s]: %s (backoff=%.2fs)", symbol, str(stream), str(exc), delay)
+                    sampled_warning(logger, "REDIS_READ_TRANSIENT", "⚠️ (%s) Transient ошибка чтения стрима [%s]: %s (backoff=%.2fs)", symbol, stream, str(exc), delay)
                     await asyncio.sleep(delay)
                     continue
                 else:
-                    logger.error("❌ (%s) Критическая ошибка чтения стрима [%s]: %s", symbol, str(stream), exc, exc_info=True)
+                    logger.error("❌ (%s) Критическая ошибка чтения стрима [%s]: %s", symbol, stream, exc, exc_info=True)
                     delay = backoff.get_delay()
                     await asyncio.sleep(delay)
                     continue
@@ -1691,7 +1659,7 @@ class CryptoOrderflowService:
     def _msgid_ms(msg_id: str) -> int:
         # Redis stream id format: <ms>-<seq>
         try:
-            return int(str(msg_id).split("-", 1)[0])
+            return int(msg_id.split("-", 1)[0])
         except Exception:
             return 0
 
@@ -1702,12 +1670,12 @@ class CryptoOrderflowService:
         3) wall clock (last resort)
         """
         ts = _safe_int(payload_ts_ms or 0)
-        if ts > 0 and abs(int(now_ms) - ts) <= int(self._max_ts_skew_ms):
+        if ts > 0 and abs(now_ms - ts) <= self._max_ts_skew_ms:
             return ts, "payload"
         mid = self._msgid_ms(msg_id)
         if mid > 0:
             return mid, "stream_id"
-        return int(now_ms), "now"
+        return now_ms, "now"
 
     async def _xack_pipeline(self, *, stream: str, group: str, ids: list[str], symbol: str, op: str) -> None:
         """Ack many ids using pipeline, chunked.
@@ -1727,7 +1695,7 @@ class CryptoOrderflowService:
         """
         if not ids:
             return
-        batch = int(self._ack_batch or 0)
+        batch = self._ack_batch or 0
         if batch <= 0:
             batch = 200
 
@@ -1803,7 +1771,7 @@ class CryptoOrderflowService:
                             "ts_ms": str(get_ny_time_millis())
                         }
                         await asyncio.wait_for(
-                            self.main.xadd(RS.SIGNAL_ACK_DLQ, dlq_payload, maxlen=STREAM_RETENTION.get(RS.SIGNAL_ACK_DLQ, 10000), approximate=True),
+                            self.main.xadd(RS.SIGNAL_ACK_DLQ, dlq_payload, maxlen=STREAM_RETENTION.get(RS.SIGNAL_ACK_DLQ, 10000), approximate=True),  # type: ignore
                             timeout=5.0
                         )
                     except asyncio.CancelledError:
@@ -1876,16 +1844,16 @@ class CryptoOrderflowService:
 
                                 ack_ids: list[str] = []
                                 for msg_id, fields in msgs:
-                                    ack_ids.append(str(msg_id))
+                                    ack_ids.append(msg_id)
                                     if quarantine:
                                         with contextlib.suppress(Exception):
                                             await self.ticks.xadd(self.quarantine_stream, {
                                                 "symbol": sym,
-                                                "msg_id": str(msg_id),
+                                                "msg_id": msg_id,
                                                 "reason": f"pel_autoclaim:{kind}",
                                                 "payload": json.dumps(fields, default=str)[:1000],
                                                 "ts_ms": str(self._msgid_ms(msg_id) or get_ny_time_millis()),
-                                            }, maxlen=50000)
+                                            }, maxlen=50000)  # type: ignore
 
                                 await self._xack_pipeline(stream=stream, group=group, ids=ack_ids, symbol=sym, op=f"ack_pel_{kind}")
                             except Exception as exc:
@@ -1911,8 +1879,8 @@ class CryptoOrderflowService:
         except AttributeError:
             # Fallback for older redis versions
             try:
-                client.close()
-                await client.wait_closed()
+                client.close()  # type: ignore
+                await client.wait_closed()  # type: ignore
             except AttributeError:
                 pass
 

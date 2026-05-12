@@ -623,9 +623,9 @@ class SmtCoherenceGate:
 
         if st is not None:
             leader, leader_dir = st.get("leader", ""), st.get("leader_dir", "")
-            leader_confirm = int(_safe_float(st.get("leader_confirm") or 0.0, 0.0))
-            coh = _safe_float(st.get("coh") or 0.0, 0.0)
-            st_ts = int(_safe_float(st.get("ts_ms") or 0.0, 0.0))
+            leader_confirm = _safe_float(st.get("leader_confirm"), 0.0)
+            coh = _safe_float(st.get("coh"), 0.0)
+            st_ts = _safe_float(st.get("ts_ms"), 0.0)
             if st_ts > 0: stale = (abs(now - st_ts) > self.state_stale_ms) if self.state_stale_ms > 0 else False
 
         # audit into ctx

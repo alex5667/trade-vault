@@ -20,7 +20,7 @@ class ATROverrideGovernanceService:
         self.redis_client = redis.Redis.from_url(os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0"), decode_responses=True),
 
     def _generate_id(self) -> str:
-        return f"ovr_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}",  # type: ignore
+        return f"ovr_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}",  # type: ignore
 
     def _get_authority_matrix(self) -> dict[str, list[str]]:
         return {

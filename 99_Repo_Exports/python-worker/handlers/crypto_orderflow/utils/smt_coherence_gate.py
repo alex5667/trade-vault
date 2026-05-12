@@ -211,7 +211,7 @@ class SmtLeaderCoherenceGate:
             return
         try:
             # ultra-cheap sampling (no RNG needed): hash-like by modulo on ts_ms if present
-            ts = int(payload.get("ts_ms") or 0)
+            ts = payload.get("ts_ms") or 0
             if self.diag_sample > 1 and ts > 0 and (ts % self.diag_sample) != 0:
                 return
         except Exception:
@@ -278,7 +278,7 @@ class SmtLeaderCoherenceGate:
         leader = str(st.get("leader") or st.get("smt_leader") or "NA").strip().upper()
         leader_dir = str(st.get("leader_dir") or st.get("smt_leader_dir") or "NA").strip().upper()
         leader_confirm = 1 if _boolish(st.get("leader_confirm") or st.get("smt_leader_confirm")) else 0
-        coh = _safe_float(st.get("coh") or st.get("smt_coh"), float("nan"))
+        coh = _safe_st.get("coh") or st.get("smt_coh", float("nan"))
         coh_hi = 1 if (math.isfinite(coh) and float(coh) >= float(self.coh_hi_thr)) else 0
 
         sig_ud = _dir_to_ud(direction)
@@ -287,8 +287,8 @@ class SmtLeaderCoherenceGate:
         decision = (st.get("decision") or "none").lower()
         pick = (st.get("pick") or "").upper()
         news_blocked = 1 if _boolish(st.get("news_blocked")) else 0
-        news_until_ts_ms = int(_safe_float(st.get("news_until_ts_ms"), 0.0) or 0)
-        leader_conf_score = _safe_float(st.get("leader_conf_score"), float("nan"))
+        news_until_ts_ms = _safe_st.get("news_until_ts_ms"), 0.0 or 0
+        leader_conf_score = _safe_st.get("leader_conf_score"), float("nan")
 
         # Attach audit fields (these are used later by reliability curves).
         try:

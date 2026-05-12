@@ -41,7 +41,7 @@ import os
 import re
 import time
 from collections.abc import Sequence
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from utils.time_utils import get_ny_time_millis
@@ -303,7 +303,7 @@ def main(argv: list[str] | None = None) -> int:
 
     args = ap.parse_args(argv)
 
-    stamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
     t0 = time.time()
 
     status: dict[str, Any] = {

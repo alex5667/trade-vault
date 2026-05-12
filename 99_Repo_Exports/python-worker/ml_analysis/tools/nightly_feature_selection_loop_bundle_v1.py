@@ -32,7 +32,7 @@ import logging
 import os
 import subprocess
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from ml_analysis.tools.edge_stack_train_bundle_utils_p59 import atomic_write_json, now_ms, write_train_metrics
@@ -145,7 +145,7 @@ def main(argv: list | None = None) -> int:
     feature_schema_ver = _norm_schema_ver(str(args.feature_schema_ver or "").strip())
 
 
-    run_id = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    run_id = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
     out_dir = os.path.abspath(str(args.out_dir))
     run_dir = os.path.join(out_dir, "runs", run_id)
     os.makedirs(run_dir, exist_ok=True)

@@ -19,9 +19,12 @@ __all__ = [
     "REGIME_TREND",
     "REGIME_MIXED",
     "REGIME_UNKNOWN",
+    "REGIME_EXPANSION_BULL",
+    "REGIME_EXPANSION_BEAR",
     "normalize_regime",
     "is_range_regime",
     "is_trend_regime",
+    "regime_to_id",
 ]
 
 # ── canonical labels ─────────────────────────────────────────────────
@@ -29,6 +32,8 @@ REGIME_RANGE: str = "range"
 REGIME_TREND: str = "trend"
 REGIME_MIXED: str = "mixed"
 REGIME_UNKNOWN: str = "unknown"
+REGIME_EXPANSION_BULL: str = "expansion_bull"
+REGIME_EXPANSION_BEAR: str = "expansion_bear"
 
 # ── alias tables (frozen for O(1) lookup) ────────────────────────────
 _RANGE_ALIASES: frozenset[str] = frozenset({
@@ -99,3 +104,28 @@ def is_trend_regime(raw: str) -> bool:
     """Return *True* if *raw* normalises to any trend regime."""
     n = normalize_regime(raw)
     return n == REGIME_TREND or n in _TREND_DIRECTIONAL
+
+
+REGIME_ID: dict[str, float] = {
+    "unknown": -1.0,
+    "mixed": 0.0,
+    "range": 1.0,
+    "trend": 2.0,
+    "trending_bull": 2.1,
+    "trending_bear": 2.2,
+    # expansion_bull/bear: higher ATR/volatility than trending_bull/bear →
+    # distinct ML signal for wider spread/slippage/entry policy.
+    "expansion_bull": 3.1,
+    "expansion_bear": 3.2,
+}
+
+
+def regime_to_id(raw: str) -> float:
+    """Map regime string to numeric ID.
+
+    expansion_bull/bear → 3.1/3.2 (ML-distinct from trend 2.x).
+    unknown → -1.0 (never equals range=1.0).
+    """
+    normalized = normalize_regime(raw)
+    return REGIME_ID.get(normalized, -1.0)
+

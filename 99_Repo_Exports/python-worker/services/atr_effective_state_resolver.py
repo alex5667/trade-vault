@@ -1,7 +1,7 @@
 import logging
 import os
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from services.analytics_db import get_conn
@@ -209,7 +209,7 @@ class EffectiveStateResolver:
                 "promotion_allowed": release_allowed,
                 "release_allowed": release_allowed
             },
-            "projection_ver": int(datetime.utcnow().timestamp()),
+            "projection_ver": int(datetime.now(timezone.utc).timestamp()),
             "updated_at_ms": int(time.time() * 1000)
         }
 

@@ -18,6 +18,8 @@ def choose_arm_abc(*, key: str, split_b: int, split_c: int, salt: str = "") -> s
       bucket < split_b + split_c    => C
       else                          => A
     """
+    if isinstance(split_b, float) or isinstance(split_c, float):
+        raise TypeError(f"AB splits must be int percentages (0-100), got float: split_b={split_b}, split_c={split_c}")
     sb = max(0, min(100, int(split_b)))
     sc = max(0, min(100, int(split_c)))
     if sb + sc > 100:
@@ -46,6 +48,10 @@ def regime_group(regime: str) -> str:
         return "trend"
     if rg in ("range", "chop", "meanrev", "sideways"):
         return "range"
+    if rg in ("high_vol", "volatile", "vol_expansion"):
+        return "high_vol"
+    if rg in ("high_vol_low_liq", "volatile_thin"):
+        return "high_vol_low_liq"
     return "mixed"
 
 

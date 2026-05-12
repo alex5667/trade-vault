@@ -442,7 +442,7 @@ class TestProbeMain:
         monkeypatch.delenv("REDIS_URL", raising=False)
 
         # Fresh bucket: 5 minutes ago
-        five_min_ago = dt.datetime.utcnow() - dt.timedelta(minutes=5)
+        five_min_ago = dt.datetime.now(dt.timezone.utc) - dt.timedelta(minutes=5)
 
         mock_conn = MagicMock()
         mock_cursor = MagicMock()
@@ -489,7 +489,7 @@ class TestProbeMain:
         monkeypatch.setenv("TRADES_DB_DSN", "postgresql://fake/db")
         monkeypatch.setenv("REDIS_URL", "redis://localhost:6379/0")
 
-        five_min_ago = dt.datetime.utcnow() - dt.timedelta(minutes=5)
+        five_min_ago = dt.datetime.now(dt.timezone.utc) - dt.timedelta(minutes=5)
 
         mock_conn = MagicMock()
         mock_cursor = MagicMock()

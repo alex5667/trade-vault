@@ -501,7 +501,7 @@ def fetch_fmp_calendar(cfg: FMPCfg, *, timeout: int) -> list[dict[str, Any]]:
         return []
     import datetime as _dt
 
-    now = _dt.datetime.utcnow().replace(tzinfo=_dt.UTC)
+    now = _dt.datetime.now(dt.timezone.utc).replace(tzinfo=_dt.UTC)
     frm = (now - _dt.timedelta(days=max(0, int(cfg.cal_back_days)))).date().isoformat()
     to = (now + _dt.timedelta(days=max(1, int(cfg.cal_lookahead_days)))).date().isoformat()
 

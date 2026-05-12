@@ -3,7 +3,7 @@ import logging
 import os
 import time
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 import psycopg2.extras
@@ -16,7 +16,7 @@ logger = logging.getLogger("atr_release_gate")
 _GRAPH_GATE_ENABLE = os.getenv("ATR_GRAPH_RELEASE_GATE_ENABLE", "0") == "1"
 
 def _generate_id(prefix: str) -> str:
-    return f"{prefix}_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}"
+    return f"{prefix}_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}"
 
 def _check_inv_no_live_without_replay(change: dict[str, Any], replay_status: str) -> str | None:
     """

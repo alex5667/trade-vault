@@ -64,9 +64,13 @@ CONSUMER = os.getenv("TM_CONSUMER", f"tm-{os.getpid()}")
 SIGNAL_PATTERNS = [p.strip() for p in os.getenv("TM_SIGNAL_STREAM_PATTERNS", "signals:*,stream:trade:entry_audit").split(",") if p.strip()]
 TICK_PATTERNS = [p.strip() for p in os.getenv("TM_TICK_STREAM_PATTERNS", "stream:tick_*").split(",") if p.strip()]
 
-READ_COUNT = int(os.getenv("TM_READ_COUNT", "200"))
-READ_COUNT_TICKS = int(os.getenv("TM_READ_COUNT_TICKS", "2000"))
+READ_COUNT = int(os.getenv("TM_READ_COUNT", "100"))
+READ_COUNT_TICKS = int(os.getenv("TM_READ_COUNT_TICKS", "500"))
 BLOCK_MS = int(os.getenv("TM_BLOCK_MS", "1000"))
+
+# ── Tick/Signal fairness: time-budget + interleaving ──
+TICK_BATCH_BUDGET_SEC = float(os.getenv("TM_TICK_BATCH_BUDGET_SEC", "2.0"))
+TICK_INTERLEAVE_CHUNK = int(os.getenv("TM_TICK_INTERLEAVE_CHUNK", "200"))
 
 RESCAN_EVERY_SEC = int(os.getenv("TM_RESCAN_EVERY_SEC", "15"))
 CLAIM_EVERY_SEC = int(os.getenv("TM_CLAIM_EVERY_SEC", "10"))
@@ -156,7 +160,12 @@ def _parse_signal(fields: dict[str, str]) -> dict:
 
 def _parse_tick(fields: dict[str, str]) -> dict:
     # ожидаем хотя бы symbol и price/bid/ask/last + ts
-    out = dict(fields)
+    out = {}
+    for k, v in dict(fields or {}).items():
+        kk = k.decode("utf-8", errors="ignore") if isinstance(k, (bytes, bytearray)) else str(k)
+        vv = v.decode("utf-8", errors="ignore") if isinstance(v, (bytes, bytearray)) else str(v)
+        out[kk] = vv
+
     # нормализуем ts
     if "ts" in out:
         with contextlib.suppress(Exception):
@@ -254,14 +263,19 @@ def _process_one(r: redis.Redis, monitor: TradeMonitorService, m: StreamMsg, is_
     try:
         if is_tick:
             raw_tick = _parse_tick(m.fields)
-            trace_id = (raw_tick.get("trace_id", ""))
+            trace_id = str(raw_tick.get("trace_id", "")).strip()
             if trace_id:
                 set_trace_id(trace_id)
             monitor.on_tick(raw_tick)
             _stats["ticks_processed"] += 1
         else:
             raw_sig = _parse_signal(m.fields)
-            trace_id = (raw_sig.get("trace_id", ""))
+            trace_id = str(raw_sig.get("trace_id", "")).strip()
+            if not trace_id:
+                meta = raw_sig.get("meta")
+                if isinstance(meta, dict):
+                    trace_id = str(meta.get("trace_id", "")).strip()
+            
             if trace_id:
                 set_trace_id(trace_id)
             if "entry_audit" in m.stream:
@@ -547,8 +561,55 @@ def main():
                 tick_set = set(client_states[rc]["ticks"])
                 # Record loop age frequently to avoid AIOps marking TM as hung during massive tick processing
                 trade_monitor_loop_age_seconds.set(time.time())
+
+                # P0 FIX: Process ticks BEFORE signals within each batch.
+                # Ensures _max_tick_ts_ms advances before jitter buffer flush,
+                # preventing head-of-line blocking where signal persist delays tick drain.
+                tick_msgs = []
+                signal_msgs = []
                 for m in msgs:
-                    _process_one(rc, monitor, m, is_tick=(m.stream in tick_set))
+                    if m.stream in tick_set:
+                        tick_msgs.append(m)
+                    else:
+                        signal_msgs.append(m)
+
+                # ── P42 FIX: Interleaved tick/signal processing with time-budget ──
+                # Instead of processing ALL ticks then ALL signals (which starves signals
+                # for minutes under heavy tick load), we interleave:
+                #   - Process a chunk of ticks (TICK_INTERLEAVE_CHUNK, default 200)
+                #   - Process ALL pending signals
+                #   - Repeat until ticks exhausted or time budget exceeded
+                # This guarantees signals are processed within TICK_BATCH_BUDGET_SEC.
+                tick_idx = 0
+                tick_budget_start = time.monotonic()
+                budget_exceeded = False
+
+                while tick_idx < len(tick_msgs):
+                    # Process a chunk of ticks
+                    chunk_end = min(tick_idx + TICK_INTERLEAVE_CHUNK, len(tick_msgs))
+                    for i in range(tick_idx, chunk_end):
+                        _process_one(rc, monitor, tick_msgs[i], is_tick=True)
+                    tick_idx = chunk_end
+
+                    # Update heartbeat after each chunk to prevent AIOps false alarms
+                    trade_monitor_loop_age_seconds.set(time.time())
+
+                    # Check time budget — if exceeded, process signals before continuing
+                    elapsed = time.monotonic() - tick_budget_start
+                    if elapsed >= TICK_BATCH_BUDGET_SEC and signal_msgs:
+                        budget_exceeded = True
+                        break
+
+                # Process signals — they get a turn after every tick chunk or when budget fires
+                for m in signal_msgs:
+                    _process_one(rc, monitor, m, is_tick=False)
+
+                # If budget was exceeded, process remaining ticks AFTER signals got their turn
+                if budget_exceeded and tick_idx < len(tick_msgs):
+                    for i in range(tick_idx, len(tick_msgs)):
+                        _process_one(rc, monitor, tick_msgs[i], is_tick=True)
+                        if (i - tick_idx) > 0 and (i - tick_idx) % TICK_INTERLEAVE_CHUNK == 0:
+                            trade_monitor_loop_age_seconds.set(time.time())
             except (redis.ConnectionError, redis.TimeoutError, ConnectionError, OSError) as conn_err:
                 log.warning(
                     "Redis connection error on node %s: %s — skipping this node for current cycle",

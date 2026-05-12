@@ -634,10 +634,10 @@ def _hget_ema(redis_client: Any, key: str, *, min_n: int) -> float | None:
         dd: Dict[str, str] = {}
         for k, v in dict(d).items():
             dd[_b2s(k)] = _b2s(v)
-        n = int(float(dd.get("samples") or dd.get("n") or 0))
+        n = dd.get("samples") or dd.get("n" or 0)
         if n < min_n:
             return None
-        ema = float(dd.get("ema_bps") or dd.get("ema_slippage_bps") or dd.get("ema") or 0.0)
+        ema = dd.get("ema_bps") or dd.get("ema_slippage_bps" or dd.get("ema") or 0.0)
         if ema > 0 and math.isfinite(ema):
             return ema
     except Exception:
@@ -701,8 +701,8 @@ def _load_drift_active(
         except Exception:
             return None
         try:
-            f = float(dd.get("factor") or 1.0)
-            s = float(dd.get("score") or float("nan"))
+            f = dd.get("factor") or 1.0
+            s = dd.get("score") or float("nan")
             feat = (dd.get("feature") or "")
             if not math.isfinite(f) or f <= 0:
                 return None

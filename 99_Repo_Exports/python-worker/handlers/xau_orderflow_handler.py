@@ -678,8 +678,8 @@ class XAUOrderFlowHandler:
             ts: Timestamp в мс
         """
         # Определяем текущую дату (UTC)
-        from datetime import datetime
-        current_date = datetime.utcfromtimestamp(ts / 1000).date()
+        from datetime import datetime, timezone
+        current_date = datetime.fromtimestamp(ts / 1000, tz=timezone.utc).date()
 
         # Если новый день или pivots не инициализированы
         if self.last_pivot_date != current_date:

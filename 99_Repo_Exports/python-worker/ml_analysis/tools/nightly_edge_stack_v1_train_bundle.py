@@ -28,7 +28,7 @@ import os
 import subprocess
 import sys
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 try:
@@ -138,7 +138,7 @@ def _build_telegram_report(
     pos_rate: float,
 ) -> str:
     """Build a compact Telegram text report for a v13 training cycle."""
-    ts_str = datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
+    ts_str = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     schema_tag = f" [{schema_ver}]" if schema_ver else ""
     header = f"🧠 <b>ML Model Train</b>{schema_tag}\n<code>run: {run_id}</code>  {ts_str}\n"
 
@@ -342,7 +342,7 @@ def main(argv: list | None = None) -> int:
     feature_schema_ver = _norm_schema_ver(str(args.feature_schema_ver or "").strip())
 
 
-    run_id = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    run_id = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
     out_dir = os.path.abspath(str(args.out_dir))
     run_dir = os.path.join(out_dir, "runs", run_id)
     champions_dir = os.path.join(out_dir, "champions")

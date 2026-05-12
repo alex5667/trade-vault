@@ -827,6 +827,44 @@ class OrderFlowStrategy:
         # ------------------------------------------------------------
         self._update_liquidity_regime(runtime, tick_ts, indicators)
 
+        # ------------------------------------------------------------
+        # Market Regime (Macro Context) injection
+        # ------------------------------------------------------------
+        try:
+            snapshot = self._regime_svc.state.snapshot if hasattr(self._regime_svc, "state") else None
+            if snapshot:
+                from common.market_mode import regime_to_id
+                now_ms = int(tick_ts)
+                indicators["regime"] = str(snapshot.label.value)
+                indicators["regime_id"] = regime_to_id(snapshot.label.value)
+                indicators["regime_score"] = float(snapshot.score)
+                indicators["regime_confidence"] = float(snapshot.confidence)
+                indicators["regime_age_ms"] = int(snapshot.age_ms(now_ms))
+                regime_stale = int(snapshot.is_stale(now_ms, int(cfg.get("REGIME_MAX_STALE_MS", 10000))))
+                indicators["regime_stale"] = regime_stale
+                indicators["regime_source"] = str(snapshot.source)
+                indicators["regime_schema_ver"] = str(snapshot.schema_ver)
+                
+                # Apply stale policy tighten action
+                stale_action = str(os.getenv("REGIME_STALE_ACTION", cfg.get("REGIME_STALE_ACTION", "tighten"))).lower()
+                if regime_stale == 1 and stale_action == "tighten":
+                    indicators["REGIME_TIGHTEN_CONF_ADD"] = float(cfg.get("REGIME_TIGHTEN_CONF_ADD", 0.15))
+                    indicators["REGIME_TIGHTEN_SIZE_MULT"] = float(cfg.get("REGIME_TIGHTEN_SIZE_MULT", 0.50))
+                
+                # Export metrics
+                try:
+                    from services.orderflow.metrics import of_regime_id_gauge, of_regime_stale_gauge, regime_stale_total
+                    of_regime_id_gauge.labels(symbol=runtime.symbol).set(indicators["regime_id"])
+                    of_regime_stale_gauge.labels(symbol=runtime.symbol).set(regime_stale)
+                    if regime_stale == 1 and not getattr(runtime, '_was_regime_stale', False):
+                        regime_stale_total.labels(symbol=runtime.symbol, action=stale_action).inc()
+                    runtime._was_regime_stale = bool(regime_stale)
+                except Exception as e:
+                    self.logger.error("Failed to export regime metrics: %s", e)
+
+        except Exception as e:
+            self.logger.error("Failed to inject regime snapshot into indicators: %s", e)
+
         # Track tick gaps (Section 5: Burst Calibrator)
         with contextlib.suppress(Exception):
             runtime.tick_gaps.record(int(tick_ts))
@@ -3969,13 +4007,39 @@ class OrderFlowStrategy:
                              try:
                                  sym = str(runtime.symbol).upper()
                                  safe_create_task(
-#                                      self.redis.set(
+                                     self.redis.set(
                                          f"regime:{sym}",
                                          str(new_regime),
                                          ex=self._regime_redis_ttl_sec,
+                                     ),
+                                     name=f"regime-pub-{sym}",
+                                 )
+                                 
+                                 # Publish transition if any
+                                 transition = getattr(self._regime_svc, "last_transition", None)
+                                 if transition:
+                                     import json
+                                     from core.redis_keys import RS, STREAM_RETENTION
+                                     safe_create_task(
+                                         self.redis.xadd(
+                                             RS.REGIME_TRANSITIONS,
+                                             {"payload": json.dumps(transition)},
+                                             maxlen=STREAM_RETENTION.get(RS.REGIME_TRANSITIONS, 50000),
+                                             approximate=True
+                                         ),
+                                         name=f"regime-trans-{sym}",
                                      )
-#                                      name=f"regime-pub-{sym}",
-#                                  )
+                                     
+                                     from services.orderflow.metrics import regime_transition_total
+                                     regime_transition_total.labels(
+                                         symbol=transition["symbol"],
+                                         old_regime=transition["old_regime"],
+                                         new_regime=transition["new_regime"],
+                                         reason=transition["reason"]
+                                     ).inc()
+                                     
+                                     self._regime_svc.last_transition = None
+                                     
                                  runtime._regime_last_pub_ms = ts_bar
                              except Exception:
                                  pass

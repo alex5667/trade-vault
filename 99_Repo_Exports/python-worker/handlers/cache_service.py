@@ -6,7 +6,7 @@ from __future__ import annotations
 """
 
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from utils.time_utils import get_ny_time_millis
@@ -35,7 +35,7 @@ class CacheService:
         self._last_hlc_warning_ts = 0.0
 
     def _utc_date_str(self, ts_ms: int) -> str:
-        return datetime.utcfromtimestamp(ts_ms / 1000).date().strftime("%Y-%m-%d")
+        return datetime.fromtimestamp(ts_ms / 1000, tz=timezone.utc).date().strftime("%Y-%m-%d")
 
     def _coerce_float(self, x: Any) -> float:
         """Безопасное приведение к float."""

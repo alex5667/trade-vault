@@ -3,7 +3,7 @@ import logging
 import os
 import time
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 import redis
@@ -14,7 +14,7 @@ from services.atr_effective_state_resolver import EffectiveStateResolver
 logger = logging.getLogger("atr_control_plane_graph")
 
 def _generate_id(prefix: str) -> str:
-    return f"{prefix}_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}"
+    return f"{prefix}_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}"
 
 class ControlPlaneGraphService:
     shadow_enabled = os.getenv("ATR_CONTROL_PLANE_GRAPH_SHADOW", "1") == "1"
@@ -157,7 +157,7 @@ class ControlPlaneGraphService:
                     SET node_state_json = %s, version = version + 1, last_event_id = %s, updated_at = %s
                     WHERE node_id = %s
                 """, (
-                    json.dumps(target_state), event_id, datetime.utcnow(), node_id
+                    json.dumps(target_state), event_id, datetime.now(timezone.utc), node_id
                 ))
                 conn.commit()
             return True

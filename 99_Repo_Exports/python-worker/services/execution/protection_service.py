@@ -117,8 +117,8 @@ class ProtectionService:
     ) -> list[str]:
         """Return list of validation error strings (empty = OK)."""
         errors: list[str] = []
-        ep = float(entry_price)
-        sl = float(sl_price)
+        ep = entry_price
+        sl = sl_price
         if ep <= 0:
             errors.append(f"entry_price invalid: {ep}")
         if sl <= 0:
@@ -127,13 +127,13 @@ class ProtectionService:
             if sl > ep:
                 errors.append(f"SL {sl} above entry {ep} for LONG")
             for i, tp in enumerate(tp_levels or []):
-                if float(tp) < ep:
+                if tp < ep:
                     errors.append(f"TP{i+1} {tp} below entry {ep} for LONG")
         else:
             if sl < ep:
                 errors.append(f"SL {sl} below entry {ep} for SHORT")
             for i, tp in enumerate(tp_levels or []):
-                if float(tp) > ep:
+                if tp > ep:
                     errors.append(f"TP{i+1} {tp} above entry {ep} for SHORT")
         return errors
 
@@ -232,9 +232,22 @@ class ProtectionService:
             result["sl_price"] = sl_price
 
         # --- TP ladder ---
+        # Compute tp_qtys if not provided (critical fix: was using 100% qty per TP)
+        effective_tp_qtys = list(tp_qtys) if tp_qtys else []
+        if not effective_tp_qtys and tp_levels:
+            try:
+                from services.tp_config import compute_even_split_tp_qtys
+                effective_tp_qtys = compute_even_split_tp_qtys(qty, len(tp_levels), sf.step_size)
+            except Exception:
+                # Ultimate fallback: even split without step rounding
+                n = len(tp_levels)
+                effective_tp_qtys = [qty / n] * n
+
         for i, tp_price in enumerate(tp_levels or []):
             lvl = i + 1
-            tp_qty = (tp_qtys[i] if tp_qtys and i < len(tp_qtys) else qty)
+            tp_qty = effective_tp_qtys[i] if i < len(effective_tp_qtys) else 0.0
+            if tp_qty <= 0:
+                continue
             tp_qty_rounded = _round_down(tp_qty, sf.step_size)  # type: ignore
             tp_cid = _make_cid(sid, f"tp{lvl}", r)  # type: ignore
             tp_params: dict[str, Any] = {

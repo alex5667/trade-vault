@@ -1,5 +1,5 @@
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from services.analytics_db import get_conn
@@ -60,7 +60,7 @@ class ControlPlaneReadinessService:
             "total_drifts_active": active_drifts,
             "blockers": blockers,
             "warnings": warnings,
-            "evaluated_at": datetime.utcnow().isoformat()
+            "evaluated_at": datetime.now(timezone.utc).isoformat()
         }
 
 if __name__ == "__main__":

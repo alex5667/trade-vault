@@ -1969,7 +1969,8 @@ class PeriodicReporter:
                     signal_shadow_lines.append(line)
             display_symbol = "ALLSYMBOLS" if symbol == "ALL" else symbol
             report_type_label = "VIRTUAL / SHADOW" if report_type == "VIRTUAL" else "REAL"
-            title_text = f"Отчет: {html.escape(str(source))} ({report_type_label})"
+            display_source = "CryptoOrderFlow" if str(source).lower() in ("unknown", "") else str(source)
+            title_text = f"Отчет: {html.escape(display_source)} ({report_type_label})"
             sections: list[str] = [
                 f"📊 <b>{title_text} / {html.escape(display_symbol)}</b>",
                 f"🕐 {now_utc}",

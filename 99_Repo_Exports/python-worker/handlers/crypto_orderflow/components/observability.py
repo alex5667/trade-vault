@@ -24,7 +24,7 @@ def _c_sampled_debug(logger: Any, key: str, msg: str, *args: Any) -> None:
         interval = 30.0
     try:
         now = float(time.time())
-        last = float(_CDBG_LAST.get(key, 0.0))
+        last = _CDBG_LAST.get(key, 0.0)
         if (now - last) < interval:
             return
         _CDBG_LAST[key] = now

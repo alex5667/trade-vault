@@ -31,7 +31,7 @@ def gen_weird(depth: int = 4):
             "x" * 5000,
             b"\xff\x00\x01",
             Decimal("1.2345"),
-            dt.datetime.utcnow(),
+            dt.datetime.now(dt.timezone.utc),
             set([1, 2, 3]),
             tuple([1, 2]),
             WeirdObj("z"),

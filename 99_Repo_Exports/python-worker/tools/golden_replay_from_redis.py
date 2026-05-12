@@ -5,7 +5,7 @@ import json
 import os
 import subprocess
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 from tools.ndjson_canary import (
@@ -46,7 +46,7 @@ def main() -> None:
 
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    ts = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
     inputs_path_raw = out_dir / f"of_inputs_{ts}.raw.ndjson"
     replay_path = out_dir / f"of_replay_{ts}.ndjson"
     report_path = out_dir / f"of_diff_{ts}.json"

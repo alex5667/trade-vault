@@ -112,7 +112,7 @@ class ExecutionEventWriter:
         action = str(raw.get("action") or raw.get("event_type") or "event").strip() or "event"
         event_type = str(raw.get("event_type") or action).strip() or "event"
         status = (raw.get("status") or "ok").strip() or "ok"
-        ts_event_ms = int(raw.get("ts_event_ms") or raw.get("ts_ms") or _ms_now())
+        ts_event_ms = raw.get("ts_event_ms") or raw.get("ts_ms" or _ms_now())
 
         # Derive side_int if absent
         side_int = raw.get("side_int")
@@ -132,8 +132,8 @@ class ExecutionEventWriter:
                     symbol=symbol,
                     ts_ms=ts_event_ms,
                     side=Side(normalize_side(str(raw.get("side") or raw.get("logical_side") or "")).value),
-                    price=float(raw.get("avg_price") or raw.get("price") or 0.0),
-                    qty=float(raw.get("filled_qty") or raw.get("qty") or 0.0),
+                    price=raw.get("avg_price") or raw.get("price" or 0.0),
+                    qty=raw.get("filled_qty") or raw.get("qty" or 0.0),
                     side_int=side_int or 0,
                     status=status.upper(),
                     meta={k: v for k, v in raw.items() if v is not None},
@@ -230,7 +230,7 @@ class ExecutionEventWriter:
 
         If the push fails, falls back to DLQ to avoid silent message loss.
         """
-        retry_n = int(payload.get("retry_n") or 0)
+        retry_n = payload.get("retry_n") or 0
         payload["retry_n"] = retry_n + 1
         payload["retry_reason"] = reason
         new_raw = json.dumps(payload, ensure_ascii=False, default=str)

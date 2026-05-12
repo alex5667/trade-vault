@@ -9,7 +9,7 @@ in the scanner_infra system. These models integrate with existing SignalContext.
 
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import StrEnum
 from typing import Any
 
@@ -91,7 +91,7 @@ class ExecutionPlan:
 
     expiry_bars: int                 # сколько 1m-баров сигнал живёт
 
-    created_at: datetime = field(default_factory=datetime.utcnow)
+    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     meta: dict[str, Any] = field(default_factory=dict)
 
 

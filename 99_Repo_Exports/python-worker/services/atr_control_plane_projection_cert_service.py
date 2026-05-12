@@ -3,7 +3,7 @@ import logging
 import os
 import time
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 
 import redis
 
@@ -20,7 +20,7 @@ logger = logging.getLogger("atr_cert_service")
 class ProjectionCertService:
     @staticmethod
     def _generate_id(prefix: str):
-         return f"{prefix}_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}"
+         return f"{prefix}_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}"
 
     @staticmethod
     def run_cert_cycle():
@@ -78,7 +78,7 @@ class ProjectionCertService:
                 status = "passed" if not drifts else "failed"
 
                 # Insert DB
-                now_utc = datetime.utcnow()
+                now_utc = datetime.now(timezone.utc)
                 cur.execute("""
                     INSERT INTO atr_control_plane_projection_certs (
                         cert_id, scope_kind, scope_value, status, checked_at

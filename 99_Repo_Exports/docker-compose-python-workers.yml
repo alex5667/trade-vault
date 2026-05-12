@@ -51,7 +51,7 @@ services:
     - REDIS_SOCKET_CONNECT_TIMEOUT=10
     - REDIS_MAX_CONNECTIONS=256
     - REDIS_MAIN_MAX_CONNECTIONS=128
-    - REDIS_TICKS_MAX_CONNECTIONS=512
+    - REDIS_TICKS_MAX_CONNECTIONS=1024
     - REDIS_PUBLISH_MAX_CONNECTIONS=32
     - REDIS_RETRY_ON_TIMEOUT=true
     - REDIS_HEALTH_CHECK_INTERVAL=30
@@ -379,6 +379,10 @@ services:
     - EDGE_TS_BAD_VETO_BPS=1000000
     - GATE_PROFILE=hard
     - FEATURE_DRIFT_ENABLED=1
+    - FEATURE_DRIFT_PROFILE=tighten
+    - FEATURE_DRIFT_MODE=tighten
+    - ADVERSE_CHECK_ENABLE=1
+    - MANIP_MODE=tighten
     - FEATURE_DRIFT_BASE_ALPHA=0.01
     - FEATURE_DRIFT_FAST_ALPHA=0.10
     - FEATURE_DRIFT_MIN_SAMPLES=200
@@ -399,7 +403,7 @@ services:
     - ENTRY_POLICY_ENABLED=1
     - ENTRY_POLICY_DIAG_STREAM=entry_policy_diag
     - ATR_POLICY_EXEC_BUDGET_ADVISORY_ONLY=1
-    - SMT_LEADER_MODE=observe
+    - SMT_LEADER_MODE=veto
     - FEATURE_DRIFT_Z=6.0
     - FEATURE_DRIFT_ALPHA=0.02
     - SLIPPAGE_EMA_ALPHA=0.05
@@ -525,7 +529,7 @@ services:
     - REDIS_SOCKET_CONNECT_TIMEOUT=10
     - REDIS_MAX_CONNECTIONS=256
     - REDIS_MAIN_MAX_CONNECTIONS=128
-    - REDIS_TICKS_MAX_CONNECTIONS=256
+    - REDIS_TICKS_MAX_CONNECTIONS=1024
     - REDIS_PUBLISH_MAX_CONNECTIONS=32
     - REDIS_RETRY_ON_TIMEOUT=true
     - REDIS_HEALTH_CHECK_INTERVAL=30
@@ -591,6 +595,10 @@ services:
     - CRYPTO_OF_DROP_ON_LAG=${CRYPTO_OF_DROP_ON_LAG:-true}
     - CRYPTO_OF_MAX_TS_SKEW_MS=${CRYPTO_OF_MAX_TS_SKEW_MS:-5000}
     - FEATURE_DRIFT_ENABLED=1
+    - FEATURE_DRIFT_PROFILE=tighten
+    - FEATURE_DRIFT_MODE=tighten
+    - ADVERSE_CHECK_ENABLE=1
+    - MANIP_MODE=tighten
     - AUTO_CALIBRATION_THRESHOLD=100
     - AUTO_CALIBRATION_SOURCE=CryptoOrderFlow
     - STRATEGY_RESEARCH_GUARD_BLOCKER_KEY=cfg:research_guard:blocker:v1
@@ -1802,7 +1810,7 @@ services:
     - CALIB_MIN_MEAN_PNL_R=0.0
     - SMT_GATE_ENABLED=1
     - SMT_COH_BUNDLE=btc_eth_sol
-    - SMT_LEADER_MODE=observe
+    - SMT_LEADER_MODE=veto
     - SMT_COH_MIN=0.65
     - SMT_STATE_STALE_MS=5000
     - SMT_DIAG_ENABLED=0
@@ -2561,7 +2569,12 @@ services:
     - TM_GROUP=trade-monitor
     - TM_RESCAN_EVERY_SEC=15
     - TM_CLAIM_EVERY_SEC=10
-    - TM_BLOCK_MS=200
+    - TM_BLOCK_MS=50
+    - TM_READ_COUNT=${TM_READ_COUNT:-100}
+    - TM_READ_COUNT_TICKS=${TM_READ_COUNT_TICKS:-500}
+    - TM_TICK_BATCH_BUDGET_SEC=${TM_TICK_BATCH_BUDGET_SEC:-2.0}
+    - TM_TICK_INTERLEAVE_CHUNK=${TM_TICK_INTERLEAVE_CHUNK:-200}
+    - TM_PIPELINE_PERSIST=1
     - TM_DB_WORKERS=8
     - TM_RG_DB_MAX_WORKERS=4
     - PYTHONPATH=/app/python-worker:/app
@@ -2634,7 +2647,12 @@ services:
     - TM_NAMESPACE=trade-monitor-2
     - TM_RESCAN_EVERY_SEC=15
     - TM_CLAIM_EVERY_SEC=10
-    - TM_BLOCK_MS=200
+    - TM_BLOCK_MS=50
+    - TM_READ_COUNT=${TM_READ_COUNT:-100}
+    - TM_READ_COUNT_TICKS=${TM_READ_COUNT_TICKS:-500}
+    - TM_TICK_BATCH_BUDGET_SEC=${TM_TICK_BATCH_BUDGET_SEC:-2.0}
+    - TM_TICK_INTERLEAVE_CHUNK=${TM_TICK_INTERLEAVE_CHUNK:-200}
+    - TM_PIPELINE_PERSIST=1
     - TM_DB_WORKERS=8
     - TM_RG_DB_MAX_WORKERS=4
     - PYTHONPATH=/app/python-worker:/app
@@ -3067,6 +3085,7 @@ services:
     - python
     - services/dlq_consumer.py
   ml-rca-notification-bridge:
+    profiles: [llm]
     build:
       context: .
       dockerfile: python-worker/Dockerfile
@@ -3096,6 +3115,7 @@ services:
     volumes:
     - ./reference:/app/reference
   incident-rca-gate-persister:
+    profiles: [llm]
     build:
       context: .
       dockerfile: python-worker/Dockerfile
@@ -3128,6 +3148,7 @@ services:
     - -c
     - sleep 25 && python -m orderflow_services.route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_incident_rca_apply_replay_gate_decisions_persister_v3_57_4_1
   incident-rca-dashboard-snapshot:
+    profiles: [llm]
     build:
       context: .
       dockerfile: python-worker/Dockerfile
@@ -3564,6 +3585,7 @@ services:
         reservations:
           memory: 256M
   scanner-ml-rca-telegram-summary:
+    profiles: [llm]
     build:
       context: .
       dockerfile: python-worker/Dockerfile

@@ -131,7 +131,7 @@ async def notify(req: Request):
     thr = payload.get("threshold", 0.0)
 
     # Format timestamp
-    when = dt.datetime.utcfromtimestamp(t / 1000).strftime("%H:%M:%S UTC")
+    when = dt.datetime.fromtimestamp(t / 1000, tz=dt.timezone.utc).strftime("%H:%M:%S UTC")
 
     # Emoji based on type
     emoji = "🟢⬆️" if "up" in typ else "🔴⬇️"

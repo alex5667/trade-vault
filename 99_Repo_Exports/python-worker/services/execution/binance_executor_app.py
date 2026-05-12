@@ -418,7 +418,7 @@ class BinanceExecutor:
         action = (payload.get("action") or "open").strip().lower()
         sid = (payload.get("sid") or payload.get("id") or "").strip()
         symbol = (payload.get("symbol") or "").strip().upper()
-        ts_queue_ms = int(payload.get("ts_ms") or payload.get("ts_queue_ms") or ts_exec_start_ms)
+        ts_queue_ms = payload.get("ts_ms") or payload.get("ts_queue_ms" or ts_exec_start_ms)
 
         if not sid or not symbol:
             self.event_writer.dlq(raw, "missing_sid_or_symbol")
@@ -483,7 +483,7 @@ class BinanceExecutor:
                 "severity": "critical",
                 "error": str(exc)[:300],
             })
-            retry_n = int(payload.get("retry_n") or 0)
+            retry_n = payload.get("retry_n") or 0
             if retry_n < self.max_retry:
                 self.event_writer.requeue(payload, raw, str(exc)[:100])
             else:

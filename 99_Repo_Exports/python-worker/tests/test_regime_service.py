@@ -26,35 +26,42 @@ def test_update_regime_trend():
     f = RegimeFeatures(
         atr_q=0.9, delta_ema=+3.0, hold_side_score=+0.8, vwap_cross_rate=0.0
     )
-    svc.update_regime(f)
+    svc.update_regime(f, ts_event_ms=1_000)
     st = svc.get_current_regime()
-    assert st.regime in ("trend", "trending_bull", "trending_bear", "mixed")
+    assert st.regime in ("trend", "trending_bull", "trending_bear", "mixed", "unknown")
     assert st.score > 0.0
     assert st.confidence > 0.0
 
 
 def test_update_regime_range():
-    """Test regime classification for range conditions."""
+    """Test regime classification for range conditions.
+
+    NOTE: with hysteresis, regime stays 'unknown' until confirm_bars bars pass
+    or fast_override fires. We verify the score direction instead.
+    """
     svc = MarketRegimeService(RegimeConfig(score_hi=0.2, score_lo=-0.2))
     f = RegimeFeatures(
         atr_q=0.2, delta_ema=0.0, hold_side_score=0.0, vwap_cross_rate=0.5
     )
-    svc.update_regime(f)
+    svc.update_regime(f, ts_event_ms=1_000)
     st = svc.get_current_regime()
-    assert st.regime in ("range", "mixed")
+    # score is negative (range-biased)
     assert st.score <= 0.2
     assert st.confidence >= 0.0
 
 
 def test_update_regime_mixed():
-    """Test regime classification for mixed conditions."""
+    """Test regime classification for mixed conditions.
+
+    NOTE: hysteresis keeps regime=unknown after single call without confirm_bars.
+    We verify the score is in the mixed zone.
+    """
     svc = MarketRegimeService(RegimeConfig(score_hi=0.3, score_lo=-0.3))
     f = RegimeFeatures(
         atr_q=0.5, delta_ema=0.1, hold_side_score=0.0, vwap_cross_rate=0.1
     )
-    svc.update_regime(f)
+    svc.update_regime(f, ts_event_ms=1_000)
     st = svc.get_current_regime()
-    assert st.regime == "mixed"
     assert -0.3 < st.score < 0.3
 
 
@@ -91,13 +98,13 @@ def test_regime_state_defaults():
     assert st.regime == "unknown"
     assert st.confidence == 0.0
     assert st.score == 0.0
-    assert st.last_update == 0.0  # not updated yet
+    assert st.last_update_ms == 0  # not updated yet
 
-    # After update, last_update should be set
+    # After update, last_update_ms should reflect ts_event_ms
     f = RegimeFeatures()
-    svc.update_regime(f)
+    svc.update_regime(f, ts_event_ms=1_234_567)
     st = svc.get_current_regime()
-    assert st.last_update > 0
+    assert st.last_update_ms == 1_234_567
 
 
 if __name__ == "__main__":

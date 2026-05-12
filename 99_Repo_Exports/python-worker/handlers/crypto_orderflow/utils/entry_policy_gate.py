@@ -139,9 +139,9 @@ class _FeatureDriftTracker:
             dd = {}
 
         try:
-            n = int(float(dd.get("n") or 0))
-            mu = float(dd.get("mu") or 0.0)
-            mad = float(dd.get("mad") or 0.0)
+            n = dd.get("n") or 0
+            mu = dd.get("mu") or 0.0
+            mad = dd.get("mad") or 0.0
         except Exception:
             n, mu, mad = 0, 0.0, 0.0
 

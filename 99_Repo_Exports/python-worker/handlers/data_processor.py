@@ -992,9 +992,60 @@ class OrderFlowDataProcessor:
                         redis_client = getattr(self.parser, 'redis', None)
                         if redis_client:
                             redis_client.set(f"regime:{sym}", final_label, ex=self._regime_redis_ttl_sec)
+                            
+                            # Publish Snapshot
+                            import json
+                            from core.redis_keys import RS, STREAM_RETENTION
+                            snapshot = getattr(self.regime_service.state, "snapshot", None)
+                            if snapshot:
+                                snap_dict = {
+                                    "symbol": getattr(snapshot, "symbol", sym),
+                                    "label": getattr(getattr(snapshot, "label", None), "value", final_label),
+                                    "direction": getattr(snapshot, "direction", 0),
+                                    "score": getattr(snapshot, "score", 0.0),
+                                    "confidence": getattr(snapshot, "confidence", 0.0),
+                                    "features": getattr(snapshot, "features", {}),
+                                    "ts_event_ms": getattr(snapshot, "ts_event_ms", ts_ms),
+                                    "ts_calc_ms": getattr(snapshot, "ts_calc_ms", ts_ms),
+                                    "source": getattr(snapshot, "source", "market_regime_service"),
+                                    "schema_ver": getattr(snapshot, "schema_ver", 1)
+                                }
+                                redis_client.xadd(
+                                    RS.REGIME_SNAPSHOTS,
+                                    {"payload": json.dumps(snap_dict)},
+                                    maxlen=STREAM_RETENTION.get(RS.REGIME_SNAPSHOTS, 50000),
+                                    approximate=True
+                                )
                             self._regime_last_pub_ms = ts_ms
             except Exception:
                 pass  # fail-open: regime publishing is best-effort
+
+            # --- Publish Regime Transitions ---
+            try:
+                transition = getattr(self.regime_service, "last_transition", None)
+                if transition and hasattr(self, 'parser') and hasattr(self.parser, 'redis'):
+                    redis_client = getattr(self.parser, 'redis', None)
+                    if redis_client:
+                        import json
+                        from core.redis_keys import RS, STREAM_RETENTION
+                        redis_client.xadd(
+                            RS.REGIME_TRANSITIONS,
+                            {"payload": json.dumps(transition)},
+                            maxlen=STREAM_RETENTION.get(RS.REGIME_TRANSITIONS, 50000),
+                            approximate=True
+                        )
+                        
+                        from services.orderflow.metrics import regime_transition_total
+                        regime_transition_total.labels(
+                            symbol=transition["symbol"],
+                            old_regime=transition["old_regime"],
+                            new_regime=transition["new_regime"],
+                            reason=transition["reason"]
+                        ).inc()
+                        
+                        self.regime_service.last_transition = None
+            except Exception:
+                pass
 
         # ВАЖНО: возврат события закрытия бара для сигнального пайплайна
         # None -> бар не закрыт на этом тике

@@ -27,7 +27,7 @@ import subprocess
 import sys
 import time
 from collections.abc import Sequence
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from ml_analysis.tools.edge_stack_train_bundle_utils_p59 import (
@@ -110,7 +110,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     run_id = str(args.run_id).strip()
     if not run_id:
-        run_id = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+        run_id = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
 
     edge_dir = os.path.abspath(args.edge_dir)
     run_dir = os.path.join(edge_dir, "runs", run_id)

@@ -41,7 +41,7 @@ log = logging.getLogger(__name__)
 # Optional Prometheus metrics (fail-open if registry unavailable)
 # ---------------------------------------------------------------------------
 try:
-    from prometheus_client import Counter, Histogram
+    from prometheus_client import Counter, Histogram  # type: ignore
 
     _GATES_ERROR = Counter(
         "gates_error_total",
@@ -230,16 +230,16 @@ class GateOrchestrator:
                 cfg = getattr(runtime, "config", {}) if runtime else {}
 
             # 1. Spread BPS
-            max_spread_bps = float(cfg.get("gate_spread_max_bps", 0.0) or 0.0)
-            curr_spread_bps = float(indicators.get("liq_spread_bps", indicators.get("spread_bps", 0.0)) or 0.0)
+            max_spread_bps = cfg.get("gate_spread_max_bps", 0.0) or 0.0
+            curr_spread_bps = indicators.get("liq_spread_bps", indicators.get("spread_bps", 0.0) or 0.0)
 
             # 2. Spread Z-Score
-            max_spread_z = float(cfg.get("gate_spread_max_z", 0.0) or 0.0)
-            curr_spread_z = float(indicators.get("spread_z", 0.0) or 0.0)
+            max_spread_z = cfg.get("gate_spread_max_z", 0.0) or 0.0
+            curr_spread_z = indicators.get("spread_z", 0.0) or 0.0
 
             # 3. Book Staleness
-            max_stale_ms = int(cfg.get("gate_book_stale_ms", 0) or 0)
-            curr_stale_ms = int(indicators.get("book_ts_gap_ms", indicators.get("liq_book_stale_ms", 0)) or 0)
+            max_stale_ms = cfg.get("gate_book_stale_ms", 0) or 0
+            curr_stale_ms = indicators.get("book_ts_gap_ms", indicators.get("liq_book_stale_ms", 0) or 0)
 
             veto = False
             rc = "OK"
@@ -404,7 +404,7 @@ class GateOrchestrator:
         ts_dec_ms = int(time.time() * 1000)
         ts_ev_ms = _get_ts_ms(ctx)
         sym = str(getattr(ctx, "symbol", "") or "")
-        regime = str(getattr(ctx, "market_regime", None) or getattr(ctx, "regime", None) or "")
+        regime = str(getattr(ctx, "market_regime", None) or getattr(ctx, "regime", None) or getattr(ctx, "regime_label", None) or "")
         inp_hash = _fast_hash(kind=kind, regime=regime, sym=sym)
         gate_name = "StrictRegimeGate"
 
@@ -427,8 +427,31 @@ class GateOrchestrator:
 
         veto = False
         rc = "OK"
+        notes = {"regime": r}
+        
+        # Policy mode handling
+        mode = os.getenv("REGIME_POLICY_MODE", "SHADOW").upper()
+        
+        # Check staleness if redis is available
+        redis_client = getattr(self.portfolio_gate, "r", None) if self.portfolio_gate else None
+        if redis_client and sym:
+            try:
+                snap_json = redis_client.get(f"regime_snapshot:{sym}")
+                if snap_json:
+                    import json
+                    snap = json.loads(snap_json.decode("utf-8") if isinstance(snap_json, bytes) else snap_json)
+                    snap_ts = int(snap.get("ts_event_ms", 0))
+                    max_stale_ms = int(os.getenv("REGIME_MAX_STALE_MS", "300000"))
+                    if ts_ev_ms - snap_ts > max_stale_ms:
+                        veto = True
+                        rc = "VETO_REGIME_STALE"
+                        notes["msg"] = f"stale regime snapshot: {ts_ev_ms - snap_ts}ms old"
+            except Exception as e:
+                log.warning("Failed to fetch regime snapshot for staleness check: %s", e)
+                # Fail-open if we can't read the snapshot
+                pass
 
-        if r:
+        if not veto and r:
             if k == "breakout" and any(b in r for b in self._regime_breakout_block):
                 veto = True
                 rc = "VETO_REGIME_BREAKOUT_BLOCK"
@@ -436,12 +459,18 @@ class GateOrchestrator:
                 veto = True
                 rc = "VETO_REGIME_EXTREME_BLOCK"
 
+        decision = "ALLOW"
+        sev = "INFO"
+        if veto:
+            decision = "DENY" if mode == "ENFORCE" else "SHADOW_DENY"
+            sev = "WARN"
+
         latency_us = int((time.monotonic() - t0) * 1_000_000)
         return GateDecisionV1(
-            stage="regime", gate=gate_name, decision="DENY" if veto else "ALLOW", reason_code=rc,
-            severity="WARN" if veto else "INFO", profile="default", fail_policy="OPEN",
+            stage="regime", gate=gate_name, decision=decision, reason_code=rc,
+            severity=sev, profile="default", fail_policy="OPEN",
             ts_event_ms=ts_ev_ms, ts_decision_ms=ts_dec_ms, latency_us=latency_us,
-            inputs_hash=inp_hash, notes={"regime": r}
+            inputs_hash=inp_hash, notes=notes
         )
     
     def check_atr_floor(self, ctx: Any, kind: str) -> GateDecisionV1:
@@ -1072,10 +1101,10 @@ class GateOrchestrator:
 
         try:
             ind = getattr(ctx, "indicators", {})
-            slope_bid = float(ind.get("book_slope_bid", 0.0) or 0.0)
-            slope_ask = float(ind.get("book_slope_ask", 0.0) or 0.0)
-            dws_bps = float(ind.get("dws_bps", 0.0) or 0.0)
-            rec_ms = int(ind.get("liq_recovery_time_ms", 0) or 0)
+            slope_bid = ind.get("book_slope_bid", 0.0) or 0.0
+            slope_ask = ind.get("book_slope_ask", 0.0) or 0.0
+            dws_bps = ind.get("dws_bps", 0.0) or 0.0
+            rec_ms = ind.get("liq_recovery_time_ms", 0) or 0
 
             res = evaluate_liq_geom(
                 profile=profile,
@@ -1143,10 +1172,10 @@ class GateOrchestrator:
 
         try:
             ind = getattr(ctx, "indicators", {})
-            ofi_z = float(ind.get("ofi_norm_z", 0.0) or 0.0)
-            vpin_cdf = float(ind.get("vpin_cdf", 0.0) or 0.0)
-            tca_is = float(ind.get("tca_is_p95_bps", ind.get("is_p95_bps", 0.0)) or 0.0)
-            tca_imp = float(ind.get("tca_perm_impact_p95_bps", ind.get("perm_impact_p95_bps", 0.0)) or 0.0)
+            ofi_z = ind.get("ofi_norm_z", 0.0) or 0.0
+            vpin_cdf = ind.get("vpin_cdf", 0.0) or 0.0
+            tca_is = ind.get("tca_is_p95_bps", ind.get("is_p95_bps", 0.0) or 0.0)
+            tca_imp = ind.get("tca_perm_impact_p95_bps", ind.get("perm_impact_p95_bps", 0.0) or 0.0)
 
             res = evaluate_flow_toxicity(
                 profile=profile,
@@ -1213,9 +1242,9 @@ class GateOrchestrator:
 
         try:
             ind = getattr(ctx, "indicators", {})
-            qs_score = float(ind.get("quote_stuffing_score", 0.0) or 0.0)
-            lay_score = float(ind.get("layering_score", 0.0) or 0.0)
-            otr_z = float(ind.get("otr_z", 0.0) or 0.0)
+            qs_score = ind.get("quote_stuffing_score", 0.0) or 0.0
+            lay_score = ind.get("layering_score", 0.0) or 0.0
+            otr_z = ind.get("otr_z", 0.0) or 0.0
             
             # Simple policy (matching signal_pipeline inline logic)
             hit_qs = thr_qs > 0.0 and qs_score >= thr_qs

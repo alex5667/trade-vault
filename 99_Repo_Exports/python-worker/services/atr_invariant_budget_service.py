@@ -2,7 +2,7 @@ import json
 import logging
 import time
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from services.analytics_db import get_conn
@@ -10,7 +10,7 @@ from services.analytics_db import get_conn
 logger = logging.getLogger("atr_invariant_budget")
 
 def _generate_id(prefix: str) -> str:
-    return f"{prefix}_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}"
+    return f"{prefix}_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}"
 
 def evaluate_budgets(time_window_ms: int = None) -> list[dict[str, Any]]:  # type: ignore
     """
@@ -53,7 +53,7 @@ def evaluate_budgets(time_window_ms: int = None) -> list[dict[str, Any]]:  # typ
                 for group in grouped_violations:
                     count = group["count"]  # type: ignore
                     max_violations = policy["max_violations"]  # type: ignore
-                    burn_rate = count / float(max_violations) if max_violations > 0 else 0.0
+                    burn_rate = count / max_violations if max_violations > 0 else 0.0
 
                     status = "healthy"
                     if burn_rate >= policy["burn_rate_critical"]:  # type: ignore

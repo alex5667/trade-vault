@@ -16,6 +16,7 @@ Outputs (out_dir)
 import argparse
 import csv
 import datetime as _dt
+from datetime import timezone
 import json
 import math
 import os
@@ -446,7 +447,7 @@ def main() -> int:
 
     deny_obj = {
         "ver": "v1",
-        "updated_utc": _dt.datetime.utcnow().replace(microsecond=0).isoformat() + "Z",
+        "updated_utc": _dt.datetime.now(dt.timezone.utc).replace(microsecond=0).isoformat() + "Z",
         "deny_num": deny_keys,
         "deny_bool": [],
         "notes": "autogen from ablation_groups_e_v1 perm AUC-drop (E block)",

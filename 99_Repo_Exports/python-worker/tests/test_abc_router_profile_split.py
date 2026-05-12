@@ -40,11 +40,16 @@ def test_different_keys_different_distribution():
 # Критический регресс: int-проценты vs float-доли
 # ---------------------------------------------------------------------------
 
-def test_float_fractions_collapse_to_zero():
+def test_float_fractions_raise_error():
     """
-    РЕГРЕСС: если передать B=0.10 (float), int(0.10)=0 → B/C отключены.
-    Это поведение choose_arm_abc ДО ФИКСА — проверяем, что 0 действительно = A-only.
+    РЕГРЕСС: если передать B=0.10 (float), теперь это должно падать с TypeError,
+    чтобы не допустить молчаливого превращения в 0.
     """
+    import pytest
+    with pytest.raises(TypeError):
+        choose_arm_abc(key="test", split_b=0.10, split_c=0.10, salt="v1")
+
+def test_zero_splits_give_only_a():
     arms = [choose_arm_abc(key=f"k{i}", split_b=0, split_c=0, salt="v1") for i in range(200)]
     assert all(a == "A" for a in arms), "split_b=0, split_c=0 должно давать только A"
 

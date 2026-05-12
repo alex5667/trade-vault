@@ -7,9 +7,10 @@ Market regime service for orderflow handler.
 
 
 import math
-import time
 from dataclasses import dataclass, field
 from typing import Any
+
+from common.regime_contract import RegimeSnapshot, RegimeSwitchPolicy, should_switch, RegimeLabel
 
 
 @dataclass
@@ -42,6 +43,8 @@ class RegimeConfig:
 
     # trend direction decision
     trend_dir_hold_min: float = 0.10  # min |hold_side_score| to use for direction
+    
+    switch_policy: RegimeSwitchPolicy = field(default_factory=RegimeSwitchPolicy)
 
 
 @dataclass
@@ -49,8 +52,10 @@ class RegimeState:
     """Current state of market regime."""
     regime: str = "unknown"
     confidence: float = 0.0
-    last_update: float = 0.0
+    # epoch_ms of the last call to update_regime() — deterministic for replay.
+    last_update_ms: int = 0
     score: float = 0.0   # [-1..+1]
+    snapshot: RegimeSnapshot | None = None
 
 
 @dataclass
@@ -59,7 +64,7 @@ class RegimeFeatures:
     # 0..1: ATR quantile proxy (or other vol-quantile)
     atr_q: float = 0.5
     # 0..1: ADX quantile proxy (trend strength). Fail-open default 0.5.
-    # Filled from Redis adx:{symbol} + regime:q:{symbol}:{tf} percentiles.
+    # Filled from Redis adx:{symbol}:{tf} + percentiles.
     adx_q: float = 0.5
     # signed delta flow EMA (normalized if possible)
     delta_ema: float = 0.0
@@ -91,6 +96,10 @@ class MarketRegimeService:
         self.config = config or RegimeConfig()
         self.state = RegimeState()
         self.features = RegimeFeatures()
+        self.switch_policy = self.config.switch_policy
+        self._candidate_label = "unknown"
+        self._candidate_count = 0
+        self._last_switch_ms = 0
 
     @staticmethod
     def _clamp(x: float, lo: float, hi: float) -> float:
@@ -113,7 +122,6 @@ class MarketRegimeService:
             s_atr = self._clamp((f.atr_q - 0.5) / 0.20, -1.0, +1.0)
 
         # ADX quantile -> s_adx in [-1..+1]
-        # High ADX => trending; low ADX => chop/range.
         try:
             adx_q = float(getattr(f, "adx_q", 0.5) or 0.5)
         except Exception:
@@ -123,7 +131,6 @@ class MarketRegimeService:
         elif adx_q <= getattr(cfg, "adx_q_lo", 0.40):
             s_adx = -1.0
         else:
-            # scale around 0.5 similarly to ATR
             s_adx = self._clamp((adx_q - 0.5) / 0.20, -1.0, +1.0)
 
         # delta flow: tanh for robustness
@@ -146,35 +153,117 @@ class MarketRegimeService:
         )
         return self._clamp(float(score), -1.0, +1.0)
 
-    def update_regime(self, features: RegimeFeatures) -> str:
-        """Update market regime based on features (single source of truth)."""
+    def update_regime(
+        self,
+        features: RegimeFeatures,
+        *,
+        symbol: str = "UNKNOWN",
+        ts_event_ms: int = 0,
+        ts_calc_ms: int | None = None,
+    ) -> str:
+        """Update market regime based on features.
+
+        Args:
+            features:      Input features for regime scoring.
+            symbol:        Instrument symbol (UPPER). Must NOT be empty in prod.
+            ts_event_ms:   Exchange/event timestamp in epoch ms (canonical time).
+            ts_calc_ms:    Calculation timestamp in epoch ms.  Defaults to
+                           ts_event_ms when not provided (deterministic replay).
+
+        Returns:
+            Current regime label string.
+        """
         self.features = features
+        self.last_transition = None
+
+        # Deterministic time: use event ts, not wall clock, for decision logic.
+        now_ms: int = int(ts_calc_ms) if ts_calc_ms is not None else int(ts_event_ms)
 
         score = self._score_from_features(features)
         cfg = self.config
 
         if score >= cfg.score_hi:
-            # Directional label for downstream (SMT/OF policy):
-            # prefer hold_side_score sign (price vs vwap persistence),
-            # fallback to delta_ema sign if hold is too small.
             hs = float(getattr(features, "hold_side_score", 0.0) or 0.0)
             de = float(getattr(features, "delta_ema", 0.0) or 0.0)
             trend_dir_min = float(getattr(cfg, "trend_dir_hold_min", 0.10))
             if abs(hs) >= trend_dir_min:
-                regime = "trending_bull" if hs >= 0 else "trending_bear"
+                raw_label = "trending_bull" if hs >= 0 else "trending_bear"
             else:
-                regime = "trending_bull" if de >= 0 else "trending_bear"
+                raw_label = "trending_bull" if de >= 0 else "trending_bear"
         elif score <= cfg.score_lo:
-            regime = "range"
+            raw_label = "range"
         else:
-            regime = "mixed"
+            raw_label = "mixed"
 
-        self.state.regime = regime
+        # Hysteresis Logic
+        if raw_label == self._candidate_label:
+            self._candidate_count += 1
+        else:
+            self._candidate_label = raw_label
+            self._candidate_count = 1
+
+        allow, reason = should_switch(
+            prev_label=self.state.regime,
+            next_label=raw_label,
+            score=score,
+            confirm_count=self._candidate_count,
+            now_ms=now_ms,
+            last_switch_ms=self._last_switch_ms,
+            policy=self.switch_policy,
+        )
+
+        if allow:
+            old_regime = self.state.regime
+            self.state.regime = raw_label
+            self._last_switch_ms = now_ms
+            self._candidate_count = 0
+            
+            if old_regime != "unknown" and old_regime != raw_label:
+                self.last_transition = {
+                    "symbol": symbol.upper(),
+                    "old_regime": old_regime,
+                    "new_regime": raw_label,
+                    "reason": reason,
+                    "score": float(score),
+                    "ts_ms": now_ms
+                }
+
         self.state.score = float(score)
-        # confidence: |score| (можно усложнить позже)
         self.state.confidence = self._clamp(abs(score), 0.0, 1.0)
-        self.state.last_update = time.time()
-        return regime
+        # epoch_ms — deterministic, no wall-clock dependency in decision path.
+        self.state.last_update_ms = now_ms
+
+        # Populate snapshot — symbol is always the real instrument, never "unknown".
+        direction = 0
+        if "bull" in self.state.regime:
+            direction = 1
+        elif "bear" in self.state.regime:
+            direction = -1
+
+        try:
+            regime_enum = RegimeLabel(self.state.regime)
+        except ValueError:
+            regime_enum = RegimeLabel.UNKNOWN
+
+        self.state.snapshot = RegimeSnapshot(
+            symbol=symbol.upper(),
+            label=regime_enum,
+            direction=direction,
+            score=self.state.score,
+            confidence=self.state.confidence,
+            features={
+                "score": score,
+                "atr_q": features.atr_q,
+                "adx_q": features.adx_q,
+                "delta_ema": features.delta_ema,
+                "hold_side_score": features.hold_side_score,
+                "vwap_cross_rate": features.vwap_cross_rate,
+            },
+            ts_calc_ms=now_ms,
+            ts_event_ms=int(ts_event_ms),
+            source="market_regime_service",
+        )
+        return self.state.regime
 
     def get_current_regime(self) -> RegimeState:
         """Get current regime state."""

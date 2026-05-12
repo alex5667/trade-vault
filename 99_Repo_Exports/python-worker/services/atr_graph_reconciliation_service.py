@@ -2,7 +2,7 @@ import json
 import logging
 import os
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from services.analytics_db import get_conn
@@ -23,7 +23,7 @@ class ATRGraphReconciliationService:
 
     @staticmethod
     def _generate_id(prefix: str) -> str:
-        return f"{prefix}_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}"
+        return f"{prefix}_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}"
 
     @staticmethod
     def is_component_graph_primary(component: str, scope_value: str) -> bool:

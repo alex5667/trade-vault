@@ -2320,3 +2320,18 @@ trade_taker_flow_imb_z_abs = _get_or_create_prom_histogram(
     ["sym", "bucket"],
     buckets=(0.0, 0.5, 1.0, 1.5, 2.0, 3.0, 4.0, 5.0)
 )
+
+of_regime_id_gauge = _get_or_create_prom_gauge('of_regime_id', 'Current active market regime ID', ['symbol'])
+of_regime_stale_gauge = _get_or_create_prom_gauge('of_regime_stale', 'Is the market regime currently stale? (1=yes)', ['symbol'])
+
+regime_transition_total = _get_or_create_prom_counter(
+    "regime_transition_total",
+    "Total market regime transitions",
+    ["symbol", "old_regime", "new_regime", "reason"]
+)
+
+regime_stale_total = _get_or_create_prom_counter(
+    "regime_stale_total",
+    "Total occurrences of a stale market regime being detected",
+    ["symbol", "action"]
+)

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import hashlib
-import json
+import orjson
 import math
 import os
 import time
@@ -47,6 +47,7 @@ class OutboxWriter:
         sem_level_decimals: int | None = None,
     ) -> None:
         self._pub = publisher
+        print("OutboxWriter.__init__ publisher:", type(publisher))
         self._logger = logger
         self._retries = int(max(0, retries))
         self._retry_sleep_ms = int(max(0, retry_sleep_ms))
@@ -120,12 +121,12 @@ class OutboxWriter:
         Лимит размера: если payload раздувается, пишем усечённую версию и помечаем label'ом.
         """
         try:
-            raw = json.dumps(payload, ensure_ascii=False, separators=(",", ":"), default=str)
-            if len(raw.encode("utf-8")) <= self._payload_max_bytes:
-                return raw
+            raw_bytes = orjson.dumps(payload, default=str)
+            if len(raw_bytes) <= self._payload_max_bytes:
+                return raw_bytes.decode("utf-8")
         except Exception:
             # fallback ниже
-            raw = None
+            raw_bytes = None
 
         # "последняя гайка": hard-ограничение размера / сериализации.
         # Не блокируем outbox запись: кладём только минимальные поля + маркер.
@@ -137,7 +138,7 @@ class OutboxWriter:
             "labels": {"payload_truncated_fail_open": 1},
         }
         try:
-            return json.dumps(minimal, ensure_ascii=False, separators=(",", ":"), default=str)
+            return orjson.dumps(minimal, default=str).decode("utf-8")
         except Exception:
             # совсем край: уже гарантированно сериализуемая строка
             return '{"labels":{"payload_unserializable_fail_open":1}}'
@@ -339,11 +340,12 @@ class OutboxWriter:
         """
         if not meta:
             return ""
+        m = meta if isinstance(meta, dict) else {}
         try:
             # Normalize to sidecar schema:
             #  - payload_meta MUST be under meta["payload_meta"]
             #  - decision_trace MAY be present as meta["decision_trace"] (dict)
-            m = dict(meta)
+            m = dict(m)
             if "payload_meta" not in m and "decision_trace" not in m and "trace" not in m:
                 # call-sites that pass "just payload_meta" (parts_full, etc.)
                 m = {"payload_meta": m}
@@ -357,7 +359,7 @@ class OutboxWriter:
             return self._serialize_payload(m)  # type: ignore[attr-defined]
         except Exception:
             try:
-                return json.dumps(m, ensure_ascii=False, separators=(",", ":"))
+                return orjson.dumps(m, default=str).decode("utf-8")
             except Exception:
                 return ""
 
@@ -410,7 +412,7 @@ class OutboxWriter:
                 tr = payload.get("decision_trace")
                 if tr is not None:
                     if hasattr(tr, "to_dict"):
-                        meta_json = json.dumps({"trace": tr.to_dict(max_events=200)}, ensure_ascii=False, separators=(",", ":"))
+                        meta_json = orjson.dumps({"trace": tr.to_dict(max_events=200)}, default=str).decode("utf-8")
                         meta_ttl_sec = int(meta_ttl_sec or int(os.getenv("OUTBOX_TRACE_META_TTL_SEC", "86400")))
             except Exception:
                 pass
@@ -492,6 +494,7 @@ class OutboxWriter:
           - по умолчанию TTL берём OUTBOX_META_TTL_SEC (fallback на dedup TTL).
         """
         redis = self._redis()
+        print("redis type:", type(redis), "pub type:", type(self._pub))
         dedup_key = self._dedup_key(signal_id)
         sem_key = self._sem_key(payload)
         meta_norm = self._normalize_sidecar_meta(meta)

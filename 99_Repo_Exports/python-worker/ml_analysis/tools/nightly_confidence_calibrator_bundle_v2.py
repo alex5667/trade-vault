@@ -20,7 +20,7 @@ import os
 import shutil
 import subprocess
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 
 logging.basicConfig(
     level=logging.INFO,
@@ -67,7 +67,7 @@ def main():
     versions_dir = os.path.join(args.out_dir, "versions")
     os.makedirs(versions_dir, exist_ok=True)
 
-    stamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
     now_ms = _now_ms()
     since_ms = now_ms - (args.lookback_days * 86400 * 1000)
 

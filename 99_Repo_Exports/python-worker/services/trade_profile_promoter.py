@@ -47,8 +47,7 @@ class ProfileStats:
     lcb_net_r: float         # lower confidence bound (Wilson/normal approx)
     max_drawdown: float      # positive number, fraction (0.25 = 25%)
     slippage_residual_p95: float
-  # type: ignore
-    @property  # type: ignore
+
     def is_promotable(
         self,
         *,

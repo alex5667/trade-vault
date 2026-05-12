@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import json
+import orjson
 import os
 from dataclasses import dataclass
 from typing import Any
@@ -26,7 +26,7 @@ def _json_dumps_safe(obj: Any) -> str:
     default=str is deliberate (Enums/Decimals/np types appear in the wild).
     """
     try:
-        return json.dumps(obj, ensure_ascii=False, separators=(",", ":"), default=str)
+        return orjson.dumps(obj, default=str).decode("utf-8")
     except Exception:
         return '{"error":"json_dumps_failed"}'
 
@@ -148,6 +148,13 @@ class AsyncSignalPublisher:
             os.getenv("ASYNC_PUB_DEGRADE_CACHE_TTL_MS", "500")
         ) / 1000.0
 
+        # ── Enforce state cache (Signal Emit P99 fix) ────────────────────────
+        # Fixes synchronous router.get_runtime_decision call blocking the event loop
+        self._enforce_cache: dict = {}
+        self._enforce_cache_ttl: float = float(
+            os.getenv("ASYNC_PUB_ENFORCE_CACHE_TTL_MS", "500")
+        ) / 1000.0
+
     def _refresh_env_cache(self) -> None:
         """Re-read ENV flags into in-process cache. Called at init and every 30s."""
         self._env = {
@@ -193,7 +200,7 @@ class AsyncSignalPublisher:
                         if isinstance(data, bytes):
                             data = data.decode("utf-8")
                         try:
-                            rec = json.loads(data)
+                            rec = orjson.loads(data)
                         except Exception:
                             # Bad payload
                             await self.r.xdel(RS.PUBLISHER_RETRY, _id)
@@ -463,7 +470,7 @@ class AsyncSignalPublisher:
                         for v in degrade_vals:
                             if v:
                                 try:
-                                    d = json.loads(v)
+                                    d = orjson.loads(v)
                                     state = d.get("state")
                                     adv = d.get("advisory", True)
                                     prec = PRECEDENCE_MAP.get(state, 0)
@@ -516,15 +523,23 @@ class AsyncSignalPublisher:
                     enforcement_decision = "allow"
                     if self._env["policy_enforce_enable"]:
                         try:
-                            # Use cached router — no singleton factory call per XADD
-                            router = self._enforcement_router
-                            if router is None:
-                                from services.atr_policy_enforcement_router import get_enforcement_router
-                                router = get_enforcement_router()
-                                self._enforcement_router = router
-                            # Fast path: Redis GET (2 keys, cached in router)
-                            decision = router.get_runtime_decision(symbol)
-                            enforcement_decision = decision.get("overall_action", "allow").lower()
+                            _now_mono = _wall_time.monotonic()
+                            _enf_cached = self._enforce_cache.get(symbol)
+                            if _enf_cached is not None and (_now_mono - _enf_cached[1]) < self._enforce_cache_ttl:
+                                enforcement_decision = _enf_cached[0]
+                            else:
+                                enf_keys = [
+                                    f"cache:atr:enforcement:runtime:{symbol}",
+                                    "cache:atr:enforcement:runtime:global"
+                                ]
+                                enf_vals = await self.r.mget(enf_keys)
+                                enforcement_decision = "allow"
+                                if enf_vals[0]:
+                                    enforcement_decision = orjson.loads(enf_vals[0]).get("overall_action", "allow").lower()
+                                elif enf_vals[1]:
+                                    enforcement_decision = orjson.loads(enf_vals[1]).get("overall_action", "allow").lower()
+                                
+                                self._enforce_cache[symbol] = (enforcement_decision, _now_mono)
 
                             if self.logger and enforcement_decision != "allow":
                                 self.logger.info(

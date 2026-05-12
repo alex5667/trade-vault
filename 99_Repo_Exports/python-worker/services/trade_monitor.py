@@ -2777,9 +2777,22 @@ class TradeMonitorService:
                 except Exception:
                     pass  # fail-open: never break position open on calib import
 
-                # Conditional trailing logic
-                v = payload.get("trail_after_tp1", True)
-                pos.trail_after_tp1 = (v != 0)
+                # Conditional trailing logic.
+                # Accepts both legacy trail_after_tp1 (bool/int 0|1) and
+                # new trail_after_tp_level (int 0=immediate, 1=TP1, 2=TP2)
+                # from TradeProfileRouter. trail_after_tp_level takes priority.
+                _tail_lvl = payload.get("trail_after_tp_level")
+                if _tail_lvl is not None:
+                    try:
+                        lvl_int = int(_tail_lvl)
+                    except (TypeError, ValueError):
+                        lvl_int = 1
+                    pos.trail_after_tp1 = (lvl_int >= 1)
+                    if hasattr(pos, "trail_after_tp_level"):
+                        pos.trail_after_tp_level = max(0, lvl_int)
+                else:
+                    v = payload.get("trail_after_tp1", True)
+                    pos.trail_after_tp1 = (v != 0)
                 rr = payload.get("trail_after_tp1_reason", "")
                 if rr:
                     pos.trail_after_tp1_reason = str(rr)[:256]
@@ -2875,7 +2888,18 @@ class TradeMonitorService:
         [PHASE 2: JITTER BUFFER]
         Освобождает ("релизит") сигналы из буфера, если рыночное время достаточно продвинулось.
         Рыночное время определяется по self._max_tick_ts_ms.
+
+        P42 Throttle: вызывается не чаще чем раз в _flush_min_interval_ms (100ms default)
+        чтобы не сканировать буфер на каждом тике при высоком потоке.
         """
+        # P42: Throttle — skip if called too frequently
+        _flush_min_interval_ms = getattr(self, "_flush_min_interval_ms", 100)
+        _now_mono_ms = int(time.monotonic() * 1000)
+        _last_flush = getattr(self, "_last_flush_mono_ms", 0)
+        if (_now_mono_ms - _last_flush) < _flush_min_interval_ms:
+            return
+        self._last_flush_mono_ms = _now_mono_ms
+
         with getattr(self, "_lock", contextlib.nullcontext()):
             signal_buffer = getattr(self, "_signal_buffer", None)
             if not signal_buffer:

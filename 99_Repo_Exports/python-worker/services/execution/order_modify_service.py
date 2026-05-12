@@ -156,10 +156,21 @@ class OrderModifyService:
         # Re-arm protection
         new_prot: dict[str, Any] = {}
         if self._protection and new_sl > 0:
+            # Compute tp_qtys from payload tp_ratio (strategy-aware distribution)
+            tp_qtys: list[float] = []
+            tp_ratio = payload.get("tp_ratio")
+            if tp_ratio and isinstance(tp_ratio, (list, tuple)) and len(tp_ratio) > 0:
+                try:
+                    from services.tp_config import compute_tp_qtys
+                    sf = filters.get(symbol)
+                    tp_qtys = compute_tp_qtys(qty, tp_ratio, sf.step_size)
+                except Exception:
+                    tp_qtys = []  # fallback: protection_service will compute even-split
+
             new_prot = self._protection.place_protective(
                 sid=sid, symbol=symbol, logical_side=logical_side,
                 qty=qty, sl_price=new_sl, tp_levels=new_tp_levels,
-                tp_qtys=[],
+                tp_qtys=tp_qtys,
                 client=client, filters=filters, r=self.r,
             )
 

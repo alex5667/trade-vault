@@ -298,3 +298,41 @@ fatal: Could not read from remote repository.
 Please make sure you have the correct access rights
 and the repository exists.
 2026-05-10 05:45:03 - Синхронизация завершена успешно.
+[main 1f25a2da] Auto-sync vault notes 2026-05-11 05:45:02
+ 554 files changed, 13151 insertions(+), 5122 deletions(-)
+ create mode 100644 99_Automation/logs/update_2026-05-11_03-37-48.log
+ create mode 100644 99_Repo_Exports/python-worker/common/regime_contract.py
+ create mode 100644 99_Repo_Exports/python-worker/db/migrations/20260510_50_trade_profile_decisions.sql
+ create mode 100644 99_Repo_Exports/python-worker/handlers/crypto_orderflow/of_core/__init__.py
+ create mode 100644 99_Repo_Exports/python-worker/handlers/crypto_orderflow/of_core/confidence_threshold.py
+ create mode 100644 99_Repo_Exports/python-worker/handlers/crypto_orderflow/of_core/cost_edge_gate.py
+ create mode 100644 99_Repo_Exports/python-worker/handlers/crypto_orderflow/of_core/crypto_orderflow_calibration.py
+ create mode 100644 99_Repo_Exports/python-worker/handlers/crypto_orderflow/of_core/crypto_orderflow_components.py
+ create mode 100644 99_Repo_Exports/python-worker/handlers/crypto_orderflow/of_core/crypto_orderflow_confirmations.py
+ create mode 100644 99_Repo_Exports/python-worker/handlers/crypto_orderflow/of_core/crypto_orderflow_detector.py
+ create mode 100644 99_Repo_Exports/python-worker/handlers/crypto_orderflow/of_core/crypto_orderflow_quality.py
+ create mode 100644 99_Repo_Exports/python-worker/handlers/crypto_orderflow/of_core/crypto_orderflow_scoring.py
+ create mode 100644 99_Repo_Exports/python-worker/runners/redis_consumer_janitor_runner.py
+ create mode 100644 99_Repo_Exports/python-worker/scripts/benchmark_signal_pipeline.py
+ create mode 100644 99_Repo_Exports/python-worker/scripts/profile_signal_pipeline.py
+ create mode 100644 99_Repo_Exports/python-worker/scripts/profile_signal_pipeline_cprofile.py
+ create mode 100644 99_Repo_Exports/python-worker/scripts/profile_signal_pipeline_fast.py
+ create mode 100644 99_Repo_Exports/python-worker/scripts/test_context_slots.py
+ create mode 100644 99_Repo_Exports/python-worker/services/dispatch/dispatcher_test_utils.py
+ create mode 100644 99_Repo_Exports/python-worker/services/redis_consumer_janitor.py
+ create mode 100644 99_Repo_Exports/python-worker/services/risk/stop_contract.py
+ create mode 100644 99_Repo_Exports/python-worker/services/tests/test_stop_risk_contract_v1.py
+ create mode 100644 99_Repo_Exports/python-worker/services/trade_profile_promoter.py
+ create mode 100644 99_Repo_Exports/python-worker/services/trade_profile_router.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/common/test_regime_contract.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_abc_router_profile_split.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_p1_reliability_fixes.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_regime_group_mapping.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_trade_profile_router.py
+ create mode 100644 99_Repo_Exports/sql/011_regime_snapshots.sql
+git@github.com: Permission denied (publickey).
+fatal: Could not read from remote repository.
+
+Please make sure you have the correct access rights
+and the repository exists.
+2026-05-11 05:45:03 - Синхронизация завершена успешно.

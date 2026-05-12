@@ -357,7 +357,47 @@ class BatchTradeWriter:
                 trailing_surface_applied,
                 trailing_surface_reason_code,
                 baseline_trailing_offset_atr,
-                selected_trailing_offset_atr
+                selected_trailing_offset_atr,
+
+                close_reason_detail,
+                strong_gate_ok,
+                policy_mode,
+                policy_raw,
+                atr_policy_ver,
+                atr_policy_tag,
+                atr_policy_source,
+                atr_policy_scenario,
+                atr_policy_regime,
+                atr_policy_bucket,
+                atr_stop_ttl_mode,
+                atr_trailing_mode,
+                atr_recovery_run_id,
+                atr_restore_cert_id,
+                atr_restore_cert_status,
+                atr_policy_snapshot_json,
+                atr_sel_tf,
+                atr_sel_src,
+                atr_sel_age_ms,
+                contract_ver,
+                hold_target_ms,
+                alpha_half_life_ms,
+                max_signal_age_ms,
+                risk_horizon_bucket,
+                horizon_profile_source,
+                horizon_profile_conf,
+                horizon_reason_code,
+                atr_mode,
+                atr_value,
+                atr_window_n,
+                atr_age_ms,
+                atr_source,
+                atr_regime_value,
+                atr_trail_value,
+                atr_regime_tf_ms,
+                atr_trail_tf_ms,
+                atr_pct,
+                vol_ratio_fast_slow,
+                vol_ratio_z
             ) VALUES %s
             ON CONFLICT (order_id) DO NOTHING
         """
@@ -404,11 +444,6 @@ class BatchTradeWriter:
             psycopg2.extras.execute_values(cur, sql_main, main_rows, page_size=200)  # type: ignore
             if p0_rows and analytics_db.ANALYTICS_P0_ENABLED:
                 try:
-                    # p0 использует to_timestamp() — нужна шаблонная форма
-                    p0_sql_tmpl = sql_p0.replace(
-                        "VALUES %s",
-                        "VALUES %s",
-                    )
                     # Адаптированный вариант для exit_ts: передаём как литерал to_timestamp(%s/1000.0)
                     # execute_values не поддерживает смешанные функции в шаблоне,
                     # поэтому адаптируем exit_ts_ms → datetime в Python
@@ -416,10 +451,10 @@ class BatchTradeWriter:
                     p0_rows_adapted = [
                         (
                             r[0],                                            # order_id
-                            _dt.datetime.utcfromtimestamp(r[1] / 1000.0),  # exit_ts (timestamp)
+                            _dt.datetime.fromtimestamp(r[1] / 1000.0, tz=_dt.timezone.utc),  # exit_ts (timestamp)
                             r[1],                                            # exit_ts_ms
                             *r[2:],                                          # scenario..meta_enforce_applied
-                            _dt.datetime.utcnow(),                           # updated_at
+                            _dt.datetime.now(_dt.timezone.utc),                           # updated_at
                         )
                         for r in p0_rows
                     ]
@@ -502,6 +537,30 @@ def _build_main_row(closed: Any) -> tuple:
     if horizon_contract:
         config_snapshot["_horizon_contract"] = horizon_contract
 
+    # FIX: Restore analytics payload blocks into config_snapshot
+    # so that Postgres generated columns (ind_*, atr_*) in trades_closed are properly populated.
+    for key in ("indicators", "atr_metrics", "metrics", "meta"):
+        if key in sp and sp[key] is not None:
+            config_snapshot[key] = sp[key]
+            
+    # Include features explicitly from closed.features (similar to p0)
+    features = getattr(closed, "features", None)
+    if isinstance(features, dict) and features:
+        config_snapshot["features"] = features
+    elif "features" in sp and sp["features"]:
+        config_snapshot["features"] = sp["features"]
+    # Извлечение gate_ok и policy
+    indicators = sp.get("indicators") or {}
+    meta = sp.get("meta") or {}
+    strong_gate_ok_raw = indicators.get("strong_gate_ok", indicators.get("of_confirm_ok", None))
+    try:
+        strong_gate_ok = bool(int(strong_gate_ok_raw)) if strong_gate_ok_raw is not None else None
+    except (ValueError, TypeError):
+        strong_gate_ok = None
+        
+    policy_mode = meta.get("policy_effective_mode") or meta.get("policy_regime") or meta.get("policy_mode") or None
+    policy_raw = json.dumps(meta, ensure_ascii=False) if meta else None
+
     res = (
         closed.order_id, closed.sid, closed.strategy, closed.source, closed.symbol, closed.tf, closed.direction,
         closed.entry_ts_ms, closed.exit_ts_ms, closed.entry_price, closed.exit_price, closed.lot, closed.notional_usd,
@@ -561,6 +620,47 @@ def _build_main_row(closed: Any) -> tuple:
         getattr(closed, "trailing_surface_reason_code", None),
         getattr(closed, "baseline_trailing_offset_atr", None),
         getattr(closed, "selected_trailing_offset_atr", None),
+
+        # --- NEW Analytics columns ---
+        getattr(closed, "close_reason_detail", ""),
+        strong_gate_ok,
+        policy_mode,
+        policy_raw,
+        getattr(closed, "atr_policy_ver", 0),
+        getattr(closed, "atr_policy_tag", ""),
+        getattr(closed, "atr_policy_source", ""),
+        getattr(closed, "atr_policy_scenario", ""),
+        getattr(closed, "atr_policy_regime", ""),
+        getattr(closed, "atr_policy_bucket", ""),
+        getattr(closed, "atr_stop_ttl_mode", ""),
+        getattr(closed, "atr_trailing_mode", ""),
+        getattr(closed, "atr_recovery_run_id", ""),
+        getattr(closed, "atr_restore_cert_id", ""),
+        getattr(closed, "atr_restore_cert_status", ""),
+        json.dumps(getattr(closed, "atr_policy_snapshot_json", {}) or {}, ensure_ascii=False) if getattr(closed, "atr_policy_snapshot_json", {}) else None,
+        getattr(closed, "atr_sel_tf", ""),
+        getattr(closed, "atr_sel_src", ""),
+        getattr(closed, "atr_sel_age_ms", 0),
+        getattr(closed, "contract_ver", None) or getattr(closed, "horizon_contract_ver", 2),
+        getattr(closed, "hold_target_ms", 0) or 0,
+        getattr(closed, "alpha_half_life_ms", 0) or 0,
+        getattr(closed, "max_signal_age_ms", 0) or 0,
+        getattr(closed, "risk_horizon_bucket", "") or "",
+        getattr(closed, "horizon_profile_source", ""),
+        getattr(closed, "horizon_profile_conf", 0.0),
+        getattr(closed, "horizon_reason_code", ""),
+        getattr(closed, "atr_mode", ""),
+        getattr(closed, "atr_value", 0.0),
+        getattr(closed, "atr_window_n", 0),
+        getattr(closed, "atr_age_ms", 0) or 0,
+        getattr(closed, "atr_source", "") or "",
+        getattr(closed, "atr_regime_value", 0.0),
+        getattr(closed, "atr_trail_value", 0.0),
+        getattr(closed, "atr_regime_tf_ms", 0),
+        getattr(closed, "atr_trail_tf_ms", 0),
+        getattr(closed, "atr_pct", 0.0) or 0.0,
+        getattr(closed, "vol_ratio_fast_slow", 1.0) if getattr(closed, "vol_ratio_fast_slow", None) is not None else 1.0,
+        getattr(closed, "vol_ratio_z", 0.0) or 0.0,
     )
     return tuple(None if val == () else val for val in res)
 
@@ -602,6 +702,17 @@ def _build_p0_row(closed: Any) -> tuple:
         features_json = Json(features)
     else:
         features_json = json.dumps(features)  # fallback
+    # Извлечение gate_ok и policy
+    indicators = sp.get("indicators") or {}
+    meta = sp.get("meta") or {}
+    strong_gate_ok_raw = indicators.get("strong_gate_ok", indicators.get("of_confirm_ok", None))
+    try:
+        strong_gate_ok = bool(int(strong_gate_ok_raw)) if strong_gate_ok_raw is not None else None
+    except (ValueError, TypeError):
+        strong_gate_ok = None
+        
+    policy_mode = meta.get("policy_effective_mode") or meta.get("policy_regime") or meta.get("policy_mode") or None
+    policy_raw = json.dumps(meta, ensure_ascii=False) if meta else None
 
     res = (
         closed.order_id,             # [0] order_id

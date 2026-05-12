@@ -37,11 +37,12 @@ class TrailingProfile:
         comment: Описание профиля
     """
     name: str
-    mode: str           # "ATR" | "POINTS" | "STEP"
+    mode: str           # "ATR" | "POINTS" | "STEP" | "BREAKEVEN"
     atr_mult: float = 1.0
     points: float = 200.0
     hard_min_lock: float | None = None  # сколько в пунктах обязательно зафиксировать
     step_points: float | None = None    # для ступенчатого
+    activate_after_tp: int = 1          # activate trailing after TPn hit (1=TP1, 2=TP2, 0=immediate)
     comment: str = ""
 
     def to_dict(self) -> dict:
@@ -85,62 +86,75 @@ class TrailingProfilesRegistry:
         self._profiles["lock_and_trail"] = TrailingProfile(
             name="lock_and_trail",
             mode="ATR",
-            atr_mult=1.0,       # SL = mid - 1.0*ATR
+            atr_mult=1.0,
             hard_min_lock=0.0,
-            comment="lock profit and trail with ATR 1.0"
+            activate_after_tp=1,
+            comment="lock profit and trail with ATR 1.0 after TP1"
         )
 
-        # Защитный профиль — перевод в безубыток
+        # Защитный профиль — перевод в безубыток (no trailing)
         self._profiles["protective_only"] = TrailingProfile(
             name="protective_only",
             mode="BREAKEVEN",
             atr_mult=0.0,
             hard_min_lock=0.0,
-            comment="Immediate move to Breakeven + fee compensation after TP1"
+            activate_after_tp=0,
+            comment="Immediate move to Breakeven + fee compensation after TP1, no trailing"
         )
 
-        # Профиль для флэта — перевод в безубыток
+        # Профиль для флэта — перевод в безубыток (no trailing)
         self._profiles["range_protective"] = TrailingProfile(
             name="range_protective",
             mode="BREAKEVEN",
             atr_mult=0.0,
             hard_min_lock=0.0,
-            comment="Range regime specific protective profile: BE + fees"
+            activate_after_tp=0,
+            comment="Range regime: BE + fees, no trailing"
         )
 
-        # Ракетный — для сильных ходов по  и крипте
+        # Ракетный — для сильных ходов (trend), trail после TP1
+        # NOTE: atr_mult here is a LAST-RESORT FALLBACK only.
+        # In production, trailing distance is dynamically computed via:
+        #   1. trail_calib_params (per-symbol, per-regime, Redis trail:calib:{sym}:{regime})
+        #   2. symbol_specs (Redis hget symbol_specs:{sym} trailing_tp1_offset_atr)
+        #   3. ENV BINANCE_TRAIL_ATR_MULT (default 1.0)
+        # See signal_pipeline.py:1224-1242, tp_hit_trailing_orchestrator.py:422-435
         self._profiles["rocket_v1"] = TrailingProfile(
             name="rocket_v1",
             mode="ATR",
-            atr_mult=1.2,       # SL = entry ± 1.2*ATR (для трейлинга после TP1)
+            atr_mult=1.2,
             hard_min_lock=0.0,
-            comment="ATR 1.2 trailing, TP1=1.2 ATR (default for crypto and )"
+            activate_after_tp=1,
+            comment="ATR 1.2 trailing after TP1 (fallback; runtime uses calibrated value)"
         )
 
-        # Профиль для экстремальной волатильности (expansion regime)
+        # Expansion — trail после TP2 (wider, survives noise)
         self._profiles["expansion_v1"] = TrailingProfile(
             name="expansion_v1",
             mode="ATR",
-            atr_mult=1.5,       # Трейлинг подтягивается на 1.5 ATR после достижения TP1
+            atr_mult=1.5,
             hard_min_lock=0.0,
-            comment="Initial SL=2.5 ATR, TP1=2.5 ATR, Trailing=1.5 ATR for expansion regime"
+            activate_after_tp=2,
+            comment="ATR 1.5 trailing after TP2 for expansion regime"
         )
 
-        # Более безопасный — если рынок шумный
+        # Широкий свинг — trail после TP1
         self._profiles["wide_swing"] = TrailingProfile(
             name="wide_swing",
             mode="ATR",
             atr_mult=1.2,
             hard_min_lock=0.0,
-            comment="wider ATR trail for choppy regime"
+            activate_after_tp=1,
+            comment="wider ATR trail for choppy/default regime"
         )
 
-        # Фиксированный по пунктам — на случай если ATR нет в MT5
+        # Фиксированный по пунктам
         self._profiles["points_200"] = TrailingProfile(
             name="points_200",
             mode="POINTS",
             points=200.0,
-            comment="200 pts trailing"
+            activate_after_tp=1,
+            comment="200 pts trailing after TP1"
         )
 
         # Агрессивный для криптовалют
@@ -149,6 +163,7 @@ class TrailingProfilesRegistry:
             mode="ATR",
             atr_mult=0.5,
             hard_min_lock=0.0,
+            activate_after_tp=1,
             comment="very tight ATR trail for crypto volatility"
         )
 

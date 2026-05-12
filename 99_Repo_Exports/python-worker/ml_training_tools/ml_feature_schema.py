@@ -191,7 +191,7 @@ def build_feature_vector(
 
     # UTC time features
     try:
-        dt = _dt.datetime.utcfromtimestamp(int(ts_ms)//1000)
+        dt = _dt.datetime.fromtimestamp(int(ts_ms)//1000, tz=_dt.timezone.utc)
         hour = dt.hour + dt.minute/60.0
         dow = dt.weekday()  # 0..6
         out["hour_sin"] = math.sin(2.0*math.pi*hour/24.0)

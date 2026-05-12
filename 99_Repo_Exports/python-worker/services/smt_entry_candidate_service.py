@@ -348,7 +348,7 @@ class SmtEntryCandidateService:
 
                     if st.stage == "WAIT_TOUCH":
                         regime = (snap.get("regime", "na") or "na").lower()
-                        grp_guess = regime if regime in ("thin", "range", "trend") else "default"
+                        grp_guess = _regime_group(regime)
                         await self._maybe_poll_overrides(now_ms=now, group=grp_guess)
 
                         ab_key = _mk_ab_key(setup, snap)

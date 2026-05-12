@@ -5441,6 +5441,7 @@ services:
     - scanner-timers
     - scanner-infra
   scanner-local-fallback-plane-v3-0:
+    profiles: [llm]
     networks:
     - scanner-timers
     - scanner-infra
@@ -5476,6 +5477,7 @@ services:
         reservations:
           memory: 24M
   scanner-vertex-local-fallback-handoff-v3-1:
+    profiles: [llm]
     networks:
     - scanner-timers
     - scanner-infra
@@ -5506,6 +5508,7 @@ services:
         reservations:
           memory: 24M
   scanner-local-report-handoff-rewire-v3-2:
+    profiles: [llm]
     networks:
     - scanner-timers
     - scanner-infra
@@ -5537,6 +5540,7 @@ services:
         reservations:
           memory: 24M
   scanner-offline-debug-handoff-rewire-v3-3:
+    profiles: [llm]
     networks:
     - scanner-timers
     - scanner-infra
@@ -5568,6 +5572,7 @@ services:
         reservations:
           memory: 24M
   scanner-emergency-summarize-handoff-rewire-v3-4:
+    profiles: [llm]
     networks:
     - scanner-timers
     - scanner-infra
@@ -5603,6 +5608,7 @@ services:
         reservations:
           memory: 24M
   scanner-route-incident-rca-shadow-handoff-v3-5:
+    profiles: [llm]
     networks:
     - scanner-timers
     - scanner-infra
@@ -5635,6 +5641,7 @@ services:
         reservations:
           memory: 24M
   scanner-route-incident-rca-shadow-comparator-v3-6:
+    profiles: [llm]
     networks:
     - scanner-timers
     - scanner-infra
@@ -5663,6 +5670,7 @@ services:
         reservations:
           memory: 24M
   scanner-route-incident-rca-mirror-governor-v3-7:
+    profiles: [llm]
     networks:
     - scanner-timers
     - scanner-infra
@@ -5701,6 +5709,7 @@ services:
         reservations:
           memory: 24M
   scanner-route-incident-rca-mirror-verification-v3-8:
+    profiles: [llm]
     networks:
     - scanner-timers
     - scanner-infra
@@ -5738,6 +5747,7 @@ services:
         reservations:
           memory: 24M
   scanner-route-incident-rca-mirror-rollout-controller-v3-9:
+    profiles: [llm]
     build:
       context: .
       dockerfile: python-worker/Dockerfile.gpu
@@ -5768,6 +5778,7 @@ services:
         reservations:
           memory: 24M
   scanner-route-incident-rca-mirror-slo-v3-10:
+    profiles: [llm]
     build:
       context: .
       dockerfile: python-worker/Dockerfile.gpu
@@ -5794,6 +5805,7 @@ services:
         reservations:
           memory: 24M
   scanner-route-incident-rca-mirror-retry-v3-10:
+    profiles: [llm]
     build:
       context: .
       dockerfile: python-worker/Dockerfile.gpu
@@ -5822,6 +5834,7 @@ services:
         reservations:
           memory: 24M
   scanner-route-incident-rca-mirror-escalations-v3-10:
+    profiles: [llm]
     build:
       context: .
       dockerfile: python-worker/Dockerfile.gpu
@@ -5848,6 +5861,7 @@ services:
         reservations:
           memory: 24M
   scanner-route-incident-rca-mirror-incident-bundles-v3-11:
+    profiles: [llm]
     build:
       context: .
       dockerfile: python-worker/Dockerfile.gpu
@@ -5875,6 +5889,7 @@ services:
         reservations:
           memory: 24M
   scanner-route-incident-rca-mirror-rca-bridge-v3-12:
+    profiles: [llm]
     build:
       context: .
       dockerfile: python-worker/Dockerfile.gpu
@@ -5902,6 +5917,7 @@ services:
         reservations:
           memory: 24M
   scanner-route-incident-rca-mirror-vertex-rca-consumer-v3-13:
+    profiles: [llm]
     build:
       context: .
       dockerfile: python-worker/Dockerfile.gpu
@@ -5929,6 +5945,7 @@ services:
         reservations:
           memory: 24M
   scanner-route-incident-rca-mirror-vertex-feedback-governor-v3-13:
+    profiles: [llm]
     build:
       context: .
       dockerfile: python-worker/Dockerfile.gpu
@@ -5959,6 +5976,7 @@ services:
         reservations:
           memory: 24M
   scanner-route-incident-rca-mirror-rca-experiment-harness-v3-14:
+    profiles: [llm]
     build:
       context: .
       dockerfile: python-worker/Dockerfile.gpu
@@ -5987,6 +6005,7 @@ services:
         reservations:
           memory: 24M
   scanner-route-incident-rca-mirror-rca-evaluator-v3-15:
+    profiles: [llm]
     build:
       context: .
       dockerfile: python-worker/Dockerfile.gpu
@@ -6022,6 +6041,7 @@ services:
         reservations:
           memory: 24M
   scanner-route-incident-rca-mirror-rca-winner-apply-v3-16:
+    profiles: [llm]
     build:
       context: .
       dockerfile: python-worker/Dockerfile.gpu
@@ -6052,6 +6072,7 @@ services:
         reservations:
           memory: 24M
   scanner-route-incident-rca-mirror-rca-winner-apply-verification-v3-17:
+    profiles: [llm]
     build:
       context: .
       dockerfile: python-worker/Dockerfile.gpu
@@ -6084,6 +6105,7 @@ services:
         reservations:
           memory: 24M
   scanner-route-incident-rca-mirror-rca-winner-apply-slo-analytics-v3-18:
+    profiles: [llm]
     build:
       context: .
       dockerfile: python-worker/Dockerfile.gpu
@@ -6110,6 +6132,7 @@ services:
         reservations:
           memory: 24M
   scanner-route-incident-rca-mirror-rca-winner-apply-retry-controller-v3-18:
+    profiles: [llm]
     build:
       context: .
       dockerfile: python-worker/Dockerfile.gpu
@@ -6138,6 +6161,7 @@ services:
         reservations:
           memory: 24M
   scanner-route-incident-rca-mirror-rca-winner-apply-auto-escalation-summarizer-v3-18:
+    profiles: [llm]
     build:
       context: .
       dockerfile: python-worker/Dockerfile.gpu
@@ -6165,6 +6189,7 @@ services:
         reservations:
           memory: 24M
   scanner-route-incident-rca-mirror-rca-winner-apply-incident-bundles-v3-19:
+    profiles: [llm]
     build:
       context: .
       dockerfile: python-worker/Dockerfile.gpu
@@ -6194,6 +6219,7 @@ services:
         reservations:
           memory: 24M
   scanner-route-incident-rca-mirror-rca-winner-apply-bundle-rca-bridge-v3-20:
+    profiles: [llm]
     build:
       context: .
       dockerfile: python-worker/Dockerfile.gpu
@@ -6223,6 +6249,7 @@ services:
         reservations:
           memory: 24M
   scanner-route-incident-rca-mirror-rca-winner-apply-vertex-rca-consumer-v3-21:
+    profiles: [llm]
     build:
       context: .
       dockerfile: python-worker/Dockerfile.gpu
@@ -6250,6 +6277,7 @@ services:
         reservations:
           memory: 24M
   scanner-route-incident-rca-mirror-rca-winner-apply-vertex-feedback-governor-v3-21:
+    profiles: [llm]
     build:
       context: .
       dockerfile: python-worker/Dockerfile.gpu
@@ -6278,6 +6306,7 @@ services:
         reservations:
           memory: 24M
   scanner-route-incident-rca-mirror-rca-winner-apply-experiment-harness-v3-22:
+    profiles: [llm]
     build:
       context: .
       dockerfile: python-worker/Dockerfile.gpu
@@ -6309,6 +6338,7 @@ services:
         reservations:
           memory: 24M
   scanner-route-incident-rca-mirror-rca-winner-apply-evaluator-v3-23:
+    profiles: [llm]
     build:
       context: .
       dockerfile: python-worker/Dockerfile.gpu
@@ -6337,6 +6367,7 @@ services:
         reservations:
           memory: 24M
   scanner-route-incident-rca-mirror-rca-winner-apply-apply-controller-v3-24:
+    profiles: [llm]
     build:
       context: .
       dockerfile: python-worker/Dockerfile.gpu
@@ -6366,6 +6397,7 @@ services:
         reservations:
           memory: 24M
   scanner-route-incident-rca-mirror-rca-winner-apply-verification-v3-25:
+    profiles: [llm]
     build:
       context: .
       dockerfile: python-worker/Dockerfile.gpu
@@ -6394,6 +6426,7 @@ services:
         reservations:
           memory: 24M
   scanner-route-incident-rca-mirror-rca-winner-apply-apply-retry-controller-v3-26:
+    profiles: [llm]
     build:
       context: .
       dockerfile: python-worker/Dockerfile.gpu
@@ -6420,6 +6453,7 @@ services:
         reservations:
           memory: 24M
   scanner-route-incident-rca-mirror-rca-winner-apply-apply-auto-escalation-summarizer-v3-26:
+    profiles: [llm]
     build:
       context: .
       dockerfile: python-worker/Dockerfile.gpu
@@ -6446,6 +6480,7 @@ services:
         reservations:
           memory: 24M
   scanner-route-incident-rca-mirror-rca-winner-apply-apply-incident-bundle-builder-v3-27:
+    profiles: [llm]
     build:
       context: .
       dockerfile: python-worker/Dockerfile.gpu
@@ -6472,6 +6507,7 @@ services:
         reservations:
           memory: 24M
   scanner-route-incident-rca-mirror-rca-winner-apply-apply-bundle-rca-bridge-v3-28:
+    profiles: [llm]
     build:
       context: .
       dockerfile: python-worker/Dockerfile.gpu
@@ -6498,6 +6534,7 @@ services:
         reservations:
           memory: 24M
   scanner-route-incident-rca-mirror-rca-winner-apply-apply-vertex-rca-consumer-v3-29:
+    profiles: [llm]
     build:
       context: .
       dockerfile: python-worker/Dockerfile.gpu
@@ -6524,6 +6561,7 @@ services:
         reservations:
           memory: 24M
   scanner-route-incident-rca-mirror-rca-winner-apply-apply-vertex-feedback-governor-v3-29:
+    profiles: [llm]
     build:
       context: .
       dockerfile: python-worker/Dockerfile.gpu
@@ -6548,6 +6586,7 @@ services:
         reservations:
           memory: 24M
   scanner-route-incident-rca-mirror-rca-winner-apply-apply-governance-apply-flow-experiment-apply-controller-v3-49:
+    profiles: [llm]
     build:
       context: .
       dockerfile: python-worker/Dockerfile.gpu
@@ -6580,6 +6619,7 @@ services:
         reservations:
           memory: 24M
   scanner-route-incident-rca-mirror-rca-winner-apply-apply-governance-apply-flow-experiment-verifier-v3-50:
+    profiles: [llm]
     build:
       context: .
       dockerfile: python-worker/Dockerfile.gpu
@@ -6609,6 +6649,7 @@ services:
         reservations:
           memory: 24M
   scanner-route-incident-rca-mirror-rca-winner-apply-apply-governance-apply-flow-experiment-rollback-v3-50:
+    profiles: [llm]
     build:
       context: .
       dockerfile: python-worker/Dockerfile.gpu

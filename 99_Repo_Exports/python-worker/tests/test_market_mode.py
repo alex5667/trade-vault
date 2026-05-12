@@ -79,3 +79,42 @@ class TestIsTrendRegime:
     @pytest.mark.parametrize("raw", ["range", "mixed", "unknown", "meanrev", ""])
     def test_false_cases(self, raw: str) -> None:
         assert is_trend_regime(raw) is False
+
+
+def test_unknown_not_equal_range():
+    from common.market_mode import regime_to_id
+    assert regime_to_id("unknown") != regime_to_id("range")
+    assert normalize_regime("unknown") == "unknown"
+    assert normalize_regime("range") == "range"
+
+
+class TestExpansionRegimeId:
+    """expansion_bull/bear must have valid, distinct positive IDs (not -1.0)."""
+
+    def test_expansion_bull_id_positive(self):
+        from common.market_mode import regime_to_id
+        assert regime_to_id("expansion_bull") > 0
+
+    def test_expansion_bear_id_positive(self):
+        from common.market_mode import regime_to_id
+        assert regime_to_id("expansion_bear") > 0
+
+    def test_expansion_bull_not_unknown_id(self):
+        from common.market_mode import regime_to_id
+        assert regime_to_id("expansion_bull") != -1.0
+
+    def test_expansion_bear_not_unknown_id(self):
+        from common.market_mode import regime_to_id
+        assert regime_to_id("expansion_bear") != -1.0
+
+    def test_expansion_bull_distinct_from_trend(self):
+        from common.market_mode import regime_to_id
+        assert regime_to_id("expansion_bull") != regime_to_id("trend")
+
+    def test_expansion_ids_are_distinct(self):
+        from common.market_mode import regime_to_id
+        assert regime_to_id("expansion_bull") != regime_to_id("expansion_bear")
+
+    def test_expansion_is_trend_regime(self):
+        assert is_trend_regime("expansion_bull") is True
+        assert is_trend_regime("expansion_bear") is True

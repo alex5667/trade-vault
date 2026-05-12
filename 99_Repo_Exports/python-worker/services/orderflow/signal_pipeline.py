@@ -17,7 +17,8 @@ from core.dyn_cfg_keys import DynCfgKeys as DK
 from core.instrument_config import get_specs
 from core.of_confirm_engine import OFConfirmEngine
 from core.redis_keys import RedisStreams as RS
-from core.signal_payload import SignalPayload, StrongGateDecision, GateDecisionV1
+from core.signal_payload import SignalPayload, StrongGateDecision
+from core.gates.decision import GateDecisionV1
 from handlers.crypto_orderflow.components.gates import GateOrchestrator
 from handlers.crypto_orderflow.utils.log_sampler import LogSamplerFactory
 from handlers.crypto_orderflow.utils.edge_cost_gate import EdgeCostGate
@@ -1124,11 +1125,19 @@ class SignalPipeline:
                 indicators["profile_net_edge_bps"] = round(_net_edge, 2)
                 indicators["profile_min_net_edge_bps"] = _min_net_edge
                 if _net_edge < _min_net_edge:
+                    _ts_dec_ms = int(time.time() * 1000)
                     _ne_dec = GateDecisionV1(
+                        stage="profile",
                         gate="trade_profile_net_edge",
                         decision="DENY",
                         reason_code="profile_negative_net_edge",
-                        stage="profile",
+                        severity="WARN",
+                        profile=_profile_decision.profile.name,
+                        fail_policy="OPEN",
+                        ts_event_ms=sig_ts,
+                        ts_decision_ms=_ts_dec_ms,
+                        latency_us=0,
+                        inputs_hash="",
                         notes={"net_edge_bps": _net_edge, "min_net_edge_bps": _min_net_edge,
                                "profile": _profile_decision.profile.name},
                     )
@@ -1300,6 +1309,16 @@ class SignalPipeline:
         elif is_squeeze_regime_flag:
             if _apply_decision(self.orchestrator.check_squeeze_regime(ctx, is_squeeze=True)): return  # type: ignore
 
+        # ---- FIX (2026-05-11): unknown/mixed/na regime → range_protective ----
+        # Root cause: unknown regime fell through to rocket_v1 default (WR 29.4%,
+        # PnL -23.78$ vs range_protective WR 54.5%, PnL -1.90$).
+        # 78.6% of TP1-hit trades reversed into losses with rocket_v1 trailing.
+        # Conservative approach: use breakeven-only exit for unclassified regimes.
+        elif rg_for_overrides in ("unknown", "mixed", "na", ""):
+            trail_profile = "range_protective"
+            signal["trail_after_tp1"] = True
+            indicators["regime_trail_override"] = "unknown_to_range_protective"
+
         # Phase 2: override trail_profile from TradeProfile if router is in LIVE/canary mode
         # Only override when the regime-based selection above did NOT explicitly set a profile
         # (i.e., we are still on the default "protective_only" from cfg).
@@ -1384,10 +1403,16 @@ class SignalPipeline:
             "indicators": indicators,
         }
 
-        if is_range_regime_flag:
+        # TP ratio: driven by TradeProfile (no hardcoded regime fallback)
+        # Profile meta is populated by build_signal_profile_meta() upstream
+        _profile_meta = signal.get("meta", {})
+        _profile_tp_ratios = _profile_meta.get("tp_ratios")
+        if _profile_tp_ratios and isinstance(_profile_tp_ratios, (list, tuple)):
+            payload["tp_ratio"] = list(_profile_tp_ratios)
+        elif is_range_regime_flag:
             payload["tp_ratio"] = [0.80, 0.20]
         elif is_expansion_regime_flag:
-            payload["tp_ratio"] = [0.70, 0.20, 0.10]
+            payload["tp_ratio"] = [0.40, 0.30, 0.30]
 
         # Optional: publish compact confidence score event to high-frequency stream
         safe_create_task(
@@ -1634,12 +1659,21 @@ class SignalPipeline:
         except Exception:
             pass
 
-        if is_range_regime_flag:
+        # TP ratio for enriched_signal: prefer TradeProfile, fallback to regime heuristics
+        _es_meta = enriched_signal.get("meta", {})
+        _es_tp_ratios = _es_meta.get("tp_ratios")
+        _es_trail_after = _es_meta.get("trail_after_tp_level")
+        _es_trail_enabled = _es_meta.get("trail_enabled")
+        if _es_tp_ratios and isinstance(_es_tp_ratios, (list, tuple)):
+            enriched_signal["tp_ratio"] = list(_es_tp_ratios)
+            if _es_trail_after and isinstance(_es_trail_after, int) and _es_trail_after > 0:
+                enriched_signal["trail_activate_tp_level_requested"] = _es_trail_after
+        elif is_range_regime_flag:
             enriched_signal["tp_ratio"] = [0.80, 0.20]
         elif is_expansion_regime_flag:
-            enriched_signal["tp_ratio"] = [0.70, 0.20, 0.10]
+            enriched_signal["tp_ratio"] = [0.40, 0.30, 0.30]
 
-        # --- Request: lock_and_trail -> TP1=50%, TP2=20%, Trail after TP2 ---
+        # Override: lock_and_trail profile has its own special distribution
         if trail_profile == "lock_and_trail":
             n_tps = len(tp_levels)
             if n_tps == 2:

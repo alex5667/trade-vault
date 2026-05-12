@@ -319,12 +319,52 @@ class OrderOpenService:
 
         # Arm protection
         if self._protection and sl_price > 0 and tp_levels:
+            # Compute tp_qtys from signal payload tp_ratio (strategy-aware distribution)
+            tp_qtys: list[float] = []
+            tp_ratio = (
+                payload.get("tp_qty_ratios")
+                or payload.get("tp_ratios")
+                or payload.get("tp_ratio")
+                or (payload.get("meta") or {}).get("tp_qty_ratios")
+                or (payload.get("meta") or {}).get("tp_ratios")
+                or (payload.get("meta") or {}).get("tp_ratio")
+            )
+            if tp_ratio and isinstance(tp_ratio, (list, tuple)) and len(tp_ratio) > 0:
+                try:
+                    from services.tp_config import compute_tp_qtys
+                    tp_qtys = compute_tp_qtys(filled_qty, tp_ratio, sf.step_size)
+                except Exception:
+                    tp_qtys = []  # fallback: protection_service will compute even-split
+
             prot_result = self._protection.place_protective(
                 sid=sid, symbol=symbol, logical_side=logical_side,
                 qty=filled_qty, sl_price=sl_price, tp_levels=tp_levels,
-                tp_qtys=[],
+                tp_qtys=tp_qtys,
                 client=client, filters=filters, r=self.r,
             )
+            protection_ok = self._protection.protection_confirmed(
+                prot_result,
+                tp_levels,
+                trail_enabled=bool((payload.get("meta") or {}).get("trail_enabled", False)),
+            )
+
+            if not protection_ok:
+                self._protection.emit_protection_incident(
+                    sid=sid,
+                    symbol=symbol,
+                    reason="protection_not_confirmed_after_entry",
+                )
+                return self._transition(
+                    sid,
+                    symbol=symbol,
+                    action="open",
+                    next_state=FSM_FAILED,
+                    details={
+                        "reason": "protection_not_confirmed_after_entry",
+                        "prot_result": prot_result,
+                    },
+                )
+
             filled_state.update(prot_result)
             self._save_state(sid, filled_state)
 

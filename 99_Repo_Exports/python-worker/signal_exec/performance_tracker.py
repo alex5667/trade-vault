@@ -224,7 +224,7 @@ class SignalPerformanceTracker:
     @staticmethod
     def _naive_utc_from_ms(ts_ms: int) -> datetime:
         """Конвертирует timestamp в миллисекундах в naive UTC datetime."""
-        return datetime.utcfromtimestamp(ts_ms / 1000.0)
+        return datetime.fromtimestamp(ts_ms / 1000.0, tz=UTC).replace(tzinfo=None)
 
     @staticmethod
     def _dt_to_epoch_ms(dt: datetime) -> int:

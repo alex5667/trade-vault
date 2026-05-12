@@ -1094,11 +1094,16 @@ def build_trailing_report_markdown_from_env(r: redis.Redis | None = None) -> str
 
     symbols = [s.strip().upper() for s in symbols_env.split(",") if s.strip()]
     if not symbols:
+        # Lightweight: read symbol list directly from Redis Set
+        # (avoids heavy SymbolManager handler initialization)
         try:
-            from core.symbol_manager import SymbolManager
-            symbols = SymbolManager().get_active_symbols()
+            _r = r or redis.from_url(redis_url, decode_responses=True)
+            raw_symbols = _r.smembers("config:symbols:all")
+            if raw_symbols:
+                symbols = sorted(raw_symbols)
+                logger.info(f"Loaded {len(symbols)} symbols from config:symbols:all")
         except Exception as e:
-            logger.error(f"Failed to load symbols from SymbolManager: {e}")
+            logger.error(f"Failed to load symbols from Redis config:symbols:all: {e}")
     if not symbols:
         return "Нет символов для анализа."
 

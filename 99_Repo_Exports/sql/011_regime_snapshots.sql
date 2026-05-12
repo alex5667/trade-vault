@@ -8,6 +8,7 @@ CREATE TABLE IF NOT EXISTS regime_snapshots (
     direction SMALLINT NOT NULL,
     score DOUBLE PRECISION NOT NULL,
     confidence DOUBLE PRECISION NOT NULL,
+    ts_calc_ms BIGINT DEFAULT 0,        -- epoch_ms when regime was calculated (RegimeSnapshot.ts_calc_ms)
     schema_ver INT DEFAULT 1,
     source VARCHAR(64) DEFAULT 'market_regime_service',
     features JSONB

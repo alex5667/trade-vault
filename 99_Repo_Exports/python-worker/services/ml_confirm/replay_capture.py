@@ -72,9 +72,9 @@ except Exception:
         def observe(self, *args, **kwargs):
             pass
     ml_confirm_events_total = ml_confirm_errors_total = ml_confirm_cfg_present = \
-    ml_confirm_cfg_valid = ml_confirm_enforce_share = ml_confirm_model_loaded = \  # type: ignore
+    ml_confirm_cfg_valid = ml_confirm_enforce_share = ml_confirm_model_loaded = \
     ml_confirm_model_load_seconds = ml_confirm_latency_seconds = ml_missing_critical_total = \
-    lambda *args, **kwargs: _MockMetric()
+    lambda *args, **kwargs: _MockMetric()  # type: ignore
 
 try:
     import joblib  # type: ignore

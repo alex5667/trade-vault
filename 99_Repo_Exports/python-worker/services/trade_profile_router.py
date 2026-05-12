@@ -58,7 +58,11 @@ class TradeProfile:
     # TP parameters
     tp_rr: str = "1.2,2.0,3.0"
     tp1_atr_mult: float = 0.9
+    tp_count: int = 3                    # number of TP levels (2 or 3)
+    tp_ratios: tuple[float, ...] = (0.50, 0.30, 0.20)  # volume split per TP (sum=1.0)
     trailing_profile: str = "wide_swing"
+    trail_enabled: bool = True           # activate trailing for this profile
+    trail_after_tp_level: int = 1        # activate trailing after TPn hit (0=no trail)
 
     # Execution / risk
     execution_policy: str = "SAFETY_FIRST"   # SAFETY_FIRST | MAKER_FIRST
@@ -147,6 +151,8 @@ def _get_tiered(raw: dict, key: str, sub_key: str, default: float) -> float:
 # ---------------------------------------------------------------------------
 
 _BUILTIN_PROFILES: dict[str, TradeProfile] = {
+    # ── Trend: 2 TP (50/50) + trailing after TP1 ──
+    # Best practice: fewer TPs + trail outperforms 3 fixed TPs at R:R > 2.0
     "trend_breakout_v1": TradeProfile(
         name="trend_breakout_v1",
         regime_bucket="trend",
@@ -155,19 +161,20 @@ _BUILTIN_PROFILES: dict[str, TradeProfile] = {
         min_p_edge=0.56,
         min_confidence=0.58,
         max_expected_slippage_bps=14.0,
-        # zone cap
         max_zone_bp_majors=12.0,
         max_zone_bp_alts=16.0,
         max_zone_bp_memes=22.0,
-        # stop
         stop_atr_mult_majors=0.85,
         stop_atr_mult_alts=0.95,
         stop_atr_mult_memes=1.10,
-        tp_rr="1.2,2.0,3.0",
+        tp_rr="1.5,3.0",
         tp1_atr_mult=0.9,
-        trailing_profile="trend_runner_v1",
+        tp_count=2,
+        tp_ratios=(0.70, 0.30),
+        trailing_profile="rocket_v1",
+        trail_enabled=True,
+        trail_after_tp_level=1,
         execution_policy="MAKER_FIRST",
-        # risk per tier
         risk_multiplier_tier_a=1.10,
         risk_multiplier_tier_b=1.00,
         risk_multiplier_tier_c=0.60,
@@ -175,6 +182,8 @@ _BUILTIN_PROFILES: dict[str, TradeProfile] = {
         mode="LIVE",
         reason_code="trend_breakout_v1",
     ),
+    # ── Range: 2 TP (80/20) + breakeven only, no trailing ──
+    # Best practice: short target move, maximize TP1 take; trail is ineffective
     "range_absorption_v1": TradeProfile(
         name="range_absorption_v1",
         regime_bucket="range",
@@ -183,19 +192,20 @@ _BUILTIN_PROFILES: dict[str, TradeProfile] = {
         min_p_edge=0.62,
         min_confidence=0.64,
         max_expected_slippage_bps=14.0,
-        # zone cap
         max_zone_bp_majors=10.0,
         max_zone_bp_alts=14.0,
         max_zone_bp_memes=18.0,
-        # stop
         stop_atr_mult_majors=1.10,
         stop_atr_mult_alts=1.25,
         stop_atr_mult_memes=1.40,
-        tp_rr="0.8,1.3,2.0",
+        tp_rr="0.8,1.5",
         tp1_atr_mult=0.55,
-        trailing_profile="range_lock_v1",
+        tp_count=2,
+        tp_ratios=(0.80, 0.20),
+        trailing_profile="protective_only",
+        trail_enabled=False,
+        trail_after_tp_level=0,
         execution_policy="SAFETY_FIRST",
-        # risk per tier
         risk_multiplier_tier_a=0.70,
         risk_multiplier_tier_b=0.50,
         risk_multiplier_tier_c=0.25,
@@ -203,6 +213,8 @@ _BUILTIN_PROFILES: dict[str, TradeProfile] = {
         mode="LIVE",
         reason_code="range_absorption_v1",
     ),
+    # ── Thin: 2 TP (70/30) + breakeven only, no trailing ──
+    # Best practice: low liquidity → exit early, trailing dangerous (gaps/slippage)
     "thin_defensive_v1": TradeProfile(
         name="thin_defensive_v1",
         regime_bucket="thin",
@@ -217,9 +229,13 @@ _BUILTIN_PROFILES: dict[str, TradeProfile] = {
         stop_atr_mult_majors=1.30,
         stop_atr_mult_alts=1.40,
         stop_atr_mult_memes=1.60,
-        tp_rr="1.0,1.6,2.2",
+        tp_rr="1.0,1.8",
         tp1_atr_mult=0.8,
-        trailing_profile="wide_swing",
+        tp_count=2,
+        tp_ratios=(0.70, 0.30),
+        trailing_profile="protective_only",
+        trail_enabled=False,
+        trail_after_tp_level=0,
         execution_policy="SAFETY_FIRST",
         risk_multiplier_tier_a=0.40,
         risk_multiplier_tier_b=0.30,
@@ -228,6 +244,8 @@ _BUILTIN_PROFILES: dict[str, TradeProfile] = {
         mode="SHADOW_BY_DEFAULT",
         reason_code="thin_defensive_v1",
     ),
+    # ── Expansion / high-vol: 3 TP (40/30/30) + trailing after TP2 ──
+    # Best practice: cascading take-profit; trail activates late to survive noise
     "high_vol_breakout_v1": TradeProfile(
         name="high_vol_breakout_v1",
         regime_bucket="mixed",
@@ -242,9 +260,13 @@ _BUILTIN_PROFILES: dict[str, TradeProfile] = {
         stop_atr_mult_majors=1.30,
         stop_atr_mult_alts=1.40,
         stop_atr_mult_memes=1.60,
-        tp_rr="1.2,2.2,3.2",
+        tp_rr="1.2,2.2,3.5",
         tp1_atr_mult=1.0,
-        trailing_profile="vol_runner_v1",
+        tp_count=3,
+        tp_ratios=(0.40, 0.30, 0.30),
+        trailing_profile="expansion_v1",
+        trail_enabled=True,
+        trail_after_tp_level=2,
         execution_policy="SAFETY_FIRST",
         risk_multiplier_tier_a=0.85,
         risk_multiplier_tier_b=0.75,
@@ -253,7 +275,7 @@ _BUILTIN_PROFILES: dict[str, TradeProfile] = {
         mode="LIVE",
         reason_code="high_vol_breakout_v1",
     ),
-    # Fallback / conservative default
+    # ── Fallback / conservative default: 3 TP (50/30/20) + trailing after TP1 ──
     "default_v1": TradeProfile(
         name="default_v1",
         regime_bucket="mixed",
@@ -270,7 +292,11 @@ _BUILTIN_PROFILES: dict[str, TradeProfile] = {
         stop_atr_mult_memes=1.20,
         tp_rr="1.0,1.8,2.8",
         tp1_atr_mult=0.8,
+        tp_count=3,
+        tp_ratios=(0.50, 0.30, 0.20),
         trailing_profile="wide_swing",
+        trail_enabled=True,
+        trail_after_tp_level=1,
         execution_policy="SAFETY_FIRST",
         risk_multiplier_tier_a=1.00,
         risk_multiplier_tier_b=0.80,
@@ -286,6 +312,8 @@ _REGIME_PROFILE_MAP: dict[str, str] = {
     "trend": "trend_breakout_v1",
     "range": "range_absorption_v1",
     "thin":  "thin_defensive_v1",
+    "high_vol": "high_vol_breakout_v1",
+    "high_vol_low_liq": "thin_defensive_v1",
     "mixed": "default_v1",
 }
 
@@ -414,21 +442,25 @@ class TradeProfileRouter:
                 min_confidence=float(raw.get("min_confidence", 0.57)),
                 max_expected_slippage_bps=float(raw.get("max_expected_slippage_bps", 15.0)),
                 # zone cap — accept flat value OR per-class dict
-                max_zone_bp_majors=float(_get_tiered(raw, "max_zone_bp", "majors", 10.0)),
-                max_zone_bp_alts=float(_get_tiered(raw, "max_zone_bp", "alts", 14.0)),
-                max_zone_bp_memes=float(_get_tiered(raw, "max_zone_bp", "memes", 18.0)),
+                max_zone_bp_majors=_get_tiered(raw, "max_zone_bp", "majors", 10.0),
+                max_zone_bp_alts=_get_tiered(raw, "max_zone_bp", "alts", 14.0),
+                max_zone_bp_memes=_get_tiered(raw, "max_zone_bp", "memes", 18.0),
                 # stop atr mult
-                stop_atr_mult_majors=float(_get_tiered(raw, "stop_atr_mult", "majors", 1.0)),
-                stop_atr_mult_alts=float(_get_tiered(raw, "stop_atr_mult", "alts", 1.1)),
-                stop_atr_mult_memes=float(_get_tiered(raw, "stop_atr_mult", "memes", 1.25)),
+                stop_atr_mult_majors=_get_tiered(raw, "stop_atr_mult", "majors", 1.0),
+                stop_atr_mult_alts=_get_tiered(raw, "stop_atr_mult", "alts", 1.1),
+                stop_atr_mult_memes=_get_tiered(raw, "stop_atr_mult", "memes", 1.25),
                 tp_rr=str(raw.get("tp_rr", "1.2,2.0,3.0")),
                 tp1_atr_mult=float(raw.get("tp1_atr_mult", 0.9)),
+                tp_count=int(raw.get("tp_count", 3)),
+                tp_ratios=tuple(float(x) for x in (raw.get("tp_ratios") or (0.50, 0.30, 0.20))),
                 trailing_profile=str(raw.get("trailing_profile", "wide_swing")),
+                trail_enabled=bool(raw.get("trail_enabled", True)),
+                trail_after_tp_level=int(raw.get("trail_after_tp_level", 1)),
                 execution_policy=str(raw.get("execution_policy", "SAFETY_FIRST")),
                 # risk per tier
-                risk_multiplier_tier_a=float(_get_tiered(raw, "risk_multiplier", "tier_A", 1.0)),
-                risk_multiplier_tier_b=float(_get_tiered(raw, "risk_multiplier", "tier_B", 0.75)),
-                risk_multiplier_tier_c=float(_get_tiered(raw, "risk_multiplier", "tier_C", 0.40)),
+                risk_multiplier_tier_a=_get_tiered(raw, "risk_multiplier", "tier_A", 1.0),
+                risk_multiplier_tier_b=_get_tiered(raw, "risk_multiplier", "tier_B", 0.75),
+                risk_multiplier_tier_c=_get_tiered(raw, "risk_multiplier", "tier_C", 0.40),
                 min_net_edge_bps=float(raw.get("min_net_edge_bps", 2.0)),
                 mode=str(raw.get("mode", "LIVE")),
                 reason_code=str(raw.get("reason_code", "redis_override")),
@@ -553,6 +585,10 @@ def build_signal_profile_meta(
         "max_zone_bp":      zone_bp,
         "tp_rr":            profile.tp_rr,
         "tp1_atr_mult":     profile.tp1_atr_mult,
+        "tp_count":         profile.tp_count,
+        "tp_ratios":        list(profile.tp_ratios),
+        "trail_enabled":    profile.trail_enabled,
+        "trail_after_tp_level": profile.trail_after_tp_level,
         "min_p_edge":       profile.min_p_edge,
         "min_confidence":   profile.min_confidence,
         "min_net_edge_bps": profile.min_net_edge_bps,

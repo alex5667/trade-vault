@@ -39,7 +39,7 @@ import os
 import subprocess
 import sys
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from utils.time_utils import get_ny_time_millis
@@ -2030,12 +2030,12 @@ def run_of_gate_rollups_refresh_nightly() -> bool:  # type: ignore
       - OF_GATE_ROLLUPS_REFRESH_SAFE_END_UTC (default 05:30)
       - OF_GATE_ROLLUPS_REFRESH_TIMEOUT_S (default 1800)
 
-    Note: scheduler uses UTC (datetime.utcnow()). Safe window is interpreted in UTC.
+    Note: scheduler uses UTC (datetime.now(timezone.utc)). Safe window is interpreted in UTC.
     """
     if os.getenv('ENABLE_OF_GATE_ROLLUPS_REFRESH_NIGHTLY', '0') != '1':
         return True
 
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     sh, sm = _parse_hhmm(os.getenv('OF_GATE_ROLLUPS_REFRESH_SAFE_START_UTC', '02:30'), 2, 30)
     eh, em = _parse_hhmm(os.getenv('OF_GATE_ROLLUPS_REFRESH_SAFE_END_UTC', '05:30'), 5, 30)
     if not _in_safe_window_utc(now, sh, sm, eh, em):
@@ -2641,7 +2641,7 @@ def run_of_gate_rollups_refresh_nightly() -> bool:
     if os.getenv("ENABLE_OF_GATE_ROLLUPS_REFRESH_NIGHTLY", "0") != "1":
         return True
 
-    now_utc = datetime.utcnow()
+    now_utc = datetime.now(timezone.utc)
     if not _in_utc_window(
         now_utc,
         os.getenv("OF_GATE_ROLLUPS_REFRESH_SAFE_START_UTC", "02:30"),
@@ -2772,7 +2772,7 @@ def run_of_gate_dlq_db_archive_nightly() -> bool:
     safe_end = os.getenv("OF_GATE_DLQ_DB_ARCHIVE_SAFE_END_UTC", "")
     if safe_start and safe_end:
         try:
-            now = datetime.utcnow()
+            now = datetime.now(timezone.utc)
             sh, sm = [int(x) for x in safe_start.split(":", 1)]
             eh, em = [int(x) for x in safe_end.split(":", 1)]
             cur = now.hour * 60 + now.minute
@@ -3061,7 +3061,7 @@ def run_of_gate_dlq_auto_replay() -> bool:
     safe_end = os.getenv("OF_GATE_DLQ_AUTO_REPLAY_SAFE_END_UTC", "")
     if safe_start and safe_end:
         try:
-            now = datetime.utcnow()
+            now = datetime.now(timezone.utc)
             sh, sm = [int(x) for x in safe_start.split(":", 1)]
             eh, em = [int(x) for x in safe_end.split(":", 1)]
             cur = now.hour * 60 + now.minute
@@ -3195,7 +3195,7 @@ def main() -> None:  # type: ignore
 
     while True:
         try:
-            now = datetime.utcnow()
+            now = datetime.now(timezone.utc)
             hour = now.hour
             minute = now.minute
             weekday = now.weekday()  # 0=Monday, 6=Sunday

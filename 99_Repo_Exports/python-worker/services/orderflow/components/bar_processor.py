@@ -439,15 +439,15 @@ class BarProcessor:
                 vwap_cross_rate=cross_rate,  # type: ignore
                 vwap=self._regime_vwap,  # type: ignore
                 open_day=self._regime_open_day,  # type: ignore
-            ),  # type: ignore
+            )
 
-            regime = self._regime_svc.update_regime(features),  # type: ignore
-  # type: ignore
+            regime = self._regime_svc.update_regime(features)
+
             # Publish to Redis for backward compatibility with other consumers
-            now_ms = ts,
+            now_ms = ts
             if now_ms - self._regime_last_pub_ms >= self._regime_pub_gap_ms:  # type: ignore
                 try:  # type: ignore
-                    sym = str(runtime.symbol).upper(),
+                    sym = str(runtime.symbol).upper()
                     # fire-and-forget async SET
                     safe_create_task(
                         self.redis.set(
@@ -457,6 +457,32 @@ class BarProcessor:
                         ),
                         name=f"regime-pub-{sym}",
                     )
+                    
+                    # Publish transition if any
+                    transition = getattr(self._regime_svc, "last_transition", None)
+                    if transition:
+                        import json
+                        from core.redis_keys import RS, STREAM_RETENTION
+                        safe_create_task(
+                            self.redis.xadd(
+                                RS.REGIME_TRANSITIONS,
+                                {"payload": json.dumps(transition)},
+                                maxlen=STREAM_RETENTION.get(RS.REGIME_TRANSITIONS, 50000),
+                                approximate=True
+                            ),
+                            name=f"regime-trans-{sym}",
+                        )
+                        
+                        from services.orderflow.metrics import regime_transition_total
+                        regime_transition_total.labels(
+                            symbol=transition["symbol"],
+                            old_regime=transition["old_regime"],
+                            new_regime=transition["new_regime"],
+                            reason=transition["reason"]
+                        ).inc()
+                        
+                        self._regime_svc.last_transition = None
+
                     self._regime_last_pub_ms = now_ms  # type: ignore
                 except Exception:  # type: ignore
                     pass  # fail-open

@@ -1419,6 +1419,126 @@ class RedisTradeRepository:
         })
         self.r.xadd(RS.EVENTS_TRADES, payload, maxlen=STREAM_RETENTION[RS.EVENTS_TRADES], approximate=True)
 
+    # ------------------------------------------------------------------
+    # Pipeline-aware methods (P0 latency fix)
+    #
+    # These add commands to an existing redis pipeline instead of
+    # executing immediately. Enables batching 5 sequential RTTs into 1.
+    # Feature flag: TM_PIPELINE_PERSIST=1
+    # Rollback: TM_PIPELINE_PERSIST=0 → use original sequential methods
+    # ------------------------------------------------------------------
+
+    def persist_signal_pipe(self, signal: SignalNorm, pipe, ttl_sec: int | None = None) -> None:
+        """Pipeline variant of persist_signal — adds SET+EXPIRE to pipe."""
+        if not signal.sid:
+            return
+        key = f"signals:{signal.sid}"
+        if ttl_sec is None:
+            ttl_sec = int(os.getenv("SIGNAL_PERSIST_TTL_SEC", str(86400 * 2)))
+        pipe.set(key, json.dumps(signal.payload, ensure_ascii=False))
+        pipe.expire(key, ttl_sec)
+
+    def save_open_pipe(self, pos, pipe) -> None:
+        """Pipeline variant of save_open — adds HSET+SADD to pipe.
+        
+        NOTE: omits transaction=True wrapping since the caller pipeline
+        controls atomicity. All fields are identical to save_open().
+        """
+        key = f"order:{pos.id}"
+
+        tp_levels = list(getattr(pos, "tp_levels", []) or [])
+        trail_profile = getattr(pos, "trail_profile", "") or ""
+        tf_canon = canon_tf(getattr(pos, "tf", None))
+        entry_regime = _extract_entry_regime_from_obj(pos)
+
+        mapping: dict[str, Any] = {
+            "schema_version": "1",
+            "id": pos.id,
+            "sid": pos.sid,
+            "strategy": pos.strategy,
+            "source": pos.source,
+            "symbol": pos.symbol,
+            "tf": tf_canon,
+            "direction": _side_to_str(getattr(pos, "direction", "")),
+            "trail_after_tp1": _to_str(1 if bool(getattr(pos, "trail_after_tp1", True)) else 0),
+            "trail_after_tp1_reason": _to_str(getattr(pos, "trail_after_tp1_reason", "") or ""),
+            "trailing_skip_reason": _to_str(getattr(pos, "trailing_skip_reason", "") or ""),
+            "entry_regime": entry_regime if entry_regime != "na" else "",
+            "regime": entry_regime if entry_regime != "na" else "",
+            "entry_ts_ms": _to_str(getattr(pos, "entry_ts_ms", getattr(pos, "entry_time", 0))),
+            "entry_time": _to_str(getattr(pos, "entry_ts_ms", getattr(pos, "entry_time", 0))),
+            "entry_price": _to_str(getattr(pos, "entry_price", 0.0)),
+            "lot": _to_str(getattr(pos, "lot", 0.0)),
+            "remaining_qty": _to_str(getattr(pos, "remaining_qty", 0.0)),
+            "sl": _to_str(getattr(pos, "sl", 0.0)),
+            "is_virtual": _b01(getattr(pos, "is_virtual", False)),
+            "v_gate_status": str(getattr(pos, "v_gate_status", "na")),
+            "v_gate_reason": str(getattr(pos, "v_gate_reason", "")),
+            "tp1": _to_str(tp_levels[0] if len(tp_levels) > 0 else 0),
+            "tp2": _to_str(tp_levels[1] if len(tp_levels) > 1 else 0),
+            "tp3": _to_str(tp_levels[2] if len(tp_levels) > 2 else 0),
+            "tp_levels": _json(tp_levels),
+            "status": "open",
+            "tp_hits": _to_str(getattr(pos, "tp_hits", 0)),
+            "tp1_hit": _b01(getattr(pos, "tp1_hit", False)),
+            "tp2_hit": _b01(getattr(pos, "tp2_hit", False)),
+            "tp3_hit": _b01(getattr(pos, "tp3_hit", False)),
+            "trailing_started": _b01(getattr(pos, "trailing_started", False)),
+            "trailing_active": _b01(getattr(pos, "trailing_active", False)),
+            "trailing_moves": _to_str(getattr(pos, "trailing_moves_count", getattr(pos, "trailing_moves", 0))),
+            "trailing_distance": _to_str(getattr(pos, "trailing_distance", 0.0)),
+            "trailing_point": _to_str(getattr(pos, "trailing_point", 0.0)),
+            "meta_enforce_cov_bucket": str(getattr(pos, "meta_enforce_cov_bucket", "") or ""),
+            "meta_enforce_applied": _to_str(int(getattr(pos, "meta_enforce_applied", -1))),
+            "max_favorable_price": _to_str(getattr(pos, "max_favorable_price", 0.0)),
+            "max_favorable_ts": _to_str(getattr(pos, "max_favorable_ts", 0)),
+            "mfe_pnl": _to_str(getattr(pos, "mfe_pnl", 0.0)),
+            "mae_pnl": _to_str(getattr(pos, "mae_pnl", 0.0)),
+            "one_r_money": _to_str(getattr(pos, "one_r_money", 0.0)),
+            "entry_tag": _to_str(getattr(pos, "entry_tag", "")),
+            "trail_profile": _to_str(trail_profile),
+            "trailing_profile": _to_str(trail_profile),
+            "trailing_min_lock_r": _to_str(getattr(pos, "trailing_min_lock_r", 0.0)),
+            "min_lock_price": _to_str(getattr(pos, "min_lock_price", 0.0)),
+            "signal_payload": _json(getattr(pos, "signal_payload", {}) or {}),
+            "baseline_mode": _to_str(getattr(pos, "baseline_mode", "tp_sl")),
+            "baseline_horizon_ms": _to_str(getattr(pos, "baseline_horizon_ms", 0)),
+            "baseline_sl": _to_str(getattr(pos, "baseline_sl", 0.0)),
+            "baseline_tp1": _to_str(getattr(pos, "baseline_tp1", 0.0)),
+            "baseline_tp2": _to_str(getattr(pos, "baseline_tp2", 0.0)),
+            "baseline_tp3": _to_str(getattr(pos, "baseline_tp3", 0.0)),
+            "atr": _to_str(getattr(pos, "atr", 0.0)),
+        }
+
+        # Phase 0.3: horizon scalar fields
+        try:
+            from services.horizon_contract import extract_position_horizon_scalars
+            _ph03 = extract_position_horizon_scalars(pos)
+            for _k, _v in _ph03.items():
+                mapping[_k] = _to_str(_v)
+        except Exception:
+            pass
+
+        pipe.hset(key, mapping=_stringify(mapping))
+        pipe.sadd("orders:open", pos.id)
+
+    def append_event_pipe(self, ev: TradeEvent, pipe) -> None:
+        """Pipeline variant of append_event — adds XADD to pipe."""
+        payload = _stringify({
+            "event_type": ev.event_type,
+            "event": ev.event_type,
+            "order_id": ev.order_id,
+            "sid": ev.sid,
+            "strategy": ev.strategy,
+            "source": ev.source,
+            "symbol": ev.symbol,
+            "tf": ev.tf,
+            "direction": _side_to_str(ev.direction),
+            "ts": ev.ts_ms,
+            **(ev.payload or {}),
+        })
+        pipe.xadd(RS.EVENTS_TRADES, payload, maxlen=STREAM_RETENTION[RS.EVENTS_TRADES], approximate=True)
+
     def _index_closed_zset(self, closed) -> None:
         """
         Индексация закрытий в ZSET:

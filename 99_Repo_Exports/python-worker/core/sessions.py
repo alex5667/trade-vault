@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 # core/sessions.py
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Literal
 
 Session = Literal["asia", "europe", "us"]
@@ -27,5 +27,6 @@ def get_session_from_ts(ts_utc: float) -> Session:
     """
     Определяет сессию по Unix timestamp (в секундах).
     """
-    dt = datetime.utcfromtimestamp(ts_utc)
+    dt = datetime.fromtimestamp(ts_utc, tz=timezone.utc)
     return get_session(dt)
+

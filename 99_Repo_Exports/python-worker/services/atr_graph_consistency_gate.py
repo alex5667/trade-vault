@@ -2,7 +2,7 @@ import json
 import logging
 import os
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from services.analytics_db import get_conn
@@ -32,7 +32,7 @@ DRIFT_TABLES = {
 }
 
 def _generate_id(prefix: str) -> str:
-    return f"{prefix}_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}"
+    return f"{prefix}_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}"
 
 def is_in_scope(symbol: str, risk_level: str) -> bool:
     if _GLOBAL_ENFORCE and risk_level in ("high", "critical"):

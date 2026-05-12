@@ -212,11 +212,11 @@ def run_periodically():
         # Robust daily approach:
         # Check if "today's decisive" is done.
         # We can store last_dec_run date.
-        dt_now = datetime.datetime.utcnow()
+        dt_now = datetime.datetime.now(datetime.timezone.utc)
         if dt_now.hour == 0 and dt_now.minute >= 10 and dt_now.minute < 30:
             # It's time window
             # Check if we ran today
-            last_dt = datetime.datetime.utcfromtimestamp(last_dec_run)
+            last_dt = datetime.datetime.fromtimestamp(last_dec_run, tz=datetime.timezone.utc)
             if last_dt.date() < dt_now.date():
                 task_decisive()
                 last_dec_run = time.time()

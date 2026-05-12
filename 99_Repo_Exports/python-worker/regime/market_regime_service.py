@@ -6,31 +6,12 @@ import time
 from collections import defaultdict, deque
 from dataclasses import dataclass
 from enum import Enum
+from common.regime_contract import RegimeSnapshot, RegimeLabel, RegimeSwitchPolicy, should_switch
 from typing import Any
 
 from common.log import setup_logger
 
 
-class RegimeType(Enum):
-    RANGE = "range"
-    TREND_UP = "trend_up"
-    TREND_DOWN = "trend_down"
-    SQUEEZE = "squeeze"
-    EXPANSION = "expansion"
-
-
-@dataclass
-class RegimeSnapshot:
-    symbol: str
-    ts_event_ms: int
-    regime: RegimeType
-    atr_value: float
-    atr_quantile: float
-    volatility_state: str  # например, "low/normal/high"
-    is_trending: bool
-    # любые доп. поля, которыми вы пользуетесь в guards / scoring
-    trend_score: float = 0.0
-    range_score: float = 0.0
 
 
 @dataclass
@@ -146,7 +127,7 @@ class MarketRegimeService:
     and regime guards for signal emission.
     """
 
-    def __init__(self, atr_window: int = 14, regime_config: RegimeConfig | None = None):
+    def __init__(self, atr_window: int = 14, regime_config: RegimeConfig | None = None, redis_client: Any = None):
         self._atr_window = atr_window
         self._cfg = regime_config or RegimeConfig.from_env()
         self._state_by_symbol: dict[str, RegimeSnapshot] = {}
@@ -162,6 +143,12 @@ class MarketRegimeService:
         self._regime_history: dict[str, deque[RegimeSample]] = defaultdict(
             lambda: deque(maxlen=self._cfg.regime_window_size)
         )
+        
+        self._redis_client = redis_client
+        self._switch_policy = RegimeSwitchPolicy()
+        self._last_switch_ms: dict[str, int] = defaultdict(int)
+        self._confirm_count: dict[str, int] = defaultdict(int)
+        self._candidate_label: dict[str, str] = {}
 
         self.logger = setup_logger("MarketRegimeService")
 
@@ -193,22 +180,72 @@ class MarketRegimeService:
         volatility_state = self._determine_volatility_state(atr_quantile)
 
         # Classify regime
-        regime, trend_score, range_score = self._classify_regime(symbol, atr_quantile)
+        next_label, trend_score, range_score = self._classify_regime(symbol, atr_quantile)
 
-        # Determine if trending
-        is_trending = regime in [RegimeType.TREND_UP, RegimeType.TREND_DOWN]
+        score = trend_score - range_score
+        direction = 0
+        if next_label == RegimeLabel.TRENDING_BULL:
+            direction = 1
+        elif next_label == RegimeLabel.TRENDING_BEAR:
+            direction = -1
+
+        now_ms = bar.ts_event_ms
+
+        # Hysteresis
+        prev_snapshot = self._state_by_symbol.get(symbol)
+        prev_label = prev_snapshot.label if prev_snapshot else RegimeLabel.UNKNOWN
+        
+        if next_label != self._candidate_label.get(symbol):
+            self._candidate_label[symbol] = next_label
+            self._confirm_count[symbol] = 1
+        else:
+            self._confirm_count[symbol] += 1
+            
+        do_switch, switch_reason = should_switch(
+            prev_label=prev_label,
+            next_label=next_label,
+            score=score,
+            confirm_count=self._confirm_count[symbol],
+            now_ms=now_ms,
+            last_switch_ms=self._last_switch_ms[symbol],
+            policy=self._switch_policy,
+        )
+
+        final_label = next_label if (do_switch or not prev_snapshot) else prev_label
+        
+        if do_switch and prev_snapshot and self._redis_client:
+            self._last_switch_ms[symbol] = now_ms
+            try:
+                payload = {
+                    "symbol": str(symbol),
+                    "prev": str(prev_label),
+                    "next": str(final_label),
+                    "reason": str(switch_reason),
+                    "ts": str(now_ms),
+                }
+                self._redis_client.xadd("stream:regime:transitions", payload, maxlen=10000)
+            except Exception as e:
+                self.logger.error(f"Failed to publish regime transition: {e}")
+        elif not prev_snapshot:
+            self._last_switch_ms[symbol] = now_ms
+
+        features = {
+            "atr_value": atr_value,
+            "atr_quantile": atr_quantile,
+            "trend_score": trend_score,
+            "range_score": range_score,
+        }
 
         # Create snapshot
         snapshot = RegimeSnapshot(
             symbol=symbol,
+            label=final_label,
+            direction=direction,
+            score=score,
+            confidence=max(trend_score, range_score),
+            features=features,
             ts_event_ms=bar.ts_event_ms,
-            regime=regime,
-            atr_value=atr_value,
-            atr_quantile=atr_quantile,
-            volatility_state=volatility_state,
-            is_trending=is_trending,
-            trend_score=trend_score,
-            range_score=range_score,
+            ts_calc_ms=now_ms,
         )
 
         self._state_by_symbol[symbol] = snapshot
@@ -264,30 +301,30 @@ class MarketRegimeService:
         else:
             return "normal"
 
-    def _classify_regime(self, symbol: str, atr_quantile: float) -> tuple[RegimeType, float, float]:
+    def _classify_regime(self, symbol: str, atr_quantile: float) -> tuple[str, float, float]:
         """
         Classify market regime based on ATR and other factors.
         Returns (regime, trend_score, range_score)
         """
         bars = list(self._bar_history[symbol])
         if len(bars) < 10:
-            return RegimeType.RANGE, 0.0, 0.0
+            return RegimeLabel.RANGE, 0.0, 0.0
 
         # First check ATR-based classification
         if atr_quantile > self._cfg.atr_quantile_trend_thr:
             # High volatility - expansion
-            return RegimeType.EXPANSION, 0.8, 0.2
+            return RegimeLabel.TREND, 0.8, 0.2
         elif atr_quantile < self._cfg.atr_quantile_range_thr:
             # Low volatility - squeeze
-            return RegimeType.SQUEEZE, 0.2, 0.8
+            return RegimeLabel.RANGE, 0.2, 0.8
 
         # Medium volatility - analyze price movement direction
         return self._analyze_trend_vs_range(bars)
 
-    def _analyze_trend_vs_range(self, bars: list[BarSample]) -> tuple[RegimeType, float, float]:
+    def _analyze_trend_vs_range(self, bars: list[BarSample]) -> tuple[str, float, float]:
         """Analyze recent bars to determine trend vs range"""
         if len(bars) < 10:
-            return RegimeType.RANGE, 0.5, 0.5
+            return RegimeLabel.RANGE, 0.5, 0.5
 
         recent_bars = bars[-10:]
 
@@ -300,10 +337,10 @@ class MarketRegimeService:
                 price_change_pct = (last_price - first_price) / first_price
 
                 if abs(price_change_pct) > 0.02:  # 2% threshold for trend
-                    direction = RegimeType.TREND_UP if price_change_pct > 0 else RegimeType.TREND_DOWN
+                    direction = RegimeLabel.TRENDING_BULL if price_change_pct > 0 else RegimeLabel.TRENDING_BEAR
                     return direction, 0.8, 0.2
 
-        return RegimeType.RANGE, 0.4, 0.6
+        return RegimeLabel.RANGE, 0.4, 0.6
 
     def get_regime(self, symbol: str) -> RegimeSnapshot | None:
         """Get current regime snapshot for symbol"""
@@ -322,10 +359,10 @@ class MarketRegimeService:
             return True  # or strict guard -> False
 
         # Example regime guards
-        if snap.regime == RegimeType.SQUEEZE:
+        if snap.label == RegimeLabel.RANGE:
             return False  # Don't trade in squeeze
 
-        if snap.regime == RegimeType.EXPANSION and snap.atr_quantile > 0.9:
+        if snap.label == RegimeLabel.TREND and snap.features.get("atr_quantile", 0) > 0.9:
             return False  # Too volatile
 
         # Add more sophisticated guards based on context

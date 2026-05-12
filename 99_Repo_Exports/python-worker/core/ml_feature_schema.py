@@ -241,7 +241,7 @@ def build_feature_vector(
 
     # UTC time features
     try:
-        dt = _dt.datetime.utcfromtimestamp(int(ts_ms)//1000)
+        dt = _dt.datetime.fromtimestamp(int(ts_ms)//1000, tz=_dt.timezone.utc)
         hour = dt.hour + dt.minute/60.0
         dow = dt.weekday()  # 0..6
         out["hour_sin"] = math.sin(2.0*math.pi*hour/24.0)
@@ -251,12 +251,41 @@ def build_feature_vector(
     except Exception:
         missing.extend(["hour_sin","hour_cos","dow_sin","dow_cos"])
 
+    if schema_ver in ("v5", "v5_of"):
+        from core.ml_feature_schema_v5_of import MLFeatureSchemaV5OF
+        schema = MLFeatureSchemaV5OF()
+        vec = schema.vectorize(
+            ts_ms=ts_ms, direction=direction, scenario=scenario,
+            indicators=indicators, cancel_spike_veto=bool(cancel_spike_veto)
+        )
+        return vec, []
+    elif schema_ver in ("v5_stable", "v5_of_stable"):
+        from core.ml_feature_schema_v5_of import MLFeatureSchemaV5OFStable
+        schema = MLFeatureSchemaV5OFStable()
+        vec = schema.vectorize(
+            ts_ms=ts_ms, direction=direction, scenario=scenario,
+            indicators=indicators, cancel_spike_veto=bool(cancel_spike_veto)
+        )
+        return vec, []
+    elif schema_ver in ("v4", "v4_of"):
+        from core.ml_feature_schema_v4_of import MLFeatureSchemaV4OF
+        schema = MLFeatureSchemaV4OF()
+        vec = schema.vectorize(
+            ts_ms=ts_ms, direction=direction, scenario=scenario,
+            indicators=indicators, cancel_spike_veto=bool(cancel_spike_veto)
+        )
+        return vec, []
+
     # -----------------------------------------------------------------
     # V2 confirmations (Stage 4): first-class binary signals for ML.
     # NOTE: these are appended to the end of the schema to preserve
     # V1 compatibility for already-deployed models.
     # -----------------------------------------------------------------
-    sv = _schema_ver_from_env() if schema_ver is None else max(1, min(3, int(schema_ver)))
+    try:
+        sv_int = int(schema_ver) if schema_ver is not None else _schema_ver_from_env()
+    except ValueError:
+        sv_int = 3
+    sv = max(1, min(3, sv_int))
 
     def _need_bin(k: str) -> float:
         v = indicators.get(k)

@@ -80,8 +80,8 @@ def load_drift_active_factor(
         if not dd:
             return None
         try:
-            f = float(dd.get("factor") or 1.0)
-            s = float(dd.get("score") or float("nan"))
+            f = dd.get("factor") or 1.0
+            s = dd.get("score") or float("nan")
             feat = (dd.get("feature") or "")
             if not math.isfinite(f) or f <= 0:
                 return None
@@ -138,7 +138,7 @@ def load_drift_baseline_mu(
         if not dd:
             continue
         try:
-            mu = float(dd.get(fld) or 0.0)
+            mu = dd.get(fld) or 0.0
             if math.isfinite(mu) and mu > 0:
                 return float(mu)
         except Exception:

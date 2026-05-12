@@ -224,7 +224,7 @@ class ExecutionStateStore:
             merged = dict(existing)
             merged.update(state or {})
             if "created_at_ms" not in merged:
-                merged["created_at_ms"] = int(existing.get("created_at_ms") or _ms_now())
+                merged["created_at_ms"] = existing.get("created_at_ms") or _ms_now()
             merged["updated_at_ms"] = _ms_now()
             doc = build_materialized_state_view({"ts_ms": _ms_now(), "venue": "binance", **merged})
             self.r.set(
