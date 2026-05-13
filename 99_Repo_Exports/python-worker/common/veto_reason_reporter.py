@@ -114,11 +114,11 @@ class VetoTopNReporter:
             sym = ""
         k = _Key(symbol=sym or "unknown", kind=(kind or "unknown"))
 
-        self._total[k] = int(self._total.get(k, 0) + 1)
+        self._total[k] = self._total.get(k, 0) + 1
         rk = (k, (reason_norm or "unknown_veto"))
-        self._counts[rk] = int(self._counts.get(rk, 0) + 1)
+        self._counts[rk] = self._counts.get(rk, 0) + 1
         fk = (k, (reason_family or "unknown"))
-        self._family_counts[fk] = int(self._family_counts.get(fk, 0) + 1)
+        self._family_counts[fk] = self._family_counts.get(fk, 0) + 1
 
         # opportunistic flush (cheap)
         self.maybe_flush(ctx=ctx)
@@ -145,7 +145,7 @@ class VetoTopNReporter:
             items: list[tuple[str, int]] = []
             for (k2, reason_norm), c in counts.items():
                 if k2 == key:
-                    items.append((reason_norm, int(c)))
+                    items.append((reason_norm, c))
             if not items:
                 continue
 
@@ -157,7 +157,7 @@ class VetoTopNReporter:
             fam_items: list[tuple[str, int]] = []
             for (k2, fam), c in fam_counts.items():
                 if k2 == key:
-                    fam_items.append((fam, int(c)))
+                    fam_items.append((fam, c))
             fam_items.sort(key=lambda x: x[1], reverse=True)
             top_fam = fam_items[0][0] if fam_items else "unknown"
             top_fam_share = (float(fam_items[0][1]) / float(max(1, t))) if fam_items else 0.0
@@ -168,7 +168,7 @@ class VetoTopNReporter:
             prev_top = self._last_top_reason.get(key)
             self._last_top_reason[key] = top_reason
             if prev_top and prev_top != top_reason and top_share >= self._change_min_share:
-                last_change = int(self._last_change_emit_ms.get(key, 0))
+                last_change = self._last_change_emit_ms.get(key, 0)
                 if (now - last_change) >= self._change_cooldown_ms:
                     self._last_change_emit_ms[key] = now
                     try:
@@ -192,7 +192,7 @@ class VetoTopNReporter:
             self._last_top_family[key] = top_fam
             self._last_top_family_share[key] = float(top_fam_share)
             prev_total = self._last_total_veto.get(key)
-            self._last_total_veto[key] = int(t)
+            self._last_total_veto[key] = t
 
             # delta считается относительно "прошлой доминанты" (предыдущего окна):
             # это простой, устойчивый критерий "насколько поменялась концентрация veto"
@@ -203,13 +203,13 @@ class VetoTopNReporter:
             # не алертим смену family, если общий объём veto не ухудшился.
             # - abs gate защищает при малых N (важнее "+10 veto" чем "+15%" от 10).
             # - ratio gate защищает при больших N (важнее "+15%" чем "+10" при 1000).
-            total_delta = (int(t) - int(prev_total)) if prev_total is not None else 0
-            total_ratio = (float(t) / float(max(1, int(prev_total)))) if prev_total is not None else 0.0
+            total_delta = (t - prev_total) if prev_total is not None else 0
+            total_ratio = (float(t) / float(max(1, prev_total))) if prev_total is not None else 0.0
             total_gate_pass = True
             if prev_total is not None:
                 total_gate_pass = (
-                    total_delta >= int(self._fam_change_min_total_delta)
-                    or total_ratio >= float(self._fam_change_min_total_ratio)
+                    total_delta >= self._fam_change_min_total_delta
+                    or total_ratio >= self._fam_change_min_total_ratio
                 )
             if prev_fam and prev_fam != top_fam and top_fam_share >= self._fam_change_min_share:
                 # микро-дожим: если концентрация почти не изменилась — не спамим.
@@ -218,7 +218,7 @@ class VetoTopNReporter:
                 # "¼ гайки": если объём veto не ухудшился — не спамим смену family.
                 if not total_gate_pass:
                     continue
-                last_fam = int(self._last_family_change_emit_ms.get(key, 0))
+                last_fam = self._last_family_change_emit_ms.get(key, 0)
                 if (now - last_fam) >= self._fam_change_cooldown_ms:
                     self._last_family_change_emit_ms[key] = now
                     try:
@@ -226,9 +226,9 @@ class VetoTopNReporter:
                             ctx=ctx,
                             key=key,
                             total=t,
-                            prev_total=int(prev_total) if prev_total is not None else None,
-                            total_delta=int(total_delta),
-                            total_ratio=float(total_ratio),
+                            prev_total=prev_total if prev_total is not None else None,
+                            total_delta=total_delta,
+                            total_ratio=total_ratio,
                             prev_family=prev_fam,
                             new_family=top_fam,
                             new_family_share=top_fam_share,
@@ -245,7 +245,7 @@ class VetoTopNReporter:
                 continue
 
             cd_key = (key, top_reason)
-            last_emit = int(self._cooldown.get(cd_key, 0))
+            last_emit = self._cooldown.get(cd_key, 0)
             if (now - last_emit) < self._cooldown_ms:
                 continue
             self._cooldown[cd_key] = now
@@ -293,7 +293,7 @@ class VetoTopNReporter:
         fam_items: list[tuple[str, int]] = []
         for (k2, fam), c in fam_counts.items():
             if k2 == key:
-                fam_items.append((fam, int(c)))
+                fam_items.append((fam, c))
         fam_items.sort(key=lambda x: x[1], reverse=True)
         if fam_items:
             fam, c = fam_items[0]
@@ -321,7 +321,7 @@ class VetoTopNReporter:
                 "signal_kind": key.kind,
                 "top_reason": top_reason,
                 "top_share": float(top_share),
-                "total_veto": int(total),
+                "total_veto": total,
                 "window_sec": int(self._win_ms / 1000),
             },
         }
@@ -371,7 +371,7 @@ class VetoTopNReporter:
         fam_items: list[tuple[str, int]] = []
         for (k2, fam), c in fam_counts.items():
             if k2 == key:
-                fam_items.append((fam, int(c)))
+                fam_items.append((fam, c))
         fam_items.sort(key=lambda x: x[1], reverse=True)
         if fam_items:
             fam, c = fam_items[0]
@@ -401,7 +401,7 @@ class VetoTopNReporter:
                 "prev_top_reason": prev_top,
                 "new_top_reason": new_top,
                 "new_top_share": float(new_top_share),
-                "total_veto": int(total),
+                "total_veto": total,
                 "window_sec": int(self._win_ms / 1000),
             },
         }
@@ -431,7 +431,7 @@ class VetoTopNReporter:
         lines.append(f"prev_family={prev_family}")
         lines.append(f"new_family={new_family} share={new_family_share:.2f} delta_vs_prev={new_family_share_delta:+.2f}")
         if prev_total is not None:
-            lines.append(f"total_veto prev={int(prev_total)} now={int(total)} delta={int(total_delta)} ratio={float(total_ratio):.2f}")
+            lines.append(f"total_veto prev={prev_total} now={total} delta={total_delta} ratio={total_ratio:.2f}")
         lines.append("")
         lines.append("Current window top reason (for context):")
         lines.append(f"  - {top_reason} ({top_reason_share:.2f})")
@@ -475,12 +475,12 @@ class VetoTopNReporter:
                 "new_family": new_family,
                 "new_family_share": float(new_family_share),
                 "new_family_share_delta": float(new_family_share_delta),
-                "prev_total_veto": int(prev_total) if prev_total is not None else None,
-                "total_veto_delta": int(total_delta),
-                "total_veto_ratio": float(total_ratio),
+                "prev_total_veto": prev_total if prev_total is not None else None,
+                "total_veto_delta": total_delta,
+                "total_veto_ratio": total_ratio,
                 "top_reason": top_reason,
-                "top_reason_share": float(top_reason_share),
-                "total_veto": int(total),
+                "top_reason_share": top_reason_share,
+                "total_veto": total,
                 "window_sec": int(self._win_ms / 1000),
             },
         }

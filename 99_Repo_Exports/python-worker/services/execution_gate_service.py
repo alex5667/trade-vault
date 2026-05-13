@@ -83,6 +83,11 @@ confirmations_orphan_total = Counter(
     "Confirmations buffered because no proposal was available yet",
     ["symbol"],
 )
+virtual_enforce_total = Counter(
+    "exec_gate_virtual_enforce_total",
+    "Virtual proposals processed through ENFORCE gate",
+    ["symbol", "direction", "result"],  # result: passed / rejected
+)
 pending_proposals_gauge = Gauge(
     "exec_gate_pending_proposals",
     "Current number of pending proposals",
@@ -94,6 +99,10 @@ pending_confirmations_gauge = Gauge(
 mode_info = Gauge(
     "exec_gate_enforce_mode",
     "1 if ENFORCE mode, 0 if PASS-THROUGH",
+)
+virtual_enforce_mode_info = Gauge(
+    "exec_gate_virtual_enforce_mode",
+    "1 if virtual proposals also go through ENFORCE gate",
 )
 
 # ---------------------------------------------------------------------------
@@ -148,6 +157,9 @@ class ExecutionGateService:
         self.require_of_confirm = os.getenv(
             "EXEC_GATE_REQUIRE_OF_CONFIRM", "false"
         ).lower() in {"1", "true", "yes", "on"}
+        self.enforce_virtual = os.getenv(
+            "EXEC_GATE_ENFORCE_VIRTUAL", "false"
+        ).lower() in {"1", "true", "yes", "on"}
 
         self.running = True
         self._loop: asyncio.AbstractEventLoop | None = None
@@ -163,15 +175,31 @@ class ExecutionGateService:
     # ------------------------------------------------------------------
     async def start(self):
         logger.info(
-            f"Starting ExecutionGateService (mode={'ENFORCE' if self.require_of_confirm else 'PASS-THROUGH'}) "
+            f"Starting ExecutionGateService "
+            f"(mode={'ENFORCE' if self.require_of_confirm else 'PASS-THROUGH'}"
+            f", virtual={'ENFORCE' if self.enforce_virtual else 'SHADOW'}) "
             f"streams: {self.stream_raw} + {self.stream_confirm} -> {self.queue_out}"
         )
-        self.redis = aioredis.from_url(self.redis_url, decode_responses=True)
+        # Bounded pool: prevents connection flood to redis-worker-1 when
+        # EXEC_GATE_ENFORCE_VIRTUAL=true triggers concurrent RPUSH bursts.
+        # Unbounded from_url() was creating O(signals) connections under load.
+        from redis.asyncio import BlockingConnectionPool
+        _max_conn = int(os.getenv("EXEC_GATE_MAX_REDIS_CONN", "10"))
+        _pool = BlockingConnectionPool.from_url(
+            self.redis_url,
+            max_connections=_max_conn,
+            decode_responses=True,
+            socket_timeout=float(os.getenv("EXEC_GATE_SOCKET_TIMEOUT", "2.0")),
+            socket_connect_timeout=float(os.getenv("EXEC_GATE_CONN_TIMEOUT", "5.0")),
+            timeout=2,
+        )
+        self.redis = aioredis.Redis(connection_pool=_pool)
         self._loop = asyncio.get_running_loop()
 
         # Metrics
         start_http_server(int(os.getenv("PROMETHEUS_PORT", 8004)))
         mode_info.set(1 if self.require_of_confirm else 0)
+        virtual_enforce_mode_info.set(1 if self.enforce_virtual else 0)
 
         tasks = [
             safe_create_task(self._consume_raw_signals()),
@@ -247,9 +275,10 @@ class ExecutionGateService:
             # Always count
             proposals_received_total.labels(symbol=symbol).inc()
 
-            # --- VIRTUAL: shadow mode — always proceed, match if possible ---
             is_virtual = bool(data.get("is_virtual", 0) or 0)
-            if is_virtual:
+
+            # --- VIRTUAL SHADOW mode (legacy): always proceed, match if possible ---
+            if is_virtual and not self.enforce_virtual:
                 matched_confirm = self._try_match_confirm_for_proposal(proposal)
                 if matched_confirm is not None:
                     proposal.payload["validation_status"] = (
@@ -260,13 +289,13 @@ class ExecutionGateService:
                     )
                     await self._publish_execution(proposal, matched_confirm.data)
                 else:
-                    # Proceed immediately in shadow mode
                     proposal.payload["validation_status"] = "passed"
                     proposal.payload["validation_reason"] = "shadow_pass"
                     await self._publish_execution(proposal, {"ok": 1, "score": 1.0, "reason": "shadow_pass"})
                 return
 
             # --- REAL: check for PASS-THROUGH vs ENFORCE ---
+            # (also applies to VIRTUAL when enforce_virtual=True)
             if not self.require_of_confirm:
                 data["validation_status"] = "bypassed"
                 data["validation_reason"] = "OFConfirm validation disabled"
@@ -425,23 +454,30 @@ class ExecutionGateService:
 
             is_ok = int(confirmation.get("ok", 0)) == 1
 
-            # --- Shadow mode for virtual trades ---
-            # Virtual trades pass OFConfirm regardless of result (shadow)
-            if is_virtual:
+            # Virtual shadow mode (legacy, enforce_virtual=False): always pass
+            if is_virtual and not self.enforce_virtual:
                 is_ok = True
 
-            # SAFEGUARD: Do not execute if validation failed (Real trades only)
+            # SAFEGUARD: Do not execute if validation failed
             if not is_ok:
                 logger.info(
                     f"🚫 EXECUTION SKIPPED (Validation Failed): "
                     f"{proposal.symbol} {proposal.direction} ok={confirmation.get('ok')} virtual={is_virtual}"
                 )
+                if is_virtual:
+                    virtual_enforce_total.labels(
+                        symbol=proposal.symbol, direction=proposal.direction, result="rejected"
+                    ).inc()
                 return
 
             if is_virtual:
+                virtual_enforce_total.labels(
+                    symbol=proposal.symbol, direction=proposal.direction, result="passed"
+                ).inc()
                 logger.info(
-                    f"👻 VIRTUAL EXECUTION GATE: Validated {proposal.symbol} "
-                    f"{proposal.direction}. Event tracked by TradeMonitor - skipping Binance queue."
+                    f"👻 VIRTUAL EXECUTION GATE: {'ENFORCE' if self.enforce_virtual else 'SHADOW'} "
+                    f"ok=1 {proposal.symbol} {proposal.direction}. "
+                    f"Event tracked by TradeMonitor — skipping Binance queue."
                 )
                 # DO NOT push virtual trades to binance executor queue. TradeMonitor handles their lifecycle.
                 return

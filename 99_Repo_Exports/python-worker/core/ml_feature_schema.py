@@ -39,7 +39,7 @@ def _clamp01(x: float) -> float:
         return 0.0
     if x > 1.0:
         return 1.0
-    return float(x)
+    return x
 
 
 @dataclass(frozen=True)
@@ -161,7 +161,7 @@ def _feats_for_ver(sv: int) -> list[FeatureSpec]:
 
 
 def feature_names(schema_ver: int | None = None) -> list[str]:
-    sv = _schema_ver_from_env() if schema_ver is None else max(1, min(3, int(schema_ver)))
+    sv = _schema_ver_from_env() if schema_ver is None else max(1, min(3, schema_ver))
     return [f.name for f in _feats_for_ver(sv)]
 
 
@@ -192,9 +192,9 @@ def build_feature_vector(
     out: dict[str, float] = {}
 
     # one-hots
-    out["dir_long"] = 1.0 if str(direction).upper() == "LONG" else 0.0
+    out["dir_long"] = 1.0 if direction.upper() == "LONG" else 0.0
 
-    sc = str(scenario).lower()
+    sc = scenario.lower()
     if sc in SCENARIOS:
         out[f"sc_{sc}"] = 1.0
         out["sc_other"] = 0.0
@@ -223,7 +223,7 @@ def build_feature_vector(
     out["hawkes_churn_lam"] = need_num("hawkes_churn_lam", 0.0)
 
     # heuristic gate summary
-    out["rule_score"] = float(rule_score)
+    out["rule_score"] = rule_score
     out["rule_have"] = float(rule_have)
     out["rule_need"] = float(rule_need)
 
@@ -237,11 +237,11 @@ def build_feature_vector(
         else:
             out[k] = float(_i01(v))
 
-    out["cancel_spike_veto"] = float(int(cancel_spike_veto))
+    out["cancel_spike_veto"] = float(cancel_spike_veto)
 
     # UTC time features
     try:
-        dt = _dt.datetime.fromtimestamp(int(ts_ms)//1000, tz=_dt.timezone.utc)
+        dt = _dt.datetime.fromtimestamp(ts_ms//1000, tz=_dt.timezone.utc)
         hour = dt.hour + dt.minute/60.0
         dow = dt.weekday()  # 0..6
         out["hour_sin"] = math.sin(2.0*math.pi*hour/24.0)
@@ -282,7 +282,7 @@ def build_feature_vector(
     # V1 compatibility for already-deployed models.
     # -----------------------------------------------------------------
     try:
-        sv_int = int(schema_ver) if schema_ver is not None else _schema_ver_from_env()
+        sv_int = schema_ver if schema_ver is not None else _schema_ver_from_env()
     except ValueError:
         sv_int = 3
     sv = max(1, min(3, sv_int))
@@ -336,7 +336,7 @@ def build_feature_vector(
     vec: list[float] = []
     feats = _feats_for_ver(sv)
     for fs in feats:
-        vec.append(float(out.get(fs.name, fs.default)))
+        vec.append(out.get(fs.name, fs.default))
     return vec, missing
 
 
@@ -364,12 +364,12 @@ def build_features(payload: dict[str, Any]) -> Any:
             for it in obj:
                 if it is None:
                     continue
-                s = str(it).strip()
+                s = it.strip()
                 if "=" not in s:
                     continue
                 k, v = s.split("=", 1)
-                kk = str(k).strip().lower().replace("-", "_").replace(" ", "_")
-                vv = str(v).strip()
+                kk = k.strip().lower().replace("-", "_").replace(" ", "_")
+                vv = v.strip()
                 # best-effort bool/numeric
                 if vv.lower() in ("true", "false"):
                     out2[kk] = 1 if vv.lower() == "true" else 0

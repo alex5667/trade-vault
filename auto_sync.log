@@ -336,3 +336,19 @@ fatal: Could not read from remote repository.
 Please make sure you have the correct access rights
 and the repository exists.
 2026-05-11 05:45:03 - Синхронизация завершена успешно.
+[main 1045ac17] Auto-sync vault notes 2026-05-12 05:45:02
+ 100 files changed, 2648 insertions(+), 529 deletions(-)
+ create mode 100644 99_Automation/logs/update_2026-05-12_03-37-00.log
+ create mode 100644 99_Repo_Exports/python-worker/migrations/049_trades_closed_compression.sql
+ create mode 100644 99_Repo_Exports/python-worker/migrations/050_position_events_compression.sql
+ create mode 100644 99_Repo_Exports/python-worker/migrations/20260511_01_create_regime_snapshots.sql
+ create mode 100644 99_Repo_Exports/python-worker/services/ml_confirm/concurrency.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_regime_hardening.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_tp_config.py
+ create mode 100644 99_Repo_Exports/sql/011_regime_snapshots_down.sql
+git@github.com: Permission denied (publickey).
+fatal: Could not read from remote repository.
+
+Please make sure you have the correct access rights
+and the repository exists.
+2026-05-12 05:45:03 - Синхронизация завершена успешно.

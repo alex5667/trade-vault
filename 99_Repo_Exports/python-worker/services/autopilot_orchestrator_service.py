@@ -53,7 +53,7 @@ class AutopilotSchedule:
 
             z = ZoneInfo(self.tz)
             now = dt.datetime.fromtimestamp(now_ms / 1000.0, tz=z)
-            return (now.hour == int(self.hour_local)) and (now.minute == int(self.minute_local))
+            return (now.hour == self.hour_local) and (now.minute == self.minute_local)
         except Exception:
             # fallback: run at UTC 09:05
             import datetime as dt
@@ -74,7 +74,7 @@ def _run_cmd(cmd: str, cwd: str, timeout_sec: int = 3600) -> tuple[int, str]:
             text=True,
             timeout=timeout_sec,
         )
-        return int(p.returncode), str(p.stdout or "")
+        return p.returncode, (p.stdout or "")
     except subprocess.TimeoutExpired as e:
         return 1, f"timeout_error: exceeded {timeout_sec}s"
     except Exception as e:
@@ -87,11 +87,11 @@ def run_once(*, repo_root: str, since_hours: int, window_days: int, out_path: st
     redis_write = os.getenv("AUTOPILOT_REDIS_WRITE", "0") == "1"
 
     # 1) Export
-    cmd1 = f"{py_path} python tools/export_trade_closed_ndjson.py --since-hours {int(since_hours)} --out {out_path}"
+    cmd1 = f"{py_path} python tools/export_trade_closed_ndjson.py --since-hours {since_hours} --out {out_path}"
     rc1, out1 = _run_cmd(cmd1, cwd=repo_root)
 
     # 2) Tuner
-    cmd2 = f"{py_path} python tools/tm_policy_tuner.py --input {out_path} --window-days {int(window_days)}"
+    cmd2 = f"{py_path} python tools/tm_policy_tuner.py --input {out_path} --window-days {window_days}"
     if redis_write:
         cmd2 += " --redis-write"
 

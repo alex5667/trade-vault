@@ -3312,8 +3312,70 @@ class TradeMonitorService:
                 default_profile = getattr(spec, "trailing_profile_default", "") or ""
                 if default_profile:
                     trail_profile = default_profile
-                    # Можно добавить проверку source_norm == "CryptoOrderFlow" если нужно
                     data["trail_profile"] = trail_profile
+
+            # 1b) Regime-aware trail_profile override.
+            # Если trail_profile не задан явно сигналом — подставляем по режиму.
+            # unknown/range/mixed/thin → range_protective
+            _regime_from_payload = str(
+                data.get("regime") or data.get("entry_regime") or data.get("regime_bucket") or ""
+            ).strip().lower()
+            if _regime_from_payload in ("", "na", "none"):
+                _regime_from_payload = "unknown"
+
+            _original_trail = (data.get("trail_profile") or "").strip()
+            _was_explicit = bool(data.get("_trail_profile_explicit") or False)
+            if not _was_explicit and _regime_from_payload:
+                import json as _json
+                _regime_map_env = os.getenv("REGIME_TRAIL_PROFILE_MAP", "")
+                if _regime_map_env:
+                    try:
+                        _regime_map: dict[str, str] = _json.loads(_regime_map_env)
+                    except Exception:
+                        _regime_map = {}
+                else:
+                    # Полный маппинг по спецификации TradeProfileRouter:
+                    _regime_map = {
+                        # ── Range / Chop → protective_only (range_absorption_v1: BE, no trail) ──
+                        "range":            "protective_only",
+                        "range_bullish":    "protective_only",
+                        "range_bearish":    "protective_only",
+                        "chop":             "protective_only",
+                        "meanrev":          "protective_only",
+                        "sideways":         "protective_only",
+                        # ── Squeeze → range_protective (сжатие, может выстрелить в любую сторону) ──
+                        "squeeze":          "range_protective",
+                        "squeeze_bullish":  "range_protective",
+                        "squeeze_bearish":  "range_protective",
+                        # ── Thin / Illiquid → protective_only (thin_defensive_v1: no trail) ──
+                        "thin":             "protective_only",
+                        "news":             "protective_only",
+                        "illiquid":         "protective_only",
+                        # ── High Vol → expansion_v1 (trail after TP2, survives noise) ──
+                        "high_vol":         "expansion_v1",
+                        "volatile":         "expansion_v1",
+                        "vol_expansion":    "expansion_v1",
+                        # ── High Vol + Low Liq → protective_only (thin_defensive_v1) ──
+                        "high_vol_low_liq": "protective_only",
+                        "volatile_thin":    "protective_only",
+                        # ── Expansion → expansion_v1 (wide trail after TP2) ──
+                        "expansion":        "expansion_v1",
+                        "expansion_bull":   "expansion_v1",
+                        "expansion_bear":   "expansion_v1",
+                        # ── Unknown / Mixed → range_protective (conservative, FIX 2026-05-11) ──
+                        "unknown":          "range_protective",
+                        "mixed":            "range_protective",
+                        # trend / trending_bull / trending_bear / momentum:
+                        # НЕ в маппинге → проваливаются на spec.trailing_profile_default = rocket_v1
+                    }
+                _mapped_profile = _regime_map.get(_regime_from_payload, "")
+                if _mapped_profile and _mapped_profile != _original_trail:
+                    trail_profile = _mapped_profile
+                    data["trail_profile"] = trail_profile
+                    logger.debug(
+                        "🎯 [REGIME_TRAIL] %s: regime=%s → trail_profile=%s (was=%s)",
+                        symbol, _regime_from_payload, _mapped_profile, _original_trail or "empty"
+                    )
 
             # 2) trailing_min_lock_r
             if "trailing_min_lock_r" not in data:

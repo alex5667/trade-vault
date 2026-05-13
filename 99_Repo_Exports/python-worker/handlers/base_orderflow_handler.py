@@ -604,7 +604,7 @@ class BaseOrderFlowHandler(ABC):
         self.regime_state = RegimeState(
             regime="unknown",
             confidence=0.0,
-            last_update=time.time(),
+            last_update_ms=int(time.time() * 1000),
             score=0.0,
         )
 

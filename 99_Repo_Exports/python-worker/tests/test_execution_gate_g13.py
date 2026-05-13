@@ -69,11 +69,13 @@ def _build_service(
     require_of_confirm: bool = False,
     ttl_s: float = 5.0,
     match_ms: int = 2000,
+    enforce_virtual: bool = False,
 ) -> ExecutionGateService:
     with patch.dict(
         "os.environ",
         {
             "EXEC_GATE_REQUIRE_OF_CONFIRM": "true" if require_of_confirm else "false",
+            "EXEC_GATE_ENFORCE_VIRTUAL": "true" if enforce_virtual else "false",
             "EXEC_GATE_TTL_S": str(ttl_s),
             "EXEC_GATE_MATCH_MS": str(match_ms),
             "REDIS_URL": "redis://localhost:6379/0",
@@ -296,6 +298,82 @@ class TestSafeguard:
 
 
 # ===================================================================
+#  T3b: VIRTUAL ENFORCE MODE (EXEC_GATE_ENFORCE_VIRTUAL=true)
+# ===================================================================
+
+class TestVirtualEnforceMode:
+    """enforce_virtual=True → virtual proposals go through the same ENFORCE gate."""
+
+    @pytest.mark.asyncio
+    async def test_virtual_proposal_buffered_not_immediately_passed(self):
+        """With enforce_virtual, virtual proposal must be buffered, not shadow_passed."""
+        svc = _build_service(require_of_confirm=True, enforce_virtual=True, match_ms=5000)
+        fields = _make_proposal_fields(symbol="BTCUSDT", direction="long", is_virtual=1)
+
+        await svc._handle_proposal(fields)
+
+        svc.redis.rpush.assert_not_called()
+        assert "BTCUSDT" in svc.proposals
+        assert len(svc.proposals["BTCUSDT"]) == 1
+
+    @pytest.mark.asyncio
+    async def test_virtual_ok1_confirm_passes_gate_no_binance_push(self):
+        """Virtual with ok=1 confirm: gate passes but does NOT push to Binance."""
+        svc = _build_service(require_of_confirm=True, enforce_virtual=True, match_ms=5000)
+        now_ms = get_ny_time_millis()
+
+        await svc._handle_proposal(_make_proposal_fields(
+            symbol="BTCUSDT", direction="long", is_virtual=1, generated_at=now_ms
+        ))
+        await svc._handle_confirmation(_make_confirm_fields(
+            symbol="BTCUSDT", direction="long", ok=1, ts_ms=now_ms + 100
+        ))
+
+        svc.redis.rpush.assert_not_called()
+        assert len(svc.proposals.get("BTCUSDT", [])) == 0
+
+    @pytest.mark.asyncio
+    async def test_virtual_ok0_confirm_rejects(self):
+        """Virtual with ok=0 must be rejected (not shadow-passed) in enforce mode."""
+        svc = _build_service(require_of_confirm=True, enforce_virtual=True, match_ms=5000)
+        now_ms = get_ny_time_millis()
+
+        await svc._handle_proposal(_make_proposal_fields(
+            symbol="BTCUSDT", direction="short", is_virtual=1, generated_at=now_ms
+        ))
+        await svc._handle_confirmation(_make_confirm_fields(
+            symbol="BTCUSDT", direction="short", ok=0, ts_ms=now_ms + 100
+        ))
+
+        svc.redis.rpush.assert_not_called()
+        assert len(svc.proposals.get("BTCUSDT", [])) == 0
+
+    @pytest.mark.asyncio
+    async def test_virtual_no_confirm_stays_buffered(self):
+        """Virtual proposal without confirm stays in buffer until TTL."""
+        svc = _build_service(require_of_confirm=True, enforce_virtual=True, match_ms=5000)
+        fields = _make_proposal_fields(symbol="ETHUSDT", direction="long", is_virtual=1)
+
+        await svc._handle_proposal(fields)
+
+        svc.redis.rpush.assert_not_called()
+        assert len(svc.proposals.get("ETHUSDT", [])) == 1
+
+    @pytest.mark.asyncio
+    async def test_virtual_shadow_mode_still_works_when_not_enforced(self):
+        """enforce_virtual=False keeps legacy shadow_pass for virtual proposals."""
+        svc = _build_service(require_of_confirm=True, enforce_virtual=False, match_ms=5000)
+        fields = _make_proposal_fields(symbol="SOLUSDT", direction="long", is_virtual=1)
+
+        await svc._handle_proposal(fields)
+
+        # shadow_pass → virtual path → no Binance push (TradeMonitor handles)
+        svc.redis.rpush.assert_not_called()
+        # proposal NOT buffered — handled immediately via shadow path
+        assert len(svc.proposals.get("SOLUSDT", [])) == 0
+
+
+# ===================================================================
 #  T4: CLEANUP / TTL
 # ===================================================================
 
@@ -514,6 +592,18 @@ class TestConfigParsing:
             with patch.dict("os.environ", {"EXEC_GATE_REQUIRE_OF_CONFIRM": val}):
                 svc = ExecutionGateService()
                 assert svc.require_of_confirm is False, f"Failed for value: {val}"
+
+    def test_enforce_virtual_true_variants(self):
+        for val in ("1", "true", "True", "yes", "on"):
+            with patch.dict("os.environ", {"EXEC_GATE_ENFORCE_VIRTUAL": val}):
+                svc = ExecutionGateService()
+                assert svc.enforce_virtual is True, f"Failed for value: {val}"
+
+    def test_enforce_virtual_false_variants(self):
+        for val in ("0", "false", "no", "off"):
+            with patch.dict("os.environ", {"EXEC_GATE_ENFORCE_VIRTUAL": val}):
+                svc = ExecutionGateService()
+                assert svc.enforce_virtual is False, f"Failed for value: {val}"
 
     def test_ttl_float_parsing(self):
         with patch.dict("os.environ", {"EXEC_GATE_TTL_S": "3.5"}):

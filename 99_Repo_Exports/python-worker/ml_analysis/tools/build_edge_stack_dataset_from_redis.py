@@ -1005,7 +1005,7 @@ def diagnose_unmatched_closes(
         (60_000, "<=60s"),
         (300_000, "<=5m"),
         (10**18, ">5m"),
-    ],
+    ]
     counts: dict[str, int] = {name: 0 for _, name in buckets}
     examples: list[dict[str, Any]] = []
 

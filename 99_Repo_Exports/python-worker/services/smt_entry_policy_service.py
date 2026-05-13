@@ -638,7 +638,7 @@ class EntryPolicyService:
         try:
             profile = os.getenv("MANIP_GATE_PROFILE", os.getenv("GATE_PROFILE", "default") or "default").strip().lower()
             manip_mode_ov = (os.getenv("MANIP_MODE", "") or "").strip().lower()
-            if manip_mode_ov in {"monitor", "tighten", "veto"}:
+            if manip_mode_ov in {"monitor", "tighten", "hard", "veto"}:
                 profile = manip_mode_ov
             if profile not in {"default", "soft", "strict", "hard", "monitor", "tighten", "veto"}:
                 profile = "default"

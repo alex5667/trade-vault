@@ -330,6 +330,9 @@ async def main() -> None:
                 logger.error(f"Redis permission error: {e}")
             elif "CONNECTION" in err_str or "TIMEOUT" in err_str:
                 logger.warning(f"Redis connection/timeout error: {e}")
+            elif "NOGROUP" in err_str:
+                logger.warning("Consumer group missing (NOGROUP), recreating...")
+                await _ensure_group(r, stream=cfg.stream, group=cfg.group)
             else:
                 logger.exception("bbo_ts_writer loop error")
             await asyncio.sleep(1.0)

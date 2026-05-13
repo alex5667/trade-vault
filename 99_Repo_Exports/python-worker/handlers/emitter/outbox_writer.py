@@ -49,10 +49,10 @@ class OutboxWriter:
         self._pub = publisher
         print("OutboxWriter.__init__ publisher:", type(publisher))
         self._logger = logger
-        self._retries = int(max(0, retries))
-        self._retry_sleep_ms = int(max(0, retry_sleep_ms))
-        self._dedup_ttl_ms = int(max(1000, dedup_ttl_ms))
-        self._dedup_pending_ttl_ms = int(max(1000, dedup_pending_ttl_ms))
+        self._retries = max(0, retries)
+        self._retry_sleep_ms = max(0, retry_sleep_ms)
+        self._dedup_ttl_ms = max(1000, dedup_ttl_ms)
+        self._dedup_pending_ttl_ms = max(1000, dedup_pending_ttl_ms)
         # Если stream_key задан — можем XADD напрямую (atomic Lua path).
         # Если не задан, попробуем взять из publisher.stream_name, иначе fallback.
         self._stream_key = stream_key or getattr(publisher, "stream_name", None) or getattr(publisher, "stream", None)
@@ -166,7 +166,7 @@ class OutboxWriter:
             ts_i = int(ts) if ts is not None else None
             if ts_i is None or ts_i <= 0:
                 return None
-            bucket_ms = max(1, int(self._sem_bucket_ms))
+            bucket_ms = max(1, self._sem_bucket_ms)
             bucket_ts = (ts_i // bucket_ms) * bucket_ms
 
             side = payload.get("side")
@@ -181,7 +181,7 @@ class OutboxWriter:
             lvf = float(lvl)
             if not math.isfinite(lvf) or lvf <= 0:
                 return None
-            lvf_r = round(lvf, int(self._sem_level_decimals))
+            lvf_r = round(lvf, self._sem_level_decimals)
 
             base = f"{symbol}|{kind}|{bucket_ts}|{sd}|{lvf_r}"
             h = hashlib.sha1(base.encode("utf-8")).hexdigest()
@@ -413,7 +413,7 @@ class OutboxWriter:
                 if tr is not None:
                     if hasattr(tr, "to_dict"):
                         meta_json = orjson.dumps({"trace": tr.to_dict(max_events=200)}, default=str).decode("utf-8")
-                        meta_ttl_sec = int(meta_ttl_sec or int(os.getenv("OUTBOX_TRACE_META_TTL_SEC", "86400")))
+                        meta_ttl_sec = meta_ttl_sec or int(os.getenv("OUTBOX_TRACE_META_TTL_SEC", "86400"))
             except Exception:
                 pass
 
@@ -443,11 +443,11 @@ class OutboxWriter:
             symbol,                                        # ARGV[5]
             ts,                                            # ARGV[6]
             payload_json,                                  # ARGV[7]
-            int(self._maxlen),                              # ARGV[8]
+            self._maxlen,                                   # ARGV[8]
             int(max(1, self._sem_ttl_ms) / 1000),           # ARGV[9]
             int(max(1, self._sem_pending_ttl_ms) / 1000),   # ARGV[10]
             meta_json or "",                                # ARGV[11] NEW
-            int(meta_ttl_sec or 0),                         # ARGV[12] NEW
+            (meta_ttl_sec or 0),                            # ARGV[12] NEW
             trace_id,                                       # ARGV[13] NEW
         )
         # Ожидаем массив/список: [1, entry_id] / [0] / [2, err]
@@ -603,8 +603,5 @@ class OutboxWriter:
                 self._rollback(redis, sem_key)
 
         # NB: meta уже пытались писать до publish и после успеха.
-        self._logger.exception(f"OutboxWriter.write failed for signal_id={signal_id}: {last_exc}")
-        return False
-
         self._logger.exception(f"OutboxWriter.write failed for signal_id={signal_id}: {last_exc}")
         return False

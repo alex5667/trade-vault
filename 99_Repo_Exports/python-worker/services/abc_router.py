@@ -20,8 +20,8 @@ def choose_arm_abc(*, key: str, split_b: int, split_c: int, salt: str = "") -> s
     """
     if isinstance(split_b, float) or isinstance(split_c, float):
         raise TypeError(f"AB splits must be int percentages (0-100), got float: split_b={split_b}, split_c={split_c}")
-    sb = max(0, min(100, int(split_b)))
-    sc = max(0, min(100, int(split_c)))
+    sb = max(0, min(100, split_b))
+    sc = max(0, min(100, split_c))
     if sb + sc > 100:
         sc = max(0, 100 - sb)
     b = stable_bucket_0_99(f"{salt}|{key}")
@@ -39,14 +39,25 @@ def regime_group(regime: str) -> str:
       thin   — low liquidity / news / illiquid: capital preservation mode
       trend  — directional momentum / expansion: runner profile
       range  — chop / mean-reversion: fade/absorption profile
+      high_vol — high-ATR volatile expansion (wide stops)
       mixed  — unclassified / volatile: conservative default
     """
     rg = (regime or "na").strip().lower()
     if rg in ("thin", "news", "illiquid"):
         return "thin"
-    if rg in ("trend", "trending", "trending_bull", "trending_bear", "momentum", "expansion"):
+    if rg in (
+        "trend", "trending", "trending_bull", "trending_bear",
+        "momentum", "expansion",
+        # expansion sub-labels (canonical RegimeLabel values)
+        "expansion_bull", "expansion_bear",
+    ):
         return "trend"
-    if rg in ("range", "chop", "meanrev", "sideways"):
+    if rg in (
+        "range", "chop", "meanrev", "sideways",
+        # range sub-labels from regime_service._decide_regime
+        "range_bullish", "range_bearish",
+        "squeeze", "squeeze_bullish", "squeeze_bearish",
+    ):
         return "range"
     if rg in ("high_vol", "volatile", "vol_expansion"):
         return "high_vol"

@@ -123,6 +123,7 @@ return {1, cjson.encode(doc)}
     ) -> None:
         self.r = redis_client
         self.key_prefix = (key_prefix or 'orders:active_symbol_sid:').rstrip(':') + ':'
+        self.index_key = self.key_prefix.rstrip(':') + '_index'
         self.active_ttl_sec = max(int(active_ttl_sec or 0), 1)
         self.tombstone_ttl_sec = max(int(tombstone_ttl_sec or 0), 1)
         self.diag_prefix = 'orders:active_symbol_guard:diag:'
@@ -358,13 +359,32 @@ return {1, cjson.encode(doc)}
 
     def list_symbols(self) -> list[str]:
         out = []
-        prefix = f'{self.key_prefix}*'
         try:
-            for key in self.r.scan_iter(match=prefix, count=1000):
+            members = self.r.smembers(self.index_key)
+            if members:
+                stale = []
+                for k in members:
+                    symbol = k.decode() if isinstance(k, (bytes, bytearray)) else str(k)
+                    symbol = symbol.strip().upper()
+                    if symbol:
+                        if self.r.exists(self.key(symbol)):
+                            out.append(symbol)
+                        else:
+                            stale.append(symbol)
+                if stale:
+                    try:
+                        self.r.srem(self.index_key, *stale)
+                    except Exception:
+                        pass
+                return sorted(set(out))
+
+            prefix = f'{self.key_prefix}*'
+            for key in self.r.scan_iter(match=prefix, count=50000):
                 k = key.decode() if isinstance(key, (bytes, bytearray)) else str(key)
                 symbol = str(k).replace(self.key_prefix, '', 1).strip().upper()
                 if symbol:
                     out.append(symbol)
+                    self.r.sadd(self.index_key, symbol)
         except Exception:
             pass
         return sorted(set(out))
@@ -583,6 +603,10 @@ return {1, cjson.encode(doc)}
                 writer=writer, ttl_sec=ttl, retry_once=False,
             )
         if result.get('applied'):
+            try:
+                self.r.sadd(self.index_key, symbol)
+            except Exception:
+                pass
             self._append_event(symbol=symbol, sid=sid, writer=writer, operation='acquire_or_refresh', event_type='guard_refresh', reason=(result.get('reason') or 'updated'), doc=result.get('doc') if isinstance(result.get('doc'), dict) else None)
         return result
 
@@ -650,5 +674,9 @@ return {1, cjson.encode(doc)}
                 writer=writer, tombstone_ttl_sec=ttl, extra_patch=extra_patch, retry_once=False,
             )
         if result.get('applied'):
+            try:
+                self.r.sadd(self.index_key, symbol)
+            except Exception:
+                pass
             self._append_event(symbol=symbol, sid=current_sid, writer=writer, operation='mark_released', event_type='guard_released', reason=str(release_reason or result.get('reason') or 'released'), doc=result.get('doc') if isinstance(result.get('doc'), dict) else None)
         return result

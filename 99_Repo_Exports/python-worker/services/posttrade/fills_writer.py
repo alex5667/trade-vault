@@ -360,6 +360,9 @@ async def main() -> None:
                 logger.warning("Redis is loading dataset into memory, pausing fills_writer loop...")
             elif is_transient_error(e):
                 logger.warning(f"Transient redis error in fills_writer loop: {e}")
+            elif "NOGROUP" in str(e).upper():
+                logger.warning("Consumer group missing (NOGROUP), recreating...")
+                await _ensure_group(r, stream=cfg.stream, group=cfg.group)
             else:
                 logger.exception("fills_writer loop error")
             await asyncio.sleep(1.0)

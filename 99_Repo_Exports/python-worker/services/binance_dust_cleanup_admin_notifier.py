@@ -186,7 +186,7 @@ class BinanceDustCleanupAdminNotifier:
         patt = f"{prefix}*"
         try:
             if hasattr(self.r, 'scan_iter'):
-                return sorted(str(k) for k in self.r.scan_iter(match=patt))[: self.scan_limit]
+                return sorted(str(k) for k in self.r.scan_iter(match=patt, count=10000))[: self.scan_limit]
         except Exception:
             pass
         try:

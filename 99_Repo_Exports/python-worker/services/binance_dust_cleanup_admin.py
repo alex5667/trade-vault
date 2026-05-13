@@ -123,7 +123,7 @@ class BinanceDustCleanupAdmin:
         patt = f"{prefix}*"
         try:
             if hasattr(self.r, 'scan_iter'):
-                return sorted(str(k) for k in self.r.scan_iter(match=patt))
+                return sorted(str(k) for k in self.r.scan_iter(match=patt, count=10000))
         except Exception:
             pass
         try:

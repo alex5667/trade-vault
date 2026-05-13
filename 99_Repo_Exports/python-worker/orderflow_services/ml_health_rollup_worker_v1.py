@@ -297,6 +297,9 @@ def _ingest_one(pipe: Any, cfg: Cfg, fields: Mapping[str, Any], stream_id: str) 
     for k, v in mapping.items():
         pipe.hincrbyfloat(key, k, float(v))
     pipe.expire(key, cfg.bucket_ttl_s)
+    pipe.zadd("metrics:ml:active_minutes", {str(minute): minute})
+    pipe.sadd(f"metrics:ml:bucket_keys:{minute}", key)
+    pipe.expire(f"metrics:ml:bucket_keys:{minute}", cfg.bucket_ttl_s)
 
 
 # ── Finalize scan cache (avoid SCAN storm every loop) ──────────────
@@ -312,26 +315,17 @@ def _finalizable_minutes(r: Any, cfg: Cfg, now_minute: int) -> list[int]:
         # Return cached result filtered by current minute
         return [m for m in _finalize_cache_result if m <= now_minute - cfg.finalize_lag_min]
 
-    patt = f"{cfg.bucket_prefix}*"
     mins: set[int] = set()
-    cursor = 0
     try:
-        while True:
-            # P-LATENCY-FIX: COUNT reduced from 10000 to 500 to minimize
-            # per-call Redis blocking time (was 6-8ms → now ~0.3-0.5ms).
-            cursor, keys = r.scan(cursor=cursor, match=patt, count=500)
-            for key in keys:
-                s = _as_str(key)
-                try:
-                    suffix = s[len(cfg.bucket_prefix):]
-                    minute_str = suffix.split(":", 1)[0]
-                    m = int(minute_str)
-                    mins.add(m)
-                except Exception:
-                    continue
-            if int(cursor) == 0:
-                break
-            time.sleep(0.010)  # yield 10ms between batches to reduce HoL blocking
+        # Periodic cleanup of very old minutes (older than 2 hours) to avoid leaks
+        r.zremrangebyscore("metrics:ml:active_minutes", 0, now_minute - 120)
+        
+        active_mins = r.zrange("metrics:ml:active_minutes", 0, -1)
+        for m_str in active_mins:
+            try:
+                mins.add(int(m_str))
+            except ValueError:
+                continue
     except Exception:
         return []
 
@@ -479,17 +473,12 @@ def _write_db(cfg: Cfg, rows: Sequence[SnapshotRow]) -> None:
 
 
 def _finalize_minute(r: Any, cfg: Cfg, minute: int) -> list[SnapshotRow]:
-    patt = f"{cfg.bucket_prefix}{minute}:*"
-    cursor = 0
     rows: list[SnapshotRow] = []
-    keys: list[str] = []
-    while True:
-        # P-LATENCY-FIX: COUNT reduced from 10000 to 500
-        cursor, batch = r.scan(cursor=cursor, match=patt, count=500)
-        keys.extend(_as_str(k) for k in batch)
-        if int(cursor) == 0:
-            break
-        time.sleep(0.010)  # yield 10ms between batches to reduce HoL blocking
+    try:
+        keys_set = r.smembers(f"metrics:ml:bucket_keys:{minute}")
+        keys = [_as_str(k) for k in keys_set]
+    except Exception:
+        return []
     if not keys:
         return []
     pipe = r.pipeline()
@@ -504,6 +493,8 @@ def _finalize_minute(r: Any, cfg: Cfg, minute: int) -> list[SnapshotRow]:
     try:
         if keys:
             r.delete(*keys)
+        r.delete(f"metrics:ml:bucket_keys:{minute}")
+        r.zrem("metrics:ml:active_minutes", str(minute))
     except Exception:
         pass
     return rows

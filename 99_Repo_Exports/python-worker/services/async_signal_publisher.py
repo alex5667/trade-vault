@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Any
 
 import redis
+import redis.exceptions
 from prometheus_client import Counter
 
 from core.redis_keys import RedisStreams as RS
@@ -612,8 +613,8 @@ class AsyncSignalPublisher:
             await self.r.xadd(
                 sink.name,
                 fields={sink.field or "payload": ser},
-                maxlen=int(sink.maxlen),
-                approximate=bool(approximate),
+                maxlen=sink.maxlen,
+                approximate=approximate,
             )
             raw_written = True
             PUB_OK_TOTAL.labels(source=self.source, stream=sink.name).inc()

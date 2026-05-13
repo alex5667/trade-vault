@@ -444,8 +444,14 @@ class TrailingService:
                     time.sleep(self.trail_loop_poll_s)
                     continue
 
+                current_profile_name = str(
+                    state.get("trail_profile")
+                    or payload.get("trail_profile")
+                    or self.trail_profile_name
+                ).strip() or "rocket_v1"
+
                 new_sl = self.compute_profile_sl(
-                    profile_name=self.trail_profile_name,
+                    profile_name=current_profile_name,
                     logical_side=logical_side,
                     entry_price=_f(state.get("entry_price") or payload.get("entry"), 0.0),
                     mark_price=mark,

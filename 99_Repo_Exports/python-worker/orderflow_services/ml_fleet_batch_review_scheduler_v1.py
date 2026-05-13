@@ -81,7 +81,7 @@ def main() -> None:
     while True:
         t0 = time.perf_counter()
         try:
-            keys = [k for k in r.scan_iter(match="metrics:ml:model_snapshot:*") if not k.endswith(":last")]
+            keys = [k for k in r.scan_iter(match="metrics:ml:model_snapshot:*", count=10000) if not k.endswith(":last")]
             rows = [r.hgetall(k) for k in keys]
             suspicious = select_suspicious_snapshots(rows)
             SELECTED.set(len(suspicious))

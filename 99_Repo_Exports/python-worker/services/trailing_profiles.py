@@ -92,14 +92,14 @@ class TrailingProfilesRegistry:
             comment="lock profit and trail with ATR 1.0 after TP1"
         )
 
-        # Защитный профиль — перевод в безубыток (no trailing)
+        # Защитный профиль — перевод в безубыток после TP1 (no trailing)
         self._profiles["protective_only"] = TrailingProfile(
             name="protective_only",
             mode="BREAKEVEN",
             atr_mult=0.0,
             hard_min_lock=0.0,
-            activate_after_tp=0,
-            comment="Immediate move to Breakeven + fee compensation after TP1, no trailing"
+            activate_after_tp=1,
+            comment="Move to Breakeven + fee compensation only after TP1 is hit, no trailing"
         )
 
         # Профиль для флэта — перевод в безубыток (no trailing)
@@ -110,6 +110,16 @@ class TrailingProfilesRegistry:
             hard_min_lock=0.0,
             activate_after_tp=0,
             comment="Range regime: BE + fees, no trailing"
+        )
+
+        # Медвежий тренд — SHORT trend-follow: ATR 1.0 (ýже rocket_v1, т.к. bear bounces резче)
+        self._profiles["rocket_v1_bear"] = TrailingProfile(
+            name="rocket_v1_bear",
+            mode="ATR",
+            atr_mult=1.0,
+            hard_min_lock=0.0,
+            activate_after_tp=1,
+            comment="Bear trend SHORT follow: ATR 1.0 trailing after TP1 (tighter than rocket_v1 for sharper bounces)"
         )
 
         # Ракетный — для сильных ходов (trend), trail после TP1

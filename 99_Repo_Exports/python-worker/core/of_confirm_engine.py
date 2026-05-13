@@ -2002,7 +2002,7 @@ class OFConfirmEngine:
 
         # Score threshold (double filter)
         # NOTE: scenario-specific thresholds are applied later if scenario_v4 is enabled.
-        score_min = _f(cfg.get("of_score_min", 0.40), 0.40)
+        score_min = _f(cfg.get("of_score_min", 0.50), 0.50)
         if ok == 1 and score < score_min:
              # Logic: if score is too low, we can veto even if 2-of-3 passed (optional but recommended)
              # But we only do this if it's not shadow mode in the caller.

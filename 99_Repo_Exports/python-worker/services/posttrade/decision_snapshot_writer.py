@@ -99,7 +99,7 @@ logger = logging.getLogger("decision_snapshot_writer")
 
 def _env(name: str, default: str) -> str:
     v = os.getenv(name)
-    return str(v) if v is not None and str(v) != "" else default
+    return v if v is not None and v != "" else default
 
 
 def _env_int(name: str, default: int) -> int:
@@ -115,9 +115,9 @@ def _env_float(name: str, default: float) -> float:
 
 def _env_bool(name: str, default: bool) -> bool:
     v = os.getenv(name)
-    if v is None or str(v).strip() == "":
-        return bool(default)
-    return str(v).strip().lower() in {"1", "true", "yes", "on"}
+    if v is None or v.strip() == "":
+        return default
+    return v.strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _consumer_id() -> str:
@@ -223,7 +223,7 @@ def _normalize_row(evt: dict[str, Any]) -> dict[str, Any]:
     )
 
     row: dict[str, Any] = {
-        "ts_decision_ms": int(ts_decision_ms),  # type: ignore
+        "ts_decision_ms": ts_decision_ms,  # type: ignore
         "sid": sid,
         "symbol": symbol or "UNKNOWN",
         "venue": (evt.get("venue") or "binance"),
@@ -253,7 +253,7 @@ def _normalize_row(evt: dict[str, Any]) -> dict[str, Any]:
         "producer": str(evt.get("producer") or evt.get("service") or os.getenv("SERVICE_NAME", "python-worker")),
         "ts_insert_ms": _now_ms(),
         "is_virtual": bool(evt.get("is_virtual") or False),
-    },
+    }
 
     # Preserve remaining fields for audits/debugging.
     extra = dict(evt)
@@ -321,9 +321,9 @@ class DecisionSnapshotStreamWorker:
                     "stream": self.cfg.stream,
                     "group": self.cfg.group,
                     "consumer": self.cfg.consumer,
-                    "entry_id": str(entry_id),
+                    "entry_id": entry_id,
                     "reason": reason,
-                    "error": self._truncate_bytes(str(err)),
+                    "error": self._truncate_bytes(err),
                     "payload": raw_s,
                 },
                 maxlen=self.cfg.dlq_maxlen,
@@ -352,7 +352,7 @@ class DecisionSnapshotStreamWorker:
             ts = _to_int(payload.get("decision_ts_ms") or payload.get("ts_emit_ms") or payload.get("ts_event_ms"), 0)
             if ts <= 0:
                 return
-            lag = _now_ms() - int(ts)
+            lag = _now_ms() - ts
             if lag < 0:
                 lag = 0
             self._metrics.redis_lag_ms.observe(float(lag))
@@ -370,7 +370,7 @@ class DecisionSnapshotStreamWorker:
         async with self._db_lock:
             if self._db_threadsafe:
                 return await asyncio.to_thread(self.db.upsert_decision_snapshots, rows)
-            return int(self.db.upsert_decision_snapshots(rows))
+            return self.db.upsert_decision_snapshots(rows)
 
     async def _process_entries(self, entries: Sequence[tuple[str, Any]], *, allow_db: bool) -> tuple[list[dict[str, Any]], list[str]]:
         """Parse/normalize entries into rows.
@@ -388,8 +388,8 @@ class DecisionSnapshotStreamWorker:
 
             payload = _parse_payload(fields.get(b"payload") or fields.get("payload"))
             if payload is None:
-                await self._dlq(entry_id=str(entry_id), fields=fields, reason="bad_payload_json", err="payload is not valid JSON")
-                ack_ids.append(str(entry_id))
+                await self._dlq(entry_id=entry_id, fields=fields, reason="bad_payload_json", err="payload is not valid JSON")
+                ack_ids.append(entry_id)
                 continue
 
             self._observe_lag(payload)
@@ -398,8 +398,8 @@ class DecisionSnapshotStreamWorker:
                 row = _normalize_row(payload)
                 rows.append(row)
             except Exception as e:
-                await self._dlq(entry_id=str(entry_id), fields=fields, reason="bad_payload_row", err=str(e))
-                ack_ids.append(str(entry_id))
+                await self._dlq(entry_id=entry_id, fields=fields, reason="bad_payload_row", err=str(e))
+                ack_ids.append(entry_id)
 
         return rows, ack_ids
 
@@ -478,9 +478,9 @@ class DecisionSnapshotStreamWorker:
         for _ in range(max(1, self.cfg.pel_max_iters)):
             # Prefer XAUTOCLAIM (fast path, Redis 6.2+)
             try:
-                xautoclaim = getattr(self.redis, "xautoclaim", None)
+                xautoclaim: Any = getattr(self.redis, "xautoclaim", None)
                 if callable(xautoclaim):
-                    res = await xautoclaim(
+                    res = await xautoclaim(  # type: ignore
                         name=self.cfg.stream,  # type: ignore
                         groupname=self.cfg.group,
                         consumername=self.cfg.consumer,
@@ -531,13 +531,14 @@ class DecisionSnapshotStreamWorker:
                 logger.debug("xautoclaim not usable: %s", e)
 
             # Fallback: XPENDING RANGE + XCLAIM (Redis < 6.2)
+            ids: list[str] = []
             try:
-                xpending_range = getattr(self.redis, "xpending_range", None)
-                xclaim = getattr(self.redis, "xclaim", None)
+                xpending_range: Any = getattr(self.redis, "xpending_range", None)
+                xclaim: Any = getattr(self.redis, "xclaim", None)
                 if not (callable(xpending_range) and callable(xclaim)):
                     break
 
-                pending = await xpending_range(
+                pending = await xpending_range(  # type: ignore
                     self.cfg.stream,  # type: ignore
                     self.cfg.group,
                     min=cursor,
@@ -560,7 +561,7 @@ class DecisionSnapshotStreamWorker:
                     else:
                         ids.append(_decode_id(p[0]))
 
-                claimed = await xclaim(
+                claimed = await xclaim(  # type: ignore
                     self.cfg.stream,  # type: ignore
                     self.cfg.group,
                     self.cfg.consumer,
@@ -600,7 +601,7 @@ class DecisionSnapshotStreamWorker:
                 # A5: record fallback claim failures for SRE alerting
                 with contextlib.suppress(Exception):
                     self._metrics.claim_fail_total.inc()
-                logger.warning("pel reclaim fallback failed (cursor=%s, ids=%s): %s", cursor, ids if "ids" in locals() else [], e, exc_info=True)
+                logger.warning("pel reclaim fallback failed (cursor=%s, ids=%s): %s", cursor, ids, e, exc_info=True)
                 break
 
         return claimed_total
@@ -618,7 +619,7 @@ class DecisionSnapshotStreamWorker:
         """
         # 1) XPENDING summary (preferred)
         try:
-            xpending = getattr(self.redis, "xpending", None)
+            xpending: Any = getattr(self.redis, "xpending", None)
             if callable(xpending):
                 res = await xpending(self.cfg.stream, self.cfg.group)  # type: ignore
                 # redis-py may return dict or tuple  # type: ignore
@@ -631,14 +632,14 @@ class DecisionSnapshotStreamWorker:
 
         # 2) XINFO GROUPS fallback
         try:
-            xinfo_groups = getattr(self.redis, "xinfo_groups", None)
+            xinfo_groups: Any = getattr(self.redis, "xinfo_groups", None)
             if callable(xinfo_groups):
                 groups = await xinfo_groups(self.cfg.stream)  # type: ignore
                 for g in groups or []:  # type: ignore
                     # redis-py may decode bytes or keep as bytes
                     name = g.get("name") if isinstance(g, dict) else None
                     name = _decode_bytes(name)
-                    if str(name) == str(self.cfg.group):
+                    if name == self.cfg.group:
                         return int(g.get("pending") or 0)
         except Exception:
             pass
@@ -652,7 +653,7 @@ class DecisionSnapshotStreamWorker:
             return None
         with contextlib.suppress(Exception):
             self._metrics.pending_count.set(float(n))
-        return int(n)
+        return n
 
     async def _pending_poll_loop(self) -> None:
         """Background loop: keep pending gauge reasonably fresh for alerting.
@@ -664,7 +665,7 @@ class DecisionSnapshotStreamWorker:
                 await self._pending_poll_once()
             except Exception as e:
                 logger.debug("pending poll error: %s", e)
-            await asyncio.sleep(max(5, int(self.cfg.pending_poll_every_sec)))
+            await asyncio.sleep(max(5, self.cfg.pending_poll_every_sec))
 
     async def _pel_recover_loop(self) -> None:
         """Background coroutine: periodically reclaim stuck pending entries."""
@@ -675,7 +676,7 @@ class DecisionSnapshotStreamWorker:
                     logger.info("pel reclaimed=%d", n)
             except Exception as e:
                 logger.warning("pel recover loop error: %s", e)
-            await asyncio.sleep(max(1, int(self.cfg.pel_every_sec)))
+            await asyncio.sleep(max(1, self.cfg.pel_every_sec))
 
     async def run_forever(self) -> None:
         await self.ensure_group()
@@ -697,6 +698,9 @@ class DecisionSnapshotStreamWorker:
                 if "loading the dataset in memory" in err_str or "busyloading" in err_str or "BusyLoading" in type(e).__name__:
                     logger.warning("Redis is loading dataset in memory. Waiting 5s...")
                     await asyncio.sleep(5.0)
+                elif "nogroup" in err_str:
+                    logger.warning("Consumer group missing (NOGROUP), recreating...")
+                    await self.ensure_group()
                 else:
                     logger.exception("decision_snapshot_writer redis error: %s", e)
                     await asyncio.sleep(self.cfg.fail_sleep_sec)

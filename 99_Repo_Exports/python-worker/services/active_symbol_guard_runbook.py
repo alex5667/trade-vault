@@ -163,7 +163,7 @@ class ActiveSymbolGuardRunbookExecutor:
         pattern = f"{prefix}*"
         try:
             if hasattr(self.r, 'scan_iter'):
-                out.extend([str(_normalize(k)) for k in self.r.scan_iter(pattern)])
+                out.extend([str(_normalize(k)) for k in self.r.scan_iter(pattern, count=10000)])
             elif hasattr(self.r, 'keys'):
                 out.extend([str(_normalize(k)) for k in (self.r.keys(pattern) or [])])
         except Exception:

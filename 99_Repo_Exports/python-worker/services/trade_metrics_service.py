@@ -127,6 +127,7 @@ class TradeMetricsService:
         self.trim_ratio = float(os.getenv("PERIODIC_REPORT_TRIM_RATIO", "0.10"))
         self.es_alpha = float(os.getenv("PERIODIC_REPORT_ES_ALPHA", "0.05"))
         self.min_trades_for_es = int(os.getenv("PERIODIC_REPORT_MIN_TRADES_FOR_ES", "20"))
+        self.virtual_tp_by_mfe = os.getenv("PERIODIC_REPORT_VIRTUAL_TP_BY_MFE", "false").lower() == "true"
 
     def new_metrics(self) -> dict[str, Any]:
         m: dict[str, Any] = {
@@ -334,6 +335,12 @@ class TradeMetricsService:
 
 
 
+        # Resolve MFE early for virtual TP check
+        mfe_pnl = _sf(t.get("mfe_pnl") or t.get("mfe_usd") or 0.0)
+        mfe_raw = _sf(t.get("mfe") or 0.0)
+        if abs(mfe_pnl) <= eps and abs(mfe_raw) > eps and lot > eps:
+            mfe_pnl = mfe_raw * lot
+
         # TP / trailing flags
         # FIX: report "hits" if level was touched or executed
         tp1_hit = _si(t.get("tp1_hit") or 0)
@@ -350,6 +357,31 @@ class TradeMetricsService:
         tp_before_sl = _si(t.get("tp_before_sl") or 0)
         trailing_started = _si(t.get("trailing_started") or 0)
 
+        # Virtual TP by MFE
+        if self.virtual_tp_by_mfe:
+            _tp2_p = _sf(t.get("tp2_price") or t.get("tp2") or 0.0)
+            _tp3_p = _sf(t.get("tp3_price") or t.get("tp3") or 0.0)
+            _ep = _sf(t.get("entry_price") or t.get("avg_entry_price") or 0.0)
+            
+            # Check by price distance if mfe_raw is available
+            if abs(mfe_raw) > eps and _ep > 0:
+                if tp2 == 0 and _tp2_p > 0:
+                    if abs(mfe_raw) >= abs(_tp2_p - _ep) - eps:
+                        tp2 = 1
+                if tp3 == 0 and _tp3_p > 0:
+                    if abs(mfe_raw) >= abs(_tp3_p - _ep) - eps:
+                        tp3 = 1
+            # Fallback to profit if mfe_raw missing but mfe_pnl available
+            elif abs(mfe_pnl) > eps and lot > eps and _ep > 0:
+                if tp2 == 0 and _tp2_p > 0:
+                    expected_tp2_pnl = abs(_tp2_p - _ep) * lot
+                    if mfe_pnl >= expected_tp2_pnl - eps:
+                        tp2 = 1
+                if tp3 == 0 and _tp3_p > 0:
+                    expected_tp3_pnl = abs(_tp3_p - _ep) * lot
+                    if mfe_pnl >= expected_tp3_pnl - eps:
+                        tp3 = 1
+
         # Get bucket early
         bucket = _to_str(t.get("close_reason") or t.get("bucket_close_reason") or "UNKNOWN")
         close_reason_raw = _to_str(t.get("close_reason_raw") or bucket)
@@ -359,7 +391,7 @@ class TradeMetricsService:
              tp_before_sl = 1
 
         # --- DATA QUALITY: tp_hit_but_zero_pnl / inconsistent close_reason ---
-        is_tp_hit = (tp1_hit > 0 or tp2_hit > 0 or tp3_hit > 0 or "TP" in bucket)
+        is_tp_hit = (tp1 > 0 or tp2 > 0 or tp3 > 0 or "TP" in bucket)
         is_sl_hit = (bucket in ("SL", "TRAIL_SL", "TRAILING_STOP") and tp_before_sl == 0)
 
         if is_tp_hit:
@@ -824,7 +856,7 @@ class TradeMetricsService:
                 # --- Diagnostic: Unmet ok reasons ---
                 missing_str = indicators.get("strong_gate_missing")
                 if missing_str:
-                    for leg in str(missing_str).split(","):
+                    for leg in missing_str.split(","):
                         leg = leg.strip()
                         if leg:
                             m["unmet_ok_reasons"][leg] = m["unmet_ok_reasons"].get(leg, 0) + 1
@@ -937,66 +969,67 @@ class TradeMetricsService:
                         ml_group["wins"] += 1
 
                     # --- NEW: Detailed condition breakdown ---
-                    ml_cond = m["ml_condition_stats"]
-                    ml_cond["total_evaluated"] += 1
-                    ml_cond["_p_edge_values"].append(p_edge)
+                    if "p_edge" in ml_dec:
+                        ml_cond = m["ml_condition_stats"]
+                        ml_cond["total_evaluated"] += 1
+                        ml_cond["_p_edge_values"].append(p_edge)
 
-                    # Per-threshold breakdown (test multiple thresholds)
-                    if p_min < 0.30:
-                        thresholds = [0.05, 0.08, 0.10, 0.15, 0.20, 0.25, 0.30]
-                    else:
-                        thresholds = [0.50, 0.52, 0.55, 0.58, 0.60, 0.65, 0.70]
-                    for thr in thresholds:
-                        thr_key = f"{thr:.2f}"
-                        if thr_key not in ml_cond["by_threshold"]:
-                            ml_cond["by_threshold"][thr_key] = {"count": 0, "wins": 0, "pnl": 0.0}
+                        # Per-threshold breakdown (test multiple thresholds)
+                        if p_min < 0.30:
+                            thresholds = [0.05, 0.08, 0.10, 0.15, 0.20, 0.25, 0.30]
+                        else:
+                            thresholds = [0.50, 0.52, 0.55, 0.58, 0.60, 0.65, 0.70]
+                        for thr in thresholds:
+                            thr_key = f"{thr:.2f}"
+                            if thr_key not in ml_cond["by_threshold"]:
+                                ml_cond["by_threshold"][thr_key] = {"count": 0, "wins": 0, "pnl": 0.0}
 
-                        if p_edge >= thr:
-                            stats = ml_cond["by_threshold"][thr_key]
-                            stats["count"] += 1
-                            stats["pnl"] += pnl
-                            if pnl > eps:
-                                stats["wins"] += 1
+                            if p_edge >= thr:
+                                stats = ml_cond["by_threshold"][thr_key]
+                                stats["count"] += 1
+                                stats["pnl"] += pnl
+                                if pnl > eps:
+                                    stats["wins"] += 1
 
-                    # Per-scenario breakdown
-                    scenario_key = (of_scenario or "none").lower()
-                    if scenario_key not in ml_cond["by_scenario"]:
-                        ml_cond["by_scenario"][scenario_key] = {
-                            "count": 0, "wins": 0, "pnl": 0.0,
-                            "sum_p_edge": 0.0, "avg_p_edge": 0.0
-                        }
+                        # Per-scenario breakdown
+                        scenario_key = (of_scenario or "none").lower()
+                        if scenario_key not in ml_cond["by_scenario"]:
+                            ml_cond["by_scenario"][scenario_key] = {
+                                "count": 0, "wins": 0, "pnl": 0.0,
+                                "sum_p_edge": 0.0, "avg_p_edge": 0.0
+                            }
 
-                    scn_stats = ml_cond["by_scenario"][scenario_key]
-                    scn_stats["count"] += 1
-                    scn_stats["pnl"] += pnl
-                    scn_stats["sum_p_edge"] += p_edge
-                    if pnl > eps:
-                        scn_stats["wins"] += 1
+                        scn_stats = ml_cond["by_scenario"][scenario_key]
+                        scn_stats["count"] += 1
+                        scn_stats["pnl"] += pnl
+                        scn_stats["sum_p_edge"] += p_edge
+                        if pnl > eps:
+                            scn_stats["wins"] += 1
 
-                    # P_edge distribution
-                    if p_min < 0.30:
-                        if p_edge < 0.05: p_edge_bucket = "0.00-0.05"
-                        elif p_edge < 0.10: p_edge_bucket = "0.05-0.10"
-                        elif p_edge < 0.15: p_edge_bucket = "0.10-0.15"
-                        elif p_edge < 0.20: p_edge_bucket = "0.15-0.20"
-                        elif p_edge < 0.25: p_edge_bucket = "0.20-0.25"
-                        else: p_edge_bucket = "0.25+"
-                    else:
-                        if p_edge < 0.3: p_edge_bucket = "0.0-0.3"
-                        elif p_edge < 0.4: p_edge_bucket = "0.3-0.4"
-                        elif p_edge < 0.5: p_edge_bucket = "0.4-0.5"
-                        elif p_edge < 0.6: p_edge_bucket = "0.5-0.6"
-                        elif p_edge < 0.7: p_edge_bucket = "0.6-0.7"
-                        else: p_edge_bucket = "0.7-1.0"
+                        # P_edge distribution
+                        if p_min < 0.30:
+                            if p_edge < 0.05: p_edge_bucket = "0.00-0.05"
+                            elif p_edge < 0.10: p_edge_bucket = "0.05-0.10"
+                            elif p_edge < 0.15: p_edge_bucket = "0.10-0.15"
+                            elif p_edge < 0.20: p_edge_bucket = "0.15-0.20"
+                            elif p_edge < 0.25: p_edge_bucket = "0.20-0.25"
+                            else: p_edge_bucket = "0.25+"
+                        else:
+                            if p_edge < 0.3: p_edge_bucket = "0.0-0.3"
+                            elif p_edge < 0.4: p_edge_bucket = "0.3-0.4"
+                            elif p_edge < 0.5: p_edge_bucket = "0.4-0.5"
+                            elif p_edge < 0.6: p_edge_bucket = "0.5-0.6"
+                            elif p_edge < 0.7: p_edge_bucket = "0.6-0.7"
+                            else: p_edge_bucket = "0.7-1.0"
 
-                    if p_edge_bucket not in ml_cond["p_edge_distribution"]:
-                        ml_cond["p_edge_distribution"][p_edge_bucket] = {"count": 0, "wins": 0, "pnl": 0.0}
+                        if p_edge_bucket not in ml_cond["p_edge_distribution"]:
+                            ml_cond["p_edge_distribution"][p_edge_bucket] = {"count": 0, "wins": 0, "pnl": 0.0}
 
-                    bucket_stats = ml_cond["p_edge_distribution"][p_edge_bucket]
-                    bucket_stats["count"] += 1
-                    bucket_stats["pnl"] += pnl
-                    if pnl > eps:
-                        bucket_stats["wins"] += 1
+                        bucket_stats = ml_cond["p_edge_distribution"][p_edge_bucket]
+                        bucket_stats["count"] += 1
+                        bucket_stats["pnl"] += pnl
+                        if pnl > eps:
+                            bucket_stats["wins"] += 1
 
             # 6. Strong (High Conf) Stats
             # Source: of_confirm.score (0..1)

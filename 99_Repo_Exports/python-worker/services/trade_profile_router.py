@@ -275,6 +275,39 @@ _BUILTIN_PROFILES: dict[str, TradeProfile] = {
         mode="LIVE",
         reason_code="high_vol_breakout_v1",
     ),
+    # ── Bear Trend: SHORT trend-follow — 3 TP (50/30/20) + tight trailing after TP1 ──
+    # Best practice: bear bounces are sharp → tighter trail (1.0 ATR vs 1.2), wider TP3 (4.0R)
+    # to let shorts run. risk_multiplier_tier_c=0.45 — memes die hard in bear trends.
+    # mode=SHADOW_BY_DEFAULT: shadow until sufficient bear-trend sample (needs ≥ 50 trades + stats).
+    "bear_trend_follow_v1": TradeProfile(
+        name="bear_trend_follow_v1",
+        regime_bucket="trending_bear",
+        allowed_kinds=("breakout", "obi_spike", "extreme", "continuation"),
+        deny_kinds=("absorption",),
+        min_p_edge=0.58,
+        min_confidence=0.60,
+        max_expected_slippage_bps=14.0,
+        max_zone_bp_majors=12.0,
+        max_zone_bp_alts=16.0,
+        max_zone_bp_memes=22.0,
+        stop_atr_mult_majors=0.95,
+        stop_atr_mult_alts=1.05,
+        stop_atr_mult_memes=1.20,
+        tp_rr="1.3,2.8,4.0",
+        tp1_atr_mult=0.9,
+        tp_count=3,
+        tp_ratios=(0.50, 0.30, 0.20),
+        trailing_profile="rocket_v1_bear",
+        trail_enabled=True,
+        trail_after_tp_level=1,
+        execution_policy="MAKER_FIRST",
+        risk_multiplier_tier_a=1.00,
+        risk_multiplier_tier_b=0.85,
+        risk_multiplier_tier_c=0.45,
+        min_net_edge_bps=3.0,
+        mode="SHADOW_BY_DEFAULT",
+        reason_code="bear_trend_follow_v1",
+    ),
     # ── Fallback / conservative default: 3 TP (50/30/20) + trailing after TP1 ──
     "default_v1": TradeProfile(
         name="default_v1",
@@ -305,16 +338,49 @@ _BUILTIN_PROFILES: dict[str, TradeProfile] = {
         mode="LIVE",
         reason_code="default_v1",
     ),
+    # ── Mixed/Unknown: conservative protective (no trailing, breakeven only) ──
+    # Prevents rocket_v1 from running in unclassified/volatile conditions.
+    "mixed_protective_v1": TradeProfile(
+        name="mixed_protective_v1",
+        regime_bucket="mixed",
+        allowed_kinds=("breakout", "absorption", "obi_spike", "extreme", "continuation", "reversal"),
+        deny_kinds=(),
+        min_p_edge=0.58,
+        min_confidence=0.60,
+        max_expected_slippage_bps=18.0,
+        max_zone_bp_majors=14.0,
+        max_zone_bp_alts=18.0,
+        max_zone_bp_memes=24.0,
+        stop_atr_mult_majors=1.10,
+        stop_atr_mult_alts=1.20,
+        stop_atr_mult_memes=1.40,
+        tp_rr="0.9,1.6",
+        tp1_atr_mult=0.7,
+        tp_count=2,
+        tp_ratios=(0.80, 0.20),
+        trailing_profile="range_protective",
+        trail_enabled=False,
+        trail_after_tp_level=0,
+        execution_policy="SAFETY_FIRST",
+        risk_multiplier_tier_a=0.75,
+        risk_multiplier_tier_b=0.60,
+        risk_multiplier_tier_c=0.30,
+        min_net_edge_bps=3.0,
+        mode="LIVE",
+        reason_code="mixed_protective_v1",
+    ),
 }
 
 # regime_bucket → profile name
 _REGIME_PROFILE_MAP: dict[str, str] = {
     "trend": "trend_breakout_v1",
+    "trending_bear": "bear_trend_follow_v1",   # bear-specific: SHORT-only, tighter trail
     "range": "range_absorption_v1",
     "thin":  "thin_defensive_v1",
     "high_vol": "high_vol_breakout_v1",
     "high_vol_low_liq": "thin_defensive_v1",
-    "mixed": "default_v1",
+    # mixed/unknown → protective (no trailing, breakeven only)
+    "mixed": "mixed_protective_v1",
 }
 
 # ---------------------------------------------------------------------------

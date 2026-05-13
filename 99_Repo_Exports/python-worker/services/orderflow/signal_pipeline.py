@@ -1103,6 +1103,9 @@ class SignalPipeline:
                 or "na"
             ).strip().lower()
             _profile_regime_bucket = _regime_group(_raw_regime)
+            # Bear trend gets its own profile bucket so the router picks bear_trend_follow_v1
+            if "trending_bear" in _raw_regime:
+                _profile_regime_bucket = "trending_bear"
 
             _profile_decision = self._profile_router.route(
                 symbol=symbol,
@@ -1254,7 +1257,8 @@ class SignalPipeline:
 
         is_range_regime_flag = ("range" in rg_for_overrides)
         is_expansion_regime_flag = ("expansion" in rg_for_overrides)
-        is_trending_regime_flag = ("trending" in rg_for_overrides) and not is_expansion_regime_flag
+        is_trending_bear_flag = ("trending_bear" in rg_for_overrides)
+        is_trending_regime_flag = ("trend" in rg_for_overrides) and not is_trending_bear_flag and not is_expansion_regime_flag
         is_squeeze_regime_flag = ("squeeze" in rg_for_overrides)
 
         if is_range_regime_flag:
@@ -1301,6 +1305,74 @@ class SignalPipeline:
         elif is_expansion_regime_flag:
             trail_profile = "expansion_v1"
             signal["trail_after_tp1"] = True
+
+        elif is_trending_bear_flag:
+            # ── Bear Trend Quality Gate ──────────────────────────────────────
+            # Цель: rocket_v1_bear только для качественных SHORT-входов.
+            # Всё остальное (лонги, слабый OF, плохая ликвидность) → protective_only.
+            _dir_str = str(getattr(direction, "value", direction) or "").upper()
+            _of_ok = int(indicators.get("of_confirm_ok", 0) or 0)
+            _of_score = float(indicators.get("of_confirm_score", 0.0) or 0.0)
+            _exec_risk = float(indicators.get("exec_risk_norm", 1.0) or 1.0)
+            _spread = float(indicators.get("spread_bps", 999.0) or 999.0)
+            _book_age = float(indicators.get("obi_age_ms", 99999.0) or 99999.0)
+            _delta_z = float(indicators.get("delta_z", 0.0) or 0.0)
+            _obi = float(indicators.get("obi", 0.0) or 0.0)
+            _sweep_age = float(indicators.get("sweep_age_ms", -1.0) or -1.0)
+            _reclaim_age = float(indicators.get("reclaim_age_ms", -1.0) or -1.0)
+            _cancel_bid = float(indicators.get("cancel_bid_rate_ema", 0.0) or 0.0)
+            _cancel_ask = float(indicators.get("cancel_ask_rate_ema", 0.0) or 0.0)
+
+            # p_edge из of_confirm.evidence.ml
+            _p_edge = 0.0
+            try:
+                _oc_raw = indicators.get("of_confirm") or {}
+                _oc = json.loads(_oc_raw) if isinstance(_oc_raw, str) else _oc_raw
+                _ev = _oc.get("evidence") or {} if isinstance(_oc, dict) else {}
+                _ml_raw = _ev.get("ml") or {} if isinstance(_ev, dict) else {}
+                _ml = json.loads(_ml_raw) if isinstance(_ml_raw, str) else _ml_raw
+                _p_edge = float(_ml.get("p_edge", 0.0) or 0.0) if isinstance(_ml, dict) else 0.0
+            except Exception:
+                pass
+
+            _max_spread = float(runtime.config.get(
+                "bear_trend_max_spread_bps", os.getenv("BEAR_TREND_MAX_SPREAD_BPS", "20.0")
+            ))
+            _max_book_age = float(runtime.config.get(
+                "bear_trend_max_book_age_ms", os.getenv("BEAR_TREND_MAX_BOOK_AGE_MS", "3000.0")
+            ))
+
+            # Недавний sweep или reclaim (≤ 10 s) подтверждает давление продавцов
+            _sweep_reclaim_ok = (0.0 <= _sweep_age <= 10000.0) or (0.0 <= _reclaim_age <= 10000.0)
+
+            # Cancel spike: bid-отмены >> ask-отмены → признак манипуляции
+            _cancel_spike_veto = _cancel_bid > (_cancel_ask * 3.0) and _cancel_bid > 5000.0
+
+            bear_trend_quality_ok = (
+                _dir_str in ("SELL", "SHORT")
+                and kind in ("breakout", "continuation", "extreme", "obi_spike")
+                and _of_ok == 1
+                and _of_score >= 0.60
+                and _p_edge >= 0.58
+                and _exec_risk <= 0.45
+                and _spread <= _max_spread
+                and _book_age <= _max_book_age
+                and _delta_z < 0.0
+                and _obi < 0.0
+                and _sweep_reclaim_ok
+                and not _cancel_spike_veto
+            )
+
+            indicators["bear_trend_quality_ok"] = int(bear_trend_quality_ok)
+
+            if bear_trend_quality_ok:
+                trail_profile = "rocket_v1_bear"
+                signal["trail_after_tp1"] = True
+                indicators["regime_trail_override"] = "trending_bear_short_trend_follow"
+            else:
+                trail_profile = "protective_only"
+                signal["trail_after_tp1"] = True
+                indicators["regime_trail_override"] = "trending_bear_to_protective_only"
 
         elif is_trending_regime_flag:
             trail_profile = "rocket_v1"
@@ -2038,7 +2110,7 @@ class SignalPipeline:
                 FIELD_TS_FEATURE_MS: int(enriched_signal.get(FIELD_TS_FEATURE_MS) or ts_ms),
                 FIELD_TS_EMIT_MS: int(enriched_signal.get(FIELD_TS_EMIT_MS) or int(time.time() * 1000)),
                 "trail_after_tp1": self._normalize_trailing_flag(enriched_signal.get("trail_after_tp1"), symbol),
-                "trail_profile": enriched_signal.get("trail_profile", "rocket_v1"),
+                "trail_profile": (enriched_signal.get("trail_profile") or "range_protective"),
                 "indicators": indicators,
                 "strategy": "cryptoorderflow",
                 "tf": "tick",
@@ -2432,7 +2504,7 @@ class SignalPipeline:
                     "confidence": confidence,
                     "confidence_pct": confidence * 100.0,
                     "trail_after_tp1": bool(enriched_signal.get("trail_after_tp1", False)),
-                    "trail_profile": (enriched_signal.get("trail_profile") or "rocket_v1"),
+                    "trail_profile": (enriched_signal.get("trail_profile") or "range_protective"),
                     "regime": (indicators.get("regime", "na")),
                     "atr": float(indicators.get("atr_used_for_levels") or indicators.get("atr", 0.0) or 0.0),
                     "atr_used_for_levels": float(indicators.get("atr_used_for_levels", 0.0) or 0.0),
@@ -2485,7 +2557,7 @@ class SignalPipeline:
                     "confidence_pct": confidence * 100.0,
                     "ts_ms": ts_ms,
                     "trail_after_tp1": bool(enriched_signal.get("trail_after_tp1", False)),
-                    "trail_profile": (enriched_signal.get("trail_profile") or "rocket_v1"),
+                    "trail_profile": (enriched_signal.get("trail_profile") or "range_protective"),
                     "regime": (indicators.get("regime", "na")),
                     "atr": float(indicators.get("atr_used_for_levels") or indicators.get("atr", 0.0) or 0.0),
                     "atr_used_for_levels": float(indicators.get("atr_used_for_levels", 0.0) or 0.0),

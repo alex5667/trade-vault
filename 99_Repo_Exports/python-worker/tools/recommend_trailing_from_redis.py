@@ -783,17 +783,13 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     symbols = [s.strip().upper() for s in args.symbols.split(",") if s.strip()]
+    
+    # If no symbols specified, we will load trades first and extract symbols from them.
+    # This avoids reporting on inactive symbols that have no trades.
+    load_symbols_from_stream = False
     if not symbols:
-        try:
-            from core.symbol_manager import SymbolManager
-            sm = SymbolManager(redis_url=args.redis_url)
-            sm.restore_state()
-            symbols = sm.get_active_symbols()
-        except Exception as e:
-            logger.error(f"Failed to load symbols from SymbolManager: {e}")
-    if not symbols:
-        print("Нет символов для анализа. Задайте --symbols или заполните SymbolManager.")
-        return 1
+        load_symbols_from_stream = True
+        logger.info("No symbols specified, will extract from stream trades")
 
     r = redis.from_url(args.redis_url, decode_responses=True)
 
@@ -806,13 +802,21 @@ def main(argv: list[str] | None = None) -> int:
         stream=args.stream,
         limit=args.limit,
         sources=[args.source],
-        symbols=symbols,
+        symbols=symbols if not load_symbols_from_stream else [],
         from_ts_ms=from_ts_ms,
         to_ts_ms=to_ts_ms,
     )
 
     if not trades:
         print("Нет сделок в потоке trades:closed (по заданным фильтрам)", file=sys.stderr)
+        return 1
+
+    if load_symbols_from_stream:
+        symbols = sorted(list(set(t.symbol for t in trades)))
+        logger.info(f"Dynamically loaded {len(symbols)} symbols from stream trades: {symbols}")
+
+    if not symbols:
+        print("Нет символов для анализа. Задайте --symbols или заполните SymbolManager.")
         return 1
 
     # Markdown-отчёт
@@ -1093,19 +1097,13 @@ def build_trailing_report_markdown_from_env(r: redis.Redis | None = None) -> str
         to_ts_ms = int(to_ts)
 
     symbols = [s.strip().upper() for s in symbols_env.split(",") if s.strip()]
+    
+    # If no symbols specified, we will load trades first and extract symbols from them.
+    # This avoids reporting on inactive symbols that have no trades.
+    load_symbols_from_stream = False
     if not symbols:
-        # Lightweight: read symbol list directly from Redis Set
-        # (avoids heavy SymbolManager handler initialization)
-        try:
-            _r = r or redis.from_url(redis_url, decode_responses=True)
-            raw_symbols = _r.smembers("config:symbols:all")
-            if raw_symbols:
-                symbols = sorted(raw_symbols)
-                logger.info(f"Loaded {len(symbols)} symbols from config:symbols:all")
-        except Exception as e:
-            logger.error(f"Failed to load symbols from Redis config:symbols:all: {e}")
-    if not symbols:
-        return "Нет символов для анализа."
+        load_symbols_from_stream = True
+        logger.info("No symbols specified, will extract from stream trades")
 
     if r is None:
         try:
@@ -1119,13 +1117,20 @@ def build_trailing_report_markdown_from_env(r: redis.Redis | None = None) -> str
         stream=stream,
         limit=limit,
         sources=[source],
-        symbols=symbols,
+        symbols=symbols if not load_symbols_from_stream else [],
         from_ts_ms=from_ts_ms,
         to_ts_ms=to_ts_ms,
     )
 
     if not trades:
         return ""
+
+    if load_symbols_from_stream:
+        symbols = sorted(list(set(t.symbol for t in trades)))
+        logger.info(f"Dynamically loaded {len(symbols)} symbols from stream trades: {symbols}")
+
+    if not symbols:
+        return "Нет символов для анализа."
 
     lines: list[str] = []
     lines.append(f"Trailing calibration: {source} {os.getenv('TRAILING_AUTOTUNE_REPORT_TITLE_SUFFIX', '')}")

@@ -404,9 +404,8 @@ class BinanceActiveSymbolGuardRepairWorker:
         """Scan all guard keys and repair each one. Returns list of results."""
         out: list[dict[str, Any]] = []
         released_seen = set()
-        prefix = f"{self.active_symbol_key_prefix}*"
-        for key in list(self.r.scan_iter(match=prefix)):
-            symbol = str(key).replace(self.active_symbol_key_prefix, "", 1).strip().upper()
+        symbols = self._guard_store().list_symbols()
+        for symbol in symbols:
             if not symbol:
                 continue
             result = self.repair_one(symbol)
