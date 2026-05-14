@@ -16,6 +16,12 @@ class BarrierSpec:
     h_ms: int
     tp_bps: float
     sl_bps: float
+    # Round-trip transaction cost in bps (spread + 2·fees + slippage estimate).
+    # Default 0.0 preserves backward-compatible behavior:
+    #   edge_after_cost_bps == realized_close_bps, y_edge_cost_aware == (gross > 0).
+    # Callers that want cost-aware labels (López de Prado best practice — barriers
+    # should exceed expected round-trip costs) pass a positive value.
+    cost_bps: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -25,6 +31,11 @@ class BarrierResult:
     mae_bps: float
     mfe_bps: float
     adverse_proxy: float
+    # --- v14: cost-aware label fields (backward-compat defaults: 0.0 / 0) ---
+    cost_bps: float = 0.0
+    realized_close_bps: float = 0.0   # signed bps move at outcome point (close-side)
+    edge_after_cost_bps: float = 0.0  # realized_close_bps - cost_bps
+    y_edge_cost_aware: int = 0        # 1 if edge_after_cost_bps > 0, else 0
 
 
 def _bps_move(px: float, ref: float) -> float:
@@ -46,14 +57,22 @@ def label_path(
     spec: BarrierSpec,
 ) -> BarrierResult:
     if entry_px <= 1e-9 or not path:
-        return BarrierResult(outcome=BarrierOutcome.NO_TICKS, hit_ms=0, mae_bps=0.0, mfe_bps=0.0, adverse_proxy=0.0)
+        return BarrierResult(
+            outcome=BarrierOutcome.NO_TICKS, hit_ms=0,
+            mae_bps=0.0, mfe_bps=0.0, adverse_proxy=0.0,
+            cost_bps=spec.cost_bps,
+            realized_close_bps=0.0,
+            edge_after_cost_bps=-spec.cost_bps,  # paid cost, realized nothing
+            y_edge_cost_aware=0,
+        )
 
     assert entry_px > 1e-9, f"entry_px must be positive, got {entry_px}"
 
     d = (direction or "").upper()
     is_long = d == "LONG"
-    tp = float(spec.tp_bps)
-    sl = float(spec.sl_bps)
+    tp = spec.tp_bps
+    sl = spec.sl_bps
+    cost = spec.cost_bps
 
     def signed_bps(px: float) -> float:
         b = _bps_move(px, entry_px)
@@ -63,9 +82,12 @@ def label_path(
     mfe = 0.0  # most positive (favorable)
     hit_ms = ts0_ms + spec.h_ms
     outcome = BarrierOutcome.TIMEOUT
+    last_sb = 0.0  # signed_bps at last seen tick (used for TIMEOUT realized close)
+    realized_close_bps = 0.0  # signed_bps at outcome point
 
     for ts, px in path:
         sb = signed_bps(px)
+        last_sb = sb
         if sb > mfe:
             mfe = sb
         if sb < mae:
@@ -74,13 +96,29 @@ def label_path(
         if sb >= tp:
             outcome = BarrierOutcome.TP_HIT
             hit_ms = int(ts)
+            realized_close_bps = sb
             break
         if sb <= -sl:
             outcome = BarrierOutcome.SL_HIT
             hit_ms = int(ts)
+            realized_close_bps = sb
             break
+    else:
+        # No break → TIMEOUT path: close at last observed tick
+        realized_close_bps = last_sb
 
     mae_mag = abs(mae)
     mfe_mag = max(0.0, mfe)
     adverse_proxy = (mae_mag / mfe_mag) if mfe_mag > 1e-9 else mae_mag
-    return BarrierResult(outcome=outcome, hit_ms=hit_ms, mae_bps=mae_mag, mfe_bps=mfe_mag, adverse_proxy=adverse_proxy)
+
+    edge_after_cost_bps = realized_close_bps - cost
+    y_edge_cost_aware = 1 if edge_after_cost_bps > 0.0 else 0
+
+    return BarrierResult(
+        outcome=outcome, hit_ms=hit_ms,
+        mae_bps=mae_mag, mfe_bps=mfe_mag, adverse_proxy=adverse_proxy,
+        cost_bps=cost,
+        realized_close_bps=realized_close_bps,
+        edge_after_cost_bps=edge_after_cost_bps,
+        y_edge_cost_aware=y_edge_cost_aware,
+    )

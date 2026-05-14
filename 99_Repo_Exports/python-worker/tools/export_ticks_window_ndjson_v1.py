@@ -3,9 +3,14 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import time
 from typing import Any
 
 import redis
+
+
+def _get_ny_time_millis() -> int:
+    return int(time.time() * 1000)
 
 
 def _safe_json(obj: Any) -> str:
@@ -167,7 +172,7 @@ def main() -> None:
     ap.add_argument("--max-scan", type=int, default=800_000)
     args = ap.parse_args()
 
-    r = redis.Redis.from_url(args.redis_url, decode_responses=False)
+    r = redis.Redis.from_url(args.redis_url, decode_responses=True)
 
     since_ms = int(_get_ny_time_millis()) - int(args.since_hours * 3600_000)
     symbols = [s.strip().upper() for s in args.symbols.split(",") if s.strip()] if args.symbols else None

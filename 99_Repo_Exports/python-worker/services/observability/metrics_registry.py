@@ -152,3 +152,13 @@ schema_version_fallback_total = _metric(
 )
 
 strong_gate_veto_total = _metric(Counter, "strong_gate_veto_total", "Total vetoes by OFConfirm Strong Gate", ["symbol", "scenario", "reason", "mode"])
+
+# Shadow telemetry for burst gate penalty→enforce promotion.
+# Incremented whenever veto conditions are met regardless of mode (penalty/shadow/enforce).
+# Collect ≥7 days before promoting burst_gate_mode to enforce.
+burst_gate_would_veto_total = _metric(
+    Counter,
+    "burst_gate_would_veto_total",
+    "Burst gate would-veto events (shadow telemetry, all modes)",
+    ["symbol", "reason", "mode"],
+)

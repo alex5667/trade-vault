@@ -1959,6 +1959,8 @@ class PeriodicReporter:
             shc_stats = m.get("strong_high_conf_stats") or {}
             # Traverse sorted keys 70->100
             for thr in sorted([int(k) for k in shc_stats.keys()]):
+                if thr < 70:
+                    continue
                 st = shc_stats[str(thr)]
                 cnt = int(st.get("count", 0))
                 if cnt > 0:
@@ -2047,8 +2049,8 @@ class PeriodicReporter:
                         "<b>🎯 Score Threshold Breakdown (сигналы с score ≥ порога):</b>",
                         *[
                             f"  score ≥ {thr}: <b>{st['count']}</b> ({st['count'] / max(total_signals_val, 1) * 100:.1f}%) "
-                            f"| pass: <b>{st['passed']}</b> "
-                            f"({st['passed'] / max(st['count'], 1) * 100:.1f}%)"
+                            f"| pass: <b>{st['passed']}</b> ({st['passed'] / max(st['count'], 1) * 100:.1f}%)"
+                            + (f" | PnL: <b>{shc_stats.get(str(int(float(thr)*100)), {}).get('pnl', 0.0):+.2f}</b>" if str(int(float(thr)*100)) in shc_stats else "")
                             for thr, st in sorted(v_score_by_threshold.items(), key=lambda x: float(x[0]))
                             if st["count"] > 0
                         ],

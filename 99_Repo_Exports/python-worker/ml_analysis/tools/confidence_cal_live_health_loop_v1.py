@@ -179,7 +179,10 @@ def _get_indicator(ind: dict[str, Any], keys: list[str]) -> float | None:
             continue
         if not math.isfinite(f):
             continue
-        return _clamp01(float(f))
+        # Producer writes calibrated value as percentile (0..100) under "*_pct" keys.
+        if k.endswith("_pct"):
+            f = f / 100.0
+        return _clamp01(f)
     return None
 
 
@@ -392,7 +395,7 @@ def main(argv: list[str] | None = None) -> int:
     y, r, p_raw, p_cal_all = _load_joined_jsonl(
         dataset_path,
         raw_keys=["confidence_v1", "confidence"],
-        cal_keys=["confidence_cal_v1"],
+        cal_keys=["confidence_cal_v1", "confidence_calibrated_pct"],
     )
     status["rows_raw"] = int(len(p_raw))
 

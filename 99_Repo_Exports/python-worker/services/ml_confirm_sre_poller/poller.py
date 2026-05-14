@@ -13,6 +13,11 @@ from redis.asyncio import Redis
 from redis.exceptions import BusyLoadingError, ConnectionError, TimeoutError
 
 from services.ml_confirm.champion_cfg import ChampionCfgError, validate_champion_cfg
+from services.ml_confirm_sre_poller.outcome_metrics import (
+    evaluate_outcomes,
+    get_eval_interval_sec,
+    get_lookback_ms,
+)
 from services.observability.metrics_registry import (
     ml_confirm_cfg_present,
     ml_confirm_cfg_valid,
@@ -46,6 +51,9 @@ async def _read_xlen(r: Redis, stream: str) -> int:
 async def poll_loop(redis_url: str) -> None:
     r = Redis.from_url(redis_url, decode_responses=True)
     last_ok = 0.0
+    outcome_eval_interval = get_eval_interval_sec()
+    outcome_lookback_ms = get_lookback_ms()
+    last_outcome_eval_ts = 0.0
     while True:
         t0 = time.time()
         kind = DEFAULT_KIND
@@ -83,6 +91,15 @@ async def poll_loop(redis_url: str) -> None:
             xlen = await _read_xlen(r, LABELS_STREAM)
             if xlen >= 0:
                 tb_labels_xlen.set(xlen)
+
+            now_ts = time.time()
+            if now_ts - last_outcome_eval_ts >= outcome_eval_interval:
+                try:
+                    await evaluate_outcomes(r, lookback_ms=outcome_lookback_ms)
+                    last_outcome_eval_ts = now_ts
+                except Exception as e:
+                    ml_confirm_errors_total.labels(kind=kind, reason="outcome_eval").inc()  # type: ignore
+                    log.warning("outcome evaluation failed: %s", e)
 
             last_ok = time.time()
         except Exception as e:

@@ -478,26 +478,38 @@ def _check_min_delta_change(
 ) -> bool:
     """
     Проверяет, достаточно ли изменился параметр для применения (min_delta_change).
+    Сравнивает с последним ПРИМЕНЁННЫМ значением из symbol_specs (не с proposal из trailing_cfg).
     Возвращает True, если изменение >= min_delta_change_pct.
     """
     if min_delta_change_pct <= 0:
         return True  # проверка отключена
 
-    key = f"symbol:trailing_cfg:{symbol.upper()}"
+    symbol_up = symbol.upper()
     try:
-        current_tp1_offset_atr_str = r.hget(key, "tp1_offset_atr")
-        if not current_tp1_offset_atr_str:
-            return True  # нет текущего значения - можно применять
+        # Приоритет: реально применённое значение из symbol_specs
+        import json as _json
+        raw_spec = r.get(f"symbol_specs:{symbol_up}")
+        if raw_spec:
+            spec = _json.loads(str(raw_spec))
+            applied = spec.get("trailing", {}).get("tp1_offset_atr")
+            if applied is not None:
+                current = float(applied)
+                if current > 0:
+                    delta_pct = abs((new_tp1_offset_atr - current) / current) * 100.0
+                    return delta_pct >= min_delta_change_pct
 
-        current_tp1_offset_atr = float(current_tp1_offset_atr_str)
-        if current_tp1_offset_atr <= 0:
-            return True  # некорректное значение - можно применять
+        # Fallback: last_applied из trailing_cfg (если symbol_specs недоступен)
+        last_applied_str = r.hget(f"symbol:trailing_cfg:{symbol_up}", "last_applied_tp1_offset_atr")
+        if last_applied_str:
+            current = float(str(last_applied_str))
+            if current > 0:
+                delta_pct = abs((new_tp1_offset_atr - current) / current) * 100.0
+                return delta_pct >= min_delta_change_pct
 
-        delta_pct = abs((new_tp1_offset_atr - current_tp1_offset_atr) / current_tp1_offset_atr) * 100.0
-        return delta_pct >= min_delta_change_pct
+        return True  # нет эталонного значения - разрешаем
     except Exception as e:
         logger.debug(f"Error checking min_delta_change for {symbol}: {e}")
-        return True  # при ошибке разрешаем (fail-open)
+        return True  # fail-open
 
 
 def _choose_final_for_autowrite(

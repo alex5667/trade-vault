@@ -1161,8 +1161,11 @@ services:
     volumes:
     - ./python-worker:/app
     command: "sh -c \"sleep 5 && while true; do\n  python3 tools/recommend_trailing_from_redis.py\
-      \ --source CryptoOrderFlow --auto-write --conf-threshold 0.6;\n  echo 'Waiting\
-      \ 1 hour...';\n  sleep 3600;\ndone\"\n"
+      \ --source CryptoOrderFlow --symbols ETHUSDT,BTCUSDT --auto-write\
+      \ --limit 2000 --min-trades 40\
+      \ --auto-apply-conf-threshold 0.72 --propose-conf-threshold 0.60\
+      \ --min-trades-for-apply 60 --hold-down-hours 8 --min-delta-change-pct 2;\n\
+      \  echo 'Waiting 1 hour...';\n  sleep 3600;\ndone\"\n"
     networks:
     - scanner-timers
     - scanner-infra
@@ -1948,10 +1951,10 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '0.15'
-          memory: 128M
+          cpus: '0.30'
+          memory: 512M
         reservations:
-          memory: 24M
+          memory: 64M
     environment:
     - REDIS_URL=${REDIS_URL:-redis://redis-worker-1:6379/0}
     - CONF_CAL_LIVE_INPUT_JSONL=/var/log/trade/signals.jsonl
@@ -1989,9 +1992,9 @@ services:
         reservations:
           memory: 24M
     environment:
-    - CONF_CAL_LIVE_REPORTS_DIR=/var/lib/trade/of_reports/out/conf_cal/live
+    - CONF_CAL_LIVE_REPORTS_DIR=/var/lib/trade/of_reports/out/confidence_cal_live
     - CONF_CAL_LIVE_EXPORTER_PORT=9134
-    - CONF_CAL_LIVE_STATUS_PATH=/shared/conf_cal/live_status.json
+    - CONF_CAL_LIVE_STATUS_PATH=/var/lib/trade/of_reports/out/confidence_cal_live/confidence_calibration_live_status.json
     - PYTHONPATH=.:/app
     - TZ=UTC
     working_dir: /app
@@ -2004,6 +2007,115 @@ services:
     command:
     - python3
     - orderflow_services/conf_cal_live_status_exporter_v1.py
+    networks:
+    - scanner-timers
+    - scanner-infra
+  scorer-model-trainer-timer:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile.gpu
+    container_name: scanner-scorer-model-trainer-timer
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '0.50'
+          memory: 2G
+        reservations:
+          memory: 64M
+    environment:
+    # Master switch. Trainer refuses to write scorer_model.lgb unless = 1.
+    # See docs/PHASE3_ML_FUSION_REDESIGN.md.
+    - PHASE3_TRAINER_ENABLE=${PHASE3_TRAINER_ENABLE:-0}
+    - PHASE3_INPUT_DIR=/var/lib/trade/of_reports/out/confidence_cal_live
+    - PHASE3_OUTPUT_DIR=/app/python-worker/ml_models
+    - PHASE3_LOOKBACK_HOURS=336
+    - PHASE3_MIN_TOTAL_N=8000
+    - PHASE3_HOLDOUT_FRAC=0.30
+    - PYTHONPATH=.:/app
+    - PYTHONUNBUFFERED=1
+    - TZ=UTC
+    working_dir: /app
+    volumes:
+    - ./python-worker:/app/python-worker
+    - /var/lib/trade/of_reports:/var/lib/trade/of_reports:ro
+    # Run every 24h. With PHASE3_TRAINER_ENABLE=0 it computes a dry-report only.
+    # ML_SCORING_ENABLE in the scanner-python-worker env is the second gate
+    # before fusion goes live; see docs/PHASE3_ML_FUSION_REDESIGN.md §8.
+    command: "sh -c \"sleep 60 && while true; do\n  echo 'Running Phase-3 scorer model trainer (enable=$$PHASE3_TRAINER_ENABLE)...';\n  python3 -m tools.train_scorer_model_v1;\n  echo 'Done. Sleeping 24 hours...';\n  sleep 86400;\ndone\"\n"
+    networks:
+    - scanner-timers
+    - scanner-infra
+  scorer-multipliers-optimizer-timer:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile.gpu
+    container_name: scanner-scorer-multipliers-optimizer-timer
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '0.30'
+          memory: 512M
+        reservations:
+          memory: 32M
+    environment:
+    # Master switch. Optimizer refuses to write suggested_weights.json unless = 1.
+    # See docs/PHASE2_SCORER_MULTIPLIERS_REDESIGN.md.
+    - PHASE2_OPTIMIZER_ENABLE=${PHASE2_OPTIMIZER_ENABLE:-0}
+    - PHASE2_INPUT_DIR=/var/lib/trade/of_reports/out/confidence_cal_live
+    - PHASE2_OUTPUT_PATH=/app/python-worker/config/suggested_weights.json
+    - PHASE2_LOOKBACK_HOURS=168
+    - PHASE2_MIN_TRAIN_N=3500
+    - PHASE2_MIN_HOLDOUT_N=1500
+    - PHASE2_HOLDOUT_FRAC=0.30
+    - PHASE2_REFINE_N=50
+    - PYTHONPATH=.:/app
+    - PYTHONUNBUFFERED=1
+    - TZ=UTC
+    working_dir: /app
+    volumes:
+    - ./python-worker:/app/python-worker
+    - /var/lib/trade/of_reports:/var/lib/trade/of_reports:ro
+    # Run every 6h. With PHASE2_OPTIMIZER_ENABLE=0 it computes a dry-run-equivalent
+    # report into logs but does NOT overwrite suggested_weights.json.
+    command: "sh -c \"sleep 30 && while true; do\n  echo 'Running Phase-2 scorer multipliers optimizer (enable=$$PHASE2_OPTIMIZER_ENABLE)...';\n  python3 -m tools.optimize_scorer_multipliers_v1;\n  echo 'Done. Sleeping 6 hours...';\n  sleep 21600;\ndone\"\n"
+    networks:
+    - scanner-timers
+    - scanner-infra
+  conf-cal-proof-state-controller:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile.gpu
+    container_name: scanner-conf-cal-proof-state-controller
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '0.10'
+          memory: 128M
+        reservations:
+          memory: 16M
+    environment:
+    - CONF_CAL_LIVE_REPORTS_DIR=/var/lib/trade/of_reports/out/confidence_cal_live
+    - CONF_CAL_PROOF_STATE_PATH=/var/lib/trade/of_reports/out/confidence_cal_live/conf_cal_proof_state.json
+    - CONF_CAL_PROOF_CONTROLLER_STATE_PATH=/var/lib/trade/of_reports/out/confidence_cal_live/conf_cal_proof_controller_state.json
+    - CONF_CAL_PROOF_MAX_LIVE_STATUS_AGE_SEC=21600
+    - CONF_CAL_PROOF_MIN_GOOD_RUNS=2
+    - CONF_CAL_PROOF_MIN_BAD_RUNS=2
+    - CONF_CAL_PROOF_CANARY_ENABLE=1
+    - CONF_CAL_PROOF_CANARY_START=0.10
+    - CONF_CAL_PROOF_CANARY_STEP=0.10
+    - CONF_CAL_PROOF_CANARY_MAX=1.0
+    - CONF_CAL_PROOF_CANARY_BUMP_MIN_SEC=1800
+    - PYTHONPATH=.:/app
+    - PYTHONUNBUFFERED=1
+    - TZ=UTC
+    working_dir: /app
+    volumes:
+    - ./python-worker:/app
+    - /var/lib/trade/of_reports:/var/lib/trade/of_reports
+    command: "sh -c \"sleep 10 && while true; do\n  python3 -m orderflow_services.conf_cal_proof_state_controller_v1;\n  sleep 600;\ndone\"\n"
     networks:
     - scanner-timers
     - scanner-infra
@@ -6677,6 +6789,42 @@ services:
       resources:
         reservations:
           memory: 24M
+  burst-gate-calibrator-timer:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    container_name: scanner-burst-gate-calibrator-timer
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '0.10'
+          memory: 128M
+        reservations:
+          memory: 24M
+    environment:
+    - REDIS_URL=${REDIS_URL:-redis://redis-worker-1:6379/0}
+    - PYTHONPATH=.:/app
+    - BURST_CALIB_ENABLE=${BURST_CALIB_ENABLE:-1}
+    - BURST_CALIB_PROM_URL=${BURST_CALIB_PROM_URL:-http://prometheus:9090}
+    - BURST_CALIB_MIN_STREAK_DAYS=${BURST_CALIB_MIN_STREAK_DAYS:-7}
+    - BURST_CALIB_ENFORCE_STREAK_DAYS=${BURST_CALIB_ENFORCE_STREAK_DAYS:-7}
+    - BURST_CALIB_ROLLBACK_STREAK=${BURST_CALIB_ROLLBACK_STREAK:-3}
+    - BURST_CALIB_SHARE_LO=${BURST_CALIB_SHARE_LO:-0.05}
+    - BURST_CALIB_SHARE_HI=${BURST_CALIB_SHARE_HI:-0.20}
+    - BURST_CALIB_SEND_TELEGRAM=${BURST_CALIB_SEND_TELEGRAM:-1}
+    - NOTIFY_STREAM=${NOTIFY_STREAM:-notify:telegram}
+    - TZ=UTC
+    working_dir: /app
+    volumes:
+    - ./python-worker:/app
+    command: "sh -c \"sleep 30 && while true; do\n  python3 -m services.burst_gate_calibrator_service;\n\
+      \  echo 'Burst gate calibration done. Sleeping 1 hour...';\n  sleep 3600;\n\
+      done\"\n"
+    networks:
+    - scanner-timers
+    - scanner-infra
+
 volumes:
   conf-cal-status: null
 networks:

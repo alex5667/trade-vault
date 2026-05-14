@@ -1292,6 +1292,11 @@ class OFConfirmEngine:
         # Apply need overrides into cfg2 for eval_* (same-tick)
         cfg2["strong_need_reversal"] = int(nd.need_rev)
         cfg2["strong_need_continuation"] = int(nd.need_cont)
+        # v14_of: expose strong-need policy artifacts via evidence for downstream ML
+        # consumption (build_og_payload reads these keys; fail-open to 0 if absent).
+        evidence["strong_need_reversal"] = nd.need_rev
+        evidence["strong_need_continuation"] = nd.need_cont
+        evidence["strong_need_reason"] = str(getattr(nd, "reason", "") or "")
         # We don't store it back to cfg2 as a key used by eval_*, but we keep for audit if needed
 
         if scenario == "reversal":
@@ -1958,6 +1963,20 @@ class OFConfirmEngine:
         for k, v in burst_snap.items():
             indicators[k] = v
         indicators["burst_reason"] = burst_reason
+
+        # Shadow telemetry: count would-veto events in all modes for promote-to-enforce gating.
+        # Collect ≥7 days at burst_gate_mode=shadow before switching to enforce.
+        if burst_snap.get("burst_would_veto"):
+            try:
+                from services.observability.metrics_registry import burst_gate_would_veto_total
+                if burst_gate_would_veto_total is not None:
+                    burst_gate_would_veto_total.labels(
+                        symbol=symbol,
+                        reason=str(burst_snap.get("burst_would_veto_reason") or "unknown"),
+                        mode=str(burst_snap.get("burst_mode") or "unknown"),
+                    ).inc()
+            except Exception:
+                pass
 
         # Standardize basic flags and apply conf_* parser
         indicators["obi_stable"] = int(obi_stable)
@@ -3508,6 +3527,17 @@ class OFConfirmEngine:
             evidence=evidence,
             contrib=contrib,
         )
+
+        # v14_of: write og_* (rule-gate consensus) keys into shared `indicators` dict
+        # so they flow through signal_pipeline → signals:of:inputs → ML dataset.
+        # Fail-open: build_og_payload returns 16 zero-valued keys if any input is malformed.
+        indicators["og_patch_hit"] = 1  # sentinel: this line MUST execute on every build() success
+        try:
+            from core.v14_of_features import build_og_payload
+            _og_payload = build_og_payload(ofc=ofc, dec=dec, indicators=indicators)
+            indicators.update(_og_payload)
+        except Exception as _v14_e:
+            indicators["og_patch_err"] = f"{type(_v14_e).__name__}:{str(_v14_e)[:80]}"
 
         # logic to write to NDJSON.
         #

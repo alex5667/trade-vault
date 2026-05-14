@@ -20,6 +20,14 @@ def test_normalize_sid_canonical_and_legacy():
     sid3 = _normalize_sid("ETHUSDT|170|SELL", symbol="ETHUSDT", ts_ms=170)
     assert sid3 == "crypto-of:ETHUSDT:170"
 
+    # trades:closed emits signal_id as "of:SYMBOL:SIGNAL_TS" or "of:SYMBOL:SIGNAL_TS:DIR".
+    # Must use the embedded SIGNAL ts, not the close_ts_ms fallback, to join correctly.
+    sid4 = _normalize_sid("of:1000PEPEUSDT:1778670789000:S", symbol="1000PEPEUSDT", ts_ms=1778670976787)
+    assert sid4 == "crypto-of:1000PEPEUSDT:1778670789000", f"got {sid4}"
+
+    sid5 = _normalize_sid("of:ETHUSDT:1778659578000", symbol="ETHUSDT", ts_ms=1778659676484)
+    assert sid5 == "crypto-of:ETHUSDT:1778659578000", f"got {sid5}"
+
 
 def test_parse_replay_signal_from_payload():
     from ml_analysis.tools.build_edge_stack_dataset_from_redis import parse_replay_signal

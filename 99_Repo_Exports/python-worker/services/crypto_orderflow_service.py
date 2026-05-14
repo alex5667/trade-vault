@@ -1416,9 +1416,10 @@ class CryptoOrderflowService:
                 ack_ids: list[str] = []
                 entry_idx = 0
                 for msg_id, fields in entries:
-                    # Yield every 5 ticks — не блокируем event loop
-                    # Budget: 5 × ~1.5ms/tick ≈ 7.5ms max block < Worker Lag P99 SLO (100ms) и Signal Emit SLO (8ms)
-                    if entry_idx % 5 == 0:
+                    # Yield every 2 ticks — не блокируем event loop
+                    # Budget: 2 × ~5ms/tick = 10ms max block; Signal Emit SLO 8ms, Worker Lag SLO 250ms.
+                    # Was 5 ticks → 25-35ms hold, causing Signal Emit P99 > 30ms.
+                    if entry_idx % 2 == 0:
                         await asyncio.sleep(0)
                     entry_idx += 1
 

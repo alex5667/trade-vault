@@ -24,21 +24,29 @@ def _i(x: Any, d: int = 0) -> int:
 def eval_burst_gate(
     indicators: dict[str, Any],
     cfg: dict[str, Any],
-) -> tuple[float, int, str, dict[str, float]]:
+) -> tuple[float, int, str, dict[str, Any]]:
     """
     Evaluates burst activity penalties (Hawkes proxy, Cancel/Trade bursts).
-    
+
     Returns:
         (burst_pen, burst_veto, burst_reason, burst_snapshot)
-        
-    - burst_pen: score penalty [0.0 ... burst_pen_max]
-    - burst_veto: 0 or 1 (only if mode=enforce/veto)
-    - burst_reason: string explanation
-    - burst_snapshot: dict of computed metrics for evidence/logging
+
+    - burst_pen:        score penalty [0.0 ... burst_pen_max]
+    - burst_veto:       0 or 1 (hard block; only if mode=enforce/veto/hard)
+    - burst_reason:     short reason string
+    - burst_snapshot:   metrics dict written to indicators for observability
+
+    Modes (burst_gate_mode):
+      off     – no-op, returns zeros
+      penalty – score penalty only; veto conditions computed but NOT enforced;
+                snap["burst_would_veto"]=1 when conditions would have fired
+      shadow  – alias for penalty; communicates intent to promote to enforce
+      enforce / veto / hard – penalty + hard veto
     """
 
     # 1. Config
-    mode = (cfg.get("burst_gate_mode", "penalty")).lower().strip() # penalty | enforce | veto | off
+    mode = (cfg.get("burst_gate_mode", "penalty")).lower().strip()
+    # penalty | shadow | enforce | veto | hard | off
     if mode == "off" or int(cfg.get("burst_gate_enable", 1)) == 0:
         return 0.0, 0, "ok", {}
 
@@ -132,35 +140,33 @@ def eval_burst_gate(
     if pen > pen_max:
         pen = pen_max
 
-    # 5. Veto Logic
-    veto = 0
+    # 5. Veto conditions — always evaluated for shadow telemetry
+    is_veto = False
     veto_reason = ""
 
-    # Veto only if strict mode enabled
-    if mode in ("enforce", "veto", "hard"):
-         # Condition: Severe burst (Penalty maxed out AND exceed higher thresholds)
-         # Simple heuristic: if metrics exceed threshold * multiplier
+    if ctr > (thr_ctr * veto_mult):
+        is_veto = True
+        veto_reason = "veto_ctr"
+    elif excess_max > (thr_excess * veto_mult):
+        is_veto = True
+        veto_reason = "veto_excess"
+    elif book_churn > (thr_score * veto_mult):
+        is_veto = True
+        veto_reason = "veto_churn"
 
-         is_veto = False
-
-         if ctr > (thr_ctr * veto_mult):
-             is_veto = True
-             veto_reason = "veto_ctr"
-         elif excess_max > (thr_excess * veto_mult):
-             is_veto = True
-             veto_reason = "veto_excess"
-         elif book_churn > (thr_score * veto_mult):
-             is_veto = True
-             veto_reason = "veto_churn"
-
-         if is_veto:
-             veto = 1
-             reasons.append(str(veto_reason) if veto_reason else "VETO")
+    # Hard veto only in strict modes; penalty/shadow observe without blocking
+    veto = 0
+    if mode in ("enforce", "veto", "hard") and is_veto:
+        veto = 1
+        reasons.append(veto_reason)
 
     # Snapshot for evidence/logging
     snap = {
-        "burst_pen": float(pen),
+        "burst_pen": pen,
         "burst_veto": int(veto),
+        "burst_would_veto": int(is_veto),       # 1 when veto conditions met in any mode
+        "burst_would_veto_reason": str(veto_reason) if is_veto else "",
+        "burst_mode": mode,                      # active mode — used for Prometheus label
         "burst_ctr": float(ctr),
         "burst_exc": float(excess_max),
         "burst_churn": float(book_churn),

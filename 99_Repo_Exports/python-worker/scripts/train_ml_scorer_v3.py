@@ -1078,11 +1078,24 @@ def _auto_promote_or_reject(
     champion = _load_champion_metrics(r)
     new_roc = metrics.get("roc_auc_oof", 0.0)
 
-    if champion is None:
+    # Tail-inversion guard: Top5% < y_mean_val → model is anti-predictive on high-confidence tail.
+    # Must reject even if roc_delta passes — a warning in Telegram is not enough.
+    top5 = float(metrics.get("top5_hit_rate", 1.0))
+    y_mean_val = float(metrics.get("y_mean_val", metrics.get("y_mean", 0.0)))
+    _tail_inversion = top5 > 0.0 and y_mean_val > 0.0 and top5 < y_mean_val
+    if _tail_inversion:
+        decision = "REJECT"
+        reason = f"tail_inversion:top5={top5:.4f}_lt_y_mean_val={y_mean_val:.4f}"
+        champ_roc = None
+        logger.warning(
+            "Auto-reject: tail inversion detected Top5%%=%.4f < y_mean_val=%.4f → REJECT",
+            top5, y_mean_val,
+        )
+    elif champion is None:
         # Первая модель — нет с чем сравнивать, принимаем
         decision = "PROMOTE"
         reason = "no_champion_yet"
-        champ_roc: float | None = None
+        champ_roc = None
         logger.info("Auto-promote: no champion found — first model, accepting automatically")
     else:
         champ_roc = float(champion["metrics"].get("roc_auc_oof", 0.0))

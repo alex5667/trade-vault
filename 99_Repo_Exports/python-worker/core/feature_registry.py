@@ -478,6 +478,26 @@ def _get_v13_of_keys() -> tuple:
     from core.ml_feature_schema_v13_of import V13_OF_NUMERIC_KEYS  # type: ignore
     return list(V13_OF_NUMERIC_KEYS), []  # v13_of has no separate bool block
 
+
+# ---------------------------------------------------------------------------
+# v14_of schema — v13_of + Group OG rule-gate consensus (Phase 0: schema-only)
+# Created 2026-05-13: ~258 numeric keys (242 base + 16 new)
+# ---------------------------------------------------------------------------
+
+def _get_v14_of_keys() -> tuple:
+    """Returns (num_keys, bool_keys) for v14_of.
+
+    v14_of = v13_of (~242) + 16 additional keys in one group:
+      Group OG (16): OrderFlow Rule-Gate Consensus
+                     (have/need legs, contributions, reason codes, gate bits)
+
+    All keys are numeric (float/int); no separate bool block.
+    Population path: see Phase 1 — of_confirm_engine writes og_* to indicators.
+    Fail-open: missing keys vectorize to 0.0 (safe before Phase 1 lands).
+    """
+    from core.ml_feature_schema_v14_of import V14_OF_NUMERIC_KEYS  # type: ignore
+    return list(V14_OF_NUMERIC_KEYS), []  # v14_of has no separate bool block
+
 # ---------------------------------------------------------------------------
 # Caches (module-level, deterministic)
 # ---------------------------------------------------------------------------
@@ -510,7 +530,7 @@ def get_schema_info(ver: str) -> FeatureSchemaInfo:
     """Возвращает FeatureSchemaInfo для заданной версии схемы.
 
     Args:
-        ver: одно из "v2", "v3", "v4_of", "v5_of", "v5_of_stable", "v6_of", "v6_of_stable", "v7_of", "v7_of_stable", "v9_of", "v10_of", "v11_of", "v12_of", "v13_of"
+        ver: одно из "v2", "v3", "v4_of", "v5_of", "v5_of_stable", "v6_of", "v6_of_stable", "v7_of", "v7_of_stable", "v9_of", "v10_of", "v11_of", "v12_of", "v13_of", "v14_of"
 
     Returns:
         FeatureSchemaInfo — неизменяемый дескриптор схемы.
@@ -577,10 +597,14 @@ def get_schema_info(ver: str) -> FeatureSchemaInfo:
         num_keys, bool_keys = _get_v13_of_keys()
         names = _build_feature_names(num_keys, bool_keys)
         v = "v13_of"
+    elif v in ("v14_of", "v14"):
+        num_keys, bool_keys = _get_v14_of_keys()
+        names = _build_feature_names(num_keys, bool_keys)
+        v = "v14_of"
     else:
         raise ValueError(
             f"Unsupported feature schema version: {ver!r}. "
-            f"Supported: 'v2', 'v3', 'v4_of', 'v5_of', 'v5_of_stable', 'v6_of', 'v6_of_stable', 'v7_of', 'v7_of_stable', 'v9_of', 'v10_of', 'v11_of', 'v12_of', 'v13_of'."
+            f"Supported: 'v2', 'v3', 'v4_of', 'v5_of', 'v5_of_stable', 'v6_of', 'v6_of_stable', 'v7_of', 'v7_of_stable', 'v9_of', 'v10_of', 'v11_of', 'v12_of', 'v13_of', 'v14_of'."
         )
 
     info = _make_schema_info(v, names)
@@ -642,15 +666,17 @@ def get_edge_stack_feature_spec(
         ver = "v12_of"
     if ver == "v13":
         ver = "v13_of"
+    if ver == "v14":
+        ver = "v14_of"
     if ver == "v10":
         ver = "v10_of"
     if ver == "v9":
         ver = "v9_of"
 
-    # расширенный allowlist: v2/v3/v4/v4_of/v5_of/v5_of_stable/v6_of/v6_of_stable/v7_of/v7_of_stable/v9_of/v10_of/v11_of/v12_of/v13_of
-    if ver not in ("v2", "v3", "v4", "v4_of", "v5", "v5_of", "v5_of_stable", "v6", "v6_of", "v6_of_stable", "v7", "v7_of", "v7_of_stable", "v9", "v9_of", "v10", "v10_of", "v11", "v11_of", "v12", "v12_of", "v13", "v13_of"):
+    # расширенный allowlist: v2/v3/v4/v4_of/v5_of/v5_of_stable/v6_of/v6_of_stable/v7_of/v7_of_stable/v9_of/v10_of/v11_of/v12_of/v13_of/v14_of
+    if ver not in ("v2", "v3", "v4", "v4_of", "v5", "v5_of", "v5_of_stable", "v6", "v6_of", "v6_of_stable", "v7", "v7_of", "v7_of_stable", "v9", "v9_of", "v10", "v10_of", "v11", "v11_of", "v12", "v12_of", "v13", "v13_of", "v14", "v14_of"):
         raise ValueError(
-            f"edge-stack registry supports v2/v3/v4/v4_of/v5_of/v5_of_stable/v6_of/v6_of_stable/v7_of/v7_of_stable/v9_of/v10_of/v11_of/v12_of/v13_of only, got {schema_ver!r}"
+            f"edge-stack registry supports v2/v3/v4/v4_of/v5_of/v5_of_stable/v6_of/v6_of_stable/v7_of/v7_of_stable/v9_of/v10_of/v11_of/v12_of/v13_of/v14_of only, got {schema_ver!r}"
         )
 
     # Числовой номер версии для умолчаний
@@ -658,7 +684,7 @@ def get_edge_stack_feature_spec(
     # Session fields (session_asia/eu/us/off) are published as first-class OFInputsV2
     # fields in signals:of:inputs, so train==serve parity is guaranteed.
     try:
-        if ver in ("v9_of", "v9", "v10_of", "v10", "v11_of", "v11", "v12_of", "v12", "v13_of", "v13"):
+        if ver in ("v9_of", "v9", "v10_of", "v10", "v11_of", "v11", "v12_of", "v12", "v13_of", "v13", "v14_of", "v14"):
             ver_num = 7  # include session one-hots (OFInputsV2 publishes them)
         elif ver in ("v7_of", "v7_of_stable"):
             ver_num = 7
@@ -706,6 +732,9 @@ def get_edge_stack_feature_spec(
         elif ver in ("v13_of", "v13"):
             num_keys, bool_keys = _get_v13_of_keys()
             ver = "v13_of"
+        elif ver in ("v14_of", "v14"):
+            num_keys, bool_keys = _get_v14_of_keys()
+            ver = "v14_of"
         elif ver in ("v6_of", "v6"):
             num_keys, bool_keys = _get_v6_of_keys()
             ver = "v6_of"
@@ -759,7 +788,7 @@ def get_edge_stack_feature_spec(
         mn = 0
 
     # v9_of/v10_of/v11_of override max_numeric=128 backward-compatible default
-    if ver in ("v9_of", "v10_of", "v11_of", "v12_of", "v13_of") and mn == 128:
+    if ver in ("v9_of", "v10_of", "v11_of", "v12_of", "v13_of", "v14_of") and mn == 128:
         mn = 0
 
     if mn > 0 and len(fkeys) > mn:

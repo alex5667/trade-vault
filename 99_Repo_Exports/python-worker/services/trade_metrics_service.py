@@ -1039,7 +1039,7 @@ class TradeMetricsService:
                 score = _sf(of_confirm.get("score") or 0.0)
 
             score_pct = score * 100.0
-            thresholds_high_conf = [70, 75, 80, 85, 90, 95, 100]
+            thresholds_high_conf = [40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95, 100]
 
             shc = m.get("strong_high_conf_stats")
             if shc is None:

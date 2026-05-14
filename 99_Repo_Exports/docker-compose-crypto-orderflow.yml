@@ -228,6 +228,8 @@ services:
     - SLQ_K=0.7
     - BINANCE_TRAIL_ACTIVATE_TP=${BINANCE_TRAIL_ACTIVATE_TP}
     - TM_ORPHAN_TIMEOUT_ENABLED=${TM_ORPHAN_TIMEOUT_ENABLED}
+    - TM_ORPHAN_MAX_PRICE_AGE_MS=900000
+    - TM_ORPHAN_MAX_LAST_PRICE_AGE_MS=900000
     - PUBLISH_OF_INPUTS=1
     - OF_INPUTS_STREAM=signals:of:inputs
     # Redis is a warm transport buffer, not historical storage.
@@ -889,6 +891,8 @@ services:
     - SLQ_K=0.7
     - BINANCE_TRAIL_ACTIVATE_TP=${BINANCE_TRAIL_ACTIVATE_TP}
     - TM_ORPHAN_TIMEOUT_ENABLED=${TM_ORPHAN_TIMEOUT_ENABLED}
+    - TM_ORPHAN_MAX_PRICE_AGE_MS=900000
+    - TM_ORPHAN_MAX_LAST_PRICE_AGE_MS=900000
     - ML_CFG_CHAMPION_KEY=cfg:ml_confirm:champion
     - ML_CFG_CHALLENGER_KEY=cfg:ml_confirm:challenger
     - ML_MODEL_CACHE_TTL_MS=120000
@@ -1206,6 +1210,8 @@ services:
     - SLQ_K=0.7
     - BINANCE_TRAIL_ACTIVATE_TP=${BINANCE_TRAIL_ACTIVATE_TP}
     - TM_ORPHAN_TIMEOUT_ENABLED=${TM_ORPHAN_TIMEOUT_ENABLED}
+    - TM_ORPHAN_MAX_PRICE_AGE_MS=900000
+    - TM_ORPHAN_MAX_LAST_PRICE_AGE_MS=900000
     - PUBLISH_OF_INPUTS=1
     - OF_INPUTS_STREAM=signals:of:inputs
     - PUBLISH_OF_CONFIRM=1
@@ -2319,6 +2325,8 @@ services:
     - TB_LABELS_STREAM=labels:tb
     - ML_CONFIRM_SRE_POLL_INTERVAL_SEC=5
     - ML_CONFIRM_KIND_DEFAULT=util_mh_v1
+    - ML_OUTCOME_METRICS_INTERVAL_SEC=300
+    - ML_OUTCOME_METRICS_LOOKBACK_HOURS=24
     - TZ=UTC
     depends_on: *id002
     ports:
@@ -2332,6 +2340,44 @@ services:
       test:
       - CMD-SHELL
       - python3 -c 'import urllib.request; urllib.request.urlopen("http://localhost:8005/metrics")'
+        || exit 1
+      interval: 30s
+      timeout: 5s
+      retries: 3
+  gated-out-outcome-tracker:
+    build: *id001
+    command:
+    - python
+    - -m
+    - services.gated_out_outcome_tracker.main
+    environment:
+    - REDIS_URL=redis://redis-worker-1:6379/0
+    - PYTHONUNBUFFERED=1
+    - LOG_LEVEL=INFO
+    - GATED_OUT_TRACKER_PROMETHEUS_PORT=9137
+    - SIGNAL_GATED_OUT_STREAM=stream:signals:gated_out
+    - SIGNAL_GATED_OUT_OUTCOMES_STREAM=stream:signals:gated_out_outcomes
+    - GATED_OUT_TRACKER_GROUP=gated_out_tracker_v1
+    - GATED_OUT_TRACKER_CONSUMER=tracker_01
+    - GATED_OUT_HORIZON_MS=1800000
+    - GATED_OUT_TRACKER_EVAL_INTERVAL_SEC=30
+    - GATED_OUT_DEFAULT_TP_BPS=15
+    - GATED_OUT_DEFAULT_SL_BPS=10
+    - SIGNAL_GATED_OUT_OUTCOMES_MAXLEN=200000
+    - GATED_OUT_PENDING_LIMIT=50000
+    - TZ=UTC
+    depends_on: *id002
+    ports:
+    - 9137:9137
+    networks: *id003
+    volumes: *id004
+    restart: on-failure:5
+    deploy: *id005
+    container_name: scanner-gated-out-outcome-tracker
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - python3 -c 'import urllib.request; urllib.request.urlopen("http://localhost:9137/metrics")'
         || exit 1
       interval: 30s
       timeout: 5s

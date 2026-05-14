@@ -234,10 +234,23 @@ def _normalize_sid(raw_sid: Any, *, symbol: str, ts_ms: int) -> str:
     Accepts:
       - canonical: crypto-of:SYMBOL:ts_ms
       - legacy: crypto-of:SYMBOL:ts_ms:... (extra suffix)
+      - trades:closed format: of:SYMBOL:ts_ms or of:SYMBOL:ts_ms:DIR (uses signal ts_ms embedded in SID)
       - loose: {symbol}|{ts_ms}|{direction} (direction ignored)
     """
     s = _as_str(raw_sid).strip()
     if s.startswith("crypto-of:"):
+        parts = s.split(":")
+        if len(parts) >= 3:
+            sym = (parts[1] or symbol or "").upper()
+            try:
+                t = int(parts[2])
+            except Exception:
+                t = int(ts_ms)
+            return f"crypto-of:{sym}:{t}"
+    # trades:closed emits signal_id/sid as "of:SYMBOL:SIGNAL_TS" or "of:SYMBOL:SIGNAL_TS:DIR".
+    # Use the SIGNAL timestamp from the SID itself (not the close_ts_ms fallback) to correctly
+    # join back to the ml_replay_inputs signal that opened the trade.
+    if s.startswith("of:"):
         parts = s.split(":")
         if len(parts) >= 3:
             sym = (parts[1] or symbol or "").upper()

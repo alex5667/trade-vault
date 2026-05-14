@@ -128,6 +128,14 @@ class SignalPipeline:
         self.notify_stream = os.getenv("NOTIFY_STREAM", RS.NOTIFY_TELEGRAM)
         self.notify_maxlen = int(os.getenv("CRYPTO_NOTIFY_MAXLEN", "20000"))
 
+        # Shadow recording: confidence-gated-out signals → Redis stream for
+        # later outcome pairing. Stage-1 of «is the confidence gate worth keeping?»
+        # investigation. See docs/PHASE2_SCORER_MULTIPLIERS_REDESIGN.md and
+        # docs/PHASE3_ML_FUSION_REDESIGN.md.
+        self.gated_out_shadow_enabled = bool(int(os.getenv("SHADOW_GATED_OUT_ENABLE", "1") or 1))
+        self.gated_out_shadow_stream = os.getenv("SIGNAL_GATED_OUT_STREAM", RS.SIGNAL_GATED_OUT)
+        self.gated_out_shadow_maxlen = int(os.getenv("SIGNAL_GATED_OUT_MAXLEN", "100000") or 100000)
+
         # Confidence score telemetry stream (high-frequency; keep off by default)
         self.conf_scores_publish_enabled = bool(int(os.getenv("CONF_SCORES_PUBLISH_ENABLED", "0") or 0))
         self.conf_scores_stream = os.getenv("CONF_SCORES_STREAM", RS.CONF_SCORES)
@@ -371,6 +379,65 @@ class SignalPipeline:
                 reason=reason,
                 mode=mode
             ).inc()
+
+    def _record_gated_out_shadow(
+        self,
+        *,
+        signal: dict[str, Any],
+        indicators: dict[str, Any],
+        confirmations: list[Any],
+        symbol: str,
+        direction: str,
+        ts_ms: int,
+        confidence: float,
+        min_conf: float,
+        entry: float = 0.0,
+        sl: float = 0.0,
+        tp_levels: list[float] | None = None,
+    ) -> None:
+        """Fire-and-forget XADD of a confidence-gated-out signal to a shadow stream.
+
+        Stage-1 investigation: «is the confidence gate worth keeping?» — we need
+        outcomes (virtual or real) for signals BELOW the threshold to answer.
+        Without this, the gate is permanent unfalsifiable assumption.
+        See docs/PHASE2_SCORER_MULTIPLIERS_REDESIGN.md.
+
+        Off-path; failures are swallowed (fail-open).
+        """
+        if not getattr(self, "gated_out_shadow_enabled", False):
+            return
+        if not (self.publisher and getattr(self.publisher, "r", None)):
+            return
+        try:
+            payload = {
+                "v": 1,
+                "ts_ms": ts_ms,
+                "symbol": symbol,
+                "direction": direction,
+                "side": direction.lower(),
+                "signal_id": str(signal.get("signal_id") or ""),
+                "confidence": confidence,
+                "min_conf": min_conf,
+                "entry": entry,
+                "sl": sl,
+                "tp_levels": list(tp_levels) if tp_levels else [],
+                "gated_out": 1,
+                "gate_reason": "low_confidence",
+                "confirmations": list(confirmations) if isinstance(confirmations, (list, tuple)) else [],
+                "indicators": indicators,
+            }
+            safe_create_task(
+                self.publisher.r.xadd(
+                    self.gated_out_shadow_stream,
+                    {"payload": json.dumps(payload, ensure_ascii=False, default=str)},
+                    maxlen=self.gated_out_shadow_maxlen,
+                    approximate=True,
+                ),
+                name=f"gated_out_shadow_{symbol}_{ts_ms}",
+            )
+        except Exception:
+            # Fail-open: shadow recording must never break the pipeline.
+            pass
 
     def _handle_pipeline_veto(
         self,
@@ -1341,6 +1408,12 @@ class SignalPipeline:
             _max_book_age = float(runtime.config.get(
                 "bear_trend_max_book_age_ms", os.getenv("BEAR_TREND_MAX_BOOK_AGE_MS", "3000.0")
             ))
+            # p_edge floor: configurable, default 0.0 (disabled).
+            # edge_stack_v1 max p_edge ≈ 0.23 — hard-coding 0.58 permanently blocks
+            # rocket_v1_bear. Re-enable when a model with AUC ≥ 0.60 is in enforce.
+            _min_p_edge_bear = float(runtime.config.get(
+                "bear_trend_min_p_edge", os.getenv("BEAR_TREND_MIN_P_EDGE", "0.0")
+            ))
 
             # Недавний sweep или reclaim (≤ 10 s) подтверждает давление продавцов
             _sweep_reclaim_ok = (0.0 <= _sweep_age <= 10000.0) or (0.0 <= _reclaim_age <= 10000.0)
@@ -1353,7 +1426,7 @@ class SignalPipeline:
                 and kind in ("breakout", "continuation", "extreme", "obi_spike")
                 and _of_ok == 1
                 and _of_score >= 0.60
-                and _p_edge >= 0.58
+                and (_min_p_edge_bear <= 0.0 or _p_edge >= _min_p_edge_bear)
                 and _exec_risk <= 0.45
                 and _spread <= _max_spread
                 and _book_age <= _max_book_age
@@ -1636,7 +1709,19 @@ class SignalPipeline:
                 min_conf_pct *= 100.0
             min_conf = min_conf_pct / 100.0
 
-            if _apply_decision(self.orchestrator.check_confidence(ctx, confidence=confidence, min_conf=min_conf)): return  # type: ignore
+            _conf_dec = self.orchestrator.check_confidence(ctx, confidence=confidence, min_conf=min_conf)
+            if getattr(_conf_dec, "decision", "") == "DENY":
+                _entry = float(_levels.get("entry", 0.0) or 0.0)  # type: ignore[arg-type]
+                _sl = float(_levels.get("sl", 0.0) or 0.0)  # type: ignore[arg-type]
+                _tp_raw = _levels.get("tp_levels", []) or []
+                _tp_list: list[float] = [float(x) for x in _tp_raw] if isinstance(_tp_raw, (list, tuple)) else []
+                self._record_gated_out_shadow(
+                    signal=signal, indicators=indicators, confirmations=confirmations,
+                    symbol=symbol, direction=direction, ts_ms=sig_ts,
+                    confidence=confidence, min_conf=min_conf,
+                    entry=_entry, sl=_sl, tp_levels=_tp_list,
+                )
+            if _apply_decision(_conf_dec): return  # type: ignore
         # ---
 
         # ------------------------------------------------------------------
@@ -1936,15 +2021,21 @@ class SignalPipeline:
 
         gate_mode = (indicators.get("of_gate_mode") or "").upper()
 
+        # CRYPTO_OF_VIRTUAL_ENFORCE=true: block virtual trades when OF confirm fails.
+        # Default false = legacy shadow behaviour (virtual trades always "passed").
+        _virtual_enforce = os.getenv("CRYPTO_OF_VIRTUAL_ENFORCE", "0").lower() in ("1", "true", "yes", "on")
+
         if of_confirm_ok == 1:
             validation_status = "passed"
             validation_reason = f"OFConfirm passed ({of_confirm_reason})"
         elif of_confirm_ok == 0:
             is_virtual = bool(int(enriched_signal.get("is_virtual", 0) or signal.get("is_virtual", 0)))
-            if is_virtual:
+            if is_virtual and not _virtual_enforce:
+                # Legacy shadow: virtual trades pass regardless of OF confirm result
                 validation_status = "passed"
                 validation_reason = f"OFConfirm shadowed (virtual trade): {indicators.get('of_confirm', {}).get('reason', of_confirm_reason)}"
             else:
+                # Enforce: block even virtual trades when OF confirm rejects
                 validation_status = "failed"
                 validation_reason = f"OFConfirm failed: {indicators.get('of_confirm', {}).get('reason', of_confirm_reason)}"
         else:

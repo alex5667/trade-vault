@@ -49,6 +49,12 @@ class TestStrongConfStats(unittest.TestCase):
 
         stats = m.get("strong_high_conf_stats", {})
 
+        # Verify Threshold 65 (passed by t1, t2, t3)
+        # Expected Count: 3
+        # Expected PnL: 10 + 5 - 5 = 10
+        self.assertEqual(stats["65"]["count"], 3)
+        self.assertAlmostEqual(stats["65"]["pnl"], 10.0)
+
         # Verify Threshold 70 (passed by t1, t2)
         # Expected Count: 2
         # Expected PnL: 10 + 5 = 15

@@ -511,8 +511,9 @@ def main() -> None:
     step_ts_key = os.getenv("MLS_CAL_STEP_TS_KEY", "meta:ml_scorer_cal:last_step_ms")
     holddown_h = float(os.getenv("MLS_CAL_ENFORCE_HOLDDOWN_H", "72"))
 
-    # New V3 thresholds
-    min_auc = float(os.getenv("MLS_CAL_MIN_AUC", "0.52"))
+    # New V3 thresholds — min_auc raised from 0.52 to 0.56:
+    # AUC < 0.56 is too close to chance for enforce promotion (shadow only).
+    min_auc = float(os.getenv("MLS_CAL_MIN_AUC", "0.56"))
     max_brier = float(os.getenv("MLS_CAL_MAX_BRIER", "0.25"))
     max_ece = float(os.getenv("MLS_CAL_MAX_ECE", "0.10"))
 

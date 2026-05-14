@@ -93,6 +93,8 @@ class OutboxWriter:
         _resolved_dedup_ttl = dedup_ttl_s if dedup_ttl_s is not None else int(
             _os.getenv("OUTBOX_DEDUP_TTL_S", "1800")
         )
+        # OUTBOX_RETRY_BACKOFF_MS=0 disables blocking sleep in async event-loop callers.
+        retry_backoff_ms = int(_os.getenv("OUTBOX_RETRY_BACKOFF_MS", str(retry_backoff_ms)))
         self.cfg = OutboxWriteConfig(
             stream_name=stream_name,
             dedup_ttl_s=_resolved_dedup_ttl,

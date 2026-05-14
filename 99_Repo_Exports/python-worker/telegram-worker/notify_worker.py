@@ -1106,6 +1106,138 @@ class BotCallbackPoller:
             except Exception as e:
                 print(f"❌ RG Calib reject error: {e}")
 
+        elif data.startswith("bgc_approve:"):
+            # Format: bgc_approve:<run_id>
+            # → Promote burst_gate_mode shadow → enforce on all config:orderflow:* keys
+            try:
+                run_id = data.split(":", 1)[1]
+                pending_key = f"burst_gate_calib:pending:{run_id}"
+
+                raw_pending = self.r.get(pending_key)
+                if not raw_pending:
+                    await client.post(
+                        f"https://api.telegram.org/bot{self.token}/answerCallbackQuery",
+                        json={"callback_query_id": cb_id, "text": "⚠️ Pending record expired or not found"}
+                    )
+                    return
+
+                pending = json.loads(raw_pending)
+                if pending.get("status") != "PENDING":
+                    await client.post(
+                        f"https://api.telegram.org/bot{self.token}/answerCallbackQuery",
+                        json={"callback_query_id": cb_id, "text": f"⚠️ Already handled: {pending.get('status')}"}
+                    )
+                    return
+
+                # Apply burst_gate_mode=enforce to all config:orderflow:* hashes
+                n_updated = 0
+                try:
+                    cursor = 0
+                    while True:
+                        cursor, keys = self.r.scan(cursor=cursor, match="config:orderflow:*", count=500)
+                        pipe = self.r.pipeline(transaction=False)
+                        for key in keys:
+                            if len(key.split(":")) == 3:
+                                pipe.hset(key, "burst_gate_mode", "enforce")
+                                n_updated += 1
+                        pipe.execute()
+                        if cursor == 0:
+                            break
+                except Exception as apply_e:
+                    print(f"⚠️ BGC apply error: {apply_e}")
+
+                # Update calibrator state
+                state_key = "cfg:burst_gate_calib:state"
+                try:
+                    state_raw = self.r.get(state_key)
+                    state = json.loads(state_raw) if state_raw else {}
+                    state["mode"] = "enforce"
+                    state["approved_by"] = username
+                    state["approved_at_ms"] = get_ny_time_millis()
+                    self.r.set(state_key, json.dumps(state, ensure_ascii=False), keepttl=True)
+                except Exception:
+                    pass
+
+                # Mark pending as handled
+                pending["status"] = "APPROVED"
+                pending["approved_by"] = username
+                pending["approved_at_ms"] = get_ny_time_millis()
+                self.r.set(pending_key, json.dumps(pending, ensure_ascii=False), ex=3600)
+
+                await client.post(
+                    f"https://api.telegram.org/bot{self.token}/answerCallbackQuery",
+                    json={"callback_query_id": cb_id, "text": "🔴 Burst Gate → ENFORCE"}
+                )
+
+                avg_share = pending.get("avg_share", 0.0)
+                proof_streak = pending.get("proof_streak", 0)
+                n_symbols = pending.get("n_symbols", 0)
+                confirm_text = (
+                    f"🔴 <b>Burst Gate → ENFORCE</b>\n"
+                    f"by @{username}\n\n"
+                    f"<code>burst_gate_mode=enforce</code> applied to {n_updated} symbols\n\n"
+                    f"📈 Would-veto share: <code>{float(avg_share):.1%}</code>\n"
+                    f"📊 Proof streak: <code>{proof_streak}</code> days\n"
+                    f"🔢 Symbols: <code>{n_symbols}</code>\n\n"
+                    f"⚠️ <b>Hard veto теперь активен.</b>\n"
+                    f"Следи за burst_gate_veto_total — при росте rollback автоматически.\n\n"
+                    f"<i>Для отката: установи burst_gate_mode=shadow или penalty</i>\n\n"
+                    f"Run ID: <code>{run_id}</code>"
+                )
+                self.r.xadd(notify_stream, {"type": "report", "text": confirm_text}, maxlen=20000, approximate=True)
+                await self._remove_buttons(client, chat_id, message_id)
+
+                print(f"🔴 BGC approved (enforce): {username} -> {run_id}, {n_updated} symbols")
+            except Exception as e:
+                print(f"❌ BGC approve error: {e}")
+
+        elif data.startswith("bgc_reject:"):
+            # Format: bgc_reject:<run_id>
+            # → Keep shadow mode, reset proof streak so calibrator re-collects
+            try:
+                run_id = data.split(":", 1)[1]
+                pending_key = f"burst_gate_calib:pending:{run_id}"
+
+                raw_pending = self.r.get(pending_key)
+                pending = {}
+                if raw_pending:
+                    pending = json.loads(raw_pending)
+                    pending["status"] = "REJECTED"
+                    pending["rejected_by"] = username
+                    pending["rejected_at_ms"] = get_ny_time_millis()
+                    self.r.set(pending_key, json.dumps(pending, ensure_ascii=False), ex=3600)
+
+                # Reset proof streak so calibrator waits another cycle
+                state_key = "cfg:burst_gate_calib:state"
+                try:
+                    state_raw = self.r.get(state_key)
+                    if state_raw:
+                        state = json.loads(state_raw)
+                        state["mode"] = "shadow"
+                        state["proof_streak"] = 0
+                        state["rejected_by"] = username
+                        self.r.set(state_key, json.dumps(state, ensure_ascii=False), keepttl=True)
+                except Exception:
+                    pass
+
+                await client.post(
+                    f"https://api.telegram.org/bot{self.token}/answerCallbackQuery",
+                    json={"callback_query_id": cb_id, "text": "🟠 Burst Gate → stayed SHADOW"}
+                )
+
+                reject_text = (
+                    f"🟠 <b>Burst Gate → SHADOW (оставлен)</b>\n"
+                    f"by @{username}\n\n"
+                    f"Proof streak сброшен. Калибратор соберёт ещё один цикл.\n\n"
+                    f"Run ID: <code>{run_id}</code>"
+                )
+                self.r.xadd(notify_stream, {"type": "report", "text": reject_text}, maxlen=20000, approximate=True)
+                await self._remove_buttons(client, chat_id, message_id)
+
+                print(f"🟠 BGC rejected (shadow): {username} -> {run_id}")
+            except Exception as e:
+                print(f"❌ BGC reject error: {e}")
+
         elif data.startswith("cont_ctx_approve:"):
             # Format: cont_ctx_approve:<run_id>
             # → Apply recommended cont_ctx_valid_ms per symbol

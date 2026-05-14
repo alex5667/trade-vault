@@ -102,14 +102,14 @@ class TrailingProfilesRegistry:
             comment="Move to Breakeven + fee compensation only after TP1 is hit, no trailing"
         )
 
-        # Профиль для флэта — перевод в безубыток (no trailing)
+        # Профиль для флэта — перевод в безубыток после TP1 (no trailing)
         self._profiles["range_protective"] = TrailingProfile(
             name="range_protective",
             mode="BREAKEVEN",
             atr_mult=0.0,
             hard_min_lock=0.0,
-            activate_after_tp=0,
-            comment="Range regime: BE + fees, no trailing"
+            activate_after_tp=1,
+            comment="Range regime: BE + fees after TP1, no trailing"
         )
 
         # Медвежий тренд — SHORT trend-follow: ATR 1.0 (ýже rocket_v1, т.к. bear bounces резче)

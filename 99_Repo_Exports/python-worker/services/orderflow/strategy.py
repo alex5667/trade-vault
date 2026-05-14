@@ -2885,8 +2885,19 @@ class OrderFlowStrategy:
                             pass  # Don't fail on metrics
 
                         # logger.error("DEBUG: 5. Serializing...")
+                        # v14_of: merge og_* (rule-gate consensus) keys into payload before serialization.
+                        # Fail-open: build_og_payload returns 16 zero-valued keys if ofc/dec/indicators are missing.
+                        # Consumers that don't know about og_* simply ignore them (forward-compat).
+                        payload_dict = ofi.to_dict()
+                        try:
+                            from core.v14_of_features import build_og_payload
+                            payload_dict.update(
+                                build_og_payload(ofc=ofc, dec=dec, indicators=indicators)
+                            )
+                        except Exception as _e_og:
+                            logger.debug(f"OFI: og_payload merge failed (non-fatal): {_e_og}")
                         # Canonical JSON to make replay/topdiff deterministic
-                        blob = json.dumps(ofi.to_dict(), ensure_ascii=False, separators=(",", ":"), sort_keys=True)
+                        blob = json.dumps(payload_dict, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
 
                         # Align default with actual usage
                         in_stream = str(runtime.config.get("of_inputs_stream", RS.OF_INPUTS))
