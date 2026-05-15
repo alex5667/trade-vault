@@ -362,3 +362,28 @@ fatal: Could not read from remote repository.
 Please make sure you have the correct access rights
 and the repository exists.
 2026-05-13 05:45:03 - Синхронизация завершена успешно.
+[main 0d281e48] Auto-sync vault notes 2026-05-14 05:45:01
+ 47 files changed, 5093 insertions(+), 113 deletions(-)
+ create mode 100644 99_Automation/logs/update_2026-05-14_03-37-06.log
+ create mode 100644 99_Repo_Exports/python-worker/core/ml_feature_schema_v14_of.py
+ create mode 100644 99_Repo_Exports/python-worker/core/v14_of_features.py
+ create mode 100644 99_Repo_Exports/python-worker/services/burst_gate_calibrator_service.py
+ create mode 100644 99_Repo_Exports/python-worker/services/gated_out_outcome_tracker/__init__.py
+ create mode 100644 99_Repo_Exports/python-worker/services/gated_out_outcome_tracker/main.py
+ create mode 100644 99_Repo_Exports/python-worker/services/gated_out_outcome_tracker/tracker.py
+ create mode 100644 99_Repo_Exports/python-worker/services/ml_confirm_sre_poller/outcome_metrics.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/core/test_ml_feature_schema_v14_of.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/core/test_v14_of_features.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_build_dataset_v4_tb.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_burst_gate_calibrator_service.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_triple_barrier_cost_aware.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/tools/test_meta_model_gate_check_v1.py
+ create mode 100644 99_Repo_Exports/python-worker/tools/meta_model_gate_check_v1.py
+ create mode 100644 99_Repo_Exports/python-worker/tools/optimize_scorer_multipliers_v1.py
+ create mode 100644 99_Repo_Exports/python-worker/tools/train_scorer_model_v1.py
+git@github.com: Permission denied (publickey).
+fatal: Could not read from remote repository.
+
+Please make sure you have the correct access rights
+and the repository exists.
+2026-05-14 05:45:02 - Синхронизация завершена успешно.

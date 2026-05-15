@@ -137,6 +137,12 @@ class TradeMetricsService:
             "wins_strict": 0, "losses_strict": 0, "breakeven_strict": 0,
             "total_pnl": 0.0, "total_pnl_pct": 0.0, "total_fees": 0.0,
             "total_pnl_gross": 0.0,
+            # Corrected aggregate (bug 2026-05-14): INITIAL_SL trades had pnl_gross = -2 × one_r
+            # due to double-add of realized_pnl_gross. For historical data we approximate the
+            # honest pnl_gross as -1 × one_r_money for INITIAL_SL bucket; other buckets unchanged.
+            "total_pnl_gross_corrected": 0.0,
+            "total_pnl_net_corrected": 0.0,
+            "initial_sl_corrected_count": 0,
             "total_notional_usd": 0.0,
             "gross_profit": 0.0, "gross_loss": 0.0,
             "tp1_hits": 0, "tp2_hits": 0, "tp3_hits": 0,
@@ -208,6 +214,10 @@ class TradeMetricsService:
             "trailing_profiles": {},  # dict[str, int] — распределение профилей трейлинга
             "trailing_profile_stats": {},  # dict[str, dict] - count, wins, pnl
             "regime_stats": {},  # dict[str, dict] - count, wins, pnl
+            # trade-profile (router output) aggregation — e.g. range_absorption_v1, trend_breakout_v1
+            # Pairs with trailing_profile to debug "rocket_v1 not chosen" vs "rocket_v1 chose but TP1 wrong".
+            "trade_profiles": {},  # dict[str, int]
+            "trade_profile_stats": {},  # dict[str, dict] - count, wins, pnl, sum_tp1_atr
 
             # cross-product: pnl_sign x reason
             "wins_by_reason": {},
@@ -294,10 +304,10 @@ class TradeMetricsService:
              pnl_gross = pnl + abs(fees)
 
         # notional
+        lot = _sf(t.get("lot") or 0.0)
         notional_usd = _sf(t.get("notional_usd") or 0.0)
         if notional_usd <= 0:
             entry_price = _sf(t.get("entry_price") or 0.0)
-            lot = _sf(t.get("lot") or 0.0)
             if entry_price > 0 and lot > 0:
                 notional_usd = entry_price * lot
 
@@ -415,6 +425,28 @@ class TradeMetricsService:
         m["total_pnl_pct"] += pnl_pct
         m["total_fees"] += fees
         m["total_pnl_gross"] += pnl_gross
+
+        # Corrected pnl_gross for honest reporting (bug 2026-05-14: INITIAL_SL was -2R).
+        # IMPORTANT: don't trust stored one_r_money as ground truth — it could be stale itself
+        # (recovered position with one_r=0 → fees-clamp gives ~1.5). Use geometry: lot × |entry−sl|
+        # is the SL distance × position size, which equals one_r by definition (assuming SL price
+        # and lot were set correctly at entry — both of which are stored independently).
+        _lot_corr = _sf(t.get("lot") or 0.0)
+        _entry_corr = _sf(t.get("entry_price") or t.get("avg_entry_price") or 0.0)
+        _sl_corr = _sf(t.get("sl_price") or t.get("stop_loss") or t.get("sl") or 0.0)
+        _theoretical_loss = _lot_corr * abs(_entry_corr - _sl_corr) if (
+            _lot_corr > eps and _entry_corr > eps and _sl_corr > eps
+        ) else 0.0
+        _gross_corrected = pnl_gross
+        if (bucket == "INITIAL_SL"
+            and _theoretical_loss >= 1.0   # ignore dust legacy trades
+            and abs(pnl_gross) > 1.5 * _theoretical_loss):
+            # Loss is wildly larger than geometric truth → double-count bug → correct to -1×theoretical
+            _gross_corrected = -_theoretical_loss
+            m["initial_sl_corrected_count"] += 1
+        m["total_pnl_gross_corrected"] += _gross_corrected
+        m["total_pnl_net_corrected"] += (_gross_corrected - fees)
+
         m["total_notional_usd"] += notional_usd
         m["sum_duration_ms"] += dur
 
@@ -507,19 +539,29 @@ class TradeMetricsService:
         one_r_raw = _sf(t.get("one_r_money") or t.get("risk_amount") or 0.0)
 
         # ──────────────────────────────────────────────────────────────
-        # Defensive fallback: if one_r_money is below the floor (common
-        # for legacy trades sized with lot=0.01 due to the old hardcoded
-        # is_crypto whitelist), try to reconstruct risk from SL distance.
-        # This only fires when finalize_trade didn't produce a real value.
+        # Defensive fallback: reconstruct risk from lot × |entry - sl| when stored
+        # one_r_money looks wrong. Two distinct broken cases handled:
+        #   (1) Legacy/dust case — one_r below MIN_RISK_USD floor (lot=0.01 etc).
+        #   (2) Stale-recovery case (bug 2026-05-14) — PositionState restored from
+        #       Redis hash without one_r_money → defaulted to 0 → clamp_one_r_money
+        #       in finalize pushed it to fees×3 ≈ 1.5 USD, much smaller than real risk.
+        #       Symptom: stored one_r is well above MIN_RISK_USD but still much smaller
+        #       than expected = lot × |entry - sl|.
+        # We recompute when stored < 0.5 × theoretical (50% tolerance for slippage/fees).
         # ──────────────────────────────────────────────────────────────
-        if one_r_raw < MIN_RISK_USD:
-            lot_size = _sf(t.get("lot") or 0.0)
-            ent_p = _sf(t.get("entry_price") or t.get("avg_entry_price") or 0.0)
-            sl_p = _sf(t.get("sl_price") or t.get("stop_loss") or t.get("sl") or 0.0)
-            if lot_size > eps and ent_p > eps and sl_p > eps:
-                calc_r = lot_size * abs(ent_p - sl_p)
-                if calc_r >= MIN_RISK_USD:
-                    one_r_raw = calc_r
+        lot_size = _sf(t.get("lot") or 0.0)
+        ent_p = _sf(t.get("entry_price") or t.get("avg_entry_price") or 0.0)
+        sl_p = _sf(t.get("sl_price") or t.get("stop_loss") or t.get("sl") or 0.0)
+        calc_r = lot_size * abs(ent_p - sl_p) if (lot_size > eps and ent_p > eps and sl_p > eps) else 0.0
+
+        if one_r_raw < MIN_RISK_USD and calc_r >= MIN_RISK_USD:
+            # Case (1): dust → reconstruct
+            one_r_raw = calc_r
+        elif calc_r >= MIN_RISK_USD and one_r_raw > eps and one_r_raw < 0.5 * calc_r:
+            # Case (2): stale recovery — stored one_r is ≥ floor but suspiciously
+            # smaller than theoretical lot×|entry-sl|. Trust the geometry.
+            one_r_raw = calc_r
+            m["count_clamped_risk"] += 1  # also flag as "fixed" for diagnostics
 
         has_real_risk = one_r_raw >= MIN_RISK_USD
         risk_usd_eff = 0.0
@@ -595,23 +637,11 @@ class TradeMetricsService:
              if abs(mfe_raw) > eps and lot > eps:
                  mfe_pnl = mfe_raw * lot
 
-        # 2. Giveback
-        giveback = _sf(t.get("giveback_pnl") or 0.0)
-        if abs(giveback) <= eps:
-             gv_raw = _sf(t.get("giveback") or 0.0)
-             if abs(gv_raw) > eps and lot > eps:
-                 giveback = gv_raw * lot
-             else:
-                 giveback = gv_raw
+        # 2. Giveback — stored as USD (closed.giveback = pos.mfe_pnl - pnl_gross, see handlers.finalize_trade)
+        giveback = _sf(t.get("giveback_pnl") or t.get("giveback") or 0.0)
 
-        # 3. Missed Profit
-        missed_profit = _sf(t.get("missed_profit_pnl") or 0.0)
-        if abs(missed_profit) <= eps:
-            mp_raw = _sf(t.get("missed_profit") or 0.0)
-            if abs(mp_raw) > eps and lot > eps:
-                missed_profit = mp_raw * lot
-            else:
-                missed_profit = mp_raw
+        # 3. Missed Profit — stored as USD (closed.missed_profit from calc_missed_profit)
+        missed_profit = _sf(t.get("missed_profit_pnl") or t.get("missed_profit") or 0.0)
 
         if mfe_pnl > eps:
             calc_diff = max(0.0, mfe_pnl - pnl_gross)
@@ -672,9 +702,23 @@ class TradeMetricsService:
                 m["cnt_missed_profit_ratio"] += 1
 
         # --- Setup Stats (ATR) ---
-        # 1. Try explicit fields
-        sl_atr = _sf(t.get("sl_atr") or t.get("sl_dist_atr") or 0.0)
-        tp_atr = _sf(t.get("tp_atr") or t.get("tp1_atr") or t.get("tp_dist_atr") or 0.0)
+        # Parse OrderIntentV1.meta (stored as JSON string in order hash by NestJS executor).
+        # sl_atr, tp1_atr, atr_used_for_levels, sl_price, tp_levels all live there.
+        _meta_raw = t.get("meta")
+        if isinstance(_meta_raw, str):
+            try:
+                _meta = json.loads(_meta_raw)
+            except Exception:
+                _meta = {}
+        elif isinstance(_meta_raw, dict):
+            _meta = _meta_raw
+        else:
+            _meta = {}
+        _meta_tp_levels = _meta.get("tp_levels") or []
+
+        # 1. Try explicit fields (top-level first, then meta)
+        sl_atr = _sf(t.get("sl_atr") or t.get("sl_dist_atr") or _meta.get("sl_atr") or 0.0)
+        tp_atr = _sf(t.get("tp_atr") or t.get("tp1_atr") or t.get("tp_dist_atr") or _meta.get("tp1_atr") or 0.0)
 
         # 2. Try calculation if missing
         if sl_atr <= 0 and tp_atr <= 0:
@@ -684,15 +728,21 @@ class TradeMetricsService:
                 t.get("atr_used_for_levels")
                 or t.get("atr_at_entry")
                 or t.get("atr")
+                or _meta.get("atr_used_for_levels")
+                or _meta.get("atr")
                 or 0.0
             )
             entry_price = _sf(t.get("entry_price") or t.get("avg_entry_price") or 0.0)
             if atr > eps and entry_price > eps:
                 # SL
-                sl_price = _sf(t.get("sl_price") or t.get("stop_loss") or t.get("sl") or 0.0)
+                sl_price = _sf(t.get("sl_price") or t.get("stop_loss") or t.get("sl") or _meta.get("sl_price") or 0.0)
                 if sl_price > 0:
                     sl_atr = abs(entry_price - sl_price) / atr
-                tp_price = _sf(t.get("tp1_price") or t.get("tp_price") or t.get("take_profit") or t.get("tp1") or 0.0)
+                tp_price = _sf(
+                    t.get("tp1_price") or t.get("tp_price") or t.get("take_profit") or t.get("tp1")
+                    or (_meta_tp_levels[0] if _meta_tp_levels else 0.0)
+                    or 0.0
+                )
                 if tp_price > 0:
                     tp_atr = abs(tp_price - entry_price) / atr
 
@@ -708,13 +758,17 @@ class TradeMetricsService:
         # Always re-fetch atr/entry to cover cases where explicit sl_atr/tp_atr was used
         # (skipping the calc block above). TP3 > TP2 > TP1 priority.
         _atr_final = _sf(
-            t.get("atr_used_for_levels") or t.get("atr_at_entry") or t.get("atr") or 0.0
+            t.get("atr_used_for_levels") or t.get("atr_at_entry") or t.get("atr")
+            or _meta.get("atr_used_for_levels") or _meta.get("atr") or 0.0
         )
         _ep_final = _sf(t.get("entry_price") or t.get("avg_entry_price") or 0.0)
         if _atr_final > eps and _ep_final > eps:
             _tp3_p = _sf(t.get("tp3_price") or t.get("tp3") or 0.0)
             _tp2_p = _sf(t.get("tp2_price") or t.get("tp2") or 0.0)
-            _tp1_p = _sf(t.get("tp1_price") or t.get("tp_price") or t.get("take_profit") or t.get("tp1") or 0.0)
+            _tp1_p = _sf(
+                t.get("tp1_price") or t.get("tp_price") or t.get("take_profit") or t.get("tp1")
+                or (_meta_tp_levels[0] if _meta_tp_levels else 0.0) or 0.0
+            )
             # Pick the furthest TP that was actually touched
             _tp_final_p = 0.0
             if tp3 > 0 and _tp3_p > 0:
@@ -777,13 +831,47 @@ class TradeMetricsService:
             else:
                  m["cnt_scenario_none"] += 1
 
+            # --- 1.0b Trade-profile (router output) aggregation ---
+            # Captures the name of the router profile applied to this trade
+            # (e.g. range_absorption_v1, trend_breakout_v1, high_vol_breakout_v1).
+            # Source priority: explicit trade field → signal_payload meta → indicators.
+            meta = sp.get("meta") or {}
+            tprof = (
+                t.get("trade_profile")
+                or meta.get("trade_profile")
+                or indicators.get("trade_profile")
+                or ""
+            )
+            tprof = str(tprof).strip()
+            if tprof:
+                tprofiles = m.get("trade_profiles") or {}
+                tprofiles[tprof] = tprofiles.get(tprof, 0) + 1
+                m["trade_profiles"] = tprofiles
+
+                tp_stats = m.get("trade_profile_stats") or {}
+                if tprof not in tp_stats:
+                    tp_stats[tprof] = {"count": 0, "wins": 0, "pnl": 0.0, "sum_tp1_atr": 0.0, "cnt_tp1_atr": 0}
+                tp_stats[tprof]["count"] += 1
+                tp_stats[tprof]["pnl"] += pnl
+                if pnl > eps:
+                    tp_stats[tprof]["wins"] += 1
+                # Carry tp1_atr (initial target) per profile to expose «TP1 не расширяется» per profile
+                _tp1_atr_per_trade = (
+                    _sf(t.get("tp_atr") or t.get("tp1_atr"))
+                    or _sf(meta.get("rocket_tp1_actual_atr_mult"))
+                    or _sf(indicators.get("rocket_tp1_actual_atr_mult"))
+                )
+                if _tp1_atr_per_trade > eps:
+                    tp_stats[tprof]["sum_tp1_atr"] += _tp1_atr_per_trade
+                    tp_stats[tprof]["cnt_tp1_atr"] += 1
+                m["trade_profile_stats"] = tp_stats
+
             # --- 1.1 Regime Stats ---
             # Source priority:
             #   1) trade dict entry_regime (set by create_position from payload.regime)
             #   2) indicators.regime (embedded in signal_payload.indicators)
             #   3) signal_payload.regime (top-level)
             #   4) fallback to "unknown"
-            meta = sp.get("meta") or {}
             reg_raw = (
                 t.get("entry_regime")
                 or t.get("regime_bucket")

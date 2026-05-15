@@ -28,44 +28,40 @@ class TestTradeMetricsUnits(unittest.TestCase):
         self.assertAlmostEqual(m["sum_exit_eff_win"], 1.0)
         self.assertEqual(m["cnt_exit_eff_win"], 1)
 
-    def test_giveback_unit_conversion(self):
-        """Test that Giveback (Price) is converted to USD using Lot."""
+    def test_giveback_usd_semantics(self):
+        """Giveback field is stored as USD in Redis (closed.giveback = pos.mfe_pnl - pnl_gross).
+        Reader must NOT multiply by lot again — that was a double-multiplication bug
+        that clamped reported giveback_ratio at 1.5 for any lot != 1.
+        """
         m = self.tm.new_metrics()
-        # Case: price went up 2000 (MFE=20), closed at 1000 (PnL=10), gave back 1000 (10 USD)
+        # MFE USD = 20, PnL gross = 10, gave back 10 USD. Lot = 0.01 (irrelevant for USD fields).
         t = {
             "pnl_gross": "10.0",
             "pnl_net": "9.0",
             "fees": "-1.0",
-            "mfe": "2000.0",   # Price MFE -> 20 USD
-            "giveback": "1000.0", # Price Giveback -> 10 USD
+            "mfe_pnl": "20.0",   # USD
+            "giveback": "10.0",  # USD (NOT price-delta)
             "lot": "0.01",
             "close_reason": "TP"
         }
         self.tm.accumulate_trade(m, t)
-
-        # MFE USD = 20.0
-        # Giveback USD = 10.0
-        # Ratio = 10/20 = 0.5
+        # Ratio = 10/20 = 0.5 (NOT 0.005 from over-multiplication, NOT 1.5 clamp)
         self.assertAlmostEqual(m["sum_giveback_ratio_win"], 0.5)
 
-    def test_missed_profit_unit_conversion(self):
-        """Test that Missed Profit (Price) is converted to USD using Lot."""
+    def test_missed_profit_usd_semantics(self):
+        """Missed_profit is stored as USD; reader must not multiply by lot."""
         m = self.tm.new_metrics()
-        # Case: SL after TP. MFE=2000 (20 USD). PnL=0. Missed=2000 (20 USD).
         t = {
             "pnl_gross": "0.0",
             "pnl_net": "-1.0",
             "fees": "-1.0",
-            "mfe": "2000.0",       # Price MFE -> 20 USD
-            "missed_profit": "2000.0", # Price Missed -> 20 USD
+            "mfe_pnl": "20.0",        # USD
+            "missed_profit": "20.0",  # USD (NOT price-delta)
             "lot": "0.01",
-            "close_reason": "SL_AFTER_TP" # Trigger specific path
+            "close_reason": "SL_AFTER_TP"
         }
         self.tm.accumulate_trade(m, t)
-
-        # MFE USD = 20.0
-        # Missed USD = 20.0
-        # Ratio = 1.0
+        # Ratio = 20/20 = 1.0
         self.assertAlmostEqual(m["sum_missed_profit_ratio"], 1.0)
 
     def test_explicit_usd_priority(self):

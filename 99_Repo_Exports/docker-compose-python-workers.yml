@@ -38,6 +38,11 @@ services:
       start_period: 60s
     environment:
     - liqmap_gate_mode=${LIQMAP_GATE_MODE:-enforce}
+    # 2026-05-14: TradeProfileRouter ENFORCE — overlay (tp_rr / stop_atr_mult /
+    # tp1_atr_mult) already applies in SHADOW, but ENFORCE additionally enables
+    # the net_edge_bps gate and canary-share logic per profile.
+    - TRADE_PROFILE_ROUTER_ENABLED=${TRADE_PROFILE_ROUTER_ENABLED:-1}
+    - TRADE_PROFILE_MODE=${TRADE_PROFILE_MODE:-ENFORCE}
     - ANALYTICS_DB_DSN=${ANALYTICS_DB_DSN}
     - TRADES_DB_DSN=${ANALYTICS_DB_DSN}
     - REDIS_HOST=redis-worker-1
@@ -67,6 +72,8 @@ services:
     - TRADE_NEWS_RECO_POLL_JITTER_MS=50
     - TRADE_NEWS_RECO_STALE_FAIL_OPEN_MS=5000
     - TM_ORPHAN_TIMEOUT_ENABLED=${TM_ORPHAN_TIMEOUT_ENABLED}
+    # 2026-05-14: temporary PnL trace — disable after 10-min validation window
+    - TRACE_PNL_DOUBLE_COUNT=${TRACE_PNL_DOUBLE_COUNT:-false}
     - NEWS_LOG_MINI_SAMPLE_PCT=1
     - NEWS_DEBUG_FULL=false
     - NEWS_DEBUG_FULL_SAMPLE_PCT=1
@@ -189,6 +196,7 @@ services:
     - TP_MODE_BTCUSDT=RR
     - TP_MODE_ETHUSDT=RR
     - TP_RR=1.5,2.5,4.0
+    - TP1_MIN_RR_FLOOR=1.15
     - STOP_PCT=0.2
     - STOP_POINTS=1.0
     - TP_MODE=RR
@@ -526,6 +534,11 @@ services:
       start_period: 60s
     environment:
     - liqmap_gate_mode=${LIQMAP_GATE_MODE:-enforce}
+    # 2026-05-14: TradeProfileRouter ENFORCE — overlay (tp_rr / stop_atr_mult /
+    # tp1_atr_mult) already applies in SHADOW, but ENFORCE additionally enables
+    # the net_edge_bps gate and canary-share logic per profile.
+    - TRADE_PROFILE_ROUTER_ENABLED=${TRADE_PROFILE_ROUTER_ENABLED:-1}
+    - TRADE_PROFILE_MODE=${TRADE_PROFILE_MODE:-ENFORCE}
     - ANALYTICS_DB_DSN=${ANALYTICS_DB_DSN}
     - TRADES_DB_DSN=${ANALYTICS_DB_DSN}
     - REDIS_HOST=redis-worker-1
@@ -585,6 +598,7 @@ services:
     - TP_BPS_BUFFER=${TP_BPS_BUFFER:-4}
     - TP_MODE=RR
     - TP_RR=1.5,2.5,4.0
+    - TP1_MIN_RR_FLOOR=1.15
     - TP_MODE_BTCUSDT=RR
     - TP_MODE_ETHUSDT=RR
     - STOP_MODE=ATR
@@ -1432,6 +1446,9 @@ services:
           memory: 2G
     environment:
     - REDIS_URL=${REDIS_URL}
+    # 2026-05-14: TradeProfileRouter ENFORCE — net_edge gate + canary on top of overlay
+    - TRADE_PROFILE_ROUTER_ENABLED=${TRADE_PROFILE_ROUTER_ENABLED:-1}
+    - TRADE_PROFILE_MODE=${TRADE_PROFILE_MODE:-ENFORCE}
     - VETO_TOPN_WINDOW_MS=300000
     - VETO_TOPN_N=5
     - VETO_TOPN_MIN_TOTAL=30
@@ -1521,7 +1538,9 @@ services:
     # ── Fixed-dollar-risk sizing (canary) ──────────────────────────
     - RISK_USE_FIXED_DOLLAR_SIZING=1
     - RISK_USD_PER_TRADE=0
-    - RISK_MAX_QTY=0.5
+    # RISK_MAX_QTY=0.5 ломал дешёвые монеты (1000PEPE и т.п.): 0.5 < min_lot=1 → sizing fail → lot=1.0 fallback → notional ≈ $0.004.
+    # Нотионал ограничивает RISK_MAX_NOTIONAL_USD=500 ниже; qty-кап оставляем как защиту от пайплайн-багов.
+    - RISK_MAX_QTY=500000
     - RISK_MAX_ACTUAL_OVER_TARGET=1.02
     - RISK_MIN_STOP_DISTANCE_BPS=8.0
     - COST_TOTAL_BPS=8.0
@@ -1538,6 +1557,7 @@ services:
     - TP_MODE_BTCUSDT=RR
     - TP_MODE_ETHUSDT=RR
     - TP_RR=1.5,2.5,4.0
+    - TP1_MIN_RR_FLOOR=1.15
     - RANGE_TP_RR=1.0,1.5
     - FORCE_TRAIL_AFTER_TP1=0
     - TRAILING_AFTER_TP1_SOURCES=
@@ -2603,6 +2623,8 @@ services:
     - CRYPTO_SIGNAL_MIN_CONF=${CRYPTO_SIGNAL_MIN_CONF}
     - TM_NAMESPACE=trade-monitor
     - TM_ORPHAN_TIMEOUT_ENABLED=${TM_ORPHAN_TIMEOUT_ENABLED}
+    # 2026-05-14: temporary PnL double-count trace
+    - TRACE_PNL_DOUBLE_COUNT=${TRACE_PNL_DOUBLE_COUNT:-false}
     - TM_ORPHAN_TTL_MS=${TM_ORPHAN_TTL_MS:-3600000}
     - TM_SMART_TIMEOUT_ENABLED=${TM_SMART_TIMEOUT_ENABLED:-0}
     - TM_SMART_TIMEOUT_MAE_ATR=${TM_SMART_TIMEOUT_MAE_ATR:-1.5}
@@ -2629,6 +2651,9 @@ services:
     - USE_SIGNAL_OUTBOX=true
     - ATR_GRAPH_PROTECTIVE_ENABLE=${ATR_GRAPH_PROTECTIVE_ENABLE}
     - ATR_GRAPH_PROTECTIVE_MODE=${ATR_GRAPH_PROTECTIVE_MODE}
+    # 2026-05-14: partial-close TP1 canary (ENFORCE = log intent + still SHADOW
+    # until binance_executor wiring lands; degrades gracefully with warning)
+    - PARTIAL_CLOSE_TP1_MODE=${PARTIAL_CLOSE_TP1_MODE:-ENFORCE}
     - TZ=UTC
     depends_on:
       redis-worker-1:
@@ -2680,6 +2705,8 @@ services:
     - AUTO_CALIBRATION_THRESHOLD=100
     - CRYPTO_SIGNAL_MIN_CONF=${CRYPTO_SIGNAL_MIN_CONF}
     - TM_ORPHAN_TIMEOUT_ENABLED=${TM_ORPHAN_TIMEOUT_ENABLED}
+    # 2026-05-14: temporary PnL double-count trace
+    - TRACE_PNL_DOUBLE_COUNT=${TRACE_PNL_DOUBLE_COUNT:-false}
     - TM_ORPHAN_TTL_MS=${TM_ORPHAN_TTL_MS:-3600000}
     - TM_SMART_TIMEOUT_ENABLED=${TM_SMART_TIMEOUT_ENABLED:-0}
     - TM_SMART_TIMEOUT_MAE_ATR=${TM_SMART_TIMEOUT_MAE_ATR:-1.5}
@@ -2708,6 +2735,9 @@ services:
     - USE_SIGNAL_OUTBOX=true
     - ATR_GRAPH_PROTECTIVE_ENABLE=${ATR_GRAPH_PROTECTIVE_ENABLE}
     - ATR_GRAPH_PROTECTIVE_MODE=${ATR_GRAPH_PROTECTIVE_MODE}
+    # 2026-05-14: partial-close TP1 canary (ENFORCE = log intent + still SHADOW
+    # until binance_executor wiring lands; degrades gracefully with warning)
+    - PARTIAL_CLOSE_TP1_MODE=${PARTIAL_CLOSE_TP1_MODE:-ENFORCE}
     - TZ=UTC
     depends_on:
       redis-worker-1:
@@ -3886,6 +3916,165 @@ services:
           python -m services.burst_gate_calibrator_service
           sleep 3600
         done
+
+  meta-model-calibrator-v14:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    image: scanner-python-worker:latest
+    container_name: scanner-meta-model-calibrator-v14
+    restart: unless-stopped
+    environment:
+      - PYTHONUNBUFFERED=1
+      # Redis worker-1 — источник streams inputs/labels
+      - REDIS_URL=redis://redis-worker-1:6379/0
+      # Redis main — notify:telegram stream
+      - REDIS_MAIN_URL=redis://redis:6379/0
+      - NOTIFY_STREAM=notify:telegram
+      # Потоки данных
+      - V14_INPUTS_STREAM=signals:of:inputs
+      - V14_LABELS_STREAM=labels:tb
+      - V14_CAL_MAX_RECORDS=5000
+      - V14_CAL_SINCE_HOURS=72
+      # Ключи Redis для модели
+      - V14_CHAMPION_KEY=cfg:ml_confirm:champion
+      - V14_CAL_KEY=cfg:ml_confirm:v14_of:calibrator
+      - V14_SHADOW_STATE_KEY=cfg:ml_confirm:champion
+      # Выходные файлы
+      - V14_CAL_OUT_DIR=/var/lib/trade/of_reports/models
+      - V14_CAL_STATE_PATH=/var/lib/trade/of_reports/meta_model_calibrator_state.json
+      # Критерии gate
+      - V14_CAL_MIN_AUC=0.62
+      - V14_CAL_MAX_ECE=0.10
+      - V14_CAL_MAX_BRIER=0.22
+      - V14_CAL_MIN_N=200
+      - V14_CAL_MAX_ARTIFACT_AGE=7
+      - V14_CAL_SHADOW_MIN_HOURS=48
+      # Метод калибровки: temp_logit | platt_logit | identity
+      - V14_CAL_METHOD=temp_logit
+      # 0 = dry-run, 1 = записать калибратор
+      - V14_CAL_APPLY=${V14_CAL_APPLY:-1}
+      # 0 = только калибратор, 1 = также флипнуть mode → ENFORCE
+      - V14_CAL_ENFORCE=${V14_CAL_ENFORCE:-1}
+      # Daemon mode (1 = встроенный loop + Prometheus; 0 = one-shot)
+      - V14_CAL_DAEMON=1
+      - V14_CAL_COOLDOWN_SEC=21600
+      - V14_CAL_PROM_PORT=9845
+      - TZ=UTC
+    ports:
+      - "9845:9845"
+    volumes:
+      - /var/lib/trade:/var/lib/trade
+    depends_on:
+      redis-worker-1:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - scanner-core
+      - scanner-infra
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.2'
+        reservations:
+          memory: 128M
+    command:
+      - sh
+      - -c
+      - sleep 15 && python -m orderflow_services.meta_model_calibrator_v1
+
+  liqmap-gate-calibrator:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    image: scanner-python-worker:latest
+    container_name: scanner-liqmap-gate-calibrator
+    restart: unless-stopped
+    environment:
+      - PYTHONUNBUFFERED=1
+      - LIQMAP_CAL_REDIS_URL=redis://redis-worker-1:6379/0
+      - LIQMAP_CAL_REDIS_MAIN_URL=redis://redis:6379/0
+      - LIQMAP_CAL_SINCE_HOURS=168
+      - LIQMAP_CAL_INTERVAL_SEC=3600
+      - LIQMAP_CAL_MIN_SHADOW_HOURS=48
+      - LIQMAP_CAL_MIN_VETO_N=10
+      - LIQMAP_CAL_MIN_PRECISION=0.55
+      - LIQMAP_CAL_MIN_R_DELTA=0.25
+      - LIQMAP_CAL_COOLDOWN_SEC=86400
+      - LIQMAP_CAL_STATE_PATH=/var/lib/trade/of_reports/liqmap_cal_state.json
+      - LIQMAP_CAL_APPLY=${LIQMAP_CAL_APPLY:-1}
+      - LIQMAP_CAL_ENABLE=${LIQMAP_CAL_ENABLE:-1}
+      - NOTIFY_STREAM=notify:telegram
+      - RECS_HMAC_SECRET=${RECS_HMAC_SECRET:-CHANGE_ME}
+      - TZ=UTC
+    volumes:
+      - /var/lib/trade:/var/lib/trade
+    depends_on:
+      redis-worker-1:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - scanner-core
+      - scanner-infra
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+          cpus: '0.1'
+        reservations:
+          memory: 64M
+    command:
+      - sh
+      - -c
+      - |
+        sleep 20
+        while true; do
+          python -m orderflow_services.liqmap_gate_calibrator_v1
+          sleep ${LIQMAP_CAL_INTERVAL_SEC:-3600}
+        done
+
+  v14-of-drift-monitor:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    image: scanner-python-worker:latest
+    container_name: scanner-v14-of-drift-monitor
+    restart: unless-stopped
+    environment:
+      - PYTHONUNBUFFERED=1
+      - REDIS_URL=redis://redis-worker-1:6379/0
+      - V14_DRIFT_INTERVAL_SEC=1800
+      - V14_DRIFT_WINDOW_HOURS=6
+      - V14_DRIFT_BASELINE_HOURS=168
+      - V14_DRIFT_MAX_SCAN=80000
+      - V14_DRIFT_KINDS=meta_lr,edge_stack_v1
+      - V14_DRIFT_STREAM_PRED=metrics:ml_confirm
+      - V14_DRIFT_STREAM_TRADES=trades:closed
+      - V14_DRIFT_OUT_KEY=metrics:ml_drift:v14_of:last
+      - V14_DRIFT_PORT=9844
+      - TZ=UTC
+    ports:
+      - "9844:9844"
+    depends_on:
+      redis-worker-1:
+        condition: service_healthy
+    networks:
+      - scanner-core
+      - scanner-infra
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.2'
+        reservations:
+          memory: 128M
+    command:
+      - sh
+      - -c
+      - sleep 10 && python -m tools.ml_drift_monitor_v14_of
 
 networks:
   scanner-core:

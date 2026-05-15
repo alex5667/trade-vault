@@ -244,9 +244,25 @@ def eval_dq_gate(indicators: dict[str, Any], cfg2: dict[str, Any]) -> dict[str, 
     # -----------------------------
     # 4) Penalty score (always computed)
     # -----------------------------
-    # Keep the previous "health_score" semantics, but degrade it for B-step signals as well.
-    health_score = 1.0
+    # Penalty multipliers are read from cfg2 so they can be overridden by the
+    # auto-calibrator (orderflow_services.dq_gate_calibrator_v1 → Redis key
+    # cfg:dq_gate:v1:calibration → merged into cfg2). Defaults reproduce the
+    # original hardcoded schedule, so behavior is unchanged when uncalibrated.
+    w_gap_soft = _cfg_float(cfg2, "dq_pen_weight_gap_soft", 0.80, env="DQ_PEN_WEIGHT_GAP_SOFT")
+    w_gap_hard = _cfg_float(cfg2, "dq_pen_weight_gap_hard", 0.20, env="DQ_PEN_WEIGHT_GAP_HARD")
+    w_tick_seq_soft = _cfg_float(cfg2, "dq_pen_weight_tick_seq_soft", 0.85, env="DQ_PEN_WEIGHT_TICK_SEQ_SOFT")
+    w_tick_seq_hard = _cfg_float(cfg2, "dq_pen_weight_tick_seq_hard", 0.30, env="DQ_PEN_WEIGHT_TICK_SEQ_HARD")
+    w_book_seq_soft = _cfg_float(cfg2, "dq_pen_weight_book_seq_soft", 0.85, env="DQ_PEN_WEIGHT_BOOK_SEQ_SOFT")
+    w_book_seq_hard = _cfg_float(cfg2, "dq_pen_weight_book_seq_hard", 0.20, env="DQ_PEN_WEIGHT_BOOK_SEQ_HARD")
+    w_nan_soft = _cfg_float(cfg2, "dq_pen_weight_nan_soft", 0.70, env="DQ_PEN_WEIGHT_NAN_SOFT")
+    w_nan_hard = _cfg_float(cfg2, "dq_pen_weight_nan_hard", 0.20, env="DQ_PEN_WEIGHT_NAN_HARD")
+    w_stuck_soft = _cfg_float(cfg2, "dq_pen_weight_stuck_soft", 0.80, env="DQ_PEN_WEIGHT_STUCK_SOFT")
+    w_stuck_hard = _cfg_float(cfg2, "dq_pen_weight_stuck_hard", 0.20, env="DQ_PEN_WEIGHT_STUCK_HARD")
+    w_latency_soft = _cfg_float(cfg2, "dq_pen_weight_latency_soft", 0.10, env="DQ_PEN_WEIGHT_LATENCY_SOFT")
+    w_skew_now_soft = _cfg_float(cfg2, "dq_pen_weight_skew_now_soft", 0.70, env="DQ_PEN_WEIGHT_SKEW_NOW_SOFT")
+    w_skew_stream_soft = _cfg_float(cfg2, "dq_pen_weight_skew_stream_soft", 0.80, env="DQ_PEN_WEIGHT_SKEW_STREAM_SOFT")
 
+    health_score = 1.0
 
     # health
     if data_health < data_health_min:
@@ -256,39 +272,39 @@ def eval_dq_gate(indicators: dict[str, Any], cfg2: dict[str, Any]) -> dict[str, 
 
     # latency/skew
     if tick_time_age_ms > age_soft_ms:
-        health_score *= 0.1
+        health_score *= w_latency_soft
 
     if tick_ts_source_now_ema > skew_soft_ms:
-        health_score *= 0.7
+        health_score *= w_skew_now_soft
 
     if tick_ts_source_stream_id_ema > skew_soft_ms:
-        health_score *= 0.8
+        health_score *= w_skew_stream_soft
 
     # B-step: gap/missing-seq penalties
     if tick_gap_p95_ms >= gap_soft_ms:
-        health_score *= 0.8
+        health_score *= w_gap_soft
     if tick_gap_p95_ms >= gap_hard_ms:
-        health_score *= 0.2
+        health_score *= w_gap_hard
 
     if tick_missing_seq_ema >= tick_seq_soft:
-        health_score *= 0.85
+        health_score *= w_tick_seq_soft
     if tick_missing_seq_ema >= tick_seq_hard:
-        health_score *= 0.3
+        health_score *= w_tick_seq_hard
 
     if book_missing_seq_ema >= book_seq_soft:
-        health_score *= 0.85
+        health_score *= w_book_seq_soft
     if book_missing_seq_ema >= book_seq_hard:
-        health_score *= 0.2
+        health_score *= w_book_seq_hard
 
     # Optional nan/stuck penalties
     if feature_nan_rate_ema >= nan_soft:
-        health_score *= 0.7
+        health_score *= w_nan_soft
     if feature_nan_rate_ema >= nan_hard:
-        health_score *= 0.2
+        health_score *= w_nan_hard
     if feature_stuck_sec >= stuck_soft_s:
-        health_score *= 0.8
+        health_score *= w_stuck_soft
     if feature_stuck_sec >= stuck_hard_s:
-        health_score *= 0.2
+        health_score *= w_stuck_hard
 
     health_score = max(0.0, min(1.0, health_score))
 

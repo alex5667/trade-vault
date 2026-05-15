@@ -147,6 +147,10 @@ def parse_open_position_hash(
             is_virtual=(h.get("is_virtual") or "0") == "1",
             v_gate_status=(h.get("v_gate_status") or "na"),
             v_gate_reason=(h.get("v_gate_reason") or ""),
+            # FIX 2026-05-14: restore one_r_money from Redis hash (was previously
+            # defaulted to 0.0 on recovery, causing fees-clamp to push it to ~1.5
+            # and triggering false PNL_OVERSHOOT alerts).
+            one_r_money=float(h.get("one_r_money") or 0.0),
         )
 
         # Optional fields (best-effort)

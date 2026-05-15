@@ -129,6 +129,7 @@ def query_decisions_from_stream(
     symbol_filter: str | None = None,
     stream: str = RS.DECISIONS_FINAL,
     batch: int = 2000,
+    include_off_mode: bool = False,
 ) -> dict[str, dict[str, Any]]:
     """
     Scan `decisions:final` stream for the last `hours` hours.
@@ -136,11 +137,15 @@ def query_decisions_from_stream(
     Returns dict: sid → {
         liq_boost, liq_pen, liq_veto, liq_reason,
         liq_q_align, liq_ofi_align,
-        gate_mode, symbol, direction, ts_ms
-    },
+        gate_mode, symbol, direction, ts_ms,
+        # shadow features (always extracted, used when include_off_mode=True):
+        shadow_qimb, shadow_ofi, shadow_obi,
+        shadow_res_rec, shadow_res_ms,
+    }
 
-    Only includes records where liq_pressure indicators are present
-    (i.e. liq_pressure_gate_mode was not "off" at the time of the decision).
+    include_off_mode=True: also include records where gate was "off"
+    (liq_boost == 0.0, liq_reason == ""); raw shadow features are
+    needed to run counterfactual evaluation.
     """
     since_ms = get_ny_time_millis() - int(hours * 3_600_000)
     start_id = f"{since_ms}-0"
@@ -182,12 +187,17 @@ def query_decisions_from_stream(
                 evidence = rec.get("evidence") or {}
                 indicators = evidence if isinstance(evidence, dict) else {}
 
-            # Only include if gate was active (boost key present and mode not off)
-            # We check the presence of liq_pressure_reason as the sentinel
             liq_reason = (indicators.get("liq_pressure_reason") or "")
             liq_boost = _safe_float(indicators.get("liq_pressure_boost"), -1.0)
+
+            # liq_boost == -1.0 means key absent (gate feature predates current code).
+            # liq_boost == 0.0 + liq_reason == "" means gate was mode="off" at eval time.
+            is_off_mode_record = (liq_boost == 0.0 and liq_reason == "")
+
             if liq_boost < 0:
-                # Key absent → gate was "off", skip
+                # Key completely absent — skip regardless of mode.
+                continue
+            if is_off_mode_record and not include_off_mode:
                 continue
 
             sid = (rec.get("sid") or "").strip()
@@ -198,19 +208,27 @@ def query_decisions_from_stream(
             if symbol_filter and symbol != symbol_filter.upper():
                 continue
 
+            direction = (rec.get("direction") or "").upper()
             decisions[sid] = {
-                "liq_boost":   liq_boost,
-                "liq_pen":     _safe_float(indicators.get("liq_pressure_pen"), 0.0),
-                "liq_veto":    _safe_int(indicators.get("liq_pressure_veto"), 0),
-                "liq_reason":  liq_reason,
-                "liq_q_align": _safe_int(indicators.get("liq_q_align"), 0),
+                "liq_boost":     liq_boost,
+                "liq_pen":       _safe_float(indicators.get("liq_pressure_pen"), 0.0),
+                "liq_veto":      _safe_int(indicators.get("liq_pressure_veto"), 0),
+                "liq_reason":    liq_reason,
+                "liq_q_align":   _safe_int(indicators.get("liq_q_align"), 0),
                 "liq_ofi_align": _safe_int(indicators.get("liq_ofi_align"), 0),
-                "symbol":      symbol,
-                "direction":   (rec.get("direction") or "").upper(),
-                "ts_ms":       _safe_int(rec.get("ts_ms"), 0),
+                "symbol":        symbol,
+                "direction":     direction,
+                "ts_ms":         _safe_int(rec.get("ts_ms"), 0),
+                # Raw features for shadow counterfactual (present regardless of gate mode)
+                "shadow_qimb":     _safe_float(indicators.get("qimb_wmean"), 0.0),
+                "shadow_ofi":      _safe_float(indicators.get("ofi_ml_norm"), 0.0),
+                "shadow_obi":      _safe_float(indicators.get("obi_dw"), 0.0),
+                "shadow_res_rec":  _safe_int(indicators.get("res_recovered"), 0),
+                "shadow_res_ms":   _safe_int(indicators.get("res_recovery_ms"), 0),
             }
 
-    logger.info(f"Decisions with active LiqPressureGate found: {len(decisions)}")
+    mode_label = "incl. off-mode" if include_off_mode else "active gate only"
+    logger.info(f"Decisions loaded ({mode_label}): {len(decisions)}")
     return decisions
 
 
@@ -271,7 +289,38 @@ def _load_trades(hours: float) -> dict[str, dict[str, Any]]:
 
 
 # ---------------------------------------------------------------------------
-# Step 3 — compute stats
+# Step 3 — shadow counterfactual gate evaluation
+# ---------------------------------------------------------------------------
+
+def _shadow_eval_gate(rec: dict[str, Any], shadow_cfg: dict[str, Any]) -> float:
+    """
+    Re-evaluate LiqPressureGate in 'boost' mode using raw features stored in the
+    decision record.  Returns the counterfactual boost value (>0 means would-boost).
+
+    Used only when current_mode == 'off' so the actual liq_boost is always 0.
+    """
+    from core.liq_pressure_gate_v1 import eval_liq_pressure_gate  # lazy import
+
+    direction = rec.get("direction", "")
+    if not direction:
+        return 0.0
+    try:
+        boost, _, _, _, _, _ = eval_liq_pressure_gate(
+            direction=direction,
+            qimb_wmean=_safe_float(rec.get("shadow_qimb"), 0.0),
+            ofi_ml_norm=_safe_float(rec.get("shadow_ofi"), 0.0),
+            cfg2=shadow_cfg,
+            obi_dw=_safe_float(rec.get("shadow_obi"), 0.0),
+            res_recovered=_safe_int(rec.get("shadow_res_rec"), 0),
+            res_recovery_ms=_safe_int(rec.get("shadow_res_ms"), 0),
+        )
+        return boost
+    except Exception:
+        return 0.0
+
+
+# ---------------------------------------------------------------------------
+# Step 4 — compute stats
 # ---------------------------------------------------------------------------
 
 def _mean(vals: list[float]) -> float:
@@ -285,19 +334,24 @@ def _median(vals: list[float]) -> float:
 def compute_stats(
     decisions: dict[str, dict[str, Any]],
     trades: dict[str, dict[str, Any]],
+    shadow_cfg: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """
     Join decisions + trades by sid.
 
     Segments:
-      boost_group  — liq_boost > 0  (gate confirmed alignment)
-      pass_group   — liq_boost == 0 (gate saw neutral / no alignment)
+      boost_group  — effective_boost > 0  (gate confirmed alignment)
+      pass_group   — effective_boost == 0 (gate saw neutral / no alignment)
+
+    shadow_cfg: when provided, records where mode was 'off' (liq_boost==0,
+    liq_reason=="") are re-evaluated counterfactually using _shadow_eval_gate.
     """
     joined = 0
+    shadow_hits = 0
     boost_r: list[float] = []
     pass_r:  list[float] = []
     veto_r:  list[float] = []
-    reasons: dict[str, int] = collections.Counter()
+    reasons: collections.Counter = collections.Counter()
     by_symbol: dict[str, dict[str, Any]] = {}
 
     for sid, dec in decisions.items():
@@ -316,12 +370,21 @@ def compute_stats(
             }
         s = by_symbol[sym]
 
+        # Determine effective boost: actual or shadow counterfactual.
+        is_off_record = (dec["liq_boost"] == 0.0 and dec.get("liq_reason", "") == "")
+        if is_off_record and shadow_cfg is not None:
+            effective_boost = _shadow_eval_gate(dec, shadow_cfg)
+            if effective_boost > 0:
+                shadow_hits += 1
+        else:
+            effective_boost = dec["liq_boost"]
+
         if dec["liq_veto"] == 1:
             veto_r.append(r)
             reasons[dec["liq_reason"]] += 1
             s["veto_count"] += 1
             s["veto_r"].append(r)
-        elif dec["liq_boost"] > 0:
+        elif effective_boost > 0:
             boost_r.append(r)
             s["boost_count"] += 1
             s["boost_r"].append(r)
@@ -345,19 +408,20 @@ def compute_stats(
     return {
         "total_decisions": len(decisions),
         "total_joined":    joined,
+        "shadow_hits":     shadow_hits,
         "boost_hits":      len(boost_r),
         "pass_hits":       len(pass_r),
         "veto_hits":       len(veto_r),
         "boost_r_mean":    round(_mean(boost_r),  3),
         "boost_r_median":  round(_median(boost_r), 3),
-        "boost_r_sum":     round(sum(boost_r),   3),
+        "boost_r_sum":     round(sum(boost_r),    3),
         "pass_r_mean":     round(_mean(pass_r),   3),
         "pass_r_median":   round(_median(pass_r),  3),
         "veto_r_mean":     round(_mean(veto_r),   3),
         "veto_r_median":   round(_median(veto_r),  3),
         "reasons":         dict(reasons.most_common()),
         "by_symbol":       by_sym_flat,
-    },
+    }
 
 
 def _should_propose(
@@ -456,6 +520,7 @@ def create_and_send_proposal(
     step_ts_key: str,
     holddown_h: float,
     cfg_key: str = "cfg:crypto_orderflow",
+    shadow: bool = False,
 ) -> str:
     """Store bundle, send Telegram message. Returns bundle_id."""
     bundle_id = f"liq_pressure_{next_mode}_{int(time.time())}"
@@ -471,12 +536,15 @@ def create_and_send_proposal(
         },
     ]
 
+    shadow_hits = stats.get("shadow_hits", 0)
     meta = {
         "title": f"LiqPressureGate: {current_mode} → {next_mode}",
         "details": {
             "period_hours":  hours,
             "current_mode":  current_mode,
             "next_mode":     next_mode,
+            "shadow_analysis": shadow,
+            "shadow_hits":   shadow_hits,
             "boost_hits":    stats["boost_hits"],
             "boost_r_mean":  stats["boost_r_mean"],
             "pass_r_mean":   stats["pass_r_mean"],
@@ -494,21 +562,27 @@ def create_and_send_proposal(
 
     r.set(f"recs:bundle:{bundle_id}", json.dumps(bundle))
     r.set(f"recs:status:{bundle_id}", "PENDING", ex=86400)
-    # Mark idempotency: 23h TTL
+    # Mark idempotency: holddown_h − 1h TTL
     r.set(pending_key, bundle_id, ex=int(holddown_h * 3600 - 3600))
 
     delta = stats["boost_r_mean"] - stats["pass_r_mean"]
+    shadow_line = (
+        f"⚠️ <b>Shadow analysis</b> (gate было off; {shadow_hits} контрфактических boost)\n"
+        if shadow else ""
+    )
+    boost_label = "shadow-boost (would-boost)" if shadow else "boost (liq_boost &gt; 0)"
     text = (
         f"<b>📊 LiqPressureGate Calibrator</b>\n\n"
+        f"{shadow_line}"
         f"Период: <b>последние {int(hours)}ч</b>\n"
         f"Текущий режим: <code>{current_mode}</code> → предлагается <code>{next_mode}</code>\n\n"
-        f"<b>boost (liq_boost &gt; 0)</b>: {stats['boost_hits']} трейдов  "
+        f"<b>{boost_label}</b>: {stats['boost_hits']} трейдов  "
         f"R̄ = <b>{stats['boost_r_mean']:+.3f}</b>  "
         f"медиана = {stats['boost_r_median']:+.3f}\n"
-        f"<b>neutral (boost = 0)</b>:     {stats['pass_hits']} трейдов  "
+        f"<b>neutral (no boost)</b>:        {stats['pass_hits']} трейдов  "
         f"R̄ = <b>{stats['pass_r_mean']:+.3f}</b>  "
         f"медиана = {stats['pass_r_median']:+.3f}\n"
-        f"<b>veto</b>:                    {stats['veto_hits']} трейдов  "
+        f"<b>veto</b>:                      {stats['veto_hits']} трейдов  "
         f"R̄ = {stats['veto_r_mean']:+.3f}\n\n"
         f"Δ R̄ (boost − neutral) = <b>{delta:+.3f}R</b>\n\n"
         f"<b>По символам:</b>\n{_fmt_by_symbol(stats['by_symbol'])}\n\n"
@@ -540,6 +614,98 @@ def create_and_send_proposal(
 
 
 # ---------------------------------------------------------------------------
+# Auto-apply: execute immediately, notify without approval buttons
+# ---------------------------------------------------------------------------
+
+def apply_and_notify(
+    r: redis.Redis,
+    stats: dict[str, Any],
+    hours: float,
+    current_mode: str,
+    next_mode: str,
+    step_ts_key: str,
+    cfg_key: str = "cfg:crypto_orderflow",
+    shadow: bool = False,
+) -> str:
+    """
+    Apply the mode ladder step immediately via Redis pipeline.
+    Writes recs:status = 'APPLIED', records last_step_ms, and sends a
+    Telegram notification (no approval buttons).  Returns bundle_id.
+    """
+    bundle_id = f"liq_pressure_{next_mode}_{int(time.time())}"
+    ts_ms = get_ny_time_millis()
+
+    # 1. Execute the change atomically
+    old_mode_raw = r.hget(cfg_key, "liq_pressure_gate_mode")  # type: ignore[assignment]
+    old_mode = (str(old_mode_raw).strip() if old_mode_raw is not None else current_mode)
+
+    pipe = r.pipeline()
+    pipe.hset(cfg_key, "liq_pressure_gate_mode", next_mode)
+    pipe.set(step_ts_key, str(ts_ms))
+    pipe.execute()
+
+    # 2. Record bundle as APPLIED (for audit trail)
+    bundle = {
+        "id":         bundle_id,
+        "created_ms": ts_ms,
+        "applied_ms": ts_ms,
+        "ops": [{"op": "HSET", "key": cfg_key, "field": "liq_pressure_gate_mode", "value": next_mode}],
+        "meta": {
+            "title":           f"LiqPressureGate auto-apply: {current_mode} → {next_mode}",
+            "shadow_analysis": shadow,
+            "shadow_hits":     stats.get("shadow_hits", 0),
+            "boost_hits":      stats["boost_hits"],
+            "boost_r_mean":    stats["boost_r_mean"],
+            "pass_r_mean":     stats["pass_r_mean"],
+            "delta_r_mean":    round(stats["boost_r_mean"] - stats["pass_r_mean"], 3),
+            "period_hours":    hours,
+        },
+    }
+    r.set(f"recs:bundle:{bundle_id}", json.dumps(bundle, ensure_ascii=False, separators=(",", ":")), ex=86400 * 7)
+    r.set(f"recs:status:{bundle_id}", "APPLIED", ex=86400 * 7)
+
+    # 3. Send Telegram notification (no buttons)
+    delta = stats["boost_r_mean"] - stats["pass_r_mean"]
+    shadow_hits = stats.get("shadow_hits", 0)
+    shadow_line = (
+        f"⚠️ <b>Shadow analysis</b> ({shadow_hits} контрфактических boost)\n"
+        if shadow else ""
+    )
+    boost_label = "shadow-boost" if shadow else "boost"
+
+    text = (
+        f"<b>✅ LiqPressureGate — AUTO-APPLIED</b>\n\n"
+        f"{shadow_line}"
+        f"Режим изменён: <code>{old_mode}</code> → <code>{next_mode}</code>\n"
+        f"Период анализа: <b>последние {int(hours)}ч</b>\n\n"
+        f"<b>{boost_label}</b>: {stats['boost_hits']} трейдов  "
+        f"R̄ = <b>{stats['boost_r_mean']:+.3f}</b>  "
+        f"медиана = {stats['boost_r_median']:+.3f}\n"
+        f"<b>neutral</b>:       {stats['pass_hits']} трейдов  "
+        f"R̄ = <b>{stats['pass_r_mean']:+.3f}</b>  "
+        f"медиана = {stats['pass_r_median']:+.3f}\n\n"
+        f"Δ R̄ = <b>{delta:+.3f}R</b>\n\n"
+        f"<b>По символам:</b>\n{_fmt_by_symbol(stats['by_symbol'])}\n\n"
+        f"<code>bundle_id: {bundle_id}</code>\n"
+        f"Откат: <code>redis-cli HSET {cfg_key} liq_pressure_gate_mode {old_mode}</code>"
+    )
+
+    notify_stream = os.getenv("NOTIFY_STREAM", RS.NOTIFY_TELEGRAM)
+    r.xadd(
+        notify_stream,
+        {
+            "type":       "report",
+            "subtype":    "liq_pressure_auto_apply",
+            "ts":         str(ts_ms),
+            "text":       text,
+            "parse_mode": "HTML",
+        },
+    )
+    logger.info(f"Auto-applied: {old_mode} → {next_mode}  bundle_id={bundle_id}")
+    return bundle_id
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -553,6 +719,11 @@ def main() -> None:
     parser.add_argument(
         "--dry-run", action="store_true",
         help="Print stats only; do not send Telegram or write Redis bundle",
+    )
+    parser.add_argument(
+        "--auto-apply", action="store_true",
+        default=bool(int(os.getenv("LIQ_CAL_AUTO_APPLY", "0"))),
+        help="Apply mode change immediately (no approval buttons); notify Telegram",
     )
     parser.add_argument(
         "--force-propose", action="store_true",
@@ -614,18 +785,49 @@ def main() -> None:
         logger.info("No next mode available.")
         return
 
+    # Shadow mode: gate is "off" → no actual boost data exists.
+    # Re-evaluate gate counterfactually in "boost" mode using raw features
+    # (qimb_wmean / ofi_ml_norm / obi_dw) that are written to indicators
+    # regardless of gate mode.
+    is_shadow = (current_mode == "off")
+    shadow_cfg: dict[str, Any] | None = None
+    if is_shadow:
+        live_cfg: dict[str, Any] = {}
+        try:
+            raw_cfg = r.hgetall(args.cfg_key)  # type: ignore[assignment]
+            if isinstance(raw_cfg, dict):
+                live_cfg = {k: v for k, v in raw_cfg.items() if isinstance(k, str)}
+        except Exception:
+            pass
+        shadow_cfg = dict(live_cfg)
+        shadow_cfg["liq_pressure_gate_mode"] = "boost"
+        shadow_cfg.setdefault("liq_pressure_qimb_thr",   "0.12")
+        shadow_cfg.setdefault("liq_pressure_ofi_thr",    "0.02")
+        shadow_cfg.setdefault("liq_pressure_obi_dw_thr", "0.06")
+        shadow_cfg.setdefault("liq_pressure_boost_max",  "0.05")
+        logger.info("Shadow mode active (gate=off): counterfactual boost evaluation enabled.")
+
     logger.info(
         f"Running LiqPressure Gate Calibrator — "
         f"hours={args.hours}, mode ladder: {current_mode} → {next_mode_}"
+        + (" [SHADOW]" if is_shadow else "")
     )
 
     # Step 1 — decisions
     decisions = query_decisions_from_stream(
-        r, hours=args.hours, symbol_filter=sym_filter, stream=args.stream
+        r,
+        hours=args.hours,
+        symbol_filter=sym_filter,
+        stream=args.stream,
+        include_off_mode=is_shadow,
     )
 
     if not decisions:
-        logger.warning("No LiqPressureGate decisions found in stream. Exiting.")
+        logger.warning(
+            "No LiqPressureGate decisions found in stream"
+            + (" (shadow scan included off-mode records)" if is_shadow else "")
+            + ". Exiting."
+        )
         return
 
     # Step 2 — closed trades
@@ -634,13 +836,14 @@ def main() -> None:
         logger.warning("No closed trades loaded. Exiting.")
         return
 
-    # Step 3 — stats
-    stats = compute_stats(decisions, trades)
+    # Step 3 — stats (pass shadow_cfg for counterfactual grouping when mode=off)
+    stats = compute_stats(decisions, trades, shadow_cfg=shadow_cfg)
 
     logger.info(
         f"Stats: total_decisions={stats['total_decisions']} "
         f"joined={stats['total_joined']} "
-        f"boost_hits={stats['boost_hits']} "
+        + (f"shadow_hits={stats['shadow_hits']} " if is_shadow else "")
+        + f"boost_hits={stats['boost_hits']} "
         f"boost_r_mean={stats['boost_r_mean']:.3f} "
         f"pass_r_mean={stats['pass_r_mean']:.3f} "
         f"Δ={stats['boost_r_mean']-stats['pass_r_mean']:+.3f} "
@@ -659,7 +862,6 @@ def main() -> None:
     else:
         ok, reason_msg = _should_propose(stats, args.min_boost_hits, args.min_r_delta)
         if ok:
-            # Check guards
             blocked, guard_reason = _check_guards(
                 r, args.pending_key, args.step_ts_key, args.holddown_h
             )
@@ -673,9 +875,23 @@ def main() -> None:
 
     if should_propose:
         if args.dry_run:
-            logger.info("DRY-RUN: Would have sent Telegram proposal and written Redis bundle.")
+            action = "auto-apply" if args.auto_apply else "proposal"
+            logger.info(f"DRY-RUN: Would have sent Telegram {action} and written Redis bundle.")
             logger.info(f"DRY-RUN next_mode={next_mode_}, reason={reason_msg}")
             logger.info(f"DRY-RUN stats:\n{json.dumps(stats, ensure_ascii=False, indent=2)}")
+        elif args.auto_apply:
+            bundle_id = apply_and_notify(
+                r, stats, args.hours,
+                current_mode=current_mode,
+                next_mode=next_mode_,
+                step_ts_key=args.step_ts_key,
+                cfg_key=args.cfg_key,
+                shadow=is_shadow,
+            )
+            # After auto-apply, also record the step timestamp used by hold-down guard
+            # (apply_and_notify already does this via pipe, but clear any pending key)
+            r.delete(args.pending_key)
+            logger.info(f"Done (auto-applied). bundle_id={bundle_id}")
         else:
             bundle_id = create_and_send_proposal(
                 r, stats, args.hours,
@@ -685,8 +901,9 @@ def main() -> None:
                 step_ts_key=args.step_ts_key,
                 holddown_h=args.holddown_h,
                 cfg_key=args.cfg_key,
+                shadow=is_shadow,
             )
-            logger.info(f"Done. bundle_id={bundle_id}")
+            logger.info(f"Done (proposal). bundle_id={bundle_id}")
     elif args.dry_run:
         logger.info(f"DRY-RUN: thresholds not met. Stats: {json.dumps(stats, ensure_ascii=False)}")
 

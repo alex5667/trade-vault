@@ -414,6 +414,9 @@ def parse_open_position_hash(
             is_virtual=(h.get("is_virtual") or "0") == "1",
             v_gate_status=(h.get("v_gate_status") or "na"),
             v_gate_reason=(h.get("v_gate_reason") or ""),
+            # FIX 2026-05-14: restore one_r_money from Redis hash (was defaulted to 0.0,
+            # causing fees-clamp to push it to ~1.5 and false PNL_OVERSHOOT alerts).
+            one_r_money=float(h.get("one_r_money") or 0.0),
         )
 
         # Optional fields (best-effort)
@@ -1739,6 +1742,8 @@ class TradeMonitorService:
                 max_favorable_price=float(h.get("max_favorable_price") or 0.0),
                 max_favorable_ts=self._to_int_ms(h.get("max_favorable_ts"), 0),
                 atr=float(h.get("atr") or 0.0),
+                # FIX 2026-05-14: restore one_r_money on recovery
+                one_r_money=float(h.get("one_r_money") or 0.0),
             )
             try:
                 pos.entry_tag = (h.get("entry_tag") or "")
@@ -3913,7 +3918,9 @@ class TradeMonitorService:
                         try:
                             # close remaining qty at last price (best-effort)
                             rq = float(getattr(pos, "remaining_qty", 0.0) or 0.0)
-                            if rq > 0:
+                            if rq > 0 and not getattr(pos, "_pnl_finalized", False):
+                                # Idempotent guard (bug 2026-05-14): _pnl_finalized prevents
+                                # double-counting when this orphan handler races with another close path.
                                 pnl_rest = float(spec.pnl_money(pos.entry_price, float(pos_exit_price), rq, pos.direction, symbol=pos.symbol))
                                 pos.realized_pnl_gross = float(getattr(pos, "realized_pnl_gross", 0.0) or 0.0) + pnl_rest
                                 pos.remaining_qty = 0.0
@@ -4636,7 +4643,9 @@ class TradeMonitorService:
                 close_qty = float(getattr(pos, "remaining_qty", 0.0) or 0.0)
             except Exception:
                 close_qty = 0.0
-            if close_qty > 1e-9:
+            if close_qty > 1e-9 and not getattr(pos, "_pnl_finalized", False):
+                # Idempotent guard (bug 2026-05-14): _pnl_finalized blocks re-add when
+                # process_tick's SL handler already realized this same qty.
                 spec = self._get_spec(pos.symbol) # Need spec for pnl_money
                 try:
                     pnl_rest = float(spec.pnl_money(pos.entry_price, float(price), close_qty, pos.direction, symbol=pos.symbol))
@@ -4899,8 +4908,65 @@ class TradeMonitorService:
             except Exception:
                 close_qty = 0.0
 
+            # ── PARTIAL_CLOSE_TP1 shadow telemetry (2026-05-14) ──────────────────
+            # Compares "what would partial-close do" vs current "close 100% on TP1".
+            # Modes (env PARTIAL_CLOSE_TP1_MODE):
+            #   OFF      — disabled (no metric)
+            #   SHADOW   — emit comparison event, no behavior change   ← default
+            #   ENFORCE  — reduce close_qty to tp_ratios[0]*total_qty (NOT YET — requires
+            #              coordinated executor change; for now logs intent and falls
+            #              back to SHADOW with a warning)
+            # Rationale: WR 80% but PnL net < 0 because TRAIL_SL (BE) on every win.
+            # Partial-close 80% at TP1 = realize the visited gross before trail eats it.
+            if tp_level == 1 and not getattr(pos, "_pnl_finalized", False):
+                try:
+                    _pc_mode = (os.getenv("PARTIAL_CLOSE_TP1_MODE", "SHADOW") or "SHADOW").upper()
+                    if _pc_mode in ("SHADOW", "ENFORCE"):
+                        sp = getattr(pos, "signal_payload", {}) or {}
+                        sp_meta = (sp.get("meta") or {}) if isinstance(sp, dict) else {}
+                        ratios = sp.get("tp_ratio") or sp_meta.get("tp_ratios") or self.tp_ratios
+                        try:
+                            tp1_share = float(ratios[0]) if ratios else 0.0
+                        except Exception:
+                            tp1_share = 0.0
+                        if 0.0 < tp1_share < 1.0:
+                            total_qty = float(getattr(pos, "qty", 0.0) or getattr(pos, "remaining_qty", 0.0) or 0.0)
+                            partial_qty = total_qty * tp1_share
+                            keep_qty = max(0.0, total_qty - partial_qty)
+                            try:
+                                _hyp_partial_pnl = float(spec.pnl_money(
+                                    pos.entry_price, price, partial_qty, pos.direction, symbol=pos.symbol,
+                                ))
+                            except Exception:
+                                _hyp_partial_pnl = 0.0
+                            _trade_profile = str(sp_meta.get("trade_profile") or "")
+                            _trail_profile = str(sp_meta.get("trailing_profile") or getattr(pos, "trail_profile", "") or "")
+                            logger.info(
+                                "🪓 [PARTIAL_CLOSE_TP1] mode=%s sid=%s symbol=%s direction=%s "
+                                "trade_profile=%s trail_profile=%s tp1_share=%.2f "
+                                "total_qty=%.6f would_close=%.6f would_keep=%.6f "
+                                "tp_price=%.6f hyp_partial_pnl_gross=%.4f actual_close_qty=%.6f",
+                                _pc_mode, getattr(pos, "sid", ""), pos.symbol, pos.direction,
+                                _trade_profile, _trail_profile, tp1_share,
+                                total_qty, partial_qty, keep_qty,
+                                price, _hyp_partial_pnl, close_qty,
+                            )
+                            # ENFORCE not yet wired to executor — would require coordinated
+                            # binance_executor partial market order. Stay in SHADOW for now.
+                            if _pc_mode == "ENFORCE":
+                                logger.warning(
+                                    "⚠️ [PARTIAL_CLOSE_TP1] ENFORCE requested but executor wiring "
+                                    "not yet implemented — operating in SHADOW for sid=%s",
+                                    getattr(pos, "sid", ""),
+                                )
+                except Exception as _pc_err:
+                    logger.debug("[PARTIAL_CLOSE_TP1] shadow telemetry error (fail-open): %s", _pc_err)
+            # ── end PARTIAL_CLOSE_TP1 shadow telemetry ────────────────────────────
+
             pnl_part = 0.0
-            if close_qty > 1e-9:
+            if close_qty > 1e-9 and not getattr(pos, "_pnl_finalized", False):
+                # Idempotent guard (bug 2026-05-14): _pnl_finalized blocks re-add when
+                # process_tick's TP handler already realized this same qty.
                 try:
                     pnl_part = float(spec.pnl_money(pos.entry_price, float(price), close_qty, pos.direction, symbol=pos.symbol))
                     pos.realized_pnl_gross += pnl_part

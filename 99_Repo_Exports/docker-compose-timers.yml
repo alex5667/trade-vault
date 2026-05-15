@@ -1898,6 +1898,53 @@ services:
     networks:
     - scanner-timers
     - scanner-infra
+  meta-lr-nightly-retrain-timer:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile.gpu
+    container_name: scanner-meta-lr-nightly-retrain-timer
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 2G
+        reservations:
+          memory: 128M
+    environment:
+    - REDIS_URL=${REDIS_URL:-redis://redis-worker-1:6379/0}
+    - PYTHONPATH=.:/app
+    - PYTHONUNBUFFERED=1
+    - ML_REPLAY_STREAM=signals:of:inputs
+    - TRADES_CLOSED_STREAM=trades:closed
+    - LABEL_SOURCE=closed
+    - META_TRAIN_OUT_DIR=/tmp/meta_train_nightly
+    - META_MODEL_REGISTRY_DIR=/var/lib/trade/of_reports/models/meta_registry
+    - META_MODEL_PATH=/var/lib/trade/of_reports/models/meta_lr_v14_of_latest.json
+    - CHAMPION_KEY=${CHAMPION_KEY:-cfg:ml_confirm:champion}
+    - CAL_KEY=${CAL_KEY:-cfg:ml_confirm:v14_of:calibrator}
+    - META_LR_RETRAIN_ENABLED=${META_LR_RETRAIN_ENABLED:-1}
+    - TZ=UTC
+    working_dir: /app
+    volumes:
+    - ./python-worker:/app
+    - /var/lib/trade/of_reports:/var/lib/trade/of_reports
+    command: "sh -c \"sleep 5 && while true; do\n  if [ \\\"$${META_LR_RETRAIN_ENABLED:-1}\\\
+      \" = \\\"0\\\" ]; then\n    echo '[meta-lr-retrain] disabled, sleeping 86400s...';\n\
+      \    sleep 86400;\n    continue;\n  fi\n  HOUR=$$(date +%-H);\n  MIN=$$(date\
+      \ +%-M);\n  if [ \\\"$$HOUR\\\" -eq 2 ] && [ \\\"$$MIN\\\" -ge 30 ] && [ \\\"\
+      $$MIN\\\" -lt 50 ]; then\n    echo '[meta-lr-retrain] Step 1: retraining meta_lr...';\n\
+      \    python3 -m tools.nightly_train_meta_model_lr_v1 --label_source closed --max_ece\
+      \ 0.30 --apply;\n    TRAIN_RC=$$?;\n    if [ \\\"$$TRAIN_RC\\\" = \\\"0\\\"\
+      \ ]; then\n      echo '[meta-lr-retrain] Step 2: calibrating...';\n      python3\
+      \ -m tools.calibrate_meta_lr_v1 --dataset /tmp/meta_train_nightly/meta_model_ds.jsonl\
+      \ --apply;\n      echo '[meta-lr-retrain] Done.';\n    else\n      echo '[meta-lr-retrain]\
+      \ Train failed (rc=$$TRAIN_RC), skipping calibration.';\n    fi;\n    sleep\
+      \ 82800;\n  else\n    sleep 60;\n  fi\ndone\"\n"
+    networks:
+    - scanner-timers
+    - scanner-infra
+
   confidence-calibrator-nightly-timer:
     build:
       context: .
@@ -4880,6 +4927,7 @@ services:
     - LIQ_CAL_ENFORCE_HOLDDOWN_H=${LIQ_CAL_ENFORCE_HOLDDOWN_H:-72}
     - LIQ_CAL_PENDING_KEY=${LIQ_CAL_PENDING_KEY:-meta:liq_cal:pending}
     - LIQ_CAL_STEP_TS_KEY=${LIQ_CAL_STEP_TS_KEY:-meta:liq_cal:last_step_ms}
+    - LIQ_CAL_AUTO_APPLY=${LIQ_CAL_AUTO_APPLY:-1}
     - DECISIONS_FINAL_STREAM=${DECISIONS_FINAL_STREAM:-decisions:final}
     - RECS_HMAC_SECRET=${RECS_HMAC_SECRET:-CHANGE_ME}
     - NOTIFY_STREAM=${NOTIFY_STREAM:-notify:telegram}
@@ -6821,6 +6869,96 @@ services:
     command: "sh -c \"sleep 30 && while true; do\n  python3 -m services.burst_gate_calibrator_service;\n\
       \  echo 'Burst gate calibration done. Sleeping 1 hour...';\n  sleep 3600;\n\
       done\"\n"
+    networks:
+    - scanner-timers
+    - scanner-infra
+  dq-calibration-publisher-timer:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    container_name: scanner-dq-calibration-publisher-timer
+    restart: always
+    deploy:
+      resources:
+        limits:
+          cpus: '0.10'
+          memory: 128M
+        reservations:
+          memory: 24M
+    environment:
+    - REDIS_URL=${REDIS_URL:-redis://redis-worker-1:6379/0}
+    - REDIS_MAIN_URL=${REDIS_MAIN_URL:-redis://redis:6379/0}
+    - V14_DQ_CAL_KEY=${V14_DQ_CAL_KEY:-cfg:dq_gate:v1:calibration}
+    - DYNAMIC_CFG_KEY=${DYNAMIC_CFG_KEY:-settings:dynamic_cfg}
+    - V14_DQ_CAL_PUBLISHER_STATE_KEY=${V14_DQ_CAL_PUBLISHER_STATE_KEY:-cfg:dq_gate:v1:publisher_state}
+    - V14_DQ_CAL_PUBLISHER_ROLLBACK_KEY=${V14_DQ_CAL_PUBLISHER_ROLLBACK_KEY:-cfg:dq_gate:v1:publisher_rollback}
+    - V14_DQ_CAL_PUBLISHER_MAX_AGE_H=${V14_DQ_CAL_PUBLISHER_MAX_AGE_H:-48}
+    - V14_DQ_CAL_PUBLISHER_PUBLISH_THR=${V14_DQ_CAL_PUBLISHER_PUBLISH_THR:-0}
+    - V14_DQ_CAL_PUBLISHER_APPLY=${V14_DQ_CAL_PUBLISHER_APPLY:-0}
+    - NOTIFY_STREAM=${NOTIFY_STREAM:-notify:telegram}
+    - PYTHONPATH=.:/app
+    - PYTHONUNBUFFERED=1
+    - TZ=UTC
+    working_dir: /app
+    volumes:
+    - ./python-worker:/app
+    command: "sh -c \"sleep 60 && while true; do\n  echo 'Running DQ Calibration Publisher...';\n\
+      \  python3 -m orderflow_services.dq_calibration_publisher_v1 --apply ${V14_DQ_CAL_PUBLISHER_APPLY:-0};\n\
+      \  echo 'DQ Calibration publisher done. Sleeping 10 minutes...';\n  sleep 600;\n\
+      done\"\n"
+    depends_on:
+      redis-worker-1:
+        condition: service_healthy
+    networks:
+    - scanner-timers
+    - scanner-infra
+  dq-gate-calibrator-timer:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    container_name: scanner-dq-gate-calibrator-timer
+    restart: always
+    deploy:
+      resources:
+        limits:
+          cpus: '0.20'
+          memory: 256M
+        reservations:
+          memory: 24M
+    environment:
+    - REDIS_URL=${REDIS_URL:-redis://redis-worker-1:6379/0}
+    - REDIS_MAIN_URL=${REDIS_MAIN_URL:-redis://redis:6379/0}
+    - V14_INPUTS_STREAM=${V14_INPUTS_STREAM:-signals:of:inputs}
+    - V14_LABELS_STREAM=${V14_LABELS_STREAM:-labels:tb}
+    - V14_DQ_CAL_KEY=${V14_DQ_CAL_KEY:-cfg:dq_gate:v1:calibration}
+    - V14_DQ_CAL_OUT_DIR=${V14_DQ_CAL_OUT_DIR:-/var/lib/trade/of_reports/dq_calibration}
+    - V14_DQ_CAL_STATE_PATH=${V14_DQ_CAL_STATE_PATH:-/var/lib/trade/of_reports/dq_gate_calibrator_state.json}
+    - V14_DQ_CAL_SINCE_HOURS=${V14_DQ_CAL_SINCE_HOURS:-72}
+    - V14_DQ_CAL_MAX_RECORDS=${V14_DQ_CAL_MAX_RECORDS:-5000}
+    - V14_DQ_CAL_MIN_N_RECORDS=${V14_DQ_CAL_MIN_N_RECORDS:-500}
+    - V14_DQ_CAL_MIN_N_JOINED=${V14_DQ_CAL_MIN_N_JOINED:-100}
+    - V14_DQ_CAL_MIN_N_COHORT=${V14_DQ_CAL_MIN_N_COHORT:-30}
+    - V14_DQ_CAL_MAX_WEIGHT_CHANGE=${V14_DQ_CAL_MAX_WEIGHT_CHANGE:-0.35}
+    - V14_DQ_CAL_BLEND_ALPHA=${V14_DQ_CAL_BLEND_ALPHA:-0.30}
+    - V14_DQ_CAL_COOLDOWN_SEC=${V14_DQ_CAL_COOLDOWN_SEC:-21600}
+    - V14_DQ_CAL_APPLY=${V14_DQ_CAL_APPLY:-0}
+    - NOTIFY_STREAM=${NOTIFY_STREAM:-notify:telegram}
+    - PYTHONPATH=.:/app
+    - PYTHONUNBUFFERED=1
+    - TZ=UTC
+    working_dir: /app
+    volumes:
+    - ./python-worker:/app
+    - /var/lib/trade:/var/lib/trade
+    command: "sh -c \"sleep 30 && while true; do\n  HOUR=$$(date +%-H);\n  MIN=$$(date\
+      \ +%-M);\n  if [ \\\"$$HOUR\\\" -eq 5 ] && [ \\\"$$MIN\\\" -ge 30 ] && [ \\\"\
+      $$MIN\\\" -lt 45 ]; then\n    echo 'Running DQ Gate Calibrator...';\n    python3\
+      \ -m orderflow_services.dq_gate_calibrator_v1 --apply ${V14_DQ_CAL_APPLY:-0};\n\
+      \    echo 'DQ Gate calibration done. Sleeping 23h...';\n    sleep 82800;\n \
+      \ else\n    sleep 60;\n  fi\ndone\"\n"
+    depends_on:
+      redis-worker-1:
+        condition: service_healthy
     networks:
     - scanner-timers
     - scanner-infra

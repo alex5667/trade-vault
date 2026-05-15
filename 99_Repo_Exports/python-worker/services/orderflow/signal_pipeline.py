@@ -289,6 +289,7 @@ class SignalPipeline:
 
         self._cached_binance_trail_atr_mult = os.getenv("BINANCE_TRAIL_ATR_MULT", "1.0")
         self._cached_range_tp_rr = os.getenv("RANGE_TP_RR", "1.0,1.5")
+        self._cached_tp1_min_rr_floor = float(os.getenv("TP1_MIN_RR_FLOOR", "1.0") or 1.0)
 
         # Exec Health
         self._cached_exec_health_auto_freeze_enabled = os.getenv("EXEC_HEALTH_AUTO_FREEZE", "0").lower() in {"1", "true", "yes", "on"}
@@ -1215,7 +1216,34 @@ class SignalPipeline:
                         return
 
             # Write profile meta into signal for downstream consumers
-            _sym_tier = str(indicators.get("symbol_tier", "B") or "B").upper()
+            # Resolution order:
+            #   1) indicators["symbol_tier"]  (already enriched upstream)
+            #   2) signal["symbol_tier"] / signal["risk_tier"]  (set by signal_gate after risk eval)
+            #   3) infer_symbol_tier(symbol)  (deterministic from symbol pattern, e.g. 1000PEPE → C)
+            #   4) hard default "B"  (legacy fallback only when import fails)
+            #
+            # Fix 2026-05-14: previously fell straight to "B", which mis-classified
+            # 1000PEPEUSDT and other memes as alts, causing per-class memes-overlay
+            # (stop_atr_mult_memes / max_zone_bp_memes) to never apply.
+            _sym_tier_raw = (
+                indicators.get("symbol_tier")
+                or signal.get("symbol_tier")
+                or signal.get("risk_tier")
+                or signal.get("tier")
+            )
+            _sym_tier = str(_sym_tier_raw or "").strip().upper()
+            if _sym_tier not in {"A", "B", "C"}:
+                try:
+                    from services.risk.risk_policy_engine import infer_symbol_tier as _infer_tier
+                    _sym_tier = (_infer_tier(symbol) or "B").upper()
+                except Exception:
+                    _sym_tier = "B"
+            if _sym_tier not in {"A", "B", "C"}:
+                _sym_tier = "B"
+            indicators["symbol_tier"] = _sym_tier
+            indicators["symbol_tier_source"] = "indicators" if indicators.get("symbol_tier") and _sym_tier_raw else (
+                "signal" if signal.get("symbol_tier") or signal.get("risk_tier") or signal.get("tier") else "inferred"
+            )
             # Map tier → symbol_class for per-class stop/zone parameters
             _sym_class = {"A": "majors", "B": "alts", "C": "memes"}.get(_sym_tier, "alts")
             _profile_meta = build_signal_profile_meta(
@@ -1334,11 +1362,17 @@ class SignalPipeline:
                 _range_rr = [float(x.strip()) for x in _range_rr_str.split(",") if x.strip()][:2]
                 _stop_dist = abs(entry - sl)
                 if _stop_dist > 0 and len(_range_rr) >= 1:
+                    # Apply TP1_MIN_RR_FLOOR so the range override doesn't undercut the global floor
+                    # (range branch bypasses compute_levels(), where the floor lives).
+                    _floor = self._cached_tp1_min_rr_floor
+                    if _floor > 0 and _range_rr[0] < _floor:
+                        _range_rr[0] = _floor
+                        indicators["range_tp1_floor_applied"] = round(_floor, 3)
                     if getattr(direction, 'value', (direction or '')).upper() == "LONG":
                         tp_levels = [entry + _stop_dist * r for r in _range_rr]
                     else:
                         tp_levels = [entry - _stop_dist * r for r in _range_rr]
-                    indicators["range_tp_rr_applied"] = _range_rr_str
+                    indicators["range_tp_rr_applied"] = ",".join(str(round(r, 3)) for r in _range_rr)
                     indicators["range_stop_dist_atr"] = round(_stop_dist / atr, 3) if atr > 0 else 0.0
 
                     # ⚠️ FIX (2026-04-25): Enforce minimum TP distance in bps to guarantee
@@ -3260,6 +3294,28 @@ class SignalPipeline:
             rocket_mult = max(0.6, rocket_mult_raw)
 
         is_rocket_v1 = (trail_profile in ["rocket_v1", "expansion_v1"])
+
+        # ── Shadow telemetry: rocket_tp1_actual_atr_mult (2026-05-14) ──────────
+        # Records the ACTUAL TP1 multiplier (in ATR units) that this _calculate_levels
+        # call will produce, plus which method was used (ROCKET vs RR). This lets
+        # us verify whether ROCKET_TP1_ATR_MULT env actually reaches signal generation.
+        # Reports/dashboards can group by this to see if rocket-method ever applies.
+        indicators["rocket_tp1_env_mult_raw"] = round(rocket_mult_raw, 4)
+        indicators["rocket_tp1_env_mult_floored"] = round(rocket_mult, 4)
+        indicators["trail_profile_used"] = str(trail_profile or "unknown")
+        if is_rocket_v1 and atr > 0:
+            _actual_tp1_atr = rocket_mult  # is_rocket_v1 path: TP1 = atr * rocket_mult
+            indicators["tp1_calc_method"] = "ROCKET"
+        elif atr > 0 and stop_dist > 0:
+            _rr0 = rr_levels(cfg.get("tp_rr", "1.3,2.0,2.7"))[0]
+            _actual_tp1_atr = (stop_dist * _rr0) / atr
+            indicators["tp1_calc_method"] = "RR"
+            indicators["rr_tp1_used"] = round(_rr0, 4)
+        else:
+            _actual_tp1_atr = 0.0
+            indicators["tp1_calc_method"] = "na"
+        indicators["rocket_tp1_actual_atr_mult"] = round(_actual_tp1_atr, 4)
+        # ── end shadow telemetry ───────────────────────────────────────────────
 
         # Логируем для отладки (sample every 10000th message)
         if is_rocket_v1:

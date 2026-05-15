@@ -3404,6 +3404,195 @@ services:
             capabilities:
             - gpu
           memory: 24M
+  v14-of-train-timer:
+    # Nightly retrain bundle for v14_of: LR baseline (meta_lr) + GBDT challenger
+    # (edge_stack_v1). See python-worker/tools/nightly_v14_of_train_bundle.py.
+    # Writes candidate cfgs ALWAYS (cfg:ml_confirm:v14_of:{lr,gbdt}_candidate).
+    # Promotes to champion/challenger ONLY if V14_PROMOTE_AUTO=1 AND gates pass.
+    build: *id001
+    container_name: scanner-v14-of-train-timer
+    restart: unless-stopped
+    environment:
+    - REDIS_URL=redis://redis-worker-1:6379/0
+    - PYTHONPATH=.:/app
+    - PYTHONUNBUFFERED=1
+    - V14_TRAIN_ENABLED=${V14_TRAIN_ENABLED:-1}
+    - V14_TRAIN_INTERVAL_SEC=${V14_TRAIN_INTERVAL_SEC:-21600}
+    - V14_INPUTS_STREAM=${V14_INPUTS_STREAM:-signals:of:inputs}
+    - V14_LABELS_STREAM=${V14_LABELS_STREAM:-labels:tb}
+    - V14_INPUTS_MAX_RECORDS=${V14_INPUTS_MAX_RECORDS:-5000}
+    - V14_LABELS_MAX_RECORDS=${V14_LABELS_MAX_RECORDS:-5000}
+    - V14_FEES_BPS_ONE_SIDE=${V14_FEES_BPS_ONE_SIDE:-2.0}
+    - V14_MIN_DATASET_ROWS=${V14_MIN_DATASET_ROWS:-500}
+    - V14_Y_LABEL_COL=${V14_Y_LABEL_COL:-y_edge_cost_aware}
+    - V14_WORK_DIR=${V14_WORK_DIR:-/var/lib/trade/of_reports/v14_of_train_work}
+    - V14_OUT_DIR=${V14_OUT_DIR:-/var/lib/trade/of_reports/models}
+    - V14_PROMOTE_AUTO=${V14_PROMOTE_AUTO:-0}
+    - V14_PROMOTE_BRIER_MAX=${V14_PROMOTE_BRIER_MAX:-0.20}
+    - V14_PROMOTE_ECE_MAX=${V14_PROMOTE_ECE_MAX:-0.10}
+    - V14_CHAMPION_KEY=${V14_CHAMPION_KEY:-cfg:ml_confirm:champion}
+    - V14_CHALLENGER_KEY=${V14_CHALLENGER_KEY:-cfg:ml_confirm:challenger}
+    - V14_TRAIN_METRICS_KEY=${V14_TRAIN_METRICS_KEY:-metrics:v14_of_train:last}
+    - SCANNER_CONSUMER_NAME=scanner-v14-of-train-timer
+    - TZ=UTC
+    depends_on: *id002
+    networks: *id003
+    volumes:
+    - ./python-worker:/app
+    - /var/lib/trade/of_reports:/var/lib/trade/of_reports
+    working_dir: /app
+    command:
+    - bash
+    - -c
+    - |
+      sleep 120
+      while true; do
+        if [ "$${V14_TRAIN_ENABLED:-1}" = "0" ]; then
+          echo "[v14-of-train-timer] disabled (V14_TRAIN_ENABLED=0), sleeping..."
+          sleep $${V14_TRAIN_INTERVAL_SEC:-21600}
+          continue
+        fi
+        echo "[v14-of-train-timer] $$(date -u) — starting v14_of retrain bundle"
+        T0=$$(date +%s)
+        python3 -m tools.nightly_v14_of_train_bundle \
+          --auto-promote $${V14_PROMOTE_AUTO:-0} \
+          && echo "[v14-of-train-timer] $$(date -u) — done in $$(( $$(date +%s) - $$T0 ))s" \
+          || echo "[v14-of-train-timer] $$(date -u) — FAILED (see logs)"
+        echo "[v14-of-train-timer] sleeping $${V14_TRAIN_INTERVAL_SEC:-21600}s..."
+        sleep $${V14_TRAIN_INTERVAL_SEC:-21600}
+      done
+    profiles:
+    - default
+    deploy:
+      resources:
+        limits:
+          cpus: '1.00'
+          memory: 1G
+        reservations:
+          memory: 64M
+  v14-of-train-metrics-exporter:
+    # Prometheus exporter: reads Redis `metrics:v14_of_train:last` → v14_of_train_* gauges.
+    # Scrape target on :9836/metrics.
+    build: *id001
+    container_name: scanner-v14-of-train-metrics-exporter
+    restart: unless-stopped
+    environment:
+    - REDIS_URL=redis://redis-worker-1:6379/0
+    - PYTHONPATH=.:/app
+    - PYTHONUNBUFFERED=1
+    - V14_TRAIN_METRICS_KEY=${V14_TRAIN_METRICS_KEY:-metrics:v14_of_train:last}
+    - V14_EXPORTER_PORT=${V14_EXPORTER_PORT:-9838}
+    - V14_EXPORTER_POLL_SEC=${V14_EXPORTER_POLL_SEC:-60}
+    - TZ=UTC
+    depends_on: *id002
+    networks:
+    - scanner-network
+    - scanner-infra
+    ports:
+    - "${V14_EXPORTER_PORT:-9838}:${V14_EXPORTER_PORT:-9838}"
+    volumes:
+    - ./python-worker:/app
+    working_dir: /app
+    command:
+    - python3
+    - -m
+    - tools.v14_of_train_metrics_exporter
+    profiles:
+    - default
+    deploy:
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 128M
+        reservations:
+          memory: 16M
+  v14-of-drift-monitor:
+    # PSI/KS/ECE drift monitor for v14_of champion+challenger.
+    # Reads metrics:ml_confirm (predictions) + trades:closed (outcomes),
+    # filters by `kind` field, computes per-bucket drift, exposes Prometheus gauges
+    # `ml_drift_v14_of_*{kind,bucket}` on :9844/metrics.
+    build: *id001
+    container_name: scanner-v14-of-drift-monitor
+    restart: unless-stopped
+    environment:
+    - REDIS_URL=redis://redis-worker-1:6379/0
+    - PYTHONPATH=.:/app
+    - PYTHONUNBUFFERED=1
+    - V14_DRIFT_INTERVAL_SEC=${V14_DRIFT_INTERVAL_SEC:-1800}
+    - V14_DRIFT_WINDOW_HOURS=${V14_DRIFT_WINDOW_HOURS:-6}
+    - V14_DRIFT_BASELINE_HOURS=${V14_DRIFT_BASELINE_HOURS:-168}
+    - V14_DRIFT_MAX_SCAN=${V14_DRIFT_MAX_SCAN:-80000}
+    - V14_DRIFT_KINDS=${V14_DRIFT_KINDS:-meta_lr,edge_stack_v1}
+    - V14_DRIFT_STREAM_PRED=${V14_DRIFT_STREAM_PRED:-metrics:ml_confirm}
+    - V14_DRIFT_STREAM_TRADES=${V14_DRIFT_STREAM_TRADES:-trades:closed}
+    - V14_DRIFT_OUT_KEY=${V14_DRIFT_OUT_KEY:-metrics:ml_drift:v14_of:last}
+    - V14_DRIFT_PORT=${V14_DRIFT_PORT:-9844}
+    - TZ=UTC
+    depends_on: *id002
+    networks:
+    - scanner-network
+    - scanner-infra
+    ports:
+    - "${V14_DRIFT_PORT:-9844}:${V14_DRIFT_PORT:-9844}"
+    volumes:
+    - ./python-worker:/app
+    working_dir: /app
+    command:
+    - python3
+    - -m
+    - tools.ml_drift_monitor_v14_of
+    profiles:
+    - default
+    deploy:
+      resources:
+        limits:
+          cpus: '0.50'
+          memory: 512M
+        reservations:
+          memory: 64M
+  v14-of-auto-promote:
+    # Auto-promote orchestrator: reads candidate metrics, gates, optionally
+    # applies promotion, sends Telegram summary. See python-worker/tools/v14_of_auto_promote.py.
+    # SAFETY: V14_AUTO_PROMOTE_ENABLED=0 (default) = dry-run, Telegram only, no Redis writes.
+    build: *id001
+    container_name: scanner-v14-of-auto-promote
+    restart: unless-stopped
+    environment:
+    - REDIS_URL=redis://redis-worker-1:6379/0
+    - PYTHONPATH=.:/app
+    - PYTHONUNBUFFERED=1
+    - V14_AUTO_PROMOTE_ENABLED=${V14_AUTO_PROMOTE_ENABLED:-0}
+    - V14_AUTO_INTERVAL_SEC=${V14_AUTO_INTERVAL_SEC:-3600}
+    - V14_AUTO_FRESHNESS_HOURS=${V14_AUTO_FRESHNESS_HOURS:-12}
+    - V14_TRAIN_METRICS_KEY=${V14_TRAIN_METRICS_KEY:-metrics:v14_of_train:last}
+    - V14_CHAMPION_KEY=${V14_CHAMPION_KEY:-cfg:ml_confirm:champion}
+    - V14_CHALLENGER_KEY=${V14_CHALLENGER_KEY:-cfg:ml_confirm:challenger}
+    - V14_PROMOTE_BRIER_MAX=${V14_PROMOTE_BRIER_MAX:-0.20}
+    - V14_PROMOTE_ECE_MAX=${V14_PROMOTE_ECE_MAX:-0.10}
+    - V14_PROMOTE_PR_AUC_EPSILON=${V14_PROMOTE_PR_AUC_EPSILON:-0.02}
+    - V14_AUTO_SKIP_NOTIFY_HOURS=${V14_AUTO_SKIP_NOTIFY_HOURS:-6}
+    - V14_AUTO_STATE_KEY=${V14_AUTO_STATE_KEY:-state:v14_of_auto_promote}
+    - PROMETHEUS_URL=${PROMETHEUS_URL:-http://scanner-prometheus:9090}
+    - NOTIFY_STREAM=${NOTIFY_STREAM:-notify:telegram}
+    - TZ=UTC
+    depends_on: *id002
+    networks: *id003
+    volumes:
+    - ./python-worker:/app
+    working_dir: /app
+    command:
+    - python3
+    - -m
+    - tools.v14_of_auto_promote
+    profiles:
+    - default
+    deploy:
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 256M
+        reservations:
+          memory: 24M
   ml-scorer-pipeline-timer:
     build: *id001
     runtime: nvidia

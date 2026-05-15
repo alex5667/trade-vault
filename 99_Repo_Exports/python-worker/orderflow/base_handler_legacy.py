@@ -5258,6 +5258,7 @@ class BaseOrderFlowHandler(ABC):
             "TP_MODE": self.config.tp_mode,
             "TP_RR": self.config.tp_rr,
             "TP_ATR_MULTS": self.config.tp_atr_mults,
+            "tp1_min_rr_floor": self.config.tp1_min_rr_floor,
         }, symbol=ctx.symbol)
 
         # Сдвигаем TP дальше: TP1 по умолчанию +40% к дистанции, TP2/TP3 без изменений (можно задать ENV)

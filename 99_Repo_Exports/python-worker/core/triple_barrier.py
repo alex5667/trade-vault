@@ -112,7 +112,12 @@ def label_path(
     adverse_proxy = (mae_mag / mfe_mag) if mfe_mag > 1e-9 else mae_mag
 
     edge_after_cost_bps = realized_close_bps - cost
-    y_edge_cost_aware = 1 if edge_after_cost_bps > 0.0 else 0
+    # STRICT cost-aware label: positive ONLY if TP barrier was hit AND net edge > 0.
+    # Rationale: aligns with legacy y_edge (which gates on TP_HIT), so flips reflect
+    # cost effect rather than a broader outcome definition. TIMEOUT with marginal drift
+    # is NOT counted as positive — closing at TIMEOUT carries assumption-of-close risk
+    # that we don't want to encode as a "win".
+    y_edge_cost_aware = 1 if (outcome == BarrierOutcome.TP_HIT and edge_after_cost_bps > 0.0) else 0
 
     return BarrierResult(
         outcome=outcome, hit_ms=hit_ms,

@@ -417,6 +417,8 @@ def parse_open_position_hash(
             is_virtual=(h.get("is_virtual") or "0") == "1",
             v_gate_status=(h.get("v_gate_status") or "na"),
             v_gate_reason=(h.get("v_gate_reason") or ""),
+            # FIX 2026-05-14: restore one_r_money on recovery
+            one_r_money=float(h.get("one_r_money") or 0.0),
         )
 
         # Optional fields (best-effort)
@@ -1841,6 +1843,8 @@ class TradeMonitorService:
                 max_favorable_price=float(h.get("max_favorable_price") or 0.0),
                 max_favorable_ts=self._to_int_ms(h.get("max_favorable_ts"), 0),
                 atr=float(h.get("atr") or 0.0),
+                # FIX 2026-05-14: restore one_r_money on recovery
+                one_r_money=float(h.get("one_r_money") or 0.0),
             )
             try:
                 pos.entry_tag = (h.get("entry_tag") or "")
@@ -4012,7 +4016,9 @@ class TradeMonitorService:
                         try:
                             # close remaining qty at last price (best-effort)
                             rq = float(getattr(pos, "remaining_qty", 0.0) or 0.0)
-                            if rq > 0:
+                            if rq > 0 and not getattr(pos, "_pnl_finalized", False):
+                                # Idempotent guard (bug 2026-05-14): _pnl_finalized prevents
+                                # double-counting when this orphan handler races with another close path.
                                 spec_for_pnl = self._get_spec(sym)
                                 pnl_rest = float(spec_for_pnl.pnl_money(pos.entry_price, float(pos_exit_price), rq, pos.direction, symbol=pos.symbol))
                                 pos.realized_pnl_gross = float(getattr(pos, "realized_pnl_gross", 0.0) or 0.0) + pnl_rest
@@ -4765,7 +4771,9 @@ class TradeMonitorService:
                 close_qty = float(getattr(pos, "remaining_qty", 0.0) or 0.0)
             except Exception:
                 close_qty = 0.0
-            if close_qty > 1e-9:
+            if close_qty > 1e-9 and not getattr(pos, "_pnl_finalized", False):
+                # Idempotent guard (bug 2026-05-14): _pnl_finalized blocks re-add when
+                # process_tick's SL handler already realized this same qty.
                 spec = self._get_spec(pos.symbol) # Need spec for pnl_money
                 try:
                     pnl_rest = float(spec.pnl_money(pos.entry_price, float(price), close_qty, pos.direction, symbol=pos.symbol))
@@ -5027,7 +5035,9 @@ class TradeMonitorService:
                 close_qty = 0.0
 
             pnl_part = 0.0
-            if close_qty > 1e-9:
+            if close_qty > 1e-9 and not getattr(pos, "_pnl_finalized", False):
+                # Idempotent guard (bug 2026-05-14): _pnl_finalized blocks re-add when
+                # process_tick's TP handler already realized this same qty.
                 try:
                     pnl_part = float(spec.pnl_money(pos.entry_price, float(price), close_qty, pos.direction, symbol=pos.symbol))
                     pos.realized_pnl_gross += pnl_part

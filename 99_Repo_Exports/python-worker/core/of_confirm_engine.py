@@ -3531,13 +3531,11 @@ class OFConfirmEngine:
         # v14_of: write og_* (rule-gate consensus) keys into shared `indicators` dict
         # so they flow through signal_pipeline → signals:of:inputs → ML dataset.
         # Fail-open: build_og_payload returns 16 zero-valued keys if any input is malformed.
-        indicators["og_patch_hit"] = 1  # sentinel: this line MUST execute on every build() success
         try:
             from core.v14_of_features import build_og_payload
-            _og_payload = build_og_payload(ofc=ofc, dec=dec, indicators=indicators)
-            indicators.update(_og_payload)
-        except Exception as _v14_e:
-            indicators["og_patch_err"] = f"{type(_v14_e).__name__}:{str(_v14_e)[:80]}"
+            indicators.update(build_og_payload(ofc=ofc, dec=dec, indicators=indicators))
+        except Exception:
+            pass
 
         # logic to write to NDJSON.
         #

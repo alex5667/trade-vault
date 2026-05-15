@@ -375,6 +375,11 @@ class PositionState:
     # pnl components
     realized_pnl_gross: float = 0.0
     fees: float = 0.0
+    # Idempotency guard: set True once realized_pnl_gross has been finalized for this position.
+    # Subsequent `realized_pnl_gross += ...` sites MUST check this flag to avoid double-counting
+    # (bug found 2026-05-14: SL handler added pnl_rest, then finalize_trade's defensive remaining_qty
+    # branch added it AGAIN because remaining_qty wasn't zeroed before the call → -2R loss reported).
+    _pnl_finalized: bool = False
 
     # trailing
     trailing_started: bool = False

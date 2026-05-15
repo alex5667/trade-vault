@@ -710,6 +710,7 @@ class OrderFlowConfig:
     tp_mode: str = "RR"                    # Режим Take Profit: RR | ATR | PCT
     tp_rr: str = "1.5,2.5,3.5"              # Risk/Reward ratios для TP (min 1.5R чтобы перекрыть комиссию)
     tp_atr_mults: str = "0.9,1.5,2.1"      # Множители ATR для TP (если mode=ATR)
+    tp1_min_rr_floor: float = 1.15          # Min TP1 dist = floor × SL (покрывает median fee+spread ~0.105R + буфер)
 
 
     # === Orders Queue ===
@@ -1088,6 +1089,7 @@ class OrderFlowConfig:
             tp_mode=_env_first([f"{prefix}_TP_MODE", "TP_MODE"], str, base_cfg.tp_mode),
             tp_rr=_env_first([f"{prefix}_TP_RR", "TP_RR"], str, base_cfg.tp_rr),
             tp_atr_mults=_env_first([f"{prefix}_TP_ATR_MULTS", "TP_ATR_MULTS"], str, base_cfg.tp_atr_mults),
+            tp1_min_rr_floor=_env_first([f"{prefix}_TP1_MIN_RR_FLOOR", "TP1_MIN_RR_FLOOR"], float, base_cfg.tp1_min_rr_floor),
 
 
 

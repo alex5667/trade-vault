@@ -182,8 +182,11 @@ _BUILTIN_PROFILES: dict[str, TradeProfile] = {
         mode="LIVE",
         reason_code="trend_breakout_v1",
     ),
-    # ── Range: 2 TP (80/20) + breakeven only, no trailing ──
-    # Best practice: short target move, maximize TP1 take; trail is ineffective
+    # ── Range: 2 TP (80/20) + trailing only after TP2 (was TP1 → chronic BE) ──
+    # 2026-05-14 tuning:
+    #   tp_rr 0.8,1.5 → 1.2,2.0  — RR(SL/TP1) must be < 1, otherwise math negative.
+    #   trail_after_tp_level 1 → 2  — protective_only after TP1 was giving back
+    #     100% of touched-TP1 trades into BE (TP→SL 100%, mgmt-edge -0.59$/trade).
     "range_absorption_v1": TradeProfile(
         name="range_absorption_v1",
         regime_bucket="range",
@@ -198,13 +201,13 @@ _BUILTIN_PROFILES: dict[str, TradeProfile] = {
         stop_atr_mult_majors=1.10,
         stop_atr_mult_alts=1.25,
         stop_atr_mult_memes=1.40,
-        tp_rr="0.8,1.5",
-        tp1_atr_mult=0.55,
+        tp_rr="1.2,2.0",
+        tp1_atr_mult=0.9,
         tp_count=2,
         tp_ratios=(0.80, 0.20),
         trailing_profile="protective_only",
-        trail_enabled=False,
-        trail_after_tp_level=0,
+        trail_enabled=True,
+        trail_after_tp_level=2,
         execution_policy="SAFETY_FIRST",
         risk_multiplier_tier_a=0.70,
         risk_multiplier_tier_b=0.50,
@@ -213,8 +216,8 @@ _BUILTIN_PROFILES: dict[str, TradeProfile] = {
         mode="LIVE",
         reason_code="range_absorption_v1",
     ),
-    # ── Thin: 2 TP (70/30) + breakeven only, no trailing ──
-    # Best practice: low liquidity → exit early, trailing dangerous (gaps/slippage)
+    # ── Thin: 2 TP (70/30) + breakeven only after TP1, no trailing ──
+    # Best practice: low liquidity → exit early; BREAKEVEN after TP1, no trailing distance
     "thin_defensive_v1": TradeProfile(
         name="thin_defensive_v1",
         regime_bucket="thin",
@@ -234,8 +237,8 @@ _BUILTIN_PROFILES: dict[str, TradeProfile] = {
         tp_count=2,
         tp_ratios=(0.70, 0.30),
         trailing_profile="protective_only",
-        trail_enabled=False,
-        trail_after_tp_level=0,
+        trail_enabled=True,
+        trail_after_tp_level=1,
         execution_policy="SAFETY_FIRST",
         risk_multiplier_tier_a=0.40,
         risk_multiplier_tier_b=0.30,
@@ -311,7 +314,7 @@ _BUILTIN_PROFILES: dict[str, TradeProfile] = {
     # ── Fallback / conservative default: 3 TP (50/30/20) + trailing after TP1 ──
     "default_v1": TradeProfile(
         name="default_v1",
-        regime_bucket="mixed",
+        regime_bucket="fallback",
         allowed_kinds=("breakout", "absorption", "obi_spike", "extreme", "continuation", "reversal"),
         deny_kinds=(),
         min_p_edge=0.55,
@@ -338,7 +341,7 @@ _BUILTIN_PROFILES: dict[str, TradeProfile] = {
         mode="LIVE",
         reason_code="default_v1",
     ),
-    # ── Mixed/Unknown: conservative protective (no trailing, breakeven only) ──
+    # ── Mixed/Unknown: conservative protective (breakeven only after TP1, no trailing) ──
     # Prevents rocket_v1 from running in unclassified/volatile conditions.
     "mixed_protective_v1": TradeProfile(
         name="mixed_protective_v1",
@@ -359,8 +362,8 @@ _BUILTIN_PROFILES: dict[str, TradeProfile] = {
         tp_count=2,
         tp_ratios=(0.80, 0.20),
         trailing_profile="range_protective",
-        trail_enabled=False,
-        trail_after_tp_level=0,
+        trail_enabled=True,
+        trail_after_tp_level=1,
         execution_policy="SAFETY_FIRST",
         risk_multiplier_tier_a=0.75,
         risk_multiplier_tier_b=0.60,

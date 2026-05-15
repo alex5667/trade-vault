@@ -14,6 +14,44 @@ from domain.time_utils import session_from_ts_ms
 
 logger = setup_logger("DomainHandlers")
 
+# ─────────────────────────────────────────────────────────────────────
+# PnL trace + idempotency helpers (bug 2026-05-14)
+# Diagnose / prevent double-counting of realized_pnl_gross.
+# Trace via env var TRACE_PNL_DOUBLE_COUNT=true (default off; ~10 lines per close).
+# ─────────────────────────────────────────────────────────────────────
+_PNL_TRACE = os.getenv("TRACE_PNL_DOUBLE_COUNT", "false").lower() in ("true", "1", "yes")
+
+
+def _pnl_add(pos, pnl_delta: float, *, site: str, exit_price: float | None = None) -> bool:
+    """
+    Idempotent add to pos.realized_pnl_gross with trace.
+
+    Returns True if the add was applied, False if blocked by `_pnl_finalized` guard.
+    Sites that have already realized PnL for a position MUST NOT re-add — the
+    finalize_trade defensive branch (handlers.finalize_trade) was double-counting
+    on SL/time-BE/orphan paths because remaining_qty wasn't zeroed before the call.
+    """
+    if getattr(pos, "_pnl_finalized", False):
+        if _PNL_TRACE:
+            logger.warning(
+                "🚫 [PNL_TRACE] pos=%s site=%s BLOCKED (already finalized) attempted_delta=%.4f",
+                str(pos.id)[:8] if getattr(pos, "id", None) else "?",
+                site, pnl_delta,
+            )
+        return False
+    before = float(pos.realized_pnl_gross or 0.0)
+    pos.realized_pnl_gross = before + pnl_delta
+    if _PNL_TRACE:
+        logger.warning(
+            "🔎 [PNL_TRACE] pos=%s site=%s closed=%s remaining_qty=%.6f exit=%s before=%.4f += %.4f → after=%.4f",
+            str(pos.id)[:8] if getattr(pos, "id", None) else "?",
+            site, bool(getattr(pos, "closed", False)),
+            float(getattr(pos, "remaining_qty", 0.0) or 0.0),
+            (f"{exit_price:.6f}" if exit_price is not None else "?"),
+            before, pnl_delta, pos.realized_pnl_gross,
+        )
+    return True
+
 def _parse_boolish(v: Any, default: bool) -> bool:
     """Parse 0/1, 'true'/'false', bool, int; fail-open to default."""
     try:
@@ -1540,7 +1578,7 @@ def process_tick(
             continue
 
         pnl_part = float(spec.pnl_money(pos.entry_price, fill_price, close_qty, pos.direction, symbol=pos.symbol))
-        pos.realized_pnl_gross += pnl_part
+        _pnl_add(pos, pnl_part, site="handlers.tp_partial:1543", exit_price=fill_price)
         pos.remaining_qty -= close_qty
 
         tp_level = idx + 1
@@ -1701,7 +1739,10 @@ def process_tick(
             if should_close:
                 exit_price = float(mid)
                 pnl_rest = float(spec.pnl_money(pos.entry_price, exit_price, pos.remaining_qty, pos.direction, symbol=pos.symbol))
-                pos.realized_pnl_gross += pnl_rest
+                _pnl_add(pos, pnl_rest, site="handlers.time_be_exit:1704", exit_price=exit_price)
+                # FIX 2026-05-14: zero remaining_qty BEFORE finalize_trade so its defensive
+                # block (line ~1907) doesn't re-add pnl_rest for the same qty (caused -2R losses).
+                pos.remaining_qty = 0.0
 
                 try:
                     pos.exit_mid_price = float(mid or 0.0)
@@ -1772,7 +1813,10 @@ def process_tick(
         if hit_sl:
             exit_price = float(pos.sl)  # исполнение по уровню SL (консервативно)
             pnl_rest = float(spec.pnl_money(pos.entry_price, exit_price, pos.remaining_qty, pos.direction, symbol=pos.symbol))
-            pos.realized_pnl_gross += pnl_rest
+            _pnl_add(pos, pnl_rest, site="handlers.sl_hit:1775", exit_price=exit_price)
+            # FIX 2026-05-14: zero remaining_qty BEFORE finalize_trade so its defensive
+            # block (line ~1907) doesn't re-add pnl_rest for the same qty (caused -2R losses).
+            pos.remaining_qty = 0.0
 
             # -----------------------------------------------------------------
             # NEW: execution snapshot at close tick (mid/spread) for SL.
@@ -1899,12 +1943,26 @@ def finalize_trade(
         logger.warning(f"🚨 [TIME_SYNC] exit_ts ({exit_ts_ms}) < entry_ts ({entry_ts}) for pos {pos.id} (skew={skew}ms). Clamping exit to entry.")
         exit_ts_ms = entry_ts
 
+    # Entry-point trace (bug 2026-05-14): log incoming state.
+    if _PNL_TRACE:
+        logger.warning(
+            "🔎 [PNL_TRACE] pos=%s site=finalize_trade.entry closed=%s remaining_qty=%.6f realized_pnl_gross=%.4f exit_price=%.6f reason=%s",
+            str(pos.id)[:8] if getattr(pos, "id", None) else "?",
+            bool(getattr(pos, "closed", False)),
+            float(getattr(pos, "remaining_qty", 0.0) or 0.0),
+            float(getattr(pos, "realized_pnl_gross", 0.0) or 0.0),
+            float(exit_price or 0.0),
+            close_reason_raw,
+        )
+
     # Calculate PnL for any remaining quantity if it hasn't been closed by process_tick
-    # (e.g. for forced closures like orphan timeouts or manual closures)
+    # (e.g. for forced closures like orphan timeouts or manual closures).
+    # Idempotency: _pnl_add returns False if pos._pnl_finalized is already set —
+    # this prevents the double-count that produced -2R INITIAL_SL losses (bug 2026-05-14).
     if pos.remaining_qty > EPS_QTY:
         try:
             pnl_rest = float(spec.pnl_money(pos.entry_price, exit_price, pos.remaining_qty, pos.direction, symbol=pos.symbol))
-            pos.realized_pnl_gross += pnl_rest
+            _pnl_add(pos, pnl_rest, site="handlers.finalize_trade.defensive:1907", exit_price=exit_price)
             pos.remaining_qty = 0.0
         except Exception as e:
             logger.warning(f"Failed to calculate realization for pos {pos.id}: {e}")
@@ -2052,6 +2110,30 @@ def finalize_trade(
 
     # ✅ Clamp one_r to avoid exploding R due to tiny risk_usd
     one_r_raw = float(getattr(pos, "one_r_money", 0.0) or 0.0)
+
+    # ─── Defense-in-depth: recompute one_r if missing (bug 2026-05-14, second find) ───
+    # Symptom in prod: trades restored from Redis hash had `one_r_money` defaulted to 0.0
+    # because PositionState recovery loaders (trade_monitor._position_from_hash,
+    # position_loader.parse_open_position_hash, ...) did not restore the saved field.
+    # Then clamp_one_r_money pushed it to fees×3 ≈ 1.5, triggering false PNL_OVERSHOOT
+    # alerts (pnl_gross was correct, one_r was tiny).
+    # Recovery loaders are now fixed to restore the field, but we keep this fallback so
+    # any future loader that forgets the field still yields a sane one_r for analytics.
+    one_r_was_recomputed = False
+    if one_r_raw <= 1e-9:
+        with contextlib.suppress(Exception):
+            recomputed = float(spec.risk_money(pos.entry_price, pos.sl, pos.lot, pos.direction, symbol=pos.symbol))
+            if recomputed > 1e-9:
+                one_r_raw = recomputed
+                one_r_was_recomputed = True
+                logger.warning(
+                    "🔧 [ONE_R_RECOMPUTE] pos=%s symbol=%s one_r_money was 0/missing — recomputed from spec.risk_money(entry=%.6f, sl=%.6f, lot=%.6f) = %.4f. "
+                    "Likely cause: PositionState restored from Redis hash without one_r_money field.",
+                    str(pos.id)[:8] if getattr(pos, "id", None) else "?",
+                    str(getattr(pos, "symbol", "?")),
+                    float(pos.entry_price or 0.0), float(pos.sl or 0.0), float(pos.lot or 0.0), recomputed,
+                )
+
     min_risk_usd = float(getattr(spec, "report_min_risk_usd", 1.0) or 1.0)
     fees_risk_mult = float(getattr(spec, "report_fees_risk_mult", 3.0) or 3.0)
     one_r, _clamped = clamp_one_r_money(
@@ -2062,6 +2144,39 @@ def finalize_trade(
         metrics=metrics,
     )
     r_mult = (pnl_net / one_r) if one_r > 1e-12 else 0.0
+
+    # ─── PnL overshoot detection (bug 2026-05-14) ──────────────────────
+    # If |pnl_gross| > 1.65 × one_r × 1.5 (slippage budget), something is off.
+    # Two known root causes:
+    #   (A) double-counted realized_pnl_gross (fixed: see _pnl_finalized guard)
+    #   (B) stale/zero one_r_money on position recovery (fixed: see recovery loaders +
+    #       defense-in-depth recompute above). If recompute also failed (one_r still tiny),
+    #       the OVERSHOOT is informative — investigate spec.risk_money for that symbol.
+    try:
+        if one_r > 1e-9 and abs(pnl_gross) > 1.65 * one_r * 1.5:
+            ratio = abs(pnl_gross) / one_r
+            # If recompute already fired, this OVERSHOOT is residual — separate it from double-add suspicion.
+            if one_r_was_recomputed:
+                hint = "one_r was recomputed in this finalize but pnl_gross still overshoots — check spec.risk_money correctness"
+            elif ratio > 1.8 and ratio < 2.2:
+                hint = "ratio ~2x → likely double-counted realized_pnl_gross (check _pnl_finalized guard)"
+            else:
+                hint = "non-2x overshoot → likely stale one_r_money on position recovery or slippage > budget"
+            logger.error(
+                "🚨 [PNL_OVERSHOOT] pos=%s symbol=%s reason=%s pnl_gross=%.4f one_r=%.4f ratio=%.2fx "
+                "(expected |pnl_gross| ≤ 1.65×one_r×1.5=%.2f). Hint: %s",
+                str(pos.id)[:8] if getattr(pos, "id", None) else "?",
+                str(getattr(pos, "symbol", "?")),
+                close_reason_raw,
+                pnl_gross, one_r, ratio, 1.65 * one_r * 1.5, hint,
+            )
+    except Exception:
+        pass
+
+    # ─── Idempotency flag: realized_pnl_gross is now finalized ─────────
+    # Any subsequent `_pnl_add(pos, ...)` will be blocked, preventing re-adds
+    # from secondary close paths (trade_monitor external SL handler, orphan reaper).
+    pos._pnl_finalized = True
 
     dur = int(hold_ms)  # уже вычислено выше
     pct = pnl_pct_simple(pos.direction, pos.entry_price, float(exit_price))

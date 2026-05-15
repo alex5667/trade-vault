@@ -957,6 +957,19 @@ class PeriodicReporter:
 
         m = self.tm.new_metrics()
 
+        # Load pnl corrections overlay (written by tools/pnl_backfill_patch_v1.py).
+        # Keyed by order_id → {pnl_gross, pnl_net, ...}
+        self._pnl_corrections: dict[str, dict] = {}
+        try:
+            raw_corr: dict = self.redis.hgetall("trades:pnl:corrections") or {}  # type: ignore[assignment]
+            for _oid, _v in raw_corr.items():
+                try:
+                    self._pnl_corrections[_oid] = json.loads(_v)
+                except Exception:
+                    pass
+        except Exception:
+            self._pnl_corrections = {}
+
         def reached_limit() -> bool:
             return bool(trade_window_count) and m["total_trades"] >= trade_window_count
 
@@ -1442,6 +1455,17 @@ class PeriodicReporter:
             return []
 
     def _accumulate_trade_metrics(self, m: dict[str, any], t: dict[str, str]) -> bool:  # type: ignore
+        # Apply pnl correction overlay if available (written by pnl_backfill_patch_v1).
+        # Overlay is loaded once per report in _gather_window_metrics_stream.
+        corrections = getattr(self, "_pnl_corrections", {})
+        if corrections:
+            oid = t.get("order_id") or ""
+            corr = corrections.get(oid) if oid else None
+            if corr:
+                t = dict(t)
+                t["pnl_gross"] = str(corr["pnl_gross"])
+                t["pnl_net"] = str(corr["pnl_net"])
+
         # --- bucket for strict stats (with TRAILING_PROFIT special case) ---  # type: ignore
         raw_reason = (
             t.get("close_reason_raw")
@@ -2144,6 +2168,31 @@ class PeriodicReporter:
                 trailing_lines.append(f"Profiles: <b>{prof_str}</b>")
                 has_trailing_info = True
 
+            # Trade-profile (router) breakdown: range_absorption_v1, trend_breakout_v1, …
+            # Pairs with trailing_profile so we can answer "rocket_v1 not chosen" vs
+            # "rocket_v1 chose but TP1 wrong". Also exposes Avg TP1 (ATR) per profile.
+            tprofiles = m.get("trade_profiles") or {}
+            tprof_stats = m.get("trade_profile_stats") or {}
+            if tprofiles:
+                tprof_top = sorted(tprofiles.items(), key=lambda kv: kv[1], reverse=True)
+                tprof_parts = []
+                for k, v in tprof_top:
+                    st = tprof_stats.get(k) or {}
+                    cnt = int(st.get("count") or 0)
+                    if cnt > 0:
+                        wr_p = (int(st.get("wins") or 0) / cnt) * 100.0
+                        pnl_p = float(st.get("pnl") or 0.0)
+                        n_tp1 = int(st.get("cnt_tp1_atr") or 0)
+                        avg_tp1 = (float(st.get("sum_tp1_atr") or 0.0) / n_tp1) if n_tp1 > 0 else 0.0
+                        tp1_str = f" | TP1: {avg_tp1:.2f}ATR" if avg_tp1 > 0 else ""
+                        tprof_parts.append(
+                            f"{html.escape(str(k))}:{v} | WR: {wr_p:.1f}% | PnL: {pnl_p:+.2f}{tp1_str}"
+                        )
+                    else:
+                        tprof_parts.append(f"{html.escape(str(k))}:{v}")
+                trailing_lines.append(f"Trade Profiles:\n<b>" + "\n".join([f"  • {p}" for p in tprof_parts]) + "</b>")
+                has_trailing_info = True
+
             reg_stats = m.get("regime_stats") or {}
             if reg_stats:
                 reg_top = sorted(reg_stats.items(), key=lambda kv: kv[1]["count"], reverse=True)
@@ -2356,6 +2405,24 @@ class PeriodicReporter:
                     if fees_ratio > 0.8 and abs(total_pnl) > EPS else []
                 ),
             ])
+
+            # === Corrected view (bug 2026-05-14 double-add fix) ===
+            # When historical INITIAL_SL trades have |pnl_gross| > 1.5 × theoretical_loss,
+            # they were double-counted (-2R instead of -1R). Show honest corrected totals
+            # alongside raw so operators can see real edge after the bug fix.
+            _isl_corrected_n = int(m.get("initial_sl_corrected_count", 0))
+            if _isl_corrected_n > 0:
+                _gross_corr = float(m.get("total_pnl_gross_corrected", 0.0))
+                _net_corr = float(m.get("total_pnl_net_corrected", 0.0))
+                _delta_net = _net_corr - total_pnl
+                sections.extend([
+                    "",
+                    "<b>🔧 Corrected view (bug 2026-05-14 fix)</b>",
+                    f"INITIAL_SL trades corrected: <b>{_isl_corrected_n}</b>/<b>{total}</b> (had pre-fix double-count)",
+                    f"P/L net: <b>{total_pnl:+.2f}</b> raw → <b>{_net_corr:+.2f}</b> corrected  (Δ <b>{_delta_net:+.2f}$</b>)",
+                    f"P/L gross: <b>{total_pnl_gross:+.2f}</b> raw → <b>{_gross_corr:+.2f}</b> corrected",
+                    "<i>Corrected = honest pre-bug accounting: every INITIAL_SL = −1 × (lot × |entry−sl|). Use this view for historical PnL truth.</i>",
+                ])
 
             # === OF Confirm Stats (NEW) ===
             of_confirm_stats = m_shadow.get("of_confirm_stats", m.get("of_confirm_stats", {}))

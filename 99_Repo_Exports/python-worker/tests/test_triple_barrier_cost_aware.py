@@ -118,7 +118,12 @@ def test_short_tp_hit_with_cost_consistent():
 # ---------------------------------------------------------------------------
 
 def test_timeout_closes_at_last_tick():
-    """No TP/SL hit → TIMEOUT, realized_close = last signed_bps."""
+    """No TP/SL hit → TIMEOUT, realized_close = last signed_bps.
+
+    STRICT semantic: TIMEOUT is NEVER y_edge_cost_aware=1 even if edge_after_cost > 0,
+    because the label gates on TP_HIT (aligned with legacy y_edge). TIMEOUT-positive
+    cases carry close-assumption risk and are excluded.
+    """
     spec = BarrierSpec(h_ms=1000, tp_bps=50.0, sl_bps=50.0, cost_bps=1.0)
     # Path stays in [-5, +5] bps — never hits ±50 barriers
     path = [(0, 100.0), (100, 100.03), (500, 100.05), (900, 100.02)]
@@ -127,8 +132,9 @@ def test_timeout_closes_at_last_tick():
     assert r.outcome == BarrierOutcome.TIMEOUT
     # last sb ≈ 2 bps
     assert abs(r.realized_close_bps - 2.0) < 0.01
-    # edge_after_cost = 2 - 1 = 1 bps → positive, label 1
-    assert r.y_edge_cost_aware == 1
+    # edge_after_cost = 2 - 1 = 1 bps (positive), BUT strict gates on TP_HIT → y=0
+    assert abs(r.edge_after_cost_bps - 1.0) < 0.01
+    assert r.y_edge_cost_aware == 0
 
 
 def test_timeout_negative_close_zero_label():

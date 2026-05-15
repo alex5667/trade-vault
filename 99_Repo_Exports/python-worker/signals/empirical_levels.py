@@ -196,7 +196,7 @@ class EmpiricalLevelsConfig:
             min_samples=_env_int("LEVELS_EMPIRICAL_MIN_SAMPLES", 80),
             blend_alpha=_clamp(_env_float("LEVELS_EMPIRICAL_BLEND_ALPHA", 0.7), 0.0, 1.0),
 
-            tp1_min_rr=_env_float("LEVELS_EMPIRICAL_TP1_MIN_RR", 1.1),
+            tp1_min_rr=_env_float("LEVELS_EMPIRICAL_TP1_MIN_RR", 1.15),
 
             tp1_atr_min=_env_float("LEVELS_EMPIRICAL_TP1_ATR_MIN", 0.35),
             tp1_atr_max=_env_float("LEVELS_EMPIRICAL_TP1_ATR_MAX", 2.00),

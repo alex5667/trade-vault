@@ -310,6 +310,15 @@ def compute_levels(
                 rr = (m * atr) / stop_dist if stop_dist > 0 else 0.0
                 rr_list.append(rr)
 
+            # Floor: TP1 не может быть ближе, чем TP1_MIN_RR_FLOOR × stop_dist
+            # (аналог rocket_v1, но для всех ATR-профилей)
+            _min_rr_floor = _f(_cfg_get(cfg, "TP1_MIN_RR_FLOOR", "tp1_min_rr_floor", default=1.0), 1.0)
+            if _min_rr_floor > 0 and stop_dist > 0 and tps:
+                tp1_dist = abs(tps[0] - entry)
+                if tp1_dist < stop_dist * _min_rr_floor:
+                    tps[0] = entry + sgn * stop_dist * _min_rr_floor
+                    rr_list[0] = _min_rr_floor
+
             # Опциональное переопределение TP1 даже в режиме ATR:
             if tp1_dist_override is not None:
                 try:
