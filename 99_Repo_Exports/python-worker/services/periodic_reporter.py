@@ -1185,6 +1185,14 @@ class PeriodicReporter:
             if is_final not in ("1", "true", "True"):
                 continue
 
+            # Count opened-in-window (by entry_ts_ms)
+            try:
+                _ets = int(float(t.get("entry_ts_ms") or t.get("open_time") or 0))
+                if _ets > 0 and _ets >= cutoff_ms:
+                    m["opened_in_window"] = m.get("opened_in_window", 0) + 1
+            except Exception:
+                pass
+
             # Use the proper accumulation method that handles TRAILING_PROFIT as TP
             if not self._is_trade_virtual(t):
                 self._accumulate_trade_metrics(m, t)
@@ -1791,20 +1799,13 @@ class PeriodicReporter:
             # User Req 3: "pnl_net artificially lowered?" check
             # We trust TradeMetricsService accumulation which usually does pnl_gross = (exit-entry)*lot.
 
-            pnl_gross_calc = total_pnl + fees  # Expected 'gross' if 'total_pnl' is truly net
+            # fees_bps: round-trip commission rate in basis points of notional.
+            # Stable ~6 bps for Binance Maker; spikes if commission setup is wrong.
+            fees_bps = (fees / total_notional * 10_000) if total_notional > EPS else 0.0
 
-            # If total_pnl_gross (from source) is approx total_pnl, it means likely source 'pnl_gross' was polluted with net value.
-            # But normally we accumulate distinct fields.
-
-            fees_ratio = abs(fees / total_pnl) if abs(total_pnl) > EPS else 0.0
-
-            # Invariant check for audit log (invisible to user unless warn)
-            if abs(total_pnl_gross - pnl_gross_calc) > 1.0 and abs(total_pnl_gross) > 10.0:
-                 # Discrepancy: Collected Gross != Calc Gross
-                 # This implies either:
-                 # 1. pnl_gross in DB is same as pnl_net (already net)
-                 # 2. significant math drift
-                 pass
+            # fees_to_gross_pct: what fraction of gross wins was consumed by commissions.
+            # >50% means commissions eat the edge; independent of whether the window is net +/-.
+            fees_to_gross_pct = (fees / gross_profit * 100.0) if gross_profit > EPS else 0.0
 
             gross_profit = float(m["gross_profit"])
             if gross_loss > EPS:
@@ -1878,13 +1879,6 @@ class PeriodicReporter:
             sh = float(m.get("sharpe_like_trades", 0.0))
             so = float(m.get("sortino_like_trades", 0.0))
             mdd_net = float(m.get("max_drawdown_usd", 0.0))
-            calmar = m.get("calmar_like_ret", 0.0)
-            calmar_num = float(calmar) if isinstance(calmar, (int, float)) else 0.0
-            calmar_str = f"{calmar_num:.2f}" if math.isfinite(calmar_num) else ("inf" if calmar == float("inf") else "0.00")
-
-            iqr_ret = float(m.get("iqr_ret", 0.0))
-            mad_ret_s = float(m.get("mad_ret_scaled", 0.0))
-
             min_es = int(os.getenv("PERIODIC_REPORT_MIN_TRADES_FOR_ES", "20"))
 
             bad_ts_sec = int(m.get("bad_ts_sec", 0))
@@ -2091,11 +2085,17 @@ class PeriodicReporter:
                 "",
                 "<b>📐 Setup Stats (ATR)</b>",
                 f"Avg SL: <b>{float(m.get('avg_sl_atr', 0.0)):.2f} ATR</b> | Avg TP1: <b>{float(m.get('avg_tp_atr', 0.0)):.2f} ATR</b>"
-                + (f" | RR(SL/TP1): <b>{float(m.get('avg_sl_atr', 0.0)) / max(float(m.get('avg_tp_atr', 0.0)), 1e-9):.2f}</b> ⚠️" if float(m.get('avg_sl_atr', 0.0)) > float(m.get('avg_tp_atr', 0.0)) > 0 else (f" | RR(SL/TP1): <b>{float(m.get('avg_sl_atr', 0.0)) / max(float(m.get('avg_tp_atr', 0.0)), 1e-9):.2f}</b>" if float(m.get('avg_tp_atr', 0.0)) > 0 else "")),
+                + (
+                    # RR displayed as TP1/SL (conventional: higher = better). Warn if SL > TP1.
+                    (f" | RR(TP1/SL): <b>{float(m.get('avg_tp_atr', 0.0)) / max(float(m.get('avg_sl_atr', 0.0)), 1e-9):.2f}</b> ⚠️ (SL&gt;TP1)"
+                     if float(m.get('avg_sl_atr', 0.0)) > float(m.get('avg_tp_atr', 0.0)) > 0 else
+                     f" | RR(TP1/SL): <b>{float(m.get('avg_tp_atr', 0.0)) / max(float(m.get('avg_sl_atr', 0.0)), 1e-9):.2f}</b>")
+                    if float(m.get('avg_tp_atr', 0.0)) > 0 and float(m.get('avg_sl_atr', 0.0)) > 0 else ""
+                ),
                 *(
                     [f"Avg TP_final (furthest hit): <b>{float(m.get('avg_tp_final_atr', 0.0)):.2f} ATR</b>"
-                    + (f" | RR(SL/TP_final): <b>{float(m.get('avg_sl_atr', 0.0)) / max(float(m.get('avg_tp_final_atr', 0.0)), 1e-9):.2f}</b>"
-                       if float(m.get('avg_tp_final_atr', 0.0)) > 0 else "")]
+                    + (f" | RR(TP_final/SL): <b>{float(m.get('avg_tp_final_atr', 0.0)) / max(float(m.get('avg_sl_atr', 0.0)), 1e-9):.2f}</b>"
+                       if float(m.get('avg_tp_final_atr', 0.0)) > 0 and float(m.get('avg_sl_atr', 0.0)) > 0 else "")]
                     if float(m.get('avg_tp_final_atr', 0.0)) > 0 else []
                 ),
                 "",
@@ -2397,12 +2397,13 @@ class PeriodicReporter:
                 f"Min PnL: <b>{min_pnl_str}</b> | Max PnL: <b>{max_pnl_str}</b>",
                 f"Пропущено fees: <b>{int(m['missing_fees_count'])}</b> | Пропущено duration: <b>{int(m['missing_duration_count'])}</b>",
                 *(
-                    [f"💰 P/L gross: <b>{total_pnl_gross:+.2f}</b> | Fees ratio: <b>{fees_ratio:.2f}x</b>"]
-                    if total_pnl_gross != 0.0 or fees_ratio > 0.5 else []
+                    [f"💰 P/L gross: <b>{total_pnl_gross:+.2f}</b> | Fees: <b>{fees_bps:.1f} bps</b> of turnover"
+                     + (f" | <b>{fees_to_gross_pct:.1f}%</b> of gross profit" if fees_to_gross_pct > 0 else "")]
+                    if total_pnl_gross != 0.0 or fees_bps > 0 else []
                 ),
                 *(
-                    ["⚠️ <i>Внимание: Fees сопоставимы с P/L net. Проверьте расчет комиссий относительно размера позиции.</i>"]
-                    if fees_ratio > 0.8 and abs(total_pnl) > EPS else []
+                    [f"⚠️ <i>Fees {fees_to_gross_pct:.0f}% of gross profit — комиссии поглощают значительную часть edge.</i>"]
+                    if fees_to_gross_pct > 50.0 and gross_profit > EPS else []
                 ),
             ])
 

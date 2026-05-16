@@ -656,6 +656,16 @@ def main() -> int:
     oof_mask = np.isfinite(oof_preds)
     calibrator = _build_r_to_conf01_isotonic(y[oof_mask], oof_preds[oof_mask])
 
+    # Section 8 prod-checklist guard: model.n_features_in_ must match
+    # len(feature_names) — otherwise the saved artifact will fail-closed
+    # in MLScoringGate runtime check. Fail loudly here at train time.
+    _n_in = getattr(model, "n_features_in_", None)
+    if _n_in is not None and int(_n_in) != len(feature_names):
+        raise RuntimeError(
+            f"model.n_features_in_={_n_in} != len(feature_names)={len(feature_names)} — "
+            "training pipeline is out of sync with feature schema. Refusing to save artifact."
+        )
+
     # 10. Package and save as CANDIDATE (not yet promoted)
     out_pack: dict[str, Any] = {
         "schema_version": 2,

@@ -459,6 +459,48 @@ redis_errors_total = _get_or_create_prom_counter(
     ["op", "symbol"]
 )
 
+ml_p7_feature_zero_total = _get_or_create_prom_counter(
+    "ml_p7_feature_zero_total",
+    "Phase 7 P1 feature resolved to zero (missing/unavailable input) by feature and symbol",
+    ["feature", "symbol"],
+)
+
+# Section 6: Schema telemetry — emitted once per model load.
+# Allows Grafana to track which schema_hash + model_ver pair is active.
+ml_feature_schema_version_total = _get_or_create_prom_counter(
+    "ml_feature_schema_version_total",
+    "ML feature schema loaded — count by schema_hash and model_ver",
+    ["schema_hash", "model_ver"],
+)
+
+# Section 6: Vector size integrity — emitted per scoring call where the
+# extracted feature count does not match model.n_features_in_.
+ml_feature_vector_size_mismatch_total = _get_or_create_prom_counter(
+    "ml_feature_vector_size_mismatch_total",
+    "ML feature vector size mismatch (extracted != model expected) per scoring call",
+    ["expected", "got", "model_ver"],
+)
+
+# Section 6: Abstain telemetry — emitted whenever the ML scorer declines to
+# produce a confidence (model missing, schema mismatch, predict failure, etc.).
+# reason: no_model | schema_mismatch | feature_extraction_failed | predict_failed
+ml_abstain_total = _get_or_create_prom_counter(
+    "ml_abstain_total",
+    "ML scorer abstain events by reason and symbol",
+    ["reason", "symbol"],
+)
+
+# Section 6: p_edge distribution — observed on every successful ML scoring call.
+# Use _histogram_quantile() in Grafana for live percentile tracking;
+# ECE / Brier / Precision@TopK require post-outcome reconciliation and are
+# emitted by the outcome tracker (separate pipeline).
+ml_p_edge_bucket = _get_or_create_prom_histogram(
+    "ml_p_edge",
+    "Distribution of conf01 (p_edge) values produced by the ML scorer",
+    ["model_ver"],
+    buckets=(0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.95),
+)
+
 # Note: histograms are expensive, use separate buckets if critical,
 # or just rely on logs/indicators for distribution analysis.
 

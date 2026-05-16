@@ -176,7 +176,7 @@ def build_feature_vector(
     rule_have: int,
     rule_need: int,
     cancel_spike_veto: int,
-    schema_ver: int | None = None,
+    schema_ver: int | str | None = None,
 ) -> tuple[list[float], list[str]]:
     """
     Deterministic feature builder. Must be stable across versions.
@@ -281,9 +281,10 @@ def build_feature_vector(
     # NOTE: these are appended to the end of the schema to preserve
     # V1 compatibility for already-deployed models.
     # -----------------------------------------------------------------
+    sv_int: int
     try:
-        sv_int = schema_ver if schema_ver is not None else _schema_ver_from_env()
-    except ValueError:
+        sv_int = int(schema_ver) if schema_ver is not None else _schema_ver_from_env()
+    except (ValueError, TypeError):
         sv_int = 3
     sv = max(1, min(3, sv_int))
 

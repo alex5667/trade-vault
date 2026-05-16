@@ -387,3 +387,24 @@ fatal: Could not read from remote repository.
 Please make sure you have the correct access rights
 and the repository exists.
 2026-05-14 05:45:02 - Синхронизация завершена успешно.
+[main f3d4c4d2] Auto-sync vault notes 2026-05-15 05:45:01
+ 37 files changed, 7187 insertions(+), 146 deletions(-)
+ create mode 100644 99_Automation/logs/update_2026-05-15_03-37-00.log
+ create mode 100644 99_Repo_Exports/python-worker/orderflow_services/dq_calibration_publisher_v1.py
+ create mode 100644 99_Repo_Exports/python-worker/orderflow_services/dq_gate_calibrator_v1.py
+ create mode 100644 99_Repo_Exports/python-worker/orderflow_services/liqmap_gate_calibrator_v1.py
+ create mode 100644 99_Repo_Exports/python-worker/orderflow_services/meta_model_calibrator_v1.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/orderflow_services/test_liqmap_gate_calibrator_v1.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_pnl_backfill_patch_v1.py
+ create mode 100644 99_Repo_Exports/python-worker/tools/calibrate_meta_lr_v1.py
+ create mode 100644 99_Repo_Exports/python-worker/tools/ml_drift_monitor_v14_of.py
+ create mode 100644 99_Repo_Exports/python-worker/tools/nightly_v14_of_train_bundle.py
+ create mode 100644 99_Repo_Exports/python-worker/tools/pnl_backfill_patch_v1.py
+ create mode 100644 99_Repo_Exports/python-worker/tools/v14_of_auto_promote.py
+ create mode 100644 99_Repo_Exports/python-worker/tools/v14_of_train_metrics_exporter.py
+git@github.com: Permission denied (publickey).
+fatal: Could not read from remote repository.
+
+Please make sure you have the correct access rights
+and the repository exists.
+2026-05-15 05:45:02 - Синхронизация завершена успешно.

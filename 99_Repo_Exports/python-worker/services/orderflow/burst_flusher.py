@@ -173,7 +173,7 @@ class BurstFlusher:
                 preprocess_signal_for_publish(
                     out,
                     symbol=runtime.symbol,
-                    source="crypto_orderflow_service",
+                    source="CryptoOrderFlow",
                     logger=logger,
                     fast_path=False,
                 )

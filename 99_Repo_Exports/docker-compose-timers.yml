@@ -1945,6 +1945,55 @@ services:
     - scanner-timers
     - scanner-infra
 
+  meta-model-calibrator-v1-daemon:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile.gpu
+    container_name: scanner-meta-model-calibrator-v1-daemon
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '0.30'
+          memory: 512M
+        reservations:
+          memory: 64M
+    environment:
+    - REDIS_URL=${REDIS_URL:-redis://redis-worker-1:6379/0}
+    - REDIS_MAIN_URL=${REDIS_MAIN_URL:-redis://redis:6379/0}
+    - PYTHONPATH=.:/app
+    - PYTHONUNBUFFERED=1
+    - V14_CAL_DAEMON=1
+    - V14_CAL_APPLY=1
+    - V14_CAL_ENFORCE=1
+    - V14_CAL_COOLDOWN_SEC=${V14_CAL_COOLDOWN_SEC:-21600}
+    - V14_INPUTS_STREAM=signals:of:inputs
+    - V14_LABELS_STREAM=labels:tb
+    - V14_CHAMPION_KEY=${CHAMPION_KEY:-cfg:ml_confirm:champion}
+    - V14_CAL_KEY=${CAL_KEY:-cfg:ml_confirm:v14_of:calibrator}
+    - V14_CAL_OUT_DIR=/var/lib/trade/of_reports/models
+    - V14_CAL_STATE_PATH=/var/lib/trade/of_reports/meta_model_calibrator_state.json
+    - V14_CAL_MIN_AUC=${V14_CAL_MIN_AUC:-0.62}
+    - V14_CAL_MAX_ECE=${V14_CAL_MAX_ECE:-0.10}
+    - V14_CAL_MAX_BRIER=${V14_CAL_MAX_BRIER:-0.22}
+    - V14_CAL_MIN_N=${V14_CAL_MIN_N:-200}
+    - V14_CAL_SHADOW_MIN_HOURS=${V14_CAL_SHADOW_MIN_HOURS:-48}
+    - V14_CAL_PROM_PORT=9842
+    - NOTIFY_STREAM=${NOTIFY_STREAM:-notify:telegram}
+    - RECS_HMAC_SECRET=${RECS_HMAC_SECRET:-CHANGE_ME_LONG_RANDOM}
+    - TZ=UTC
+    working_dir: /app
+    volumes:
+    - ./python-worker:/app
+    - /var/lib/trade/of_reports:/var/lib/trade/of_reports
+    expose:
+    - "9842"
+    command: "sh -c \"sleep 10 && python3 -m orderflow_services.meta_model_calibrator_v1\
+      \ --daemon 1 --apply 1 --enforce 1\"\n"
+    networks:
+    - scanner-timers
+    - scanner-infra
+
   confidence-calibrator-nightly-timer:
     build:
       context: .
@@ -4809,6 +4858,47 @@ services:
     networks:
     - scanner-timers
     - scanner-infra
+  liqmap-gate-calibrator-v1-daemon:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile.gpu
+    container_name: scanner-liqmap-gate-calibrator-v1-daemon
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '0.20'
+          memory: 256M
+        reservations:
+          memory: 32M
+    environment:
+    - LIQMAP_CAL_REDIS_URL=${REDIS_URL:-redis://redis-worker-1:6379/0}
+    - LIQMAP_CAL_REDIS_MAIN_URL=${REDIS_MAIN_URL:-redis://redis:6379/0}
+    - PYTHONPATH=.:/app
+    - PYTHONUNBUFFERED=1
+    - LIQMAP_CAL_APPLY=1
+    - LIQMAP_CAL_ENABLE=1
+    - LIQMAP_CAL_INTERVAL_SEC=${LIQMAP_CAL_INTERVAL_SEC:-3600}
+    - LIQMAP_CAL_SINCE_HOURS=${LIQMAP_CAL_SINCE_HOURS:-168}
+    - LIQMAP_CAL_MIN_SHADOW_HOURS=${LIQMAP_CAL_MIN_SHADOW_HOURS:-48}
+    - LIQMAP_CAL_MIN_VETO_N=${LIQMAP_CAL_MIN_VETO_N:-10}
+    - LIQMAP_CAL_MIN_PRECISION=${LIQMAP_CAL_MIN_PRECISION:-0.55}
+    - LIQMAP_CAL_MIN_R_DELTA=${LIQMAP_CAL_MIN_R_DELTA:-0.25}
+    - LIQMAP_CAL_COOLDOWN_SEC=${LIQMAP_CAL_COOLDOWN_SEC:-86400}
+    - LIQMAP_CAL_STATE_PATH=/var/lib/trade/of_reports/liqmap_cal_state.json
+    - NOTIFY_STREAM=${NOTIFY_STREAM:-notify:telegram}
+    - RECS_HMAC_SECRET=${RECS_HMAC_SECRET:-CHANGE_ME_LONG_RANDOM}
+    - TZ=UTC
+    working_dir: /app
+    volumes:
+    - ./python-worker:/app
+    - /var/lib/trade/of_reports:/var/lib/trade/of_reports
+    command: "sh -c \"sleep 10 && python3 -m orderflow_services.liqmap_gate_calibrator_v1\"\
+      \n"
+    networks:
+    - scanner-timers
+    - scanner-infra
+
   ml-confirm-gate-calibrator-timer:
     build:
       context: .
@@ -4950,6 +5040,82 @@ services:
     networks:
     - scanner-timers
     - scanner-infra
+  dq-gate-calibrator-v1-nightly-timer:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile.gpu
+    container_name: scanner-dq-gate-calibrator-v1-nightly-timer
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '0.30'
+          memory: 512M
+        reservations:
+          memory: 32M
+    environment:
+    - REDIS_URL=${REDIS_URL:-redis://redis-worker-1:6379/0}
+    - REDIS_MAIN_URL=${REDIS_MAIN_URL:-redis://redis:6379/0}
+    - PYTHONPATH=.:/app
+    - PYTHONUNBUFFERED=1
+    - V14_INPUTS_STREAM=signals:of:inputs
+    - V14_LABELS_STREAM=labels:tb
+    - V14_DQ_CAL_APPLY=1
+    - V14_DQ_CAL_OUT_DIR=/var/lib/trade/of_reports/dq_calibration
+    - V14_DQ_CAL_STATE_PATH=/var/lib/trade/of_reports/dq_gate_calibrator_state.json
+    - V14_DQ_CAL_MIN_N_RECORDS=${V14_DQ_CAL_MIN_N_RECORDS:-500}
+    - V14_DQ_CAL_MIN_N_JOINED=${V14_DQ_CAL_MIN_N_JOINED:-100}
+    - V14_DQ_CAL_BLEND_ALPHA=${V14_DQ_CAL_BLEND_ALPHA:-0.30}
+    - V14_DQ_CAL_MAX_WEIGHT_CHANGE=${V14_DQ_CAL_MAX_WEIGHT_CHANGE:-0.35}
+    - NOTIFY_STREAM=${NOTIFY_STREAM:-notify:telegram}
+    - TZ=UTC
+    working_dir: /app
+    volumes:
+    - ./python-worker:/app
+    - /var/lib/trade/of_reports:/var/lib/trade/of_reports
+    command: "sh -c \"sleep 5 && while true; do\n  HOUR=$$(date +%-H);\n  MIN=$$(date\
+      \ +%-M);\n  if [ \\\"$$HOUR\\\" -eq 4 ] && [ \\\"$$MIN\\\" -ge 45 ] && [ \\\"\
+      $$MIN\\\" -lt 59 ]; then\n    echo '[dq-gate-cal-v1] Running DQ Gate Calibrator\
+      \ v1...';\n    python3 -m orderflow_services.dq_gate_calibrator_v1 --apply 1;\n\
+      \    echo '[dq-gate-cal-v1] Done. Sleeping 23h...';\n    sleep 82800;\n  else\n\
+      \    sleep 60;\n  fi\ndone\"\n"
+    networks:
+    - scanner-timers
+    - scanner-infra
+
+  dq-cal-publisher-v1-timer:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile.gpu
+    container_name: scanner-dq-cal-publisher-v1-timer
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '0.10'
+          memory: 128M
+        reservations:
+          memory: 16M
+    environment:
+    - REDIS_URL=${REDIS_URL:-redis://redis-worker-1:6379/0}
+    - REDIS_MAIN_URL=${REDIS_MAIN_URL:-redis://redis:6379/0}
+    - PYTHONPATH=.:/app
+    - PYTHONUNBUFFERED=1
+    - V14_DQ_CAL_PUBLISHER_APPLY=1
+    - V14_DQ_CAL_KEY=cfg:dq_gate:v1:calibration
+    - NOTIFY_STREAM=${NOTIFY_STREAM:-notify:telegram}
+    - TZ=UTC
+    working_dir: /app
+    volumes:
+    - ./python-worker:/app
+    command: "sh -c \"sleep 30 && while true; do\n  echo '[dq-cal-publisher] Applying\
+      \ DQ Gate calibration to dynamic_cfg...';\n  python3 -m orderflow_services.dq_calibration_publisher_v1\
+      \ --apply 1;\n  echo '[dq-cal-publisher] Done. Sleeping 2h...';\n  sleep 7200;\n\
+      done\"\n"
+    networks:
+    - scanner-timers
+    - scanner-infra
+
   research-guard-calibrator-timer:
     build:
       context: .

@@ -113,6 +113,7 @@ def extract_trade_labels(tr: dict[str, Any]) -> dict[str, Any]:
         "pnl": _f(tr.get("pnl", 0.0)),
         "risk_usd": _f(tr.get("risk_usd", 0.0)),
         "close_reason": str(meta.get("close_reason", "") or tr.get("close_reason", "") or ""),
+        "is_virtual": _i(tr.get("is_virtual", 0)),
     }
 
 
@@ -135,10 +136,13 @@ def main() -> None:
     ap.add_argument("--pos-th", type=float, default=0.5, help="good label if r_mult >= pos_th")
     ap.add_argument("--neg-th", type=float, default=-0.5, help="bad label if r_mult <= neg_th")
     ap.add_argument("--min-n", type=int, default=200, help="fail if dataset smaller than this (quality gate)")
+    ap.add_argument("--include-virtual", action="store_true", default=False,
+                    help="include virtual/paper trades in dataset (default: excluded)")
     args = ap.parse_args()
 
     trade_idx = build_trade_index(args.trades)
     written = 0
+    skipped_virtual = 0
 
     with open(args.out, "w", encoding="utf-8") as f:
         for rr in iter_ndjson(args.replay):
@@ -147,6 +151,10 @@ def main() -> None:
                 continue
             tr = trade_idx.get(sid)
             if not tr:
+                continue
+
+            if not args.include_virtual and _i(tr.get("is_virtual", 0)) == 1:
+                skipped_virtual += 1
                 continue
 
             feat = extract_features(rr)
@@ -159,6 +167,8 @@ def main() -> None:
             f.write(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n")
             written += 1
 
+    if skipped_virtual:
+        print(f"skipped_virtual={skipped_virtual}")
     if written < args.min_n:
         raise SystemExit(f"dataset_too_small written={written} < min_n={args.min_n}")
 

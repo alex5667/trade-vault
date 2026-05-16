@@ -264,6 +264,12 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "dn_tier0_usd": _safe_float(os.getenv("DN_TIER0_USD", "30000.0"), 30000.0),
     "dn_tier1_usd": _safe_float(os.getenv("DN_TIER1_USD", "70000.0"), 70000.0),
     "dn_tier2_usd": _safe_float(os.getenv("DN_TIER2_USD", "150000.0"), 150000.0),
+    # --- Exec-risk reference (env-overridable, hot-reload via Redis also supported) ---
+    # exec_risk_ref_bps: realistic spread+slip budget. Overrides dist_bp_threshold in exec_ref calc.
+    # Symbol defaults: BTC/ETH≈30, SOL/BNB≈35, meme≈60. 0 = fall back to dist_bp_threshold.
+    "exec_risk_ref_bps": _safe_float(os.getenv("EXEC_RISK_REF_BPS", "0"), 0.0),
+    # exec_risk_ref_mult: multiplier on top of exec_risk_ref_bps (or dist_bp_threshold fallback).
+    "exec_risk_ref_mult": _safe_float(os.getenv("EXEC_RISK_REF_MULT", "1.0"), 1.0),
 }
 
 # Maximum number of symbols per pipeline chunk.  Smaller chunks stay well under
@@ -407,7 +413,7 @@ class OrderFlowConfigLoader:
                 "cancel_spike_z_th": getattr(base_cfg, "cancel_spike_z_th", 3.5),
                 "cancel_spike_min_taker_rate": getattr(base_cfg, "cancel_spike_min_taker_rate", 0.0),
                 # Round 7 V4 & Exec Risk
-                "exec_risk_ref_bps": getattr(base_cfg, "exec_risk_ref_bps", 12.0),
+                "exec_risk_ref_bps": getattr(base_cfg, "exec_risk_ref_bps", 30.0),
                 "scenario_v4_enable": getattr(base_cfg, "scenario_v4_enable", False),
                 "of_score_min_range": getattr(base_cfg, "of_score_min_range", None),
                 "ofc_ctx_enable": getattr(base_cfg, "ofc_ctx_enable", False),

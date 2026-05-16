@@ -236,7 +236,9 @@ class MLScoringGate:
                 "feature_schema_version", pack.get("schema_version", 0)
             )
             self._feature_schema_ver = (pack.get("feature_schema_ver", "")).lower().strip()
-            self._feature_hash = pack.get("feature_hash", "")
+            # Training tooling writes `feature_cols_hash` (sha256_16 of feature_names list).
+            # Legacy artifacts may still use `feature_hash`. Read both.
+            self._feature_hash = pack.get("feature_cols_hash") or pack.get("feature_hash") or ""
 
             metrics = pack.get("metrics", {})
             logger.info(
@@ -246,6 +248,15 @@ class MLScoringGate:
                 metrics.get("r2_oof", -1),
                 metrics.get("spearman_oof", -1),
             )
+            try:
+                from services.orderflow.metrics import ml_feature_schema_version_total
+                _schema_hash = self._feature_hash or "unknown"
+                _model_ver = str(pack.get("feature_schema_ver") or pack.get("kind") or "unknown")
+                ml_feature_schema_version_total.labels(
+                    schema_hash=_schema_hash, model_ver=_model_ver
+                ).inc()
+            except Exception:
+                pass
             return True
 
         except Exception as e:
@@ -528,38 +539,53 @@ class MLScoringGate:
         """
         parts: dict[str, Any] = {"scorer": "ml_v2"}
 
+        # Lazy import — single import block reused for all abstain branches.
+        from services.orderflow.metrics import (
+            ml_abstain_total,
+            ml_feature_mismatch_total,
+            ml_feature_vector_size_mismatch_total,
+            ml_scorer_latency_ms,
+            ml_scorer_status_total,
+        )
+        _sym = getattr(ctx, "symbol", "unknown") if ctx is not None else "unknown"
+
         if not self._ensure_model():
             parts["ml_status"] = "model_unavailable"
+            ml_abstain_total.labels(reason="no_model", symbol=_sym).inc()
             return None, parts
 
         if ctx is None:
             parts["ml_status"] = "no_context"
+            ml_abstain_total.labels(reason="no_context", symbol=_sym).inc()
             return None, parts
 
         # Extract features
         raw_features = self._extract_features(ctx, side)
         if raw_features is None:
             parts["ml_status"] = "feature_extraction_failed"
+            ml_abstain_total.labels(reason="feature_extraction_failed", symbol=_sym).inc()
             return None, parts
-
-        from services.orderflow.metrics import ml_feature_mismatch_total, ml_scorer_latency_ms, ml_scorer_status_total
         t0 = time.monotonic_ns()
 
-        # Schema matching
-        schema_mismatch = False
+        # Schema matching (a.k.a. n_features_in_ runtime check)
         if len(raw_features) != len(self._feature_names):
-            schema_mismatch = True
             model_ver = str(self._pack.get("kind", "unknown")) if self._pack else "unknown"
             schema_ver = str(getattr(self, "_feature_schema_version", 0))
             ml_feature_mismatch_total.labels(
-                symbol=getattr(ctx, "symbol", "unknown"),
+                symbol=_sym,
                 model_ver=model_ver,
                 schema_ver=schema_ver
             ).inc()
+            ml_feature_vector_size_mismatch_total.labels(
+                expected=str(len(self._feature_names)),
+                got=str(len(raw_features)),
+                model_ver=model_ver,
+            ).inc()
+            ml_abstain_total.labels(reason="schema_mismatch", symbol=_sym).inc()
             logger.error("MLScoringGate schema mismatch: extracted features do not match model expectations (fail-closed)")
             parts["ml_status"] = "schema_mismatch"
-            ml_scorer_status_total.labels(symbol=getattr(ctx, "symbol", "unknown"), status="fail-closed", mode="enforce").inc()
-            ml_scorer_latency_ms.labels(symbol=getattr(ctx, "symbol", "unknown"), status="fail-closed").observe((time.monotonic_ns() - t0) / 1_000_000.0)
+            ml_scorer_status_total.labels(symbol=_sym, status="fail-closed", mode="enforce").inc()
+            ml_scorer_latency_ms.labels(symbol=_sym, status="fail-closed").observe((time.monotonic_ns() - t0) / 1_000_000.0)
 
             # FAIL CLOSED: We return (0.0, parts) to explicitly reject the trade instead of None (which triggers rule-based fail-open)
             return 0.0, parts
@@ -571,12 +597,21 @@ class MLScoringGate:
         predicted_r = self._predict_r(scaled_features)
         if predicted_r is None:
             parts["ml_status"] = "predict_failed"
-            ml_scorer_status_total.labels(symbol=getattr(ctx, "symbol", "unknown"), status="fail-open", mode="enforce").inc()
-            ml_scorer_latency_ms.labels(symbol=getattr(ctx, "symbol", "unknown"), status="fail-open").observe((time.monotonic_ns() - t0) / 1_000_000.0)
+            ml_abstain_total.labels(reason="predict_failed", symbol=_sym).inc()
+            ml_scorer_status_total.labels(symbol=_sym, status="fail-open", mode="enforce").inc()
+            ml_scorer_latency_ms.labels(symbol=_sym, status="fail-open").observe((time.monotonic_ns() - t0) / 1_000_000.0)
             return None, parts
 
         # Calibrate to conf01
         conf01 = self._calibrate_to_conf01(predicted_r)
+
+        # Section 6 telemetry: emit p_edge distribution histogram.
+        try:
+            from services.orderflow.metrics import ml_p_edge_bucket
+            _ver = getattr(self, "_feature_schema_ver", "") or "unknown"
+            ml_p_edge_bucket.labels(model_ver=_ver).observe(conf01)
+        except Exception:
+            pass
 
         # Model metadata
         model_age_ms = get_ny_time_millis() - int(

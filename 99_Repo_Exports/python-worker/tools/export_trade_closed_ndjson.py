@@ -42,6 +42,14 @@ def _safe_float(x: Any, d: float = 0.0) -> float:
 
 
 def _safe_int(x: Any, d: int = 0) -> int:
+    if isinstance(x, bool):
+        return 1 if x else 0
+    if isinstance(x, str):
+        s = x.strip().lower()
+        if s in ("true", "yes", "on"):
+            return 1
+        if s in ("false", "no", "off", ""):
+            return 0
     try:
         return int(float(x))
     except Exception:
@@ -194,6 +202,7 @@ def export_stream(
                 "abs_lvl_tier": _safe_int(fields.get("abs_lvl_tier") or 0),
                 "of_confirm_ok": _safe_int(fields.get("of_confirm_ok") or 0),
                 "of_confirm_ok_soft": _safe_int(fields.get("of_confirm_ok_soft") or 0),
+                "is_virtual": _safe_int(fields.get("is_virtual") or 0),
                 # meta enforce fields (for ramp evaluation and Stage2 optimization)
                 "meta_enforce_applied": _safe_int(fields.get(MetaKeys.ENFORCE_APPLIED) or None),
                 "meta_veto": _safe_int(fields.get(MetaKeys.VETO) or meta.get(MetaKeys.VETO) or 0),
@@ -280,13 +289,14 @@ def export_from_postgres(*, pg_dsn: str, since_ms: int, out_path: str) -> int:
     since_ts_sec = since_ms / 1000.0
 
     sql = """
-        SELECT 
+        SELECT
             order_id, sid, symbol, direction,
             exit_ts_ms,
             pnl_net as pnl,
             one_r_money as risk_usd,
             r_multiple as r_mult,
-            config_json
+            config_json,
+            COALESCE(is_virtual, false) AS is_virtual
         FROM trades_closed
         WHERE exit_ts_ms >= %s
         ORDER BY exit_ts_ms ASC
@@ -333,6 +343,7 @@ def export_from_postgres(*, pg_dsn: str, since_ms: int, out_path: str) -> int:
                 "abs_lvl_tier": 0,
                 "of_confirm_ok": 0,
                 "of_confirm_ok_soft": 0,
+                "is_virtual": 1 if row.get("is_virtual") else 0,
                 "meta_enforce_applied": None,
                 "meta_veto": 0,
                 "meta_enforce_key": "",

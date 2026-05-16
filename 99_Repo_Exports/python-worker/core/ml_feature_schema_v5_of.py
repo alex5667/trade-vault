@@ -22,7 +22,7 @@ from dataclasses import dataclass
 
 from core.ml_feature_schema_v4_of import MLFeatureSchemaV4OF
 
-SCHEMA_HASH = "275eeb52b6ff"  # Phase 6: added atr_tf_ms, atr_stop_pct, atr_regime_pct, hold_target_ms_norm, alpha_half_life_ms_norm, vol_ratio_fast_slow, max_signal_age_ratio
+SCHEMA_HASH = "2db5bda868a6"  # Phase 7.6: +LOB velocity (8 slopes); Phase 7.7: +fill-queue lite (5 features)
 
 
 
@@ -104,12 +104,133 @@ class MLFeatureSchemaV5OF(MLFeatureSchemaV4OF):
             # max_signal_age_ratio: (now_ms - signal_ts_ms) / max_signal_age_ms
             #   0.0 = just generated, 1.0 = at expiry boundary, > 1.0 = stale
             "max_signal_age_ratio",
+
+            # ---------------------------------------------------------------
+            # [Phase 7] P1: Execution cost ratios — signal quality after cost
+            # All fail-open: 0.0 when inputs unavailable.
+            # ---------------------------------------------------------------
+            # exec_cost_to_tp1_ratio = (half_spread + slippage + fee) / tp1_bps
+            #   > 1.0 = trade cannot pay for itself even at TP1
+            "exec_cost_to_tp1_ratio",
+            # exec_cost_to_sl_ratio = (half_spread + slippage + fee) / sl_bps
+            #   high = risk:reward compressed by execution cost
+            "exec_cost_to_sl_ratio",
+            # exec_cost_to_atr_ratio = (half_spread + slippage + fee) / atr_bps
+            #   normalised by volatility: captures regime-adjusted cost burden
+            "exec_cost_to_atr_ratio",
+
+            # P1: Signal age — absolute and relative to alpha half-life
+            # signal_age_ms: ms since signal was generated (0 = fresh)
+            "signal_age_ms",
+            # signal_age_to_half_life = signal_age_ms / alpha_half_life_ms
+            #   > 1.0 = signal older than its expected useful lifetime
+            "signal_age_to_half_life",
+
+            # P1: Volatility dynamics from vol_ratio_fast_slow
+            # vol_expansion_score = max(0, vol_ratio_fast_slow - 1)
+            #   positive = fast vol accelerating above slow baseline
+            "vol_expansion_score",
+            # vol_compression_score = max(0, 1 - vol_ratio_fast_slow)
+            #   positive = fast vol compressing below slow baseline
+            "vol_compression_score",
+
+            # P1: Data quality / freshness signals (continuous, not hard gate)
+            # dq_score: 0..1 composite DQ health (1 = pristine, 0 = degraded)
+            "dq_score",
+            # dq_flag_count: 0-3 severity level of worst active DQ condition
+            "dq_flag_count",
+            # tick_lag_ms: ms since last valid tick (proxy for data freshness)
+            "tick_lag_ms",
+
+            # ---------------------------------------------------------------
+            # [Phase 7.2] Extended DQ — book freshness + CVD integrity
+            # ---------------------------------------------------------------
+            # book_age_ms: ms since last valid order-book snapshot
+            #   source: book_staleness_ms / liq_book_stale_ms; 0 = unknown
+            "book_age_ms",
+            # book_gap_ms: gap between consecutive book timestamps (ms)
+            #   source: book_ts_gap_ms; 0 = unknown / first update
+            "book_gap_ms",
+
+            # ---------------------------------------------------------------
+            # [Phase 7.4] Gate trace — derived diagnostics from rule engine
+            # ---------------------------------------------------------------
+            # rule_have_need_gap: have - need (negative = below threshold)
+            "rule_have_need_gap",
+            # missing_legs_count: number of required legs absent at decision
+            "missing_legs_count",
+            # gate_pressure_score: (1 - have_need_ratio) * missing_legs_count
+            #   high value = far from threshold AND many missing legs
+            "gate_pressure_score",
+
+            # ---------------------------------------------------------------
+            # [Phase 7.6] LOB velocity — slopes over 1s/3s rolling windows.
+            # Computed from per-symbol in-process ring buffer (cold start ⇒ 0.0).
+            # ---------------------------------------------------------------
+            "obi_slope_1s",
+            "obi_slope_3s",
+            "qimb_slope_1s",
+            "qimb_slope_3s",
+            "depth_imbalance_5_delta_1s",
+            "depth_imbalance_5_delta_3s",
+            "spread_widen_velocity_bps_s",  # 1s window, clamped ≥ 0
+            "fill_prob_decay_slope",        # 1s window, signed
+
+            # ---------------------------------------------------------------
+            # [Phase 7.7] Fill-queue (lite) — one-shot from existing depth_*
+            # ---------------------------------------------------------------
+            # eta_fill_sec_norm: eta_fill_sec / 10.0 clamped [0,1]
+            "eta_fill_sec_norm",
+            # queue_ahead_qty_l1/l5: maker-side depth on direction-aware level
+            "queue_ahead_qty_l1",
+            "queue_ahead_qty_l5",
+            # depth_to_taker_rate_ratio: depth_top5_sum / (taker_buy+sell rate EMA)
+            "depth_to_taker_rate_ratio",
+            # maker_fill_vs_taker_cost_edge: fill_prob_proxy * tp1_bps - exec_cost
+            "maker_fill_vs_taker_cost_edge",
+
+            # ---------------------------------------------------------------
+            # [Phase 7.8] Cross-context hydration — sourced from ADR-0005/06/07
+            # services. Lag-guarded: stale entries map to 0.0 / True for `stale`.
+            # ---------------------------------------------------------------
+            # ADR-0006 anchor returns (BTC/ETH rolling)
+            "btc_ret_30s", "btc_ret_1m", "btc_ret_5m",
+            "eth_ret_30s", "eth_ret_1m", "eth_ret_5m",
+            "rel_ret_1m_vs_btc", "rel_ret_5m_vs_btc",
+
+            # ADR-0007 PIT priors
+            "prior_winrate_symbol_kind_session",
+            "prior_ev_r_symbol_kind_session",
+            "prior_sample_count_log",  # log1p of sample_count to compress scale
+            "prior_age_ms",
+
+            # ADR-0005 TCA EMA priors
+            "tca_eff_spread_bps_ema",
+            "tca_realized_spread_1s_bps_ema",
+            "tca_realized_spread_5s_bps_ema",
+            "tca_perm_impact_1s_bps_ema",
+            "tca_perm_impact_5s_bps_ema",
+            "tca_is_bps_ema",
+            "tca_samples",
+            "tca_stale_ms",
         ]
 
         extra_bool: list[str] = [
             "res_recovered",
             "lob_dw_obi_stable",
+            # atr_fresh: True iff atr_age_ms ∈ (0, ATR_FRESH_MS) — model can trust ATR
+            "atr_fresh",
+            # Phase 7.4: gate trace
+            "soft_fail_near_pass",
+            # Phase 7.5: session / weekend (UTC-derived from existing hour_utc/dow)
+            "session_asia",
+            "session_europe",
+            "session_us",
+            "weekend_flag",
+            # Phase 7.8: ADR-0007 PIT prior staleness flag
+            "prior_stale",
         ]
+        # Note: cvd_quarantine_active is already in v4_of bool_keys — no need to re-add.
 
         # Append extras without duplicates (stable deterministic order).
         for k in extra_num:

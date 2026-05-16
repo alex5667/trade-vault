@@ -5,9 +5,78 @@ import json
 import math
 import os
 import time
+from collections import deque
 from dataclasses import asdict, dataclass
 from types import SimpleNamespace
 from typing import Any
+
+# ──────────────────────────────────────────────────────────────────────────
+# Phase 7.6: per-symbol rolling LOB state for velocity features.
+# Lightweight in-process cache; not persisted across restarts (acceptable —
+# 1s/3s windows refill in milliseconds). Bounded deque per symbol prevents
+# unbounded growth across long-running workers.
+# Format: (ts_ms, obi, qimb_wmean, depth_imbalance_5, spread_bps, fill_prob_proxy)
+# ──────────────────────────────────────────────────────────────────────────
+_LOB_VELOCITY_MAX_LEN = 256
+_LOB_VELOCITY_WINDOWS_MS = (1_000, 3_000)  # 1s, 3s
+_LOB_VELOCITY_CACHE: dict[str, deque[tuple[int, float, float, float, float, float]]] = {}
+
+
+def _lob_velocity_compute(
+    symbol: str,
+    now_ms: int,
+    *,
+    obi: float,
+    qimb_wmean: float,
+    depth_imbalance_5: float,
+    spread_bps: float,
+    fill_prob_proxy: float,
+) -> dict[str, float]:
+    """Append current sample and compute slopes over 1s/3s windows.
+
+    Slopes are simple (last - first) / dt_seconds — robust for short windows
+    and noisy LOB data. Returns dict of velocity features keyed by Schema name.
+    """
+    buf = _LOB_VELOCITY_CACHE.get(symbol)
+    if buf is None:
+        buf = deque(maxlen=_LOB_VELOCITY_MAX_LEN)
+        _LOB_VELOCITY_CACHE[symbol] = buf
+    buf.append((now_ms, obi, qimb_wmean, depth_imbalance_5, spread_bps, fill_prob_proxy))
+
+    out: dict[str, float] = {
+        "obi_slope_1s": 0.0,
+        "obi_slope_3s": 0.0,
+        "qimb_slope_1s": 0.0,
+        "qimb_slope_3s": 0.0,
+        "depth_imbalance_5_delta_1s": 0.0,
+        "depth_imbalance_5_delta_3s": 0.0,
+        "spread_widen_velocity_bps_s": 0.0,
+        "fill_prob_decay_slope": 0.0,
+    }
+
+    if len(buf) < 2:
+        return out
+
+    for window_ms in _LOB_VELOCITY_WINDOWS_MS:
+        cutoff_ms = now_ms - window_ms
+        # Find the oldest sample within the window.
+        anchor: tuple[int, float, float, float, float, float] | None = None
+        for sample in buf:
+            if sample[0] >= cutoff_ms:
+                anchor = sample
+                break
+        if anchor is None or anchor[0] == now_ms:
+            continue
+        dt_s = max(1e-3, (now_ms - anchor[0]) / 1000.0)
+        sec = "1s" if window_ms == 1_000 else "3s"
+        out[f"obi_slope_{sec}"] = (obi - anchor[1]) / dt_s
+        out[f"qimb_slope_{sec}"] = (qimb_wmean - anchor[2]) / dt_s
+        out[f"depth_imbalance_5_delta_{sec}"] = depth_imbalance_5 - anchor[3]
+        if window_ms == 1_000:
+            out["spread_widen_velocity_bps_s"] = max(0.0, (spread_bps - anchor[4]) / dt_s)
+            out["fill_prob_decay_slope"] = (fill_prob_proxy - anchor[5]) / dt_s
+
+    return out
 
 from common.metrics_stage import (
     dist,
@@ -1429,19 +1498,21 @@ class OFConfirmEngine:
         indicators["expected_slippage_bps"] = float(slip_bps)
 
         exec_risk_bps = max(0.0, float(spread_bps)) + max(0.0, float(slip_bps))
-        # FIX (Unit Scale): Link exec_risk_ref_bps to the symbol's dist_bp_threshold.
-        # This provides a natural, volatility-adjusted reference instead of hardcoded 10.0.
+        # exec_ref = realistic spread+slip budget for the symbol.
+        # Priority: exec_risk_ref_bps (execution-cost ref, calibrated to market spreads)
+        #           > dist_bp_threshold * mult (proximity gate, kept as fallback only).
         try:
-             # Try to get it from cfg first
-             ref_base = float(cfg.get("dist_bp_threshold", 0.0) or 0.0)
-             if ref_base <= 0.0:
-                 # Fallback to instrument_config defaults
-                 from core.instrument_config import get_default_dist_bp_threshold
-                 ref_base = float(get_default_dist_bp_threshold(symbol) or 20.0)
+            exec_ref_direct = float(cfg.get("exec_risk_ref_bps", 0.0) or 0.0)
+            if exec_ref_direct > 0.0:
+                ref_base = exec_ref_direct
+            else:
+                ref_base = float(cfg.get("dist_bp_threshold", 0.0) or 0.0)
+                if ref_base <= 0.0:
+                    from core.instrument_config import get_default_dist_bp_threshold
+                    ref_base = get_default_dist_bp_threshold(symbol) or 30.0
         except Exception:
-             ref_base = 20.0
+            ref_base = 30.0
 
-        # exec_ref is typically 1.0 * dist_bp for normal, maybe 0.7 * dist_bp for strict
         exec_ref = ref_base * float(cfg.get("exec_risk_ref_mult", 1.0) or 1.0)
 
         # Adaptive reference for low liquidity / thin regimes
@@ -2962,10 +3033,418 @@ class OFConfirmEngine:
                             indicators.get("signal_ts_ms") or indicators_with_v4.get("ts_ms") or now_ts
                         )
                         indicators_with_v4["max_signal_age_ratio"] = max(0.0, sig_age_ms / max_age_ms)
+                        indicators_with_v4.setdefault("signal_age_ms", max(0.0, sig_age_ms))
                     else:
                         indicators_with_v4["max_signal_age_ratio"] = 0.0
             except Exception:
                 indicators_with_v4.setdefault("max_signal_age_ratio", 0.0)
+
+            # ------------------------------------------------------------------
+            # Phase 7: P1 features — execution cost ratios, signal age, vol
+            # dynamics, DQ/freshness. All fail-open: exception -> setdefault 0.0.
+            # Inputs already in indicators_with_v4 by this point.
+            # ------------------------------------------------------------------
+            try:
+                _eps = 1e-6
+                _fee_bps = float(os.getenv("TAKER_FEE_BPS", "4.0") or "4.0")
+                _sl_atr_mult = float(os.getenv("SL_ATR_MULT", "1.0") or "1.0")
+                _half_spread = float(indicators_with_v4.get("spread_bps") or 0.0) * 0.5
+                _slippage = float(indicators_with_v4.get("expected_slippage_bps") or 0.0)
+                _exec_cost = max(0.0, _half_spread + _slippage + _fee_bps)
+                _atr_bps = 0.0
+                if _raw_atr := indicators_with_v4.get("atr_bps"):
+                    _atr_bps = float(_raw_atr)  # noqa: RUF100
+                _tp1_bps = float(
+                    indicators_with_v4.get("liqmap_gate_reward_bps")
+                    or indicators_with_v4.get("tp1_bps")
+                    or indicators_with_v4.get("pred_tp1_bps")
+                    or 0.0
+                )
+                _sl_bps = float(
+                    indicators_with_v4.get("liqmap_gate_risk_bps")
+                    or indicators_with_v4.get("sl_bps")
+                    or (_atr_bps * _sl_atr_mult if _atr_bps > 0.0 else 0.0)
+                )
+                _tp1_ratio = _exec_cost / max(_tp1_bps, _eps) if _tp1_bps > 0.0 else 0.0
+                _sl_ratio = _exec_cost / max(_sl_bps, _eps) if _sl_bps > 0.0 else 0.0
+                _atr_ratio = _exec_cost / max(_atr_bps, _eps) if _atr_bps > 0.0 else 0.0
+                indicators_with_v4.setdefault("exec_cost_to_tp1_ratio", _tp1_ratio)
+                indicators_with_v4.setdefault("exec_cost_to_sl_ratio", _sl_ratio)
+                indicators_with_v4.setdefault("exec_cost_to_atr_ratio", _atr_ratio)
+                if _tp1_ratio == 0.0 or _sl_ratio == 0.0 or _atr_ratio == 0.0:
+                    try:
+                        from services.orderflow.metrics import ml_p7_feature_zero_total
+                        if _tp1_ratio == 0.0:
+                            ml_p7_feature_zero_total.labels(feature="exec_cost_to_tp1_ratio", symbol=symbol).inc()
+                        if _sl_ratio == 0.0:
+                            ml_p7_feature_zero_total.labels(feature="exec_cost_to_sl_ratio", symbol=symbol).inc()
+                        if _atr_ratio == 0.0:
+                            ml_p7_feature_zero_total.labels(feature="exec_cost_to_atr_ratio", symbol=symbol).inc()
+                    except Exception:
+                        pass
+            except Exception:
+                indicators_with_v4.setdefault("exec_cost_to_tp1_ratio", 0.0)
+                indicators_with_v4.setdefault("exec_cost_to_sl_ratio", 0.0)
+                indicators_with_v4.setdefault("exec_cost_to_atr_ratio", 0.0)
+
+            try:
+                _sig_age = float(indicators_with_v4.get("signal_age_ms") or 0.0)
+                _ahl_ms = float(
+                    indicators_with_v4.get("alpha_half_life_ms")
+                    or indicators.get("alpha_half_life_ms")
+                    or (float(indicators_with_v4.get("alpha_half_life_ms_norm") or 0.0) * 3_600_000.0)
+                )
+                _age_ratio = _sig_age / max(_ahl_ms, 1.0) if _ahl_ms > 0.0 else 0.0
+                indicators_with_v4.setdefault("signal_age_ms", _sig_age)
+                indicators_with_v4.setdefault("signal_age_to_half_life", _age_ratio)
+                if _ahl_ms == 0.0:
+                    try:
+                        from services.orderflow.metrics import ml_p7_feature_zero_total
+                        ml_p7_feature_zero_total.labels(feature="signal_age_to_half_life", symbol=symbol).inc()
+                    except Exception:
+                        pass
+            except Exception:
+                indicators_with_v4.setdefault("signal_age_ms", 0.0)
+                indicators_with_v4.setdefault("signal_age_to_half_life", 0.0)
+
+            try:
+                _vrf = float(indicators_with_v4.get("vol_ratio_fast_slow") or 1.0)
+                indicators_with_v4.setdefault("vol_expansion_score", max(0.0, _vrf - 1.0))
+                indicators_with_v4.setdefault("vol_compression_score", max(0.0, 1.0 - _vrf))
+            except Exception:
+                indicators_with_v4.setdefault("vol_expansion_score", 0.0)
+                indicators_with_v4.setdefault("vol_compression_score", 0.0)
+
+            try:
+                _dq_h = float(indicators_with_v4.get("dq_health_score") or indicators_with_v4.get("data_health") or 1.0)
+                indicators_with_v4.setdefault("dq_score", _dq_h)
+                # Flag count proxy: bucket dq_health into 0-3 severity levels
+                if _dq_h >= 0.9:
+                    _dq_flags = 0
+                elif _dq_h >= 0.7:
+                    _dq_flags = 1
+                elif _dq_h >= 0.5:
+                    _dq_flags = 2
+                else:
+                    _dq_flags = 3
+                indicators_with_v4.setdefault("dq_flag_count", float(_dq_flags))
+            except Exception:
+                indicators_with_v4.setdefault("dq_score", 1.0)
+                indicators_with_v4.setdefault("dq_flag_count", 0.0)
+
+            try:
+                _tick_lag = float(
+                    indicators_with_v4.get("tick_gap_ms")
+                    or indicators_with_v4.get("book_ts_gap_ms")
+                    or 0.0
+                )
+                indicators_with_v4.setdefault("tick_lag_ms", _tick_lag)
+                if _tick_lag == 0.0:
+                    try:
+                        from services.orderflow.metrics import ml_p7_feature_zero_total
+                        ml_p7_feature_zero_total.labels(feature="tick_lag_ms", symbol=symbol).inc()
+                    except Exception:
+                        pass
+            except Exception:
+                indicators_with_v4.setdefault("tick_lag_ms", 0.0)
+
+            # ------------------------------------------------------------------
+            # Phase 7.2: Extended DQ — book freshness + CVD quarantine.
+            # Sources already populated earlier in the pipeline; this block
+            # promotes them into indicators_with_v4 for schema vectorization.
+            # ------------------------------------------------------------------
+            try:
+                _book_age = float(
+                    indicators_with_v4.get("book_staleness_ms")
+                    or indicators.get("book_staleness_ms")
+                    or indicators.get("liq_book_stale_ms")
+                    or 0.0
+                )
+                indicators_with_v4.setdefault("book_age_ms", _book_age)
+            except Exception:
+                indicators_with_v4.setdefault("book_age_ms", 0.0)
+
+            try:
+                _book_gap = float(
+                    indicators_with_v4.get("book_ts_gap_ms")
+                    or indicators.get("book_ts_gap_ms")
+                    or 0.0
+                )
+                indicators_with_v4.setdefault("book_gap_ms", _book_gap)
+            except Exception:
+                indicators_with_v4.setdefault("book_gap_ms", 0.0)
+
+            try:
+                _cvd_q = bool(int(indicators.get("cvd_quarantine_active", 0) or 0))
+                indicators_with_v4.setdefault("cvd_quarantine_active", _cvd_q)
+            except Exception:
+                indicators_with_v4.setdefault("cvd_quarantine_active", False)
+
+            # ------------------------------------------------------------------
+            # Phase 7.3: ATR freshness — atr_fresh ∈ {True, False}.
+            # True iff atr_age_ms is positive AND below ATR_FRESH_MS threshold.
+            # Default 60s — 4x ATRCache TTL gives margin for irregular updates.
+            # ------------------------------------------------------------------
+            try:
+                _atr_fresh_ms = float(os.getenv("ATR_FRESH_MS", "60000") or "60000")
+                _atr_age = float(
+                    indicators_with_v4.get("atr_age_ms")
+                    or indicators.get("atr_age_ms")
+                    or 0.0
+                )
+                _atr_fresh = bool(_atr_age > 0.0 and _atr_age < _atr_fresh_ms)
+                indicators_with_v4.setdefault("atr_fresh", _atr_fresh)
+            except Exception:
+                indicators_with_v4.setdefault("atr_fresh", False)
+
+            # ------------------------------------------------------------------
+            # Phase 7.4: Gate trace — derived from local have/need/missing/ok_soft.
+            #   rule_have_need_gap   = have - need (can be negative)
+            #   missing_legs_count   = len(missing)
+            #   soft_fail_near_pass  = ok_soft flag (1 when have==need-1 + soft passed)
+            #   gate_pressure_score  = (1 - have_need_ratio) * missing_legs_count
+            # All locals (have/need/missing) bound at lines ~1995/2440 — always in scope.
+            # ------------------------------------------------------------------
+            try:
+                _missing_count = len(missing) if isinstance(missing, list) else 0
+                indicators_with_v4.setdefault("rule_have_need_gap", float(have - need))
+                indicators_with_v4.setdefault("missing_legs_count", float(_missing_count))
+                _ok_soft = int(indicators.get("ok_soft", 0) or 0)
+                indicators_with_v4.setdefault("soft_fail_near_pass", _ok_soft != 0)
+                _ratio = indicators_with_v4.get("have_need_ratio") or 0.0
+                indicators_with_v4.setdefault(
+                    "gate_pressure_score",
+                    max(0.0, 1.0 - _ratio) * _missing_count,
+                )
+            except Exception:
+                indicators_with_v4.setdefault("rule_have_need_gap", 0.0)
+                indicators_with_v4.setdefault("missing_legs_count", 0.0)
+                indicators_with_v4.setdefault("soft_fail_near_pass", False)
+                indicators_with_v4.setdefault("gate_pressure_score", 0.0)
+
+            # ------------------------------------------------------------------
+            # Phase 7.5: Session / weekend flags — derived from existing hour_utc/dow.
+            # Session ranges in UTC (intentionally overlapping):
+            #   Asia    00:00..08:00
+            #   Europe  07:00..16:00
+            #   US      13:00..22:00
+            # weekend_flag: Sat(5) or Sun(6).
+            # ------------------------------------------------------------------
+            try:
+                _h = float(indicators_with_v4.get("hour_utc") or 0.0)
+                _d = float(indicators_with_v4.get("dow") or 0.0)
+                indicators_with_v4.setdefault("session_asia", bool(0.0 <= _h < 8.0))
+                indicators_with_v4.setdefault("session_europe", bool(7.0 <= _h < 16.0))
+                indicators_with_v4.setdefault("session_us", bool(13.0 <= _h < 22.0))
+                indicators_with_v4.setdefault("weekend_flag", bool(_d >= 5.0))
+            except Exception:
+                indicators_with_v4.setdefault("session_asia", False)
+                indicators_with_v4.setdefault("session_europe", False)
+                indicators_with_v4.setdefault("session_us", False)
+                indicators_with_v4.setdefault("weekend_flag", False)
+
+            # ------------------------------------------------------------------
+            # Phase 7.6: LOB velocity — slopes over 1s/3s rolling windows.
+            # State stored in module-level _LOB_VELOCITY_CACHE keyed by symbol.
+            # All values default to 0.0 on cold start (< 2 samples in buffer).
+            # ------------------------------------------------------------------
+            try:
+                _velocity = _lob_velocity_compute(
+                    symbol=symbol,
+                    now_ms=int(now_ts),
+                    obi=float(indicators_with_v4.get("obi") or 0.0),
+                    qimb_wmean=float(indicators_with_v4.get("qimb_wmean") or 0.0),
+                    depth_imbalance_5=float(indicators_with_v4.get("depth_imbalance_5") or 0.0),
+                    spread_bps=float(indicators_with_v4.get("spread_bps") or 0.0),
+                    fill_prob_proxy=float(indicators_with_v4.get("fill_prob_proxy") or 0.0),
+                )
+                for _vk, _vv in _velocity.items():
+                    indicators_with_v4.setdefault(_vk, _vv)
+            except Exception:
+                for _vk in (
+                    "obi_slope_1s", "obi_slope_3s",
+                    "qimb_slope_1s", "qimb_slope_3s",
+                    "depth_imbalance_5_delta_1s", "depth_imbalance_5_delta_3s",
+                    "spread_widen_velocity_bps_s", "fill_prob_decay_slope",
+                ):
+                    indicators_with_v4.setdefault(_vk, 0.0)
+
+            # ------------------------------------------------------------------
+            # Phase 7.8: Cross-context hydration — read pre-aggregated hashes
+            # from ADR-0005 (TCA), ADR-0006 (anchors/liq/OI), ADR-0007 (PIT priors).
+            # Lag-guard: stale entries ⇒ feature 0.0 (model can handle gracefully).
+            # Single HMGET-per-source pattern, ~1ms additional p99 budget.
+            # ------------------------------------------------------------------
+            try:
+                _now_ms_local = int(now_ts)
+                _max_lag_ms = float(os.getenv("CROSS_CTX_MAX_LAG_MS", "2000") or "2000")
+
+                # --- ADR-0006: BTC/ETH anchor returns ---
+                for _short in ("btc", "eth"):
+                    _key = f"ctx:anchor:{_short}:returns"
+                    _data = {}
+                    try:
+                        if hasattr(self, "_redis_client") and self._redis_client is not None:  # type: ignore[attr-defined]
+                            _raw = self._redis_client.hgetall(_key)  # type: ignore[attr-defined]
+                            _data = {
+                                (k.decode() if isinstance(k, (bytes, bytearray)) else str(k)):
+                                (v.decode() if isinstance(v, (bytes, bytearray)) else str(v))
+                                for k, v in (_raw or {}).items()
+                            }
+                    except Exception:
+                        _data = {}
+                    _hash_ts = float(_data.get("ts_ms") or 0.0)
+                    _stale = (_now_ms_local - _hash_ts) > _max_lag_ms if _hash_ts > 0 else True
+                    for _w in ("30s", "1m", "5m"):
+                        _fname = f"{_short}_ret_{_w}"
+                        _val = 0.0 if _stale else float(_data.get(f"ret_{_w}") or 0.0)
+                        indicators_with_v4.setdefault(_fname, _val)
+
+                # rel_ret_*_vs_btc = ret_target_window - btc_ret_window
+                # Approximation: target's price changes already in indicators (vol_fast_bps proxy)
+                # TODO(ADR-0006): wire target-symbol returns when available
+                _btc_1m = float(indicators_with_v4.get("btc_ret_1m") or 0.0)
+                _btc_5m = float(indicators_with_v4.get("btc_ret_5m") or 0.0)
+                indicators_with_v4.setdefault("rel_ret_1m_vs_btc", -_btc_1m)  # placeholder
+                indicators_with_v4.setdefault("rel_ret_5m_vs_btc", -_btc_5m)  # placeholder
+
+                # --- ADR-0007: PIT historical priors ---
+                _kind_label = str(scenario or indicators.get("ml_scenario") or "default")
+                _session_label = (
+                    "us" if indicators_with_v4.get("session_us") else
+                    "europe" if indicators_with_v4.get("session_europe") else
+                    "asia"
+                )
+                _latest_ptr = ""
+                try:
+                    if hasattr(self, "_redis_client") and self._redis_client is not None:  # type: ignore[attr-defined]
+                        _raw_ptr = self._redis_client.get(  # type: ignore[attr-defined]
+                            f"pit_priors:latest:{symbol}:{_kind_label}:{_session_label}"
+                        )
+                        _latest_ptr = (_raw_ptr.decode() if isinstance(_raw_ptr, (bytes, bytearray)) else str(_raw_ptr or ""))
+                except Exception:
+                    _latest_ptr = ""
+
+                _pit_data: dict[str, str] = {}
+                if _latest_ptr:
+                    try:
+                        if hasattr(self, "_redis_client") and self._redis_client is not None:  # type: ignore[attr-defined]
+                            _raw_pit = self._redis_client.hgetall(  # type: ignore[attr-defined]
+                                f"pit_priors:{symbol}:{_kind_label}:{_session_label}:{_latest_ptr}"
+                            )
+                            _pit_data = {
+                                (k.decode() if isinstance(k, (bytes, bytearray)) else str(k)):
+                                (v.decode() if isinstance(v, (bytes, bytearray)) else str(v))
+                                for k, v in (_raw_pit or {}).items()
+                            }
+                    except Exception:
+                        _pit_data = {}
+                _pit_samples = float(_pit_data.get("sample_count") or 0.0)
+                _pit_min = float(os.getenv("PIT_PRIOR_MIN_SAMPLES", "30") or "30")
+                if _pit_samples >= _pit_min:
+                    indicators_with_v4.setdefault("prior_winrate_symbol_kind_session", float(_pit_data.get("winrate") or 0.0))
+                    indicators_with_v4.setdefault("prior_ev_r_symbol_kind_session", float(_pit_data.get("ev_r") or 0.0))
+                    indicators_with_v4.setdefault("prior_sample_count_log", math.log1p(_pit_samples))
+                    _pit_age_ms = float(_now_ms_local - float(_pit_data.get("newest_ts_ms") or 0.0))
+                    indicators_with_v4.setdefault("prior_age_ms", max(0.0, _pit_age_ms))
+                    indicators_with_v4.setdefault("prior_stale", _pit_age_ms > float(os.getenv("PIT_PRIOR_STALE_MS", "86400000") or "86400000"))
+                else:
+                    indicators_with_v4.setdefault("prior_winrate_symbol_kind_session", 0.0)
+                    indicators_with_v4.setdefault("prior_ev_r_symbol_kind_session", 0.0)
+                    indicators_with_v4.setdefault("prior_sample_count_log", 0.0)
+                    indicators_with_v4.setdefault("prior_age_ms", 0.0)
+                    indicators_with_v4.setdefault("prior_stale", True)
+
+                # --- ADR-0005: TCA EMA priors ---
+                _tca_data: dict[str, str] = {}
+                try:
+                    if hasattr(self, "_redis_client") and self._redis_client is not None:  # type: ignore[attr-defined]
+                        _raw_tca = self._redis_client.hgetall(  # type: ignore[attr-defined]
+                            f"tca:ema:{symbol}:{_kind_label}:{_session_label}"
+                        )
+                        _tca_data = {
+                            (k.decode() if isinstance(k, (bytes, bytearray)) else str(k)):
+                            (v.decode() if isinstance(v, (bytes, bytearray)) else str(v))
+                            for k, v in (_raw_tca or {}).items()
+                        }
+                except Exception:
+                    _tca_data = {}
+                _tca_samples = float(_tca_data.get("samples") or 0.0)
+                _tca_min = float(os.getenv("TCA_PRIORS_MIN_SAMPLES", "30") or "30")
+                _tca_last = float(_tca_data.get("last_update_ms") or 0.0)
+                _tca_stale_max = float(os.getenv("TCA_STALE_MAX_MS", "600000") or "600000")
+                _tca_age = _now_ms_local - _tca_last if _tca_last > 0 else _tca_stale_max + 1
+                _tca_fresh = (_tca_samples >= _tca_min and _tca_age <= _tca_stale_max)
+                indicators_with_v4.setdefault("tca_eff_spread_bps_ema", float(_tca_data.get("eff_spread") or 0.0) if _tca_fresh else 0.0)
+                indicators_with_v4.setdefault("tca_realized_spread_1s_bps_ema", float(_tca_data.get("realized_1s") or 0.0) if _tca_fresh else 0.0)
+                indicators_with_v4.setdefault("tca_realized_spread_5s_bps_ema", float(_tca_data.get("realized_5s") or 0.0) if _tca_fresh else 0.0)
+                indicators_with_v4.setdefault("tca_perm_impact_1s_bps_ema", float(_tca_data.get("perm_1s") or 0.0) if _tca_fresh else 0.0)
+                indicators_with_v4.setdefault("tca_perm_impact_5s_bps_ema", float(_tca_data.get("perm_5s") or 0.0) if _tca_fresh else 0.0)
+                indicators_with_v4.setdefault("tca_is_bps_ema", float(_tca_data.get("is_bps") or 0.0) if _tca_fresh else 0.0)
+                indicators_with_v4.setdefault("tca_samples", _tca_samples)
+                indicators_with_v4.setdefault("tca_stale_ms", max(0.0, _tca_age))
+            except Exception:
+                # Fail-open: all cross-context features default to 0.0 / False
+                for _f in (
+                    "btc_ret_30s", "btc_ret_1m", "btc_ret_5m",
+                    "eth_ret_30s", "eth_ret_1m", "eth_ret_5m",
+                    "rel_ret_1m_vs_btc", "rel_ret_5m_vs_btc",
+                    "prior_winrate_symbol_kind_session", "prior_ev_r_symbol_kind_session",
+                    "prior_sample_count_log", "prior_age_ms",
+                    "tca_eff_spread_bps_ema", "tca_realized_spread_1s_bps_ema",
+                    "tca_realized_spread_5s_bps_ema", "tca_perm_impact_1s_bps_ema",
+                    "tca_perm_impact_5s_bps_ema", "tca_is_bps_ema",
+                    "tca_samples", "tca_stale_ms",
+                ):
+                    indicators_with_v4.setdefault(_f, 0.0)
+                indicators_with_v4.setdefault("prior_stale", True)
+
+            # ------------------------------------------------------------------
+            # Phase 7.7: Fill-queue features (lite) — derived from existing depth_*.
+            #   eta_fill_sec_norm        = clamp(eta_fill_sec / 10.0, 0..1)
+            #   queue_ahead_qty_l1/l5    = depth_{bid|ask}_{1|5} on the maker side
+            #   depth_to_taker_rate_ratio = depth_top5_sum / max(taker_rates, eps)
+            #   maker_fill_vs_taker_cost_edge = fill_prob_proxy * tp1_bps - exec_cost
+            # ------------------------------------------------------------------
+            try:
+                _eta = float(indicators_with_v4.get("eta_fill_sec") or 0.0)
+                indicators_with_v4.setdefault("eta_fill_sec_norm", min(1.0, max(0.0, _eta / 10.0)))
+
+                _dir_long = (direction == "LONG")
+                _depth_l1 = float(
+                    indicators_with_v4.get("depth_bid_1" if _dir_long else "depth_ask_1") or 0.0
+                )
+                _depth_l5 = float(
+                    indicators_with_v4.get("depth_bid_5" if _dir_long else "depth_ask_5") or 0.0
+                )
+                indicators_with_v4.setdefault("queue_ahead_qty_l1", _depth_l1)
+                indicators_with_v4.setdefault("queue_ahead_qty_l5", _depth_l5)
+
+                _taker_buy = float(indicators_with_v4.get("taker_buy_rate_ema") or 0.0)
+                _taker_sell = float(indicators_with_v4.get("taker_sell_rate_ema") or 0.0)
+                _taker_total = _taker_buy + _taker_sell
+                _depth_top5 = float(indicators_with_v4.get("depth_top5_sum") or 0.0)
+                indicators_with_v4.setdefault(
+                    "depth_to_taker_rate_ratio",
+                    _depth_top5 / max(_taker_total, 1e-6) if _depth_top5 > 0.0 else 0.0,
+                )
+
+                _fp = float(indicators_with_v4.get("fill_prob_proxy") or 0.0)
+                _tp1 = float(indicators_with_v4.get("tp1_bps") or indicators_with_v4.get("liqmap_gate_reward_bps") or 0.0)
+                _half_spread2 = float(indicators_with_v4.get("spread_bps") or 0.0) * 0.5
+                _slip2 = float(indicators_with_v4.get("expected_slippage_bps") or 0.0)
+                _fee2 = float(os.getenv("TAKER_FEE_BPS", "4.0") or "4.0")
+                _exec_cost2 = max(0.0, _half_spread2 + _slip2 + _fee2)
+                indicators_with_v4.setdefault(
+                    "maker_fill_vs_taker_cost_edge",
+                    _fp * _tp1 - _exec_cost2,
+                )
+            except Exception:
+                for _fk in (
+                    "eta_fill_sec_norm", "queue_ahead_qty_l1", "queue_ahead_qty_l5",
+                    "depth_to_taker_rate_ratio", "maker_fill_vs_taker_cost_edge",
+                ):
+                    indicators_with_v4.setdefault(_fk, 0.0)
 
             t_ml_start = time.perf_counter()
             if is_shedding:

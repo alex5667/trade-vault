@@ -656,7 +656,7 @@ class OrderFlowConfig:
     dn_tier2_usd: float = 0.0
 
     # NEW Round 7: Veto & Scenario V4 control
-    exec_risk_ref_bps: float = 12.0        # Reference BPS for normalization (12-15 crypto)
+    exec_risk_ref_bps: float = 30.0        # Execution-cost budget bps (spread+slip; BTC/ETH≈25-30, meme≈60)
     scenario_v4_enable: bool = False       # Enable Range/Trend V4 logic
     of_score_min_range: float | None = None
     # OFC contextual bundle (shadow/tighten/replace score veto family only)
@@ -897,7 +897,7 @@ class OrderFlowConfig:
         # V4 / Logic
         is_meme = prefix in ("PEPE", "SHIB", "DOGE", "BONK", "FLOKI", "WIF") or "1000" in sym
 
-        def_exec_ref = 25.0 if is_meme else 12.0
+        def_exec_ref = 60.0 if is_meme else 30.0
         def_v4_en = True if is_meme else False
         def_need_range = 2 if is_meme else 2
         def_need_escalated = 3 if is_meme else 3

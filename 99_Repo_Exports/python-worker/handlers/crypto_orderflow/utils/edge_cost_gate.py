@@ -1405,6 +1405,15 @@ class EdgeCostGate:
         except Exception:
             pass
 
+        # Cache for Layer A/B/C enforce-gate (avoids second estimate_slippage_bps call).
+        # TTL — текущий сигнал; ctx живёт 1 итерацию pipeline.
+        try:
+            import time as _t
+            ctx._cached_slippage_bps = slippage_bps
+            ctx._cached_slippage_bps_ts_ms = int(_t.time() * 1000)
+        except Exception:
+            pass
+
         return fees_bps, slippage_bps
 
     @staticmethod

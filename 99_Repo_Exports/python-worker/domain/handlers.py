@@ -98,11 +98,13 @@ def _update_excursions_and_adverse(pos: PositionState, tick) -> None:
         return
 
     # excursions (price space, side-aware)
+    peak_updated = False
     if pos.direction == "LONG":
         # favorable=max, adverse=min
         if mid > pos.max_favorable_price:
             pos.max_favorable_price = mid
             pos.max_favorable_ts_ms = ts_ms
+            peak_updated = True
         if pos.max_adverse_price == 0.0 or mid < pos.max_adverse_price:
             pos.max_adverse_price = mid
             pos.max_adverse_ts_ms = ts_ms
@@ -111,9 +113,24 @@ def _update_excursions_and_adverse(pos: PositionState, tick) -> None:
         if mid < pos.max_favorable_price:
             pos.max_favorable_price = mid
             pos.max_favorable_ts_ms = ts_ms
+            peak_updated = True
         if mid > pos.max_adverse_price:
             pos.max_adverse_price = mid
             pos.max_adverse_ts_ms = ts_ms
+
+    # Layer D early-arm hook: на новом peak пытаемся armировать trailing
+    # раньше TP1, если mfe_R >= threshold. Default-off; safe-by-exception.
+    # ENV: LAYER_D_HOOK_ENABLED=0/1 (gating); OF_LAYER_D_EARLY_ARM_MODE=off/shadow/enforce.
+    if peak_updated and not getattr(pos, "_layer_d_arm_sent", False):
+        try:
+            import os as _os
+            if _os.environ.get("LAYER_D_HOOK_ENABLED", "0") not in ("0", "false", "False"):
+                _redis = getattr(tick, "redis", None) or getattr(pos, "_redis", None)
+                if _redis is not None:
+                    from services.trade_monitor.layer_d_early_arm_hook import evaluate_and_emit
+                    evaluate_and_emit(pos, ts_ms, _redis)
+        except Exception:
+            pass
 
     # adverse move in bps
     entry = float(pos.entry_price)

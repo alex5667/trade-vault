@@ -34,7 +34,31 @@ from utils.time_utils import get_epoch_ms
 import contextlib
 from core.redis_keys import RedisStreams as RS
 
+# Layer A/B/C enforce (lazy import, no-op when disabled)
+from handlers.crypto_orderflow.components.layer_enforce_gate import (
+    EnforceInputs, evaluate as _layer_evaluate,
+)
+from handlers.crypto_orderflow.components.layer_enforce_reader import reader_from_env
+from handlers.crypto_orderflow.utils.edge_cost_gate import estimate_slippage_bps as _layer_est_slip
+
 logger = logging.getLogger(__name__)
+
+# Prometheus metrics for layer-enforce gate
+LAYER_ENFORCE_VETO_TOTAL = Counter(
+    "of_layer_enforce_veto_total",
+    "Layer-enforce gate vetoes",
+    ["layer", "reason"],
+)
+LAYER_ENFORCE_CLAMP_APPLIED_TOTAL = Counter(
+    "of_layer_enforce_clamp_applied_total",
+    "Layer-B clamp applied count",
+    ["reason"],
+)
+LAYER_ENFORCE_ACTIVE_TOTAL = Counter(
+    "of_layer_enforce_active_total",
+    "Per-layer evaluation invocations on enforced symbols",
+    ["layer", "outcome"],
+)
 SIGNAL_BUILD_FAILED_TOTAL = Counter(
     "signal_build_failed_total",
     "Total signal payload build failures",
@@ -268,6 +292,11 @@ class SignalOrchestrator:
         self.liquidity = liquidity
         self.observability = observability
         self.confirmations = confirmations_engine
+        # Layer A/B/C enforce — opt-in через ENV
+        # OF_LAYER_ENFORCE_MODE: off (default) | shadow | enforce
+        self._layer_enforce_mode = (os.environ.get("OF_LAYER_ENFORCE_MODE", "off")
+                                    .strip().lower())
+        self._layer_reader = None  # ленивая инициализация при первом вызове
         self.emitter = emitter
         # Bounded LRU: evict oldest when over capacity to prevent OOM on long-lived workers
         from collections import OrderedDict
@@ -284,6 +313,147 @@ class SignalOrchestrator:
                 m.inc("signal_build_failed_total", 1, tags={"kind": str(kind)})
         except Exception:
             pass
+
+    def _layer_enforce_check(
+        self, ctx: Any, cand: Any, kind: str,
+    ) -> tuple[bool, str | None, float, tuple[str, ...]]:
+        """Применяет Layer A/B/C enforce-gate (auto-promoted из Redis).
+
+        Возвращает (should_veto, veto_reason, clamp_factor, clamp_reasons).
+        Если режим 'off' или ошибка — (False, None, 1.0, ()).
+        Если 'shadow' — НЕ блокирует, только инкрементит метрики.
+        Если 'enforce' — реально блокирует / клампит.
+        """
+        # Эффективный mode: Redis-override > ENV.
+        # Override позволяет autotuner'у переключить shadow→enforce без рестарта.
+        effective_mode = self._layer_enforce_mode
+        if self._layer_reader is not None:
+            try:
+                override = self._layer_reader.get_mode_override()
+                if override:
+                    effective_mode = override
+            except Exception:
+                pass
+
+        if effective_mode == "off":
+            # Даже если reader не создан — выходим. Но мы можем создать reader
+            # один раз, чтобы при следующем call поймать Redis-override.
+            if self._layer_reader is None:
+                try:
+                    rc = getattr(ctx, "redis", None) or getattr(self.gates, "redis", None)
+                    if rc is not None:
+                        self._layer_reader = reader_from_env(rc)
+                except Exception:
+                    pass
+            return (False, None, 1.0, ())
+
+        # Ленивая инициализация reader с redis из ctx
+        if self._layer_reader is None:
+            try:
+                rc = getattr(ctx, "redis", None) or getattr(self.gates, "redis", None)
+                if rc is None:
+                    return (False, None, 1.0, ())
+                self._layer_reader = reader_from_env(rc)
+            except Exception as ex:
+                logger.warning("layer_enforce reader init failed: %r", ex)
+                return (False, None, 1.0, ())
+
+        reader_ref = self._layer_reader
+        if reader_ref is None:
+            return (False, None, 1.0, ())
+
+        try:
+            symbol = str(getattr(self.cfg, "symbol", "") or "").upper()
+            side_val = getattr(cand, "side", 0)
+            side_str = "LONG" if side_val > 0 else ("SHORT" if side_val < 0 else "")
+
+            # spread: единственный источник pre-decision — ctx.spread_bps
+            # (заполняется liquidity-компонентом ещё до gates),
+            # fallback на indicators.spread_bps.
+            spread = safe_float(getattr(ctx, "spread_bps", None), None)  # type: ignore[arg-type]
+            if spread is None:
+                indicators = getattr(ctx, "indicators", None) or {}
+                if isinstance(indicators, dict):
+                    spread = safe_float(
+                        indicators.get("liq_spread_bps")
+                        or indicators.get("spread_bps"),
+                        None,  # type: ignore[arg-type]
+                    )
+
+            # slippage: 1) читаем кеш от EdgeCostGate (если уже вызван),
+            #            2) fallback — вызываем estimate_slippage_bps() напрямую.
+            slip = safe_float(getattr(ctx, "_cached_slippage_bps", None), None)  # type: ignore[arg-type]
+            if slip is None:
+                try:
+                    rc_for_slip = getattr(ctx, "redis", None) \
+                                  or getattr(self.gates, "redis", None)
+                    raw_ts = (getattr(ctx, "ts_ms", None)
+                              or getattr(ctx, "ts", None)
+                              or getattr(ctx, "timestamp", None) or 0)
+                    _slip_default = float(os.environ.get("EDGE_SLIPPAGE_BPS_DEFAULT", "4.0"))
+                    _use_half_spr = os.environ.get(
+                        "EDGE_SLIPPAGE_USE_SPREAD_HALF", "1").strip() not in ("0", "false", "False")
+                    slip = _layer_est_slip(
+                        ctx,
+                        redis_client=rc_for_slip,
+                        symbol=symbol,
+                        venue=str(getattr(ctx, "venue", "") or "na"),
+                        ts_ms=raw_ts,
+                        tf=str(getattr(ctx, "tf", None)
+                               or getattr(ctx, "timeframe", None) or "na"),
+                        default_bps=_slip_default,
+                        use_spread_half=_use_half_spr,
+                    )
+                except Exception as _slip_ex:
+                    logger.debug("layer_enforce slip estimate failed: %r", _slip_ex)
+                    slip = None
+
+            regime = str(getattr(ctx, "regime", "") or getattr(cand, "regime", "") or "")
+            feats = (getattr(cand, "features", None)
+                     or getattr(ctx, "features", None)
+                     or getattr(ctx, "indicators", None) or {})
+            if not isinstance(feats, dict):
+                feats = {}
+
+            inp = EnforceInputs(
+                symbol=symbol, side=side_str,
+                slippage_bps_est=slip, spread_bps_at_entry=spread,
+                regime=regime, features=feats,
+            )
+            res = _layer_evaluate(reader_ref, inp)
+        except Exception as ex:
+            logger.warning("layer_enforce evaluate failed: %r", ex)
+            return (False, None, 1.0, ())
+
+        # Метрики
+        for layer, active, outcome in (
+            ("a", res.layer_a_active, "vetoed"
+                 if any(r.startswith("la_") for r in res.veto_reasons) else "pass"),
+            ("b", res.layer_b_active,
+                 "clamped" if res.clamp_factor < 1.0 else "pass"),
+            ("c", res.layer_c_active, "vetoed"
+                 if any(r.startswith("lc_") for r in res.veto_reasons) else "pass"),
+        ):
+            if active:
+                LAYER_ENFORCE_ACTIVE_TOTAL.labels(layer=layer, outcome=outcome).inc()
+
+        for r in res.veto_reasons:
+            layer = "a" if r.startswith("la_") else ("c" if r.startswith("lc_") else "x")
+            LAYER_ENFORCE_VETO_TOTAL.labels(layer=layer, reason=r).inc()
+        for r in res.clamp_reasons:
+            LAYER_ENFORCE_CLAMP_APPLIED_TOTAL.labels(reason=r).inc()
+
+        if effective_mode == "shadow":
+            if res.veto or res.clamp_factor < 1.0:
+                logger.info(
+                    "layer_enforce SHADOW symbol=%s kind=%s veto=%s reasons=%s clamp=%.3f",
+                    symbol, kind, res.veto, res.veto_reasons, res.clamp_factor,
+                )
+            return (False, None, 1.0, ())  # no-op in shadow
+
+        # enforce mode
+        veto_reason = ",".join(res.veto_reasons) if res.veto else None
+        return (res.veto, veto_reason, res.clamp_factor, res.clamp_reasons)
 
     def _handle_veto(self, ctx: Any, cand: Any, kind: str, reason_code: str | VetoReason) -> None:
         """Emits metrics and publishes vetoed signal to DLQ for audit trails and replay."""
@@ -447,6 +617,27 @@ class SignalOrchestrator:
                 rc = getattr(consistency_decision, "reason_code", getattr(consistency_decision, "reason", VetoReason.VETO_CONSISTENCY))
                 self._handle_veto(ctx, cand, kind_key, rc)
                 continue
+
+
+            # 2.7 Layer A/B/C enforce gate (auto-promoted from shadow calibrator)
+            #     OF_LAYER_ENFORCE_MODE=off (default) | shadow | enforce
+            #     Reads of_gate:layer_{a,b,c}:* from redis-worker-1 (HMAC-verified).
+            try:
+                _le_veto, _le_reason, _le_clamp, _le_clamp_r = \
+                    self._layer_enforce_check(ctx, cand, kind_key)
+                if _le_veto:
+                    self._handle_veto(ctx, cand, kind_key,
+                                      _le_reason or "VETO_LAYER_ENFORCE")
+                    continue
+                if _le_clamp < 1.0:
+                    # сохраняем factor для последующего sizing
+                    try:
+                        setattr(cand, "layer_clamp_factor", _le_clamp)
+                        setattr(cand, "layer_clamp_reasons", list(_le_clamp_r))
+                    except Exception:
+                        pass
+            except Exception as _le_ex:
+                logger.warning("layer_enforce_check error: %r", _le_ex)
 
 
             # 3. Level Enrichment

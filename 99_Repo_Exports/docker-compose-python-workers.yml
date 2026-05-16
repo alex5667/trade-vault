@@ -43,6 +43,21 @@ services:
     # the net_edge_bps gate and canary-share logic per profile.
     - TRADE_PROFILE_ROUTER_ENABLED=${TRADE_PROFILE_ROUTER_ENABLED:-1}
     - TRADE_PROFILE_MODE=${TRADE_PROFILE_MODE:-ENFORCE}
+    # Layer A/B/C enforce-gate (auto-promoted from of_layers_shadow_calibrator)
+    # off | shadow | enforce — default OFF (полный no-op в pipeline)
+    - OF_LAYER_ENFORCE_MODE=${OF_LAYER_ENFORCE_MODE:-off}
+    - LAYER_ENFORCE_HMAC_SECRET=${LAYER_ENFORCE_HMAC_SECRET:-${LAYERS_CAL_HMAC_SECRET:-${RECS_HMAC_SECRET:-CHANGE_ME}}}
+    - LAYER_ENFORCE_KEY_PREFIX=${LAYER_ENFORCE_KEY_PREFIX:-of_gate}
+    - LAYER_ENFORCE_CACHE_TTL_SEC=${LAYER_ENFORCE_CACHE_TTL_SEC:-5}
+    # Layer D early-arm hook (inline on every tick after MFE update)
+    # off | shadow | enforce — default OFF
+    - LAYER_D_HOOK_ENABLED=${LAYER_D_HOOK_ENABLED:-0}
+    - OF_LAYER_D_EARLY_ARM_MODE=${OF_LAYER_D_EARLY_ARM_MODE:-off}
+    - OF_LAYER_D_ARM_THRESHOLD_R=${OF_LAYER_D_ARM_THRESHOLD_R:-0.5}
+    - LAYER_D_HMAC_SECRET=${LAYER_D_HMAC_SECRET:-${LAYERS_CAL_HMAC_SECRET:-${RECS_HMAC_SECRET:-CHANGE_ME}}}
+    - LAYER_D_GATES_KEY_PREFIX=${LAYER_D_GATES_KEY_PREFIX:-of_gate}
+    - LAYER_D_CONFIG_CACHE_TTL_SEC=${LAYER_D_CONFIG_CACHE_TTL_SEC:-5}
+    - LAYER_D_ARM_STREAM=${LAYER_D_ARM_STREAM:-trail:arm:requests}
     - ANALYTICS_DB_DSN=${ANALYTICS_DB_DSN}
     - TRADES_DB_DSN=${ANALYTICS_DB_DSN}
     - REDIS_HOST=redis-worker-1
@@ -349,7 +364,7 @@ services:
     - BAD_TIME_RECOVERY_FAIL_STATE_FREEZE_MS=5000
     - EMP_TIME_SNAPSHOTS_READ=1
     - CRYPTO_OF_STRONG_GATE_SHADOW=${CRYPTO_OF_STRONG_GATE_SHADOW}
-    - CRYPTO_OF_REQUIRE_STRONG_CONFIRMATION=1
+    - CRYPTO_OF_REQUIRE_STRONG_CONFIRMATION=${CRYPTO_OF_REQUIRE_STRONG_CONFIRMATION}
     - EMP_TIME_SNAPSHOT_BUF_MAX=300
     - EMP_TIME_SNAPSHOT_BUF_TTL_SEC=0
     - EMP_TTD_FAST_IF_REGIME=1
@@ -441,6 +456,8 @@ services:
     - RELIABILITY_ADJ_PRIOR_N=150
     - RELIABILITY_ADJ_MAX_ABS=0.10
     - ENTRY_SPREAD_BPS_MAX=25.0
+    - EXEC_RISK_REF_BPS=${EXEC_RISK_REF_BPS:-0}
+    - EXEC_RISK_REF_MULT=${EXEC_RISK_REF_MULT:-1.0}
     - ENTRY_RECHECK_BUCKETS=2
     - ENTRY_RECHECK_BUCKET_MS=60000
     - RUNTIME_RELOAD_KEY=runtime:reload
@@ -539,6 +556,21 @@ services:
     # the net_edge_bps gate and canary-share logic per profile.
     - TRADE_PROFILE_ROUTER_ENABLED=${TRADE_PROFILE_ROUTER_ENABLED:-1}
     - TRADE_PROFILE_MODE=${TRADE_PROFILE_MODE:-ENFORCE}
+    # Layer A/B/C enforce-gate (auto-promoted from of_layers_shadow_calibrator)
+    # off | shadow | enforce — default OFF (полный no-op в pipeline)
+    - OF_LAYER_ENFORCE_MODE=${OF_LAYER_ENFORCE_MODE:-off}
+    - LAYER_ENFORCE_HMAC_SECRET=${LAYER_ENFORCE_HMAC_SECRET:-${LAYERS_CAL_HMAC_SECRET:-${RECS_HMAC_SECRET:-CHANGE_ME}}}
+    - LAYER_ENFORCE_KEY_PREFIX=${LAYER_ENFORCE_KEY_PREFIX:-of_gate}
+    - LAYER_ENFORCE_CACHE_TTL_SEC=${LAYER_ENFORCE_CACHE_TTL_SEC:-5}
+    # Layer D early-arm hook (inline on every tick after MFE update)
+    # off | shadow | enforce — default OFF
+    - LAYER_D_HOOK_ENABLED=${LAYER_D_HOOK_ENABLED:-0}
+    - OF_LAYER_D_EARLY_ARM_MODE=${OF_LAYER_D_EARLY_ARM_MODE:-off}
+    - OF_LAYER_D_ARM_THRESHOLD_R=${OF_LAYER_D_ARM_THRESHOLD_R:-0.5}
+    - LAYER_D_HMAC_SECRET=${LAYER_D_HMAC_SECRET:-${LAYERS_CAL_HMAC_SECRET:-${RECS_HMAC_SECRET:-CHANGE_ME}}}
+    - LAYER_D_GATES_KEY_PREFIX=${LAYER_D_GATES_KEY_PREFIX:-of_gate}
+    - LAYER_D_CONFIG_CACHE_TTL_SEC=${LAYER_D_CONFIG_CACHE_TTL_SEC:-5}
+    - LAYER_D_ARM_STREAM=${LAYER_D_ARM_STREAM:-trail:arm:requests}
     - ANALYTICS_DB_DSN=${ANALYTICS_DB_DSN}
     - TRADES_DB_DSN=${ANALYTICS_DB_DSN}
     - REDIS_HOST=redis-worker-1
@@ -624,7 +656,7 @@ services:
     - PUBLISH_OF_CONFIRM=1
     - ENTRY_POLICY_ENABLED=1
     - CRYPTO_OF_STRONG_GATE_SHADOW=${CRYPTO_OF_STRONG_GATE_SHADOW}
-    - CRYPTO_OF_REQUIRE_STRONG_CONFIRMATION=1
+    - CRYPTO_OF_REQUIRE_STRONG_CONFIRMATION=${CRYPTO_OF_REQUIRE_STRONG_CONFIRMATION}
     - CRYPTO_OF_DROP_ON_LAG=${CRYPTO_OF_DROP_ON_LAG:-true}
     - CRYPTO_OF_MAX_TS_SKEW_MS=${CRYPTO_OF_MAX_TS_SKEW_MS:-5000}
     - FEATURE_DRIFT_ENABLED=1
@@ -1449,6 +1481,21 @@ services:
     # 2026-05-14: TradeProfileRouter ENFORCE — net_edge gate + canary on top of overlay
     - TRADE_PROFILE_ROUTER_ENABLED=${TRADE_PROFILE_ROUTER_ENABLED:-1}
     - TRADE_PROFILE_MODE=${TRADE_PROFILE_MODE:-ENFORCE}
+    # Layer A/B/C enforce-gate (auto-promoted from of_layers_shadow_calibrator)
+    # off | shadow | enforce — default OFF (полный no-op в pipeline)
+    - OF_LAYER_ENFORCE_MODE=${OF_LAYER_ENFORCE_MODE:-off}
+    - LAYER_ENFORCE_HMAC_SECRET=${LAYER_ENFORCE_HMAC_SECRET:-${LAYERS_CAL_HMAC_SECRET:-${RECS_HMAC_SECRET:-CHANGE_ME}}}
+    - LAYER_ENFORCE_KEY_PREFIX=${LAYER_ENFORCE_KEY_PREFIX:-of_gate}
+    - LAYER_ENFORCE_CACHE_TTL_SEC=${LAYER_ENFORCE_CACHE_TTL_SEC:-5}
+    # Layer D early-arm hook (inline on every tick after MFE update)
+    # off | shadow | enforce — default OFF
+    - LAYER_D_HOOK_ENABLED=${LAYER_D_HOOK_ENABLED:-0}
+    - OF_LAYER_D_EARLY_ARM_MODE=${OF_LAYER_D_EARLY_ARM_MODE:-off}
+    - OF_LAYER_D_ARM_THRESHOLD_R=${OF_LAYER_D_ARM_THRESHOLD_R:-0.5}
+    - LAYER_D_HMAC_SECRET=${LAYER_D_HMAC_SECRET:-${LAYERS_CAL_HMAC_SECRET:-${RECS_HMAC_SECRET:-CHANGE_ME}}}
+    - LAYER_D_GATES_KEY_PREFIX=${LAYER_D_GATES_KEY_PREFIX:-of_gate}
+    - LAYER_D_CONFIG_CACHE_TTL_SEC=${LAYER_D_CONFIG_CACHE_TTL_SEC:-5}
+    - LAYER_D_ARM_STREAM=${LAYER_D_ARM_STREAM:-trail:arm:requests}
     - VETO_TOPN_WINDOW_MS=300000
     - VETO_TOPN_N=5
     - VETO_TOPN_MIN_TOTAL=30
@@ -1897,6 +1944,7 @@ services:
     - CRYPTO_OF_DROP_ON_LAG=true
     - CRYPTO_OF_MAX_LAG_MS=2000
     - CRYPTO_OF_MAX_TS_SKEW_MS=30000
+    - CRYPTO_OF_REQUIRE_STRONG_CONFIRMATION=${CRYPTO_OF_REQUIRE_STRONG_CONFIRMATION}
     - TZ=UTC
     depends_on:
       postgres:
@@ -4035,6 +4083,393 @@ services:
           python -m orderflow_services.liqmap_gate_calibrator_v1
           sleep ${LIQMAP_CAL_INTERVAL_SEC:-3600}
         done
+
+  of-layer-a-shadow-gate:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    image: scanner-python-worker:latest
+    container_name: scanner-of-layer-a-shadow-gate
+    restart: unless-stopped
+    environment:
+      - PYTHONUNBUFFERED=1
+      - OF_LAYER_A_SHADOW_ENABLE=${OF_LAYER_A_SHADOW_ENABLE:-0}
+      - OF_LAYER_A_SHADOW_REDIS_URL=redis://redis-worker-1:6379/0
+      - OF_LAYER_A_SHADOW_STREAM=trades:closed
+      - OF_LAYER_A_SHADOW_SINCE_HOURS=${OF_LAYER_A_SHADOW_SINCE_HOURS:-24}
+      - OF_LAYER_A_SHADOW_INTERVAL_SEC=${OF_LAYER_A_SHADOW_INTERVAL_SEC:-300}
+      - OF_LAYER_A_SHADOW_ADVERSE_BPS=${OF_LAYER_A_SHADOW_ADVERSE_BPS:-15.0}
+      - OF_LAYER_A_SHADOW_SLIPPAGE_BPS=${OF_LAYER_A_SHADOW_SLIPPAGE_BPS:-2.0}
+      - OF_LAYER_A_SHADOW_SPREAD_BPS=${OF_LAYER_A_SHADOW_SPREAD_BPS:-1.5}
+      - OF_LAYER_A_SHADOW_ADVERSE_KEY=${OF_LAYER_A_SHADOW_ADVERSE_KEY:-100}
+      - OF_LAYER_A_SHADOW_REPORT_PATH=/var/lib/trade/of_reports/of_layer_a_shadow.json
+      - OF_LAYER_A_SHADOW_PROM_PORT=9859
+      - OF_LAYER_A_SHADOW_BATCH=2000
+      - TZ=UTC
+    ports:
+      - "9859:9859"
+    volumes:
+      - /var/lib/trade:/var/lib/trade
+    depends_on:
+      redis-worker-1:
+        condition: service_healthy
+    networks:
+      - scanner-core
+      - scanner-infra
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+          cpus: '0.1'
+        reservations:
+          memory: 64M
+    command:
+      - sh
+      - -c
+      - |
+        sleep 15
+        if [ "$${OF_LAYER_A_SHADOW_ENABLE:-0}" = "0" ]; then
+          echo "OF_LAYER_A_SHADOW_ENABLE=0 — idle (set =1 to start shadow)"
+          while true; do sleep 3600; done
+        fi
+        python -m orderflow_services.of_layer_a_shadow_gate_v1
+
+  of-layer-b-shadow-gate:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    image: scanner-python-worker:latest
+    container_name: scanner-of-layer-b-shadow-gate
+    restart: unless-stopped
+    environment:
+      - PYTHONUNBUFFERED=1
+      - OF_LAYER_B_SHADOW_ENABLE=${OF_LAYER_B_SHADOW_ENABLE:-0}
+      - OF_LAYER_B_SHADOW_REDIS_URL=redis://redis-worker-1:6379/0
+      - OF_LAYER_B_SHADOW_STREAM=trades:closed
+      - OF_LAYER_B_SHADOW_SINCE_HOURS=${OF_LAYER_B_SHADOW_SINCE_HOURS:-72}
+      - OF_LAYER_B_SHADOW_INTERVAL_SEC=${OF_LAYER_B_SHADOW_INTERVAL_SEC:-300}
+      - OF_LAYER_B_SLIP_LO=${OF_LAYER_B_SLIP_LO:-1.0}
+      - OF_LAYER_B_SLIP_HI=${OF_LAYER_B_SLIP_HI:-2.0}
+      - OF_LAYER_B_SLIP_CLAMP=${OF_LAYER_B_SLIP_CLAMP:-0.5}
+      - OF_LAYER_B_SPR_LO=${OF_LAYER_B_SPR_LO:-0.8}
+      - OF_LAYER_B_SPR_HI=${OF_LAYER_B_SPR_HI:-1.5}
+      - OF_LAYER_B_SPR_CLAMP=${OF_LAYER_B_SPR_CLAMP:-0.5}
+      - OF_LAYER_B_LONG_REGIME_FIELD=${OF_LAYER_B_LONG_REGIME_FIELD:-regime}
+      - OF_LAYER_B_LONG_CONFIRM_VALUES=${OF_LAYER_B_LONG_CONFIRM_VALUES:-uptrend,trend_up}
+      - OF_LAYER_B_LONG_CLAMP=${OF_LAYER_B_LONG_CLAMP:-0.7}
+      - OF_LAYER_B_SYMMETRY_SHORT_ENABLE=${OF_LAYER_B_SYMMETRY_SHORT_ENABLE:-0}
+      - OF_LAYER_B_SHORT_CONFIRM_VALUES=${OF_LAYER_B_SHORT_CONFIRM_VALUES:-downtrend,trend_down}
+      - OF_LAYER_B_SHORT_CLAMP=${OF_LAYER_B_SHORT_CLAMP:-0.7}
+      - OF_LAYER_B_MIN_CLAMP=${OF_LAYER_B_MIN_CLAMP:-0.2}
+      - OF_LAYER_B_REPORT_PATH=/var/lib/trade/of_reports/of_layer_b_shadow.json
+      - OF_LAYER_B_PROM_PORT=9854
+      - OF_LAYER_B_BATCH=2000
+      - TZ=UTC
+    ports:
+      - "9854:9854"
+    volumes:
+      - /var/lib/trade:/var/lib/trade
+    depends_on:
+      redis-worker-1:
+        condition: service_healthy
+    networks:
+      - scanner-core
+      - scanner-infra
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.1'
+        reservations:
+          memory: 96M
+    command:
+      - sh
+      - -c
+      - |
+        sleep 15
+        if [ "$${OF_LAYER_B_SHADOW_ENABLE:-0}" = "0" ]; then
+          echo "OF_LAYER_B_SHADOW_ENABLE=0 — idle (set =1 to start shadow)"
+          while true; do sleep 3600; done
+        fi
+        python -m orderflow_services.of_layer_b_shadow_gate_v1
+
+  of-layer-c-shadow-gate:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    image: scanner-python-worker:latest
+    container_name: scanner-of-layer-c-shadow-gate
+    restart: unless-stopped
+    environment:
+      - PYTHONUNBUFFERED=1
+      - OF_LAYER_C_SHADOW_ENABLE=${OF_LAYER_C_SHADOW_ENABLE:-0}
+      - OF_LAYER_C_SHADOW_REDIS_URL=redis://redis-worker-1:6379/0
+      - OF_LAYER_C_SHADOW_STREAM=trades:closed
+      - OF_LAYER_C_SHADOW_SINCE_HOURS=${OF_LAYER_C_SHADOW_SINCE_HOURS:-24}
+      - OF_LAYER_C_SHADOW_INTERVAL_SEC=${OF_LAYER_C_SHADOW_INTERVAL_SEC:-300}
+      - OF_LAYER_C_MIN_LEGS=${OF_LAYER_C_MIN_LEGS:-2}
+      - OF_LAYER_C_LEG1_NAME=${OF_LAYER_C_LEG1_NAME:-of_imbalance}
+      - OF_LAYER_C_LEG1_FEATURE_KEY=${OF_LAYER_C_LEG1_FEATURE_KEY:-qimb_wmean}
+      - OF_LAYER_C_LEG1_THRESHOLD=${OF_LAYER_C_LEG1_THRESHOLD:-1.0}
+      - OF_LAYER_C_LEG1_ENABLED=${OF_LAYER_C_LEG1_ENABLED:-1}
+      - OF_LAYER_C_LEG2_NAME=${OF_LAYER_C_LEG2_NAME:-ob_squeeze}
+      - OF_LAYER_C_LEG2_FEATURE_KEY=${OF_LAYER_C_LEG2_FEATURE_KEY:-lob_dw_obi_z}
+      - OF_LAYER_C_LEG2_THRESHOLD=${OF_LAYER_C_LEG2_THRESHOLD:-1.5}
+      - OF_LAYER_C_LEG2_ENABLED=${OF_LAYER_C_LEG2_ENABLED:-1}
+      - OF_LAYER_C_LEG3_NAME=${OF_LAYER_C_LEG3_NAME:-liq_pressure}
+      - OF_LAYER_C_LEG3_FEATURE_KEY=${OF_LAYER_C_LEG3_FEATURE_KEY:-liq_pressure_boost}
+      - OF_LAYER_C_LEG3_THRESHOLD=${OF_LAYER_C_LEG3_THRESHOLD:-1.0}
+      - OF_LAYER_C_LEG3_ENABLED=${OF_LAYER_C_LEG3_ENABLED:-1}
+      - OF_LAYER_C_LEG4_NAME=${OF_LAYER_C_LEG4_NAME:-regime_align}
+      - OF_LAYER_C_LEG4_REGIME_FIELD=${OF_LAYER_C_LEG4_REGIME_FIELD:-regime}
+      - OF_LAYER_C_LEG4_CONFIRM_LONG=${OF_LAYER_C_LEG4_CONFIRM_LONG:-uptrend,trend_up}
+      - OF_LAYER_C_LEG4_CONFIRM_SHORT=${OF_LAYER_C_LEG4_CONFIRM_SHORT:-downtrend,trend_down}
+      - OF_LAYER_C_LEG4_ENABLED=${OF_LAYER_C_LEG4_ENABLED:-1}
+      - OF_LAYER_C_REPORT_PATH=/var/lib/trade/of_reports/of_layer_c_shadow.json
+      - OF_LAYER_C_PROM_PORT=9855
+      - OF_LAYER_C_BATCH=2000
+      - TZ=UTC
+    ports:
+      - "9855:9855"
+    volumes:
+      - /var/lib/trade:/var/lib/trade
+    depends_on:
+      redis-worker-1:
+        condition: service_healthy
+    networks:
+      - scanner-core
+      - scanner-infra
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+          cpus: '0.1'
+        reservations:
+          memory: 64M
+    command:
+      - sh
+      - -c
+      - |
+        sleep 15
+        if [ "$${OF_LAYER_C_SHADOW_ENABLE:-0}" = "0" ]; then
+          echo "OF_LAYER_C_SHADOW_ENABLE=0 — idle (set =1 to start shadow)"
+          while true; do sleep 3600; done
+        fi
+        python -m orderflow_services.of_layer_c_shadow_gate_v1
+
+  of-layer-d-shadow-trail:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    image: scanner-python-worker:latest
+    container_name: scanner-of-layer-d-shadow-trail
+    restart: unless-stopped
+    environment:
+      - PYTHONUNBUFFERED=1
+      - OF_LAYER_D_SHADOW_ENABLE=${OF_LAYER_D_SHADOW_ENABLE:-0}
+      - OF_LAYER_D_SHADOW_REDIS_URL=redis://redis-worker-1:6379/0
+      - OF_LAYER_D_SHADOW_STREAM=trades:closed
+      - OF_LAYER_D_SHADOW_SINCE_HOURS=${OF_LAYER_D_SHADOW_SINCE_HOURS:-72}
+      - OF_LAYER_D_SHADOW_INTERVAL_SEC=${OF_LAYER_D_SHADOW_INTERVAL_SEC:-300}
+      - OF_LAYER_D_ARM_THRESHOLD_R=${OF_LAYER_D_ARM_THRESHOLD_R:-0.5}
+      - OF_LAYER_D_KEEP_FRACTION=${OF_LAYER_D_KEEP_FRACTION:-0.5}
+      - OF_LAYER_D_EXIT_FEE_USD=${OF_LAYER_D_EXIT_FEE_USD:-0.5}
+      - OF_LAYER_D_REPORT_PATH=/var/lib/trade/of_reports/of_layer_d_shadow.json
+      - OF_LAYER_D_PROM_PORT=9856
+      - OF_LAYER_D_BATCH=2000
+      - TZ=UTC
+    ports:
+      - "9856:9856"
+    volumes:
+      - /var/lib/trade:/var/lib/trade
+    depends_on:
+      redis-worker-1:
+        condition: service_healthy
+    networks:
+      - scanner-core
+      - scanner-infra
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.1'
+        reservations:
+          memory: 96M
+    command:
+      - sh
+      - -c
+      - |
+        sleep 15
+        if [ "$${OF_LAYER_D_SHADOW_ENABLE:-0}" = "0" ]; then
+          echo "OF_LAYER_D_SHADOW_ENABLE=0 — idle (set =1 to start shadow)"
+          while true; do sleep 3600; done
+        fi
+        python -m orderflow_services.of_layer_d_shadow_trail_v1
+
+  of-layers-shadow-calibrator:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    image: scanner-python-worker:latest
+    container_name: scanner-of-layers-shadow-calibrator
+    restart: unless-stopped
+    environment:
+      - PYTHONUNBUFFERED=1
+      - LAYERS_CAL_ENABLE=${LAYERS_CAL_ENABLE:-0}
+      - LAYERS_CAL_INTERVAL_SEC=${LAYERS_CAL_INTERVAL_SEC:-600}
+      - LAYERS_CAL_MIN_TRADES=${LAYERS_CAL_MIN_TRADES:-200}
+      - LAYERS_CAL_REPORTS_DIR=/var/lib/trade/of_reports
+      - LAYERS_CAL_STATE_PATH=/var/lib/trade/of_reports/layers_cal_state.json
+      - LAYERS_CAL_A_VETO_RATE_MIN=${LAYERS_CAL_A_VETO_RATE_MIN:-0.05}
+      - LAYERS_CAL_A_VETO_RATE_MAX=${LAYERS_CAL_A_VETO_RATE_MAX:-0.15}
+      - LAYERS_CAL_A_WR_UPLIFT_MIN_PP=${LAYERS_CAL_A_WR_UPLIFT_MIN_PP:-3.0}
+      - LAYERS_CAL_A_WINNERS_LOST_MAX=${LAYERS_CAL_A_WINNERS_LOST_MAX:-0.05}
+      - LAYERS_CAL_B_PNL_UPLIFT_MIN_USD=${LAYERS_CAL_B_PNL_UPLIFT_MIN_USD:-0}
+      - LAYERS_CAL_B_WINNERS_LOST_RATIO_MAX=${LAYERS_CAL_B_WINNERS_LOST_RATIO_MAX:-0.30}
+      - LAYERS_CAL_B_CLAMP_RATE_MAX=${LAYERS_CAL_B_CLAMP_RATE_MAX:-0.70}
+      - LAYERS_CAL_C_MISSING_MAX_PER_LEG=${LAYERS_CAL_C_MISSING_MAX_PER_LEG:-0.30}
+      - LAYERS_CAL_C_WR_UPLIFT_MIN_PP=${LAYERS_CAL_C_WR_UPLIFT_MIN_PP:-5.0}
+      - LAYERS_CAL_C_WINNERS_LOST_RATIO_MAX=${LAYERS_CAL_C_WINNERS_LOST_RATIO_MAX:-0.25}
+      - LAYERS_CAL_D_PNL_UPLIFT_MIN_USD=${LAYERS_CAL_D_PNL_UPLIFT_MIN_USD:-10}
+      - LAYERS_CAL_D_LOSERS_FLIPPED_MIN=${LAYERS_CAL_D_LOSERS_FLIPPED_MIN:-5}
+      - LAYERS_CAL_D_ARMABLE_RATE_MIN=${LAYERS_CAL_D_ARMABLE_RATE_MIN:-0.10}
+      - LAYERS_CAL_NOTIFY_STREAM=notify:telegram
+      - LAYERS_CAL_NOTIFY_REDIS_URL=redis://redis:6379/0
+      - LAYERS_CAL_COOLDOWN_SEC=${LAYERS_CAL_COOLDOWN_SEC:-86400}
+      - LAYERS_CAL_PROM_PORT=9851
+      # Auto-promotion (DEFAULT DISABLED — opt-in only)
+      - LAYERS_CAL_AUTO_PROMOTE_ENABLE=${LAYERS_CAL_AUTO_PROMOTE_ENABLE:-0}
+      - LAYERS_CAL_AUTO_PROMOTE_LAYERS=${LAYERS_CAL_AUTO_PROMOTE_LAYERS:-A,B,C}
+      - LAYERS_CAL_CANARY_SYMBOLS=${LAYERS_CAL_CANARY_SYMBOLS:-BTCUSDT,ETHUSDT,SOLUSDT}
+      - LAYERS_CAL_GATES_REDIS_URL=redis://redis-worker-1:6379/0
+      - LAYERS_CAL_GATES_KEY_PREFIX=${LAYERS_CAL_GATES_KEY_PREFIX:-of_gate}
+      - LAYERS_CAL_PROMOTE_COOLDOWN_SEC=${LAYERS_CAL_PROMOTE_COOLDOWN_SEC:-86400}
+      - LAYERS_CAL_HMAC_SECRET=${LAYERS_CAL_HMAC_SECRET:-${RECS_HMAC_SECRET:-CHANGE_ME}}
+      - TZ=UTC
+    ports:
+      - "9851:9851"
+    volumes:
+      - /var/lib/trade:/var/lib/trade
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - scanner-core
+      - scanner-infra
+    deploy:
+      resources:
+        limits:
+          memory: 96M
+          cpus: '0.05'
+        reservations:
+          memory: 48M
+    command:
+      - sh
+      - -c
+      - |
+        sleep 15
+        if [ "$${LAYERS_CAL_ENABLE:-0}" = "0" ]; then
+          echo "LAYERS_CAL_ENABLE=0 — idle"
+          while true; do sleep 3600; done
+        fi
+        python -m orderflow_services.of_layers_shadow_calibrator_v1
+
+  of-layer-enforce-autotuner:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    image: scanner-python-worker:latest
+    container_name: scanner-of-layer-enforce-autotuner
+    restart: unless-stopped
+    environment:
+      - PYTHONUNBUFFERED=1
+      - LAYER_AUTOTUNE_ENABLE=${LAYER_AUTOTUNE_ENABLE:-0}
+      - LAYER_AUTOTUNE_INTERVAL_SEC=${LAYER_AUTOTUNE_INTERVAL_SEC:-600}
+      - LAYER_AUTOTUNE_SCRAPE_URL=${LAYER_AUTOTUNE_SCRAPE_URL:-http://scanner-python-worker:8000/metrics}
+      - LAYER_AUTOTUNE_MIN_SHADOW_HOURS=${LAYER_AUTOTUNE_MIN_SHADOW_HOURS:-24}
+      - LAYER_AUTOTUNE_MIN_ACTIVITY_PER_HOUR=${LAYER_AUTOTUNE_MIN_ACTIVITY_PER_HOUR:-5}
+      - LAYER_AUTOTUNE_C_MIN_PRESENT_RATE=${LAYER_AUTOTUNE_C_MIN_PRESENT_RATE:-0.5}
+      - LAYER_AUTOTUNE_C_ALT_LEG3_KEYS=${LAYER_AUTOTUNE_C_ALT_LEG3_KEYS:-liq_pressure_boost,liq_pressure_pen,liq_pressure_veto}
+      - LAYER_AUTOTUNE_COOLDOWN_SEC=${LAYER_AUTOTUNE_COOLDOWN_SEC:-3600}
+      - LAYER_AUTOTUNE_REPORTS_DIR=/var/lib/trade/of_reports
+      - LAYER_AUTOTUNE_STATE_PATH=/var/lib/trade/of_reports/layer_autotune_state.json
+      - LAYER_AUTOTUNE_REDIS_URL=redis://redis-worker-1:6379/0
+      - LAYER_AUTOTUNE_NOTIFY_REDIS_URL=redis://redis:6379/0
+      - LAYER_AUTOTUNE_NOTIFY_STREAM=notify:telegram
+      - LAYER_AUTOTUNE_KEY_PREFIX=${LAYER_AUTOTUNE_KEY_PREFIX:-of_gate}
+      - LAYER_AUTOTUNE_PROM_PORT=9857
+      - TZ=UTC
+    ports:
+      - "9857:9857"
+    volumes:
+      - /var/lib/trade:/var/lib/trade
+    depends_on:
+      redis-worker-1:
+        condition: service_healthy
+    networks:
+      - scanner-core
+      - scanner-infra
+    deploy:
+      resources:
+        limits:
+          memory: 96M
+          cpus: '0.05'
+        reservations:
+          memory: 48M
+    command:
+      - sh
+      - -c
+      - |
+        sleep 30
+        if [ "$${LAYER_AUTOTUNE_ENABLE:-0}" = "0" ]; then
+          echo "LAYER_AUTOTUNE_ENABLE=0 — idle"
+          while true; do sleep 3600; done
+        fi
+        python -m orderflow_services.of_layer_enforce_autotuner_v1
+
+  of-layer-d-arm-consumer:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    image: scanner-python-worker:latest
+    container_name: scanner-of-layer-d-arm-consumer
+    restart: unless-stopped
+    environment:
+      - PYTHONUNBUFFERED=1
+      - LAYER_D_CONSUMER_ENABLE=${LAYER_D_CONSUMER_ENABLE:-0}
+      - LAYER_D_CONSUMER_REDIS_URL=redis://redis-worker-1:6379/0
+      - LAYER_D_ARM_STREAM=${LAYER_D_ARM_STREAM:-trail:arm:requests}
+      - LAYER_D_CONSUMER_GROUP=${LAYER_D_CONSUMER_GROUP:-layer_d_arm_cg}
+      - LAYER_D_CONSUMER_NAME=${LAYER_D_CONSUMER_NAME:-consumer-1}
+      - LAYER_D_HMAC_SECRET=${LAYER_D_HMAC_SECRET:-${LAYERS_CAL_HMAC_SECRET:-${RECS_HMAC_SECRET:-CHANGE_ME}}}
+      - LAYER_D_DEDUP_TTL_SEC=${LAYER_D_DEDUP_TTL_SEC:-3600}
+      - LAYER_D_CONSUMER_PROM_PORT=9858
+      - TZ=UTC
+    ports:
+      - "9858:9858"
+    depends_on:
+      redis-worker-1:
+        condition: service_healthy
+    networks:
+      - scanner-core
+      - scanner-infra
+    deploy:
+      resources:
+        limits:
+          memory: 64M
+          cpus: '0.05'
+        reservations:
+          memory: 32M
+    command:
+      - sh
+      - -c
+      - |
+        sleep 30
+        if [ "$${LAYER_D_CONSUMER_ENABLE:-0}" = "0" ]; then
+          echo "LAYER_D_CONSUMER_ENABLE=0 — idle (skeleton; arm_callback=None)"
+          while true; do sleep 3600; done
+        fi
+        python -m services.tp_hit_trailing_orchestrator_layer_d_consumer
 
   v14-of-drift-monitor:
     build:
