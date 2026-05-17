@@ -168,6 +168,54 @@ class MLScoringGate:
         self._load_attempts: int = 0
         self._load_failures: int = 0
 
+        # Sampled missing-rate telemetry. 1-in-N scoring calls walk the
+        # indicators dict and emit per-key counters; the rest skip the
+        # increments entirely. ML_FEATURE_MISSING_SAMPLE_EVERY=0 disables.
+        try:
+            n = int(os.getenv("ML_FEATURE_MISSING_SAMPLE_EVERY", "10") or "10")
+        except ValueError:
+            n = 10
+        self._missing_sample_every: int = max(0, n)
+        self._missing_sample_counter: int = 0
+
+    def _maybe_open_missing_metric(self, schema_ver: str):
+        """Return an `(feature_key, value) → None` emitter for this scoring call.
+
+        Returns None when sampling is disabled or this call is not sampled.
+        Emitter increments `ml_feature_seen_total` per key, and
+        `ml_feature_missing_total` when the value is None/NaN/missing.
+        """
+        if self._missing_sample_every <= 0:
+            return None
+        self._missing_sample_counter += 1
+        if self._missing_sample_counter % self._missing_sample_every != 0:
+            return None
+        try:
+            from services.orderflow.metrics import (
+                ml_feature_missing_total,
+                ml_feature_seen_total,
+            )
+        except Exception:
+            return None
+        sv = schema_ver or "unknown"
+
+        def _emit(key: str, value: Any) -> None:
+            try:
+                ml_feature_seen_total.labels(schema_ver=sv, feature=key).inc()
+                missing = value is None
+                if not missing:
+                    try:
+                        x = float(value)
+                        missing = not math.isfinite(x)
+                    except (TypeError, ValueError):
+                        missing = True
+                if missing:
+                    ml_feature_missing_total.labels(schema_ver=sv, feature=key).inc()
+            except Exception:
+                pass
+
+        return _emit
+
     # ------------------------------------------------------------------
     # Model lifecycle
     # ------------------------------------------------------------------
@@ -329,10 +377,18 @@ class MLScoringGate:
                 try:
                     from core.feature_registry import get_schema_info
                     schema_info = get_schema_info(sv_tag)
+                    # Sampled missing-rate telemetry — 1-in-N scoring calls walk
+                    # the indicators dict and emit per-key counters so dashboards
+                    # can compute missing_total / seen_total. Off by default
+                    # in tests; cardinality is bounded by schema size.
+                    _miss_metric = self._maybe_open_missing_metric(sv_tag)
                     vec: list[float] = []
                     for feat_name in schema_info.feature_names:
                         if feat_name.startswith(("n:", "b:")):
                             key = feat_name[2:]
+                            val = ind.get(key) if isinstance(ind, dict) else None
+                            if _miss_metric is not None:
+                                _miss_metric(key, val)
                             vec.append(_fd(ind, key, 0.0))
                         elif feat_name == "dir:LONG":
                             vec.append(1.0 if _dir_sign_from_side(side) > 0 else 0.0)

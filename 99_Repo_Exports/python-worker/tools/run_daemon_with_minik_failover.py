@@ -5,22 +5,40 @@ import shlex
 import subprocess
 import sys
 
-# Add parent directory to path to import common
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import redis.asyncio as aioredis
 
 LOCK_TTL = 60
 RENEW_INTERVAL = 20
+REDIS_CONNECT_RETRY_DELAY = 10
+REDIS_CONNECT_MAX_RETRIES = 30  # 5 minutes total
+
 
 async def lock_renewer(redis, lock_key, process):
     try:
         while process.poll() is None:
             await asyncio.sleep(RENEW_INTERVAL)
-            # Renew the lock
             await redis.expire(lock_key, LOCK_TTL)
     except Exception as e:
         print(f"Error in lock renewer: {e}")
+
+
+async def connect_redis_with_retry(redis_url: str, job_name: str) -> aioredis.Redis:
+    for attempt in range(1, REDIS_CONNECT_MAX_RETRIES + 1):
+        client = aioredis.from_url(redis_url, decode_responses=True, socket_connect_timeout=5)
+        try:
+            await client.ping()
+            print(f"[{job_name}] Redis connected on attempt {attempt}.")
+            return client
+        except Exception as e:
+            await client.aclose()
+            print(f"[{job_name}] Redis unavailable (attempt {attempt}/{REDIS_CONNECT_MAX_RETRIES}): {e}")
+            if attempt < REDIS_CONNECT_MAX_RETRIES:
+                await asyncio.sleep(REDIS_CONNECT_RETRY_DELAY)
+    print(f"[{job_name}] Could not connect to Redis after {REDIS_CONNECT_MAX_RETRIES} attempts. Exiting.")
+    sys.exit(1)
+
 
 async def main():
     parser = argparse.ArgumentParser(description="Daemon Wrapper to ensure Minik preferred execution with Main Host fallback.")
@@ -32,46 +50,45 @@ async def main():
     if args.command and args.command[0] == '--':
         args.command = args.command[1:]
 
-    redis_url = os.environ.get("REDIS_URL", "redis://redis-worker-1:6379/0")
-    redis = aioredis.from_url(redis_url, decode_responses=True)
+    redis_url = os.environ.get("LOCK_REDIS_URL", os.environ.get("REDIS_URL", "redis://redis-worker-1:6379/0"))
     lock_key = f"daemon_lock:{args.job_name}"
 
-    # If main host, initial delay to give minik priority
     if not args.is_minik:
         print(f"[{args.job_name}] Main host yielding to Minik (initial 60s wait)...")
         await asyncio.sleep(60)
 
+    redis = await connect_redis_with_retry(redis_url, args.job_name)
+
     while True:
-        # Try to acquire lock
-        acquired = await redis.set(lock_key, "1", nx=True, ex=LOCK_TTL)
+        try:
+            acquired = await redis.set(lock_key, "1", nx=True, ex=LOCK_TTL)
+        except Exception as e:
+            print(f"[{args.job_name}] Lock check failed: {e}. Retrying in {REDIS_CONNECT_RETRY_DELAY}s...")
+            await asyncio.sleep(REDIS_CONNECT_RETRY_DELAY)
+            continue
+
         if acquired:
             print(f"[{args.job_name}] Lock acquired. Starting daemon...")
             break
         else:
-            # Minik is running it, or something else is holding the lock
-            # We don't exit, we just poll the lock periodically
             await asyncio.sleep(30)
 
-    # We have the lock. Launch subprocess.
     cmd = shlex.join(args.command)
     print(f"[{args.job_name}] $ {cmd}")
     process = subprocess.Popen(cmd, shell=True)
 
-    # Start renewing task
     renewer_task = asyncio.create_task(lock_renewer(redis, lock_key, process))
 
-    # Wait for process to exit natively
     while process.poll() is None:
         await asyncio.sleep(1)
 
-    # Process died or exited
     renewer_task.cancel()
     print(f"[{args.job_name}] Daemon process exited with code {process.returncode}")
 
-    # Release the lock so another host can take over immediately
     await redis.delete(lock_key)
     await redis.aclose()
     sys.exit(process.returncode)
+
 
 if __name__ == "__main__":
     asyncio.run(main())

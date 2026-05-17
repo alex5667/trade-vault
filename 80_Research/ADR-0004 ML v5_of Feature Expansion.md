@@ -27,13 +27,15 @@ baseline_schema: v13_of
 | P1.3 — ATR freshness (atr_fresh bool, ATR_FRESH_MS env) | DONE (2026-05-15) |
 | P1.4 — Gate trace (rule_have_need_gap, missing_legs_count, gate_pressure_score, soft_fail_near_pass) | DONE (2026-05-15) |
 | P1.5 — Session/weekend flags (session_{asia,europe,us}, weekend_flag) | DONE (2026-05-15) |
-| P1 — TCA EMA priors | PLANNED (requires separate Redis time-series infra — see ADR-0005) |
-| P2 — Cross-symbol / macro features | PLANNED (requires BTC/ETH anchor feed — see ADR-0006) |
-| P2.1 — LOB velocity (rolling 1s/3s windows) | PLANNED (per-symbol rolling state in runtime) |
-| P2.2 — Fill-queue features (eta_fill_sec, queue_ahead_qty) | PLANNED (LOB depth snapshots) |
+| P1.6 — LOB velocity (rolling 1s/3s windows) | DONE (2026-05-16): module-level cache in of_confirm_engine.py |
+| P1.7 — Fill-queue lite (eta_fill_sec, queue_ahead_qty, depth_to_taker_rate, maker_edge) | DONE (2026-05-16) |
+| P1.8 — Cross-context hydration (BTC/ETH anchors + PIT priors + TCA EMA) | DONE (2026-05-16): reads Redis hashes from ADR-0005/06/07 skeleton services |
+| P1 — TCA EMA priors service | SKELETON (2026-05-16): tca_priors_exporter_v1.py — Redis schema/Prometheus contract fixed; realized_spread/perm_impact computation TODO |
+| P2 — Cross-symbol aggregator service | SKELETON (2026-05-16): cross_context_aggregator_v1.py — BTC/ETH anchor returns full impl; liq/OI/funding TODO |
+| P3 — Historical priors (PIT pipeline) | SKELETON (2026-05-16): tools/build_pit_priors_v1.py materializer + pit_priors_exporter_v1.py health; daily cron + purged CV TODO |
+| Outcome tracker (ECE/Brier/Precision@Top5%) | DONE (2026-05-16): ml_outcome_calibration_tracker_v1.py consumes trades:closed |
 | P3 — VPIN/Hawkes (denylist only) | PLANNED |
-| P3 — Historical priors (PIT pipeline) | PLANNED (replay-safe materialization — see ADR-0007) |
-| Section 6 telemetry | DONE (2026-05-15): ml_p_edge_bucket, ml_abstain_total, ml_feature_schema_version_total, ml_feature_vector_size_mismatch_total |
+| Section 6 telemetry | DONE (2026-05-15): ml_p_edge_bucket, ml_abstain_total, ml_feature_schema_version_total, ml_feature_vector_size_mismatch_total; +ml_ece_per_bucket, ml_brier_per_bucket, ml_precision_top5_pct (2026-05-16) |
 | Section 8 prod-checklist | DONE (2026-05-15): n_features_in_ runtime check + train-time guard; feature_cols_hash already saved |
 
 ## Decision

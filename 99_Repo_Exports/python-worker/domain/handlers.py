@@ -1012,7 +1012,14 @@ def create_position(signal: SignalNorm, spec) -> PositionState:
         baseline_tp2=baseline_tp2,
         baseline_tp3=baseline_tp3,
 
-        atr=float(payload.get("atr") or signal.payload.get("atr") or 0.0),
+        atr=float(
+            payload.get("atr_used_for_levels")
+            or payload.get("atr_at_entry")
+            or payload.get("atr")
+            or _indicators_pl.get("atr_used_for_levels")
+            or _indicators_pl.get("atr_at_entry")
+            or 0.0
+        ),
         # AB attribution
         ab_arm=(payload.get("ab_arm") or "A"),
         ab_group=(payload.get("ab_group") or "default"),

@@ -898,8 +898,44 @@ class SymbolRuntime:
     _calib_bars_since_persist: int = 0
     _calib_last_persist_ts_ms: int = 0
 
-    async def ensure_atr_tf_loaded(self, r) -> None:
+    async def ensure_dn_loaded(self, r) -> None:
         pass
+
+    async def ensure_atr_tf_loaded(self, r) -> None:
+        if self._atr_tf_loaded:
+            return
+        self._atr_tf_loaded = True
+        import json
+        sym = self.symbol
+        # 1. Restore choice (ATR_TF_SELECTED) from Redis
+        try:
+            from core.dyn_cfg_keys import DynCfgKeys as DK
+            prefix = str(self.config.get("atr_tf_key_prefix", "calib:atr_tf"))
+            raw = await r.get(f"{prefix}:{sym.upper()}")
+            if raw:
+                st = json.loads(raw)
+                tf = str(st.get("tf") or "")
+                if tf:
+                    self.dynamic_cfg[DK.ATR_TF_SELECTED] = tf
+                    self.dynamic_cfg[DK.ATR_TF_SRC] = str(st.get("src") or "na")
+        except Exception:
+            pass
+        # 2. Restore P² quantile history for each persisted regime
+        try:
+            c_prefix = str(self.config.get("atr_tf_calib_key_prefix", "calib:atrtf"))
+            c_set_prefix = str(self.config.get("atr_tf_calib_regimes_set_prefix", "calib:atrtf:regimes"))
+            regimes_raw = await r.smembers(f"{c_set_prefix}:{sym}")
+            regimes = list(regimes_raw or [])
+            if "na" not in regimes:
+                regimes.append("na")
+            for rg in regimes:
+                raw = await r.get(f"{c_prefix}:{sym}:{rg}")
+                if raw:
+                    st = json.loads(raw)
+                    if isinstance(st, dict):
+                        self.atr_tf_calib.load_regime_state(st)
+        except Exception:
+            pass
 
     async def ensure_atr_bps_loaded(self, r) -> None:
         pass
@@ -1229,6 +1265,7 @@ class SymbolRuntime:
 
         self._atr_tf_loaded: bool = False
         self._atr_tf_last_persist_ts_ms: int = 0
+        self._atr_tf_choice_last_persist_ts_ms: int = 0
 
         self._bookrate_sample_bucket: int = -1
         self.l3_queue = L3QueueEventsProxy(bucket_ms=bucket_ms, alpha=l3_alpha)
@@ -1530,36 +1567,43 @@ class SymbolRuntime:
 
         # Phase A detectors (delta, OBI, absorption, iceberg)
         try:
+            z_thr = self.config.get("delta_z_threshold")
+            if z_thr is None:
+                try:
+                    z_thr = get_specs(self.symbol).delta_z
+                except Exception:
+                    z_thr = 3.0
+            z_thr = max(0.1, float(z_thr))
+            new_window = int(self.config.get("delta_window", 120))
+            new_min_vol = float(self.config.get("delta_abs_min", 0.0))
+
             if hasattr(self, "delta_detector") and self.delta_detector:
-                # Update existing detector config if it supports it
-                pass
-            else:
-                z_thr = self.config.get("delta_z_threshold")
-                if z_thr is None:
-                    # Fallback to SymbolSpecs
-                    try:
-                        z_thr = get_specs(self.symbol).delta_z
-                    except Exception:
-                        z_thr = 3.0
-
-                self.delta_detector = DeltaSpikeDetector(
-                    window=int(self.config.get("delta_window", 120)),
-                    z_threshold=float(z_thr),
-                    min_abs_volume=float(self.config.get("delta_abs_min", 0.0)),
-                )
-
-                # Validation: if z_threshold is too low (e.g. 0.0), it breaks p_speed metrics.
-                # Force a sane default if accidentally disabled/zeroed.
-                if self.delta_detector.z_threshold < 0.1:
-                    logger.warning(
-                        "⚠️ (%s) Delta z_threshold=%.2f is too low! Forcing default 3.0 to avoid zero-metrics.",
-                        self.symbol, self.delta_detector.z_threshold
+                # Hot-reload: apply param changes without losing rolling window history,
+                # unless window size changed (deque maxlen is immutable → rebuild required).
+                if new_window != self.delta_detector.window:
+                    self.delta_detector = DeltaSpikeDetector(
+                        window=new_window,
+                        z_threshold=z_thr,
+                        min_abs_volume=new_min_vol,
                     )
-                    self.delta_detector.z_threshold = 3.0
-
-                if self.tick_count < 1000: # Log only on startup/early config
-                     logger.info("✅ (%s) Delta Detector Init: z_thr=%.2f window=%d",
-                                 self.symbol, self.delta_detector.z_threshold, self.delta_detector.window)
+                    logger.info("🔄 (%s) Delta Detector rebuilt (window %d→%d): z_thr=%.2f",
+                                self.symbol, self.delta_detector.window, new_window, z_thr)
+                else:
+                    prev_z = self.delta_detector.z_threshold
+                    self.delta_detector.z_threshold = z_thr
+                    self.delta_detector.min_abs_volume = new_min_vol
+                    if abs(prev_z - z_thr) > 1e-6:
+                        logger.info("🔄 (%s) Delta Detector z_threshold updated: %.2f→%.2f",
+                                    self.symbol, prev_z, z_thr)
+            else:
+                self.delta_detector = DeltaSpikeDetector(
+                    window=new_window,
+                    z_threshold=z_thr,
+                    min_abs_volume=new_min_vol,
+                )
+                if self.tick_count < 1000:
+                    logger.info("✅ (%s) Delta Detector Init: z_thr=%.2f window=%d",
+                                self.symbol, self.delta_detector.z_threshold, self.delta_detector.window)
 
         except Exception as exc:
             log_silent_error(exc, 'config_parse_failure', self.symbol, 'apply_config:delta_detector')

@@ -88,6 +88,11 @@ virtual_enforce_total = Counter(
     "Virtual proposals processed through ENFORCE gate",
     ["symbol", "direction", "result"],  # result: passed / rejected
 )
+incomplete_dropped_total = Counter(
+    "exec_gate_incomplete_dropped_total",
+    "Proposals dropped due to missing qty/sl/tp_levels",
+    ["symbol"],
+)
 pending_proposals_gauge = Gauge(
     "exec_gate_pending_proposals",
     "Current number of pending proposals",
@@ -159,6 +164,9 @@ class ExecutionGateService:
         ).lower() in {"1", "true", "yes", "on"}
         self.enforce_virtual = os.getenv(
             "EXEC_GATE_ENFORCE_VIRTUAL", "false"
+        ).lower() in {"1", "true", "yes", "on"}
+        self.shadow_only = os.getenv(
+            "BINANCE_VIRTUAL_ORDERS_ENABLED", "0"
         ).lower() in {"1", "true", "yes", "on"}
 
         self.running = True
@@ -447,8 +455,7 @@ class ExecutionGateService:
             is_virtual = bool(proposal.payload.get("is_virtual", 0) or 0)
 
             # --- OVERRIDE FOR GLOBAL VIRTUAL MODE ---
-            shadow_only = os.getenv("BINANCE_VIRTUAL_ORDERS_ENABLED", "0").lower() in {"1", "true", "yes", "on"}
-            if shadow_only:
+            if self.shadow_only:
                 is_virtual = True
                 proposal.payload["is_virtual"] = 1
 
@@ -528,6 +535,7 @@ class ExecutionGateService:
                     "(qty=%s sl=%s tp=%s). Signal pipeline should push complete orders directly.",
                     proposal.symbol, proposal.direction, has_qty, has_sl, has_tp,
                 )
+                incomplete_dropped_total.labels(symbol=proposal.symbol).inc()
                 return
 
             order_payload["gate_verified"] = True

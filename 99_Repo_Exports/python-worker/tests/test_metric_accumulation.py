@@ -33,9 +33,11 @@ class TestMetricAccumulation(unittest.TestCase):
         self.assertAlmostEqual(self.m["avg_tp_atr"], 2.0)
 
     def test_atr_accumulation_with_prices(self):
-        # Mock trade without explicit sl_atr/tp_atr but with prices and ATR
+        # Mock trade without explicit sl_atr/tp_atr but with prices and ATR.
+        # Must use the labeled key — generic `atr` is rejected to avoid TF mismatch
+        # (e.g. 1m feature-time ATR vs 15m level-time ATR → 20-40 ATR readings).
         t = {
-            "atr": 10.0,
+            "atr_used_for_levels": 10.0,
             "entry_price": 100.0,
             "sl_price": 90.0,
             "tp1_price": 120.0,

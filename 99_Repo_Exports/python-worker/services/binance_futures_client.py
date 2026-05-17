@@ -472,6 +472,46 @@ class BinanceFuturesPublicREST:
         # `/premiumIndex` already carries mark/index/lastFundingRate on Binance.
         return self.get_premium_index(symbol)
 
+    def get_global_long_short_account_ratio(
+        self, symbol: str, *, period: str = "5m", limit: int = 24
+    ) -> Any:
+        """`/futures/data/globalLongShortAccountRatio` — global long/short account ratio.
+
+        Returns list of dicts ordered oldest→newest:
+          [{symbol, longShortRatio, longAccount, shortAccount, timestamp}, ...]
+        Used by derivatives_context_collector_v1 for L-S ratio + z-score.
+        """
+        return self._request(
+            path="/futures/data/globalLongShortAccountRatio",
+            params={"symbol": symbol.upper(), "period": period, "limit": int(limit)},
+        )
+
+    def get_top_long_short_position_ratio(
+        self, symbol: str, *, period: str = "5m", limit: int = 6
+    ) -> Any:
+        """`/futures/data/topLongShortPositionRatio` — top-trader position L/S ratio.
+
+        Returns list of dicts: [{symbol, longShortRatio, longAccount, shortAccount, timestamp}, ...].
+        Top-traders (whales) positioning — leading indicator of institutional sentiment.
+        """
+        return self._request(
+            path="/futures/data/topLongShortPositionRatio",
+            params={"symbol": symbol.upper(), "period": period, "limit": int(limit)},
+        )
+
+    def get_taker_long_short_ratio(
+        self, symbol: str, *, period: str = "5m", limit: int = 6
+    ) -> Any:
+        """`/futures/data/takerlongshortRatio` — taker buy vs sell volume ratio.
+
+        Returns list of dicts: [{buySellRatio, buyVol, sellVol, timestamp}, ...].
+        We map this to taker_buy_sell_imbalance = (buy - sell) / (buy + sell).
+        """
+        return self._request(
+            path="/futures/data/takerlongshortRatio",
+            params={"symbol": symbol.upper(), "period": period, "limit": int(limit)},
+        )
+
 
 # ---------------------------------------------------------------------------
 # BinanceFuturesClient — full execution client (used by binance_executor P1)

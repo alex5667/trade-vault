@@ -71,8 +71,8 @@ class TickMetricsHandler:
                     r_tracker = self._lag_trackers.get(f"_redis_{symbol}")
                     if r_tracker is None:
                         from common.metrics2 import LagTracker
-                        r_tracker = LagTracker(max_ms=max_ms)  # type: ignore
-                        self._lag_trackers[f"_redis_{symbol}"] = r_tracker  # type: ignore
+                        r_tracker = LagTracker()
+                        self._lag_trackers[f"_redis_{symbol}"] = r_tracker
                     r_tracker.update(min(r_lag, max_ms))
                     ctr = self._lag_export_counters.get(symbol, 0)
                     if ctr % 200 == 0:

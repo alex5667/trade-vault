@@ -153,21 +153,20 @@ class TestGateSequenceOrder:
 
         assert result is True, f"Ожидался True, call_log={call_log}"
 
-        # Контракт порядка (sizing_check — неявный, между confirm и entry_policy)
+        # Контракт порядка: entry_policy ПЕРЕД edge_cost (G7 tighten_k → EdgeCost K)
         EXPECTED = [
             "quality",
             "regime",
             "smt",
             "consistency",
             # levels может быть тут (step 3)
-            "edge_cost",
+            "entry_policy",  # G7: устанавливает ctx.*_tighten_k ДО EdgeCostGate
+            "edge_cost",     # читает ctx.*_tighten_k из entry_policy
             "confirm",
-            # sizing_ok проверяется между confirm и entry_policy
-            "entry_policy",
             "emit",
         ]
 
-        # Убираем из log 'levels' так как это вспомогательный шаг, но проверяем что он ДО edge_cost
+        # Убираем из log 'levels' так как это вспомогательный шаг
         log_without_levels = [x for x in call_log if x != "levels"]
         assert log_without_levels == EXPECTED, (
             f"\nОжидался порядок: {EXPECTED}\n"
@@ -182,6 +181,13 @@ class TestGateSequenceOrder:
             assert idx_levels < idx_edge, (
                 f"levels (idx={idx_levels}) должен быть до edge_cost (idx={idx_edge})"
             )
+
+        # entry_policy должен быть ДО edge_cost
+        idx_ep = call_log.index("entry_policy")
+        idx_ec = call_log.index("edge_cost")
+        assert idx_ep < idx_ec, (
+            f"entry_policy (idx={idx_ep}) должен быть до edge_cost (idx={idx_ec})"
+        )
 
     def test_first_veto_stops_processing_candidate(self):
         """При veto на первом gate — следующие gates НЕ вызываются."""

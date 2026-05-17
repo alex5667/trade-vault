@@ -59,6 +59,7 @@ from typing import Any
 
 SCHEMA_VERSION = 1
 SCHEMA_VERSION_V2 = 2
+SCHEMA_VERSION_V3 = 3
 DEFAULT_CTX_PREFIX = "ctx:deriv:"
 
 
@@ -89,6 +90,16 @@ class DerivativesContextSnapshot:
     market_breadth_ret_24h: float = 0.0
     market_breadth_volume_z: float = 0.0
     leader_btc_eth_confirm: float = 0.0
+    # v3 fields
+    top_trader_long_short_ratio: float = 0.0
+    taker_buy_sell_ratio: float = 0.0
+    taker_buy_sell_ratio_z: float = 0.0
+    force_order_cluster_score: float = 0.0
+    futures_crowding_score: float = 0.0
+    oi_delta_z: float = 0.0
+    premium_index_z: float = 0.0
+    # v4 fields
+    open_interest_z: float = 0.0  # robust z-score of oi_notional_usd level (not delta)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -263,11 +274,19 @@ def build_snapshot_v2(
     market_breadth_ret_24h: float = 0.0,
     market_breadth_volume_z: float = 0.0,
     leader_btc_eth_confirm: float = 0.0,
+    # v3 fields
+    top_trader_long_short_ratio: float = 0.0,
+    taker_buy_sell_ratio: float = 0.0,
+    taker_buy_sell_ratio_z: float = 0.0,
+    force_order_cluster_score: float = 0.0,
+    futures_crowding_score: float = 0.0,
+    oi_delta_history: Sequence[float] = (),
+    premium_history: Sequence[float] = (),
+    oi_notional_history: Sequence[float] = (),
 ) -> DerivativesContextSnapshot:
-    """Build v2 derivatives snapshot including liquidation, breadth, and crowding fields.
+    """Build v2/v3 derivatives snapshot including liquidation, breadth, and crowding fields.
 
-    All v2 fields are optional. Missing upstream data defaults to 0.0 (fail-open).
-    V1 consumers are unaffected — from_dict handles v2 fields with .get() defaults.
+    All v2/v3 fields are optional. Missing upstream data defaults to 0.0 (fail-open).
     """
     fr = _f(funding_rate, 0.0)
     px_mark = _f(mark_price, 0.0)
@@ -278,13 +297,16 @@ def build_snapshot_v2(
     oi_usd = oi_notional_usd(open_interest=oi, mark_price=px_mark)
     doi_usd = abs(_f(doi, 0.0) * px_mark)
     fz = robust_zscore(x=fr, history=funding_history)
+    oi_dz = robust_zscore(x=float(doi), history=list(oi_delta_history)) if oi_delta_history else 0.0
+    pz = robust_zscore(x=float(_f(premium_index, 0.0)), history=list(premium_history)) if premium_history else 0.0
+    oi_nz = robust_zscore(x=oi_usd, history=list(oi_notional_history)) if oi_notional_history else 0.0
 
     funding_extreme = 1 if abs(fr) >= max(_f(funding_extreme_abs, 0.0), 1e-12) or fz >= 3.0 else 0
     basis_extreme = 1 if abs(basis) >= max(_f(basis_extreme_abs_bps, 0.0), 1e-12) else 0
     oi_accel = 1 if doi_usd >= max(_f(oi_accel_abs_usd, 0.0), 1e-12) and doi != 0.0 else 0
 
     return DerivativesContextSnapshot(
-        schema_version=SCHEMA_VERSION_V2,
+        schema_version=SCHEMA_VERSION_V3,
         symbol=(symbol or "").upper(),
         ts_ms=int(ts_ms or _now_ms()),
         venue=(venue or "binance").lower(),
@@ -309,6 +331,15 @@ def build_snapshot_v2(
         market_breadth_ret_24h=_f(market_breadth_ret_24h, 0.0),
         market_breadth_volume_z=_f(market_breadth_volume_z, 0.0),
         leader_btc_eth_confirm=_f(leader_btc_eth_confirm, 0.0),
+        # v3
+        top_trader_long_short_ratio=_f(top_trader_long_short_ratio, 0.0),
+        taker_buy_sell_ratio=_f(taker_buy_sell_ratio, 0.0),
+        taker_buy_sell_ratio_z=_f(taker_buy_sell_ratio_z, 0.0),
+        force_order_cluster_score=_f(force_order_cluster_score, 0.0),
+        futures_crowding_score=_f(futures_crowding_score, 0.0),
+        oi_delta_z=float(oi_dz),
+        premium_index_z=float(pz),
+        open_interest_z=oi_nz,
     )
 
 
@@ -343,6 +374,14 @@ def from_dict(payload: dict[str, Any]) -> DerivativesContextSnapshot | None:
             market_breadth_ret_24h=_f(payload.get("market_breadth_ret_24h"), 0.0),
             market_breadth_volume_z=_f(payload.get("market_breadth_volume_z"), 0.0),
             leader_btc_eth_confirm=_f(payload.get("leader_btc_eth_confirm"), 0.0),
+            # v3 backward compatibility
+            top_trader_long_short_ratio=_f(payload.get("top_trader_long_short_ratio"), 0.0),
+            taker_buy_sell_ratio=_f(payload.get("taker_buy_sell_ratio"), 0.0),
+            taker_buy_sell_ratio_z=_f(payload.get("taker_buy_sell_ratio_z"), 0.0),
+            force_order_cluster_score=_f(payload.get("force_order_cluster_score"), 0.0),
+            futures_crowding_score=_f(payload.get("futures_crowding_score"), 0.0),
+            # v4 backward compatibility
+            open_interest_z=_f(payload.get("open_interest_z"), 0.0),
         )
     except Exception:
         return None

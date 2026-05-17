@@ -221,6 +221,8 @@ services:
           memory: 256M
         reservations:
           memory: 24M
+    env_file:
+    - config/generated/symbols.env
     environment:
     - REDIS_URL=${REDIS_URL:-redis://redis-worker-1:6379/0}
     - REDIS_WRITE_URLS=redis://redis-worker-1:6379/0,redis://redis-worker-2:6379/0,redis://redis-worker-3:6379/0
@@ -229,6 +231,9 @@ services:
     - DERIV_CTX_POLL_INTERVAL_S=${DERIV_CTX_POLL_INTERVAL_S:-30}
     - DERIV_CTX_TTL_S=${DERIV_CTX_TTL_S:-180}
     - DERIV_CTX_SYMBOLS_SET=${DERIV_CTX_SYMBOLS_SET:-crypto:symbols}
+    # Universe sourced via env_file config/generated/symbols.env: collector
+    # falls through DERIV_CTX_SYMBOLS → CRYPTO_SYMBOLS → TRADE_SYMBOLS_UNIVERSE.
+    # Audit 2026-05-16 GAP-1: ensures alt symbols get non-zero deriv features.
     - DERIV_CTX_HISTORY_LEN=${DERIV_CTX_HISTORY_LEN:-96}
     - DERIV_CTX_FUNDING_EXTREME_ABS=${DERIV_CTX_FUNDING_EXTREME_ABS:-0.0008}
     - DERIV_CTX_BASIS_EXTREME_BPS=${DERIV_CTX_BASIS_EXTREME_BPS:-10.0}
@@ -239,7 +244,9 @@ services:
     - TZ=UTC
     volumes:
     - ./python-worker/services:/app/services
-    - ./python-worker/tick_flow_full/orderflow_services:/app/orderflow_services
+    # Use canonical orderflow_services (not the tick_flow_full mirror) so code
+    # edits to derivatives_context_collector_v1.py take effect on restart.
+    - ./python-worker/orderflow_services:/app/orderflow_services
     command: python3 -m orderflow_services.derivatives_context_collector_v1
     depends_on:
       redis-worker-1:
@@ -2613,6 +2620,9 @@ services:
     - LIQMAP_BUCKET_BPS=50
     - LIQMAP_SNAPSHOT_KEY_PREFIX=liqmap:snapshot
     - LIQMAP_SNAPSHOT_TTL_SEC=30
+    # Seed empty snapshots for these symbols at startup (Binance dead, Bybit
+    # canary). source_status="no_data" on empty levels keeps gate in SHADOW.
+    - LIQ_SYMBOLS=BTCUSDT,ETHUSDT,SOLUSDT,BNBUSDT,XRPUSDT,DOGEUSDT,1000PEPEUSDT
     - LIQMAP_METRICS_PORT=9122
     - LIQMAP_PUBLISH_STREAM_ENABLED=1
     - LIQMAP_SNAPSHOT_STREAM_PREFIX=stream:liqmap_snapshot
@@ -2718,13 +2728,16 @@ services:
     environment:
     - REDIS_URL=${LIQMAP_SNAPSHOT_REDIS_URL:-redis://redis-worker-1:6379/0}
     - LIQMAP_SNAPSHOT_KEY_PREFIX=liqmap:snapshot
-    - LIQMAP_WINDOWS=5m,1h
+    - LIQMAP_WINDOWS=5m,1h,4h,24h
     - LIQ_EVT_STREAM=stream:liq_evt
     - LIQMAP_GROUP=liqmap_group
     - LIQMAP_CONSUMER=liqmap_snap_1
     - LIQMAP_SNAPSHOT_TTL_SEC=300
     - LIQMAP_PUBLISH_INTERVAL_S=5
     - LIQMAP_PUBLISH_STREAM_ENABLED=0
+    # Seed empty snapshots for these symbols at startup (Binance dead, Bybit
+    # canary). source_status="no_data" on empty levels keeps gate in SHADOW.
+    - LIQ_SYMBOLS=BTCUSDT,ETHUSDT,SOLUSDT,BNBUSDT,XRPUSDT,DOGEUSDT,1000PEPEUSDT
     - PYTHONPATH=.:/app
     - PYTHONUNBUFFERED=1
     - TZ=UTC
@@ -3122,9 +3135,9 @@ services:
       resources:
         limits:
           cpus: '0.20'
-          memory: 768M
+          memory: 1536M
         reservations:
-          memory: 128M
+          memory: 256M
     environment:
     - REDIS_URL=${REDIS_URL:-redis://redis-worker-1:6379/0}
     - EXECUTION_JOURNAL_DSN=${EXECUTION_JOURNAL_DSN:-}
@@ -5158,6 +5171,50 @@ services:
     networks:
     - scanner-timers
     - scanner-infra
+
+  nightly-strategy-research-guard-bundle-timer:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile.gpu
+    container_name: scanner-nightly-research-guard-bundle-timer
+    restart: always
+    deploy:
+      resources:
+        limits:
+          cpus: '0.50'
+          memory: 512M
+        reservations:
+          memory: 32M
+    environment:
+    - REDIS_URL=${REDIS_URL:-redis://redis-worker-1:6379/0}
+    - STRATEGY_RESEARCH_GUARD_BLOCKER_KEY=${STRATEGY_RESEARCH_GUARD_BLOCKER_KEY:-cfg:research_guard:blocker:v1}
+    - STRATEGY_RESEARCH_GUARD_SUMMARY_KEY=${STRATEGY_RESEARCH_GUARD_SUMMARY_KEY:-metrics:strategy_research_guard:last}
+    - STRATEGY_RESEARCH_GUARD_REPORT_ONLY=${STRATEGY_RESEARCH_GUARD_REPORT_ONLY:-1}
+    - RESEARCH_DATASET_PATH=${RESEARCH_DATASET_PATH:-/var/lib/trade/research/strategy_research_dataset.jsonl}
+    - RESEARCH_REPORT_PATH=${RESEARCH_REPORT_PATH:-/var/lib/trade/research/strategy_research_report.json}
+    - PSR_MIN=${RG_BUNDLE_PSR_MIN:-0.95}
+    - DSR_MIN=${RG_BUNDLE_DSR_MIN:-0.90}
+    - PBO_MAX=${RG_BUNDLE_PBO_MAX:-0.10}
+    - PYTHONPATH=.:/app
+    - PYTHONUNBUFFERED=1
+    - TZ=UTC
+    working_dir: /app
+    volumes:
+    - ./python-worker:/app
+    - /var/lib/trade/research:/var/lib/trade/research
+    command: "sh -c \"sleep 10 && while true; do\n  HOUR=$$(date +%-H);\n  MIN=$$(date\
+      \ +%-M);\n  if [ \\\"$$HOUR\\\" -eq 1 ] && [ \\\"$$MIN\\\" -ge 0 ] && [ \\\"\
+      $$MIN\\\" -lt 15 ]; then\n    echo 'Running Nightly Strategy Research Guard Bundle\
+      \ (G14)...';\n    python3 -m ml_analysis.tools.nightly_strategy_research_guard_bundle_v1;\n\
+      \    echo 'Research Guard bundle done. Sleeping 23h...';\n    sleep 82800;\n\
+      \  else\n    sleep 60;\n  fi\ndone\"\n"
+    depends_on:
+      redis-worker-1:
+        condition: service_healthy
+    networks:
+    - scanner-timers
+    - scanner-infra
+
   ofc-contextual-decision-writer:
     build:
       context: .
@@ -7122,6 +7179,52 @@ services:
       \ -m orderflow_services.dq_gate_calibrator_v1 --apply ${V14_DQ_CAL_APPLY:-0};\n\
       \    echo 'DQ Gate calibration done. Sleeping 23h...';\n    sleep 82800;\n \
       \ else\n    sleep 60;\n  fi\ndone\"\n"
+    depends_on:
+      redis-worker-1:
+        condition: service_healthy
+    networks:
+    - scanner-timers
+    - scanner-infra
+
+  # ────────────────────────────────────────────────────────────────────────
+  # ADR-0007 PIT priors daily materializer — runs at 02:00 UTC for prev day.
+  # Reads trades:closed from [today-25h, today-1h] window with 1h embargo.
+  # Writes pit_priors:{symbol}:{kind}:{session}:{as_of_date} hashes.
+  # ────────────────────────────────────────────────────────────────────────
+  pit-priors-builder-nightly-timer:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    container_name: scanner-pit-priors-builder-timer
+    restart: always
+    deploy:
+      resources:
+        limits:
+          cpus: '0.30'
+          memory: 384M
+        reservations:
+          memory: 64M
+    environment:
+    - REDIS_URL=${REDIS_URL:-redis://redis-worker-1:6379/0}
+    - PIT_PRIOR_MIN_SAMPLES=${PIT_PRIOR_MIN_SAMPLES:-30}
+    - PIT_EMBARGO_MS=${PIT_EMBARGO_MS:-3600000}
+    - PIT_TTL_SEC=${PIT_TTL_SEC:-7776000}
+    - PIT_BUILDER_LOOKBACK_HOURS=${PIT_BUILDER_LOOKBACK_HOURS:-25}
+    - PYTHONPATH=.:/app
+    - PYTHONUNBUFFERED=1
+    - TZ=UTC
+    working_dir: /app
+    volumes:
+    - ./python-worker:/app
+    command: "sh -c \"sleep 5 && while true; do\n  HOUR=$$(date +%-H);\n  MIN=$$(date\
+      \ +%-M);\n  if [ \\\"$$HOUR\\\" -eq 2 ] && [ \\\"$$MIN\\\" -ge 0 ] && [ \\\"\
+      $$MIN\\\" -lt 15 ]; then\n    echo 'Running PIT priors builder for prev day...';\n\
+      \    NOW_MS=$$(date +%s)000;\n    LOOKBACK_MS=$$((PIT_BUILDER_LOOKBACK_HOURS\
+      \ * 3600 * 1000));\n    START_MS=$$((NOW_MS - LOOKBACK_MS));\n    END_MS=$$((NOW_MS\
+      \ - 3600000));\n    python3 -m tools.build_pit_priors_v1 --start-ts-ms $$START_MS\
+      \ --end-ts-ms $$END_MS --embargo-ms $${PIT_EMBARGO_MS:-3600000} --ttl-sec $${PIT_TTL_SEC:-7776000};\n\
+      \    echo 'PIT priors materialization done. Sleeping 23h...';\n    sleep 82800;\n\
+      \  else\n    sleep 60;\n  fi\ndone\"\n"
     depends_on:
       redis-worker-1:
         condition: service_healthy

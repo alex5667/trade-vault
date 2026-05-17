@@ -286,12 +286,14 @@ class SignalOrchestrator:
         observability: CryptoObservability,
         confirmations_engine: Any,
         emitter: Any,
+        drift_alarm: Any = None,
     ):
         self.cfg = config
         self.gates = gates
         self.liquidity = liquidity
         self.observability = observability
         self.confirmations = confirmations_engine
+        self._drift_alarm = drift_alarm
         # Layer A/B/C enforce — opt-in через ENV
         # OF_LAYER_ENFORCE_MODE: off (default) | shadow | enforce
         self._layer_enforce_mode = (os.environ.get("OF_LAYER_ENFORCE_MODE", "off")
@@ -528,6 +530,21 @@ class SignalOrchestrator:
             pass
 
         _sym_root = str(getattr(self.cfg, "symbol", getattr(ctx, "symbol", "unknown")))
+
+        # ts_ms=0 means _normalize_ts_ms rejected the timestamp entirely (zero,
+        # future-skew, too-old, or parse failure).  Allowing such candidates
+        # through causes dedup-key collisions in the outbox (all ts_ms=0 signals
+        # share the same bucket).  Drop early and count.
+        if _ts_ms == 0:
+            _emit_dq_flag(ctx, "ts_invalid", symbol=_sym_root)
+            with contextlib.suppress(Exception):
+                PAYLOAD_TS_ANOMALY_TOTAL.labels(symbol=_sym_root).inc()
+            logger.warning(
+                "orchestrator: dropping candidates — ts_ms=0 after normalization symbol=%s",
+                _sym_root,
+            )
+            return False
+
         if _ts_ms > 0:
             if _ts_ms < self._last_ts_ms.get(_sym_root, 0):
                 _policy = os.environ.get("OOO_TICK_POLICY", "flag").lower()
@@ -639,6 +656,18 @@ class SignalOrchestrator:
             except Exception as _le_ex:
                 logger.warning("layer_enforce_check error: %r", _le_ex)
 
+            # G7: Feature Drift Alarm — update EMA state so EdgeCostGate reads fresh drift:active:*
+            try:
+                if self._drift_alarm is not None:
+                    _drift_redis = getattr(ctx, "redis", None)
+                    if _drift_redis is None:
+                        from handlers.crypto_orderflow.config.handler_config import _get_sync_redis
+                        _drift_redis = _get_sync_redis()
+                    self._drift_alarm.update(
+                        redis_client=_drift_redis, ctx=ctx, symbol=_sym_root, kind=kind_key
+                    )
+            except Exception:
+                pass
 
             # 3. Level Enrichment
             try:
@@ -691,6 +720,18 @@ class SignalOrchestrator:
                 )
                 _emit_dq_flag(ctx, "levels_attach_failed", symbol=_sym_root)
 
+
+            # G7: Entry Policy Gate (spread shock / burst flip / feature drift tighten_k).
+            # Must run BEFORE EdgeCostGate so ctx.feature_drift_tighten_k / entry_policy_tighten_k
+            # are set and EdgeCostGate can apply k_eff *= tighten_k.
+            _t_ep = time.monotonic()
+            ep_decision = self.gates.check_entry_policy(ctx, kind_key)
+            audit.record_stage("entry_policy", _t_ep)
+            _ep_dec = getattr(ep_decision, "decision", "DENY" if getattr(ep_decision, "veto", False) else "ALLOW")
+            if ep_decision and _ep_dec in ("DENY", "SHADOW_DENY"):
+                rc = getattr(ep_decision, "reason_code", getattr(ep_decision, "reason", VetoReason.VETO_ENTRY_POLICY))
+                self._handle_veto(ctx, cand, kind_key, rc)
+                continue
 
             # 4. Cost Edge Gate
             _t_edge = time.monotonic()
@@ -752,15 +793,6 @@ class SignalOrchestrator:
                 continue
             finally:
                 audit.record_stage("build_payload", _t_build)
-
-            # Entry Policy
-            # Fix: GateDecisionV1 uses 'decision' ("DENY", "SHADOW_DENY")
-            ep_decision = self.gates.check_entry_policy(ctx, payload)
-            _ep_dec = getattr(ep_decision, "decision", "DENY" if getattr(ep_decision, "veto", False) else "ALLOW")
-            if ep_decision and _ep_dec in ("DENY", "SHADOW_DENY"):
-                rc = getattr(ep_decision, "reason_code", getattr(ep_decision, "reason", VetoReason.VETO_ENTRY_POLICY))
-                self._handle_veto(ctx, cand, kind_key, rc)
-                continue
 
             # 7. Emission
             _t_emit = time.monotonic()

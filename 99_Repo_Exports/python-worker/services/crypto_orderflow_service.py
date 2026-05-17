@@ -247,7 +247,11 @@ class CryptoOrderflowService:
         # Engines (of_engine rebuilt later with ML gate)
         self.of_engine = OFConfirmEngine()
         self.strategy: OrderFlowStrategy | None = None
+        # G0 (strategy.process_tick) is the single owner of monotonicity / backwards /
+        # clamp / quarantine. DQ keeps bad_ts / stale / future_skew. Force-disable DQ's
+        # out_of_order check regardless of TICK_DQ_MAX_OOO_MS env so G0 metrics light up.
         self.tick_dq_policy = TickDQPolicy(latency_lenient_mode=False)
+        self.tick_dq_policy.max_out_of_order_ms = 0
 
         self.config_loader = OrderFlowConfigLoader(self._config_redis_client)
 
@@ -1416,11 +1420,12 @@ class CryptoOrderflowService:
                 ack_ids: list[str] = []
                 entry_idx = 0
                 for msg_id, fields in entries:
-                    # Yield every 2 ticks — не блокируем event loop
-                    # Budget: 2 × ~5ms/tick = 10ms max block; Signal Emit SLO 8ms, Worker Lag SLO 250ms.
-                    # Was 5 ticks → 25-35ms hold, causing Signal Emit P99 > 30ms.
-                    if entry_idx % 2 == 0:
-                        await asyncio.sleep(0)
+                    # Yield every tick — не блокируем event loop.
+                    # History: %5 → %2 → %1 (this change). At %2 redis_entry_lag p99
+                    # was 244ms (10× the 25ms SLO) on bursty batches of up to
+                    # read_count=200. Unconditional yield bounds HOL to ~1 tick
+                    # (~5ms), at the cost of +30µs scheduler overhead per tick.
+                    await asyncio.sleep(0)
                     entry_idx += 1
 
                     # Sampling: быстрый путь без инициализации TickProcessor

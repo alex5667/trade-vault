@@ -26,6 +26,7 @@ import math
 import os
 import signal
 import time
+from collections import deque
 from typing import Any
 
 from prometheus_client import REGISTRY, Counter, Gauge, start_http_server  # type: ignore
@@ -83,6 +84,9 @@ def _get_or_create_counter(name: str, doc: str, labels: list[str]) -> Counter:
         raise
 
 
+_P95_WINDOW = 500  # bounded deque depth for p95 computation per bucket
+
+
 class TCAEMAState:
     """Per-{symbol, kind, session} EMA aggregator for TCA features."""
 
@@ -91,6 +95,9 @@ class TCAEMAState:
         self.ttl_sec = ttl_sec
         # In-memory cache mirrors Redis hash for hot reads.
         self._cache: dict[tuple[str, str, str], dict[str, float]] = {}
+        # Bounded deques for p95 computation: eff_spread and is_bps samples.
+        self._spread_window: dict[tuple[str, str, str], deque[float]] = {}
+        self._slippage_window: dict[tuple[str, str, str], deque[float]] = {}
 
     def update(
         self,
@@ -127,6 +134,24 @@ class TCAEMAState:
 
         new_state["samples"] = float(prev.get("samples", 0.0)) + 1.0
         new_state["last_update_ms"] = float(ts_ms)
+
+        # p95 of eff_spread (spread_p95) and is_bps (slippage_p95) via bounded window.
+        if math.isfinite(eff_spread_bps):
+            sw = self._spread_window.setdefault(key, deque(maxlen=_P95_WINDOW))
+            sw.append(eff_spread_bps)
+            _ss = sorted(sw)
+            new_state["spread_p95_bps"] = _ss[min(len(_ss) - 1, int(0.95 * len(_ss)))]
+        else:
+            new_state["spread_p95_bps"] = prev.get("spread_p95_bps", 0.0)
+
+        if math.isfinite(is_bps):
+            lw = self._slippage_window.setdefault(key, deque(maxlen=_P95_WINDOW))
+            lw.append(is_bps)
+            _ls = sorted(lw)
+            new_state["slippage_p95_bps"] = _ls[min(len(_ls) - 1, int(0.95 * len(_ls)))]
+        else:
+            new_state["slippage_p95_bps"] = prev.get("slippage_p95_bps", 0.0)
+
         self._cache[key] = new_state
 
         # Mirror to Redis hash for of_confirm_engine to read.

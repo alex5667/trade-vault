@@ -129,6 +129,13 @@ def main() -> None:
             "cost_bps": float(t.get("cost_bps", 0.0) or 0.0),
             "realized_close_bps": float(t.get("realized_close_bps", 0.0) or 0.0),
             "edge_after_cost_bps": float(t.get("edge_after_cost_bps", 0.0) or 0.0),
+            # timing fields (0 when labeler version predates these fields)
+            "tp_hit_first_ms": int(t.get("tp_hit_first_ms", 0) or 0),
+            "sl_hit_first_ms": int(t.get("sl_hit_first_ms", 0) or 0),
+            "time_to_mfe_ms": int(t.get("time_to_mfe_ms", 0) or 0),
+            "time_to_mae_ms": int(t.get("time_to_mae_ms", 0) or 0),
+            "entry_latency_ms": int(t.get("entry_latency_ms", 0) or 0),
+            "label_confidence": float(t.get("label_confidence", 1.0) if "label_confidence" in t else 1.0),
         })
 
     df = pd.DataFrame(rows)

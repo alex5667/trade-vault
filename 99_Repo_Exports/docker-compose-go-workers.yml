@@ -12,7 +12,7 @@ services:
     - DRAIN_TIMEOUT_SEC=${DRAIN_TIMEOUT_SEC:-10}
     - BATCH_PUBLISHER_BACKPRESSURE_MS=${BATCH_PUBLISHER_BACKPRESSURE_MS:-10}
     - REDIS_HOST=redis
-    - CROSSASSET_ENABLED=false
+    - CROSSASSET_ENABLED=true
     - REDIS_PASSWORD=
     - REDIS_USERNAME=
     - REDIS_WORKER_PASSWORD=${GO_WORKER_REDIS_PASS}
@@ -77,10 +77,40 @@ services:
     - FUTURES_WS_PING_PERIOD=10s
     - FUTURES_WS_WRITE_WAIT=10s
     - LIQ_WS_ENABLED=true
-    - LIQ_SOURCES=binance
+    # ── Liquidation ingestion ────────────────────────────────────────────────
+    # PRIMARY: Bybit allLiquidation.{symbol} via V5 public WS (~10 ev/min canary).
+    # STANDBY: Binance !forceOrder@arr — upstream silent since 2026-04-21 across
+    #          /ws, /stream, /market/stream and dstream (COIN-M). Verified
+    #          2026-05-16 with 15s probe on each endpoint: 0 frames. Keep code
+    #          path tested but disabled to avoid LiqSourceConnectedButNoFrames
+    #          alerts and false `liq_ws_connected=1` in monitoring. Flip
+    #          LIQ_BINANCE_ENABLED=true to re-attach when upstream returns.
+    - LIQ_SOURCES=bybit
+    - LIQ_BINANCE_ENABLED=false
+    - LIQ_BINANCE_WS_URL=wss://fstream.binance.com/market/stream?streams=!forceOrder@arr
+    - LIQ_BYBIT_ENABLED=true
+    - LIQ_BYBIT_WS_URL=wss://stream.bybit.com/v5/public/linear
+    - LIQ_BYBIT_PING_MS=20000
+    - LIQ_SYMBOLS=BTCUSDT,ETHUSDT,SOLUSDT,BNBUSDT,XRPUSDT,DOGEUSDT,1000PEPEUSDT
+    - LIQ_STREAM=stream:liq_evt
+    - LIQ_QUARANTINE_STREAM=stream:liq_evt_quarantine
     - BINANCE_FAPI_KEY=${BINANCE_API_KEY:-}
     - BINANCE_FAPI_SECRET=${BINANCE_API_SECRET:-}
     - V13_CROSSASSET_POLL_SEC=30
+    # ── External data canary on worker-1m only (see audit 2026-05-16). ──
+    # Other 9 worker timeframes keep CROSSASSET_ENABLED=false to avoid 10×
+    # rate-limit hits on CoinGecko/CMC/Deribit/etc. (no leader election).
+    - BREADTH_WS_ENABLED=1
+    - DERIBIT_CTX_ENABLED=1
+    - SENTIMENT_CTX_ENABLED=1
+    - DEFILLAMA_CTX_ENABLED=1
+    - PROVIDER_FALLBACK_ENABLED=1
+    - COINPAPRIKA_ENABLED=1
+    - CMC_ENABLED=0
+    # Cross-venue (Coinbase/Kraken/OKX WS) — canary on worker-1m only.
+    # Default symbols=BTC/ETH/SOL, all 3 venues on. Writes ctx:crossvenue:{SYMBOL}.
+    - CROSSVENUE_ENABLED=1
+    # (LIQ_BINANCE_WS_URL moved up to the Liquidation block; disabled by default.)
     - TZ=UTC
     depends_on:
       redis:

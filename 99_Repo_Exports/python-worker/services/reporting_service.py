@@ -589,6 +589,85 @@ class ReportingService:
             self.logger.error(f"❌ Ошибка отправки отчета в Redis stream {notify_stream}: {e}", exc_info=True)
             return False
 
+    def send_telegram_report_bundle(
+        self,
+        parts: list[str],
+        parse_mode: str = "HTML",
+        tags: list[str] | None = None,
+        severity: str = "info",
+        dedup_key: str | None = None,
+        meta: dict[str, Any] | None = None,
+    ) -> bool:
+        """
+        Публикация многочастного отчёта одним stream entry (type=report_bundle).
+
+        Notify-worker отправит все части подряд, гарантируя что между ними
+        не вклинятся сообщения других сервисов (один stream entry = одна
+        итерация обработчика).
+        """
+        clean_parts = [p for p in (parts or []) if p]
+        if not clean_parts:
+            return False
+        if len(clean_parts) == 1:
+            return self.send_telegram_message(
+                clean_parts[0],
+                parse_mode=parse_mode,
+                tags=tags,
+                severity=severity,
+                dedup_key=dedup_key,
+                meta=meta,
+            )
+
+        notify_stream = os.getenv("NOTIFY_STREAM", RS.NOTIFY_TELEGRAM)
+        try:
+            try:
+                q_len = self.redis.xlen(notify_stream)
+                if isinstance(q_len, int) and q_len > 10000:
+                    self.logger.error(f"🔥 Telegram stream overloaded (>{q_len}). Dropping bundle.")
+                    return False
+            except Exception as e:
+                self.logger.warning(f"⚠️ Circuit breaker check failed: {e}")
+
+            if dedup_key:
+                d_key = f"dedup:reporting:{dedup_key}"
+                if not self.redis.set(d_key, "1", nx=True, ex=6 * 3600):
+                    self.logger.info(f"⏭️ Dedup hit for reporting bundle: {dedup_key}, skip xadd")
+                    return True
+
+            message_data: dict[str, Any] = {
+                "type": "report_bundle",
+                "parts": json.dumps(clean_parts, ensure_ascii=False),
+                "parts_count": str(len(clean_parts)),
+                "parse_mode": parse_mode,
+                "source": "ReportingService",
+                "severity": severity,
+                "timestamp": str(get_ny_time_millis()),
+            }
+            if tags:
+                message_data["tags"] = ",".join([t.strip() for t in tags if t.strip()])
+            if dedup_key:
+                message_data["dedup_key"] = dedup_key
+            if meta:
+                try:
+                    message_data["meta"] = json.dumps(meta, ensure_ascii=False)
+                except Exception:
+                    message_data["meta"] = "{}"
+
+            msg_id = self.redis.xadd(
+                notify_stream,
+                cast(dict[Any, Any], message_data),
+                maxlen=STREAM_RETENTION.get(notify_stream, STREAM_RETENTION[RS.NOTIFY_TELEGRAM]),
+            )
+            total_len = sum(len(p) for p in clean_parts)
+            self.logger.info(
+                f"✅ Bundle опубликован в {notify_stream}: msg_id={msg_id}, "
+                f"parts={len(clean_parts)}, total_len={total_len}"
+            )
+            return True
+        except Exception as e:
+            self.logger.error(f"❌ Ошибка отправки bundle в {notify_stream}: {e}", exc_info=True)
+            return False
+
     def notify_trade_closed(self, trade_summary: dict[str, Any]):
         try:
             strategy = trade_summary.get("strategy", "Unknown")

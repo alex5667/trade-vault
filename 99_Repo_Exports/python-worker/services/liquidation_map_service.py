@@ -191,6 +191,15 @@ class LiquidationMapService:
         if sym_s:
             self.symbol_allow = {x.strip().upper() for x in sym_s.split(",") if x.strip()}
 
+        # Seed symbols at startup so liqmap:snapshot:<sym>:<window> exists even
+        # if no liquidation events flow yet (Binance WS dead / no liquidations).
+        # Empty snapshots carry source_status="no_data" so downstream gate stays SHADOW.
+        seed_raw = os.getenv("LIQ_SYMBOLS", "").strip() or sym_s
+        self.seed_symbols: set[str] = (
+            {x.strip().upper() for x in seed_raw.split(",") if x.strip()}
+            if seed_raw else set()
+        )
+
         # Bucket
         mode = os.getenv("LIQMAP_BUCKET_MODE", "log_bps").strip().lower()
         bps = int(os.getenv("LIQMAP_BUCKET_BPS", "50"))
@@ -323,10 +332,19 @@ class LiquidationMapService:
             agg.evict(now_ms)
             levels = agg.levels(max_levels=self.max_levels, range_pct=self.range_pct)
 
+            # Source-health contract: source_ok=1 only when real liquidation
+            # levels are present. Empty snapshots → source_status="no_data" so
+            # downstream LiqMap Gate stays SHADOW (no decisions on phantom data).
+            _src_ok = 1 if len(levels) > 0 else 0
+            _src_status = "ok" if _src_ok else "no_data"
+
             payload = {
                 "ts_ms": now_ms,
                 "symbol": symbol,
                 "window": wname,
+                "schema_version": "liqmap_snapshot_v1",
+                "source_status": _src_status,
+                "source_ok": _src_ok,
                 "bucket_mode": self.bucketizer.mode,
                 "bucket_bps": self.bucketizer.bps,
                 "bucket_pct": self.bucketizer.pct,
@@ -386,6 +404,19 @@ class LiquidationMapService:
         # Metrics
         start_http_server(self.metrics_port)
         logger.info("Prometheus metrics on :%d", self.metrics_port)
+
+        # Seed aggregators for configured symbols → produces empty snapshots
+        # with source_status="no_data". Stabilises liqmap:snapshot:<sym>:<window>
+        # keys for UI/contract while real events are absent.
+        if self.seed_symbols:
+            for sym in sorted(self.seed_symbols):
+                self._ensure_symbol(sym)
+            self._dirty_symbols.update(self.seed_symbols)
+            logger.info(
+                "Seeded %d symbols × %d windows = %d empty snapshot keys",
+                len(self.seed_symbols), len(self.windows),
+                len(self.seed_symbols) * len(self.windows),
+            )
 
         self._last_publish_ms = _now_ms()
 

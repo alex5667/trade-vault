@@ -36,6 +36,11 @@ class BarrierResult:
     realized_close_bps: float = 0.0   # signed bps move at outcome point (close-side)
     edge_after_cost_bps: float = 0.0  # realized_close_bps - cost_bps
     y_edge_cost_aware: int = 0        # 1 if edge_after_cost_bps > 0, else 0
+    # --- timing fields (0 when not reached / no ticks) ---
+    tp_hit_first_ms: int = 0          # epoch_ms when TP barrier was first crossed
+    sl_hit_first_ms: int = 0          # epoch_ms when SL barrier was first crossed
+    time_to_mfe_ms: int = 0           # ms from ts0 to tick that set the MFE peak
+    time_to_mae_ms: int = 0           # ms from ts0 to tick that set the MAE peak
 
 
 def _bps_move(px: float, ref: float) -> float:
@@ -83,24 +88,38 @@ def label_path(
     hit_ms = ts0_ms + spec.h_ms
     outcome = BarrierOutcome.TIMEOUT
     last_sb = 0.0  # signed_bps at last seen tick (used for TIMEOUT realized close)
-    realized_close_bps = 0.0  # signed_bps at outcome point
+    realized_close_bps = 0.0
+
+    # Timing accumulators
+    tp_hit_first_ms: int = 0
+    sl_hit_first_ms: int = 0
+    time_to_mfe_ts: int = ts0_ms   # epoch_ms of the tick that set MFE peak
+    time_to_mae_ts: int = ts0_ms   # epoch_ms of the tick that set MAE peak
 
     for ts, px in path:
+        ts_i = int(ts)
         sb = signed_bps(px)
         last_sb = sb
+
         if sb > mfe:
             mfe = sb
+            time_to_mfe_ts = ts_i
         if sb < mae:
             mae = sb
+            time_to_mae_ts = ts_i
 
         if sb >= tp:
+            if tp_hit_first_ms == 0:
+                tp_hit_first_ms = ts_i
             outcome = BarrierOutcome.TP_HIT
-            hit_ms = int(ts)
+            hit_ms = ts_i
             realized_close_bps = sb
             break
         if sb <= -sl:
+            if sl_hit_first_ms == 0:
+                sl_hit_first_ms = ts_i
             outcome = BarrierOutcome.SL_HIT
-            hit_ms = int(ts)
+            hit_ms = ts_i
             realized_close_bps = sb
             break
     else:
@@ -126,4 +145,8 @@ def label_path(
         realized_close_bps=realized_close_bps,
         edge_after_cost_bps=edge_after_cost_bps,
         y_edge_cost_aware=y_edge_cost_aware,
+        tp_hit_first_ms=tp_hit_first_ms,
+        sl_hit_first_ms=sl_hit_first_ms,
+        time_to_mfe_ms=max(0, time_to_mfe_ts - ts0_ms),
+        time_to_mae_ms=max(0, time_to_mae_ts - ts0_ms),
     )

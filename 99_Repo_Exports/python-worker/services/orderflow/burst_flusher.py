@@ -24,9 +24,11 @@ from services.observability import metrics_registry  # noqa: F401 (side-effect i
 from services.orderflow.metrics import (
     burst_active_gauge,
     burst_flush_total,
+    pending_flush_total,
     signals_emitted_total,
     signals_published_total,
 )
+from services.orderflow.utils import _cooldown_ms_for
 from services.signal_preprocess import preprocess_signal_for_publish
 from utils.task_manager import safe_create_task
 from utils.time_utils import get_ny_time_millis
@@ -116,12 +118,66 @@ class BurstFlusher:
             if now_ms <= 0:
                 return
             await self.process(runtime, trigger_source="wall", ts_ms=now_ms, do_publish=True)
+            await self._flush_pending(runtime, now_ms)
             strat = self._strategy()
             if strat and hasattr(strat, "maintain_symbol"):
                 await strat.maintain_symbol(runtime)
         except Exception as exc:
             if random.random() < 0.01:
                 logger.debug("Burst flush error (%s): %s", getattr(runtime, "symbol", "?"), exc)
+
+    async def _flush_pending(self, runtime: Any, now_ms: int) -> None:
+        """Timer-based flush for pending_payload buffered during cooldown.
+
+        Promotes the best-of-burst candidate when cooldown expires even if no new
+        tick arrives — prevents signals from being stuck on low-activity symbols.
+        """
+        pending = getattr(runtime, "pending_payload", None)
+        if pending is None:
+            return
+
+        last_ts = int(getattr(runtime, "last_signal_ts", 0) or 0)
+        age = now_ms - last_ts if last_ts > 0 else 10 ** 9
+
+        indicators = pending.get("indicators", {}) if isinstance(pending, dict) else {}
+        scn = (indicators.get("strong_gate_scn", "") or "")
+        if not scn:
+            scn = "reversal" if int(indicators.get("sweep", 0) or 0) == 1 else "continuation"
+        new_dir = (pending.get("direction", "") or "")
+
+        cooldown_ms = _cooldown_ms_for(runtime, scenario=scn, now_ms=now_ms, new_dir=new_dir)
+        if age < cooldown_ms:
+            return
+
+        payload = runtime.pending_payload
+        replaced = int(getattr(runtime, "pending_replaced", 0) or 0)
+        pending_age_ms = now_ms - int(getattr(runtime, "pending_ts_ms", now_ms) or now_ms)
+
+        runtime.pending_payload = None
+        runtime.pending_score = 0.0
+        runtime.pending_ts_ms = 0
+        runtime.pending_replaced = 0
+
+        logger.info(
+            "⏱️ (%s) pending timer-flush: dir=%s age=%dms cooldown=%dms"
+            " pending_age=%dms replaced=%d",
+            runtime.symbol, new_dir, age, cooldown_ms, pending_age_ms, replaced,
+        )
+
+        with contextlib.suppress(Exception):
+            preprocess_signal_for_publish(
+                payload,
+                symbol=runtime.symbol,
+                source="CryptoOrderFlow",
+                logger=logger,
+                fast_path=False,
+            )
+
+        strat = self._strategy()
+        if strat and await self._gate.allows(runtime, payload):
+            await strat.publish_signal(runtime, payload)
+            if pending_flush_total:
+                pending_flush_total.labels(symbol=runtime.symbol).inc()
 
     # ── Public: вызывается из consume_ticks ──────────────────────────────────
 
@@ -150,10 +206,6 @@ class BurstFlusher:
 
         if out is None:
             return None
-
-        runtime.last_signal_ts = int(ts_ms)
-        with contextlib.suppress(Exception):
-            runtime.pressure.record_emit(int(ts_ms))
 
         if burst_flush_total:
             burst_flush_total.labels(symbol=runtime.symbol, mode=trigger_source).inc()

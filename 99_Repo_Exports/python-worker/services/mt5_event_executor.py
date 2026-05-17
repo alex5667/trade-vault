@@ -1,5 +1,6 @@
 from utils.time_utils import get_ny_time_millis
 from core.redis_keys import RedisStreams as RS
+from core.autopilot_fields import normalize_scenario
 
 # -*- coding: utf-8 -*-
 """
@@ -409,11 +410,18 @@ def receive_mt5_event(event: MT5Event):
 
         if events_logger:
             # Extract AB data from signal payload or top-level if available
-            ab_arm = str(signal.get("ab_arm") or (signal.get("payload") or {}).get("ab_arm") or "A")  # type: ignore
-            ab_group = str(signal.get("ab_group") or (signal.get("payload") or {}).get("ab_group") or "default")  # type: ignore
-            ab_key = str(signal.get("ab_key") or (signal.get("payload") or {}).get("ab_key") or "")  # type: ignore
-            regime = str(signal.get("regime") or (signal.get("payload") or {}).get("regime") or "na")  # type: ignore
-            zone_id = str(signal.get("zone_id") or (signal.get("payload") or {}).get("zone_id") or "")  # type: ignore
+            sig: dict[str, Any] = signal or {}
+            sp: dict[str, Any] = sig.get("payload") or {}
+            ab_arm = str(sig.get("ab_arm") or sp.get("ab_arm") or "A")
+            ab_group = str(sig.get("ab_group") or sp.get("ab_group") or "default")
+            ab_key = str(sig.get("ab_key") or sp.get("ab_key") or "")
+            regime = str(sig.get("regime") or sp.get("regime") or "na")
+            zone_id = str(sig.get("zone_id") or sp.get("zone_id") or "")
+            arm_ver = int(sig.get("arm_ver") or sp.get("arm_ver") or 0)
+            scenario = normalize_scenario(
+                sig.get("scenario") or sig.get("decision")
+                or sp.get("scenario") or sp.get("decision") or ""
+            )
 
             # Calculate R-multiple
             r_mult = 0.0
@@ -471,13 +479,20 @@ def receive_mt5_event(event: MT5Event):
                 venue="mt5",
                 qty=float(event.volume or 0.0),
                 fee_bps=0.0,  # MT5 does not report fees separately
-                # Legacy AB/regime fields go via metadata (backward compat via **legacy_kwargs)
+                # Legacy AB/regime fields kept in metadata for backward compat consumers
                 ab_arm=ab_arm,
                 ab_group=ab_group,
                 ab_key=ab_key,
                 regime=regime,
                 zone_id=zone_id,
                 payload={
+                    # AB/scenario at root level so downstream (LcbGuard, etc.) can read without parsing metadata
+                    "ab_arm": ab_arm,
+                    "ab_group": ab_group,
+                    "ab_key": ab_key,
+                    "arm_ver": arm_ver,
+                    "regime": regime,
+                    "scenario": scenario,
                     "risk_usd": float(risk_usd),
                     "r_mult": float(r_mult),
                     "exit_ts_ms": int(close_ts_ms),

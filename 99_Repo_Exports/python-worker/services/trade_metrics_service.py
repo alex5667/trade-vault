@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import itertools
+import json
 import math
 import os
 from typing import Any
@@ -42,6 +43,68 @@ def _sf(v: Any) -> float:
         return float(v)
     except Exception:
         return 0.0
+
+
+def _snz(v: Any) -> float:
+    """Safe non-zero float: like _sf but returns 0.0 for zero-valued inputs.
+
+    Fixes the Python `or`-chain bug where "0.0" (non-empty string) is truthy
+    but converts to 0.0, causing the chain to stop at a useless value.
+    """
+    try:
+        f = float(v)
+        return f if f != 0.0 else 0.0
+    except Exception:
+        return 0.0
+
+
+def _atr_for_levels(t: dict, meta: dict) -> float:
+    """Resolve the ATR that was used to place SL/TP — and ONLY that one.
+
+    Priority (all strict, no fallback to generic `atr`):
+      1. top-level `atr_used_for_levels`
+      2. top-level `atr_at_entry`
+      3. meta.atr_used_for_levels
+      4. signal_payload.atr_used_for_levels
+      5. signal_payload.indicators.atr_used_for_levels
+      6. signal_payload.atr_at_entry
+      7. signal_payload.indicators.atr_at_entry
+
+    Generic `atr` keys (top-level / meta / indicators) are intentionally NOT
+    used: they are the current feature-time ATR (often a 1m/tick fallback),
+    while SL/TP prices were placed on a higher-TF (5m/15m) ATR. Mixing them
+    yielded 20-45 ATR readings in the report.
+
+    Returns 0.0 if no labeled ATR is available — the caller should then skip
+    the trade rather than contaminate the average.
+    """
+    a = _snz(t.get("atr_used_for_levels")) or _snz(t.get("atr_at_entry"))
+    if a > 0:
+        return a
+    if meta:
+        a = _snz(meta.get("atr_used_for_levels")) or _snz(meta.get("atr_at_entry"))
+        if a > 0:
+            return a
+    _sp_raw = t.get("signal_payload")
+    if isinstance(_sp_raw, str):
+        try:
+            _sp = json.loads(_sp_raw)
+        except Exception:
+            return 0.0
+        _inds = _sp.get("indicators") if isinstance(_sp.get("indicators"), dict) else {}
+        # Reject if the source flagged the live ATR as bad — defensive guard against
+        # a producer that one day adds atr_used_for_levels=atr while atr_bad=1.
+        if int(_snz(_inds.get("atr_bad"))) == 1:
+            a = _snz(_sp.get("atr_used_for_levels")) or _snz(_sp.get("atr_at_entry"))
+            return a if a > 0 else 0.0
+        a = (
+            _snz(_sp.get("atr_used_for_levels"))
+            or _snz(_sp.get("atr_at_entry"))
+            or _snz(_inds.get("atr_used_for_levels"))
+            or _snz(_inds.get("atr_at_entry"))
+        )
+        return a
+    return 0.0
 
 
 def _median(xs: list[float]) -> float:
@@ -722,16 +785,12 @@ class TradeMetricsService:
 
         # 2. Try calculation if missing
         if sl_atr <= 0 and tp_atr <= 0:
-            # Prefer ATR used for levels (= ATR TF: 5m/15m), NOT 1m ATR from tick stream.
-            # Priority: atr_used_for_levels > atr_at_entry > atr (1m fallback)
-            atr = _sf(
-                t.get("atr_used_for_levels")
-                or t.get("atr_at_entry")
-                or t.get("atr")
-                or _meta.get("atr_used_for_levels")
-                or _meta.get("atr")
-                or 0.0
-            )
+            # Strict: ONLY use ATR that's labeled as "used for levels" or "at entry".
+            # Generic `atr` (or signal_payload.indicators.atr) is the *current* feature-time ATR,
+            # often a 1m/tick fallback, while SL/TP prices were placed on a higher-TF ATR.
+            # Mixing them produces 20-45 ATR readings. If only generic ATR is present AND it's
+            # flagged `atr_bad=1`, treat as missing — skip the calc rather than poison the average.
+            atr = _atr_for_levels(t, _meta)
             entry_price = _sf(t.get("entry_price") or t.get("avg_entry_price") or 0.0)
             if atr > eps and entry_price > eps:
                 # SL
@@ -757,10 +816,9 @@ class TradeMetricsService:
         # --- tp_final_atr: ATR distance to the furthest TP level actually touched ---
         # Always re-fetch atr/entry to cover cases where explicit sl_atr/tp_atr was used
         # (skipping the calc block above). TP3 > TP2 > TP1 priority.
-        _atr_final = _sf(
-            t.get("atr_used_for_levels") or t.get("atr_at_entry") or t.get("atr")
-            or _meta.get("atr_used_for_levels") or _meta.get("atr") or 0.0
-        )
+        # Same strict resolution as above — generic `atr` is not interchangeable with
+        # the level-time ATR and would inflate tp_final_atr by 5-40x in range regimes.
+        _atr_final = _atr_for_levels(t, _meta)
         _ep_final = _sf(t.get("entry_price") or t.get("avg_entry_price") or 0.0)
         if _atr_final > eps and _ep_final > eps:
             _tp3_p = _sf(t.get("tp3_price") or t.get("tp3") or 0.0)

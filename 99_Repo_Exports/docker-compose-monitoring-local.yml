@@ -26,6 +26,7 @@ services:
     networks:
     - scanner-infra
     - scanner-ops
+    - scanner-network
     healthcheck:
       test:
       - CMD
@@ -43,10 +44,46 @@ services:
           memory: 24M
     environment:
     - TZ=UTC
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.49.1
+    container_name: scanner-cadvisor
+    restart: unless-stopped
+    privileged: true
+    devices:
+    - /dev/kmsg
+    volumes:
+    - /:/rootfs:ro
+    - /var/run:/var/run:ro
+    - /sys:/sys:ro
+    - /var/lib/docker:/var/lib/docker:ro
+    - /dev/disk:/dev/disk:ro
+    ports:
+    - 8085:8080
+    networks:
+    - scanner-infra
+    - scanner-ops
+    command:
+    - --housekeeping_interval=15s
+    - --global_housekeeping_interval=60s
+    - --docker_only=true
+    - --disable_metrics=disk,network,tcp,udp,percpu,sched,process,referenced_memory
+    - --logtostderr=false
+    - --log_file=/dev/null
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+        reservations:
+          memory: 128M
+    environment:
+    - TZ=UTC
+
 networks:
   scanner-infra:
     external: true
   scanner-ops:
+    external: true
+  scanner-network:
     external: true
 volumes:
   prometheus-data:

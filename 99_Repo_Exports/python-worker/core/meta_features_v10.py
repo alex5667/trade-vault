@@ -143,17 +143,26 @@ def build_meta_features_v10(
     feat["scenario_dz_bypass"]       = dz_bp
     feat["scenario_dz_bypass_th"]    = _get("scenario_dz_bypass_th", 0.0)
 
-    # --- Scenario type flags (from indicators["scenario"] or evidence["scenario"]) ---
-    scn_raw = ""
-    if isinstance(indicators, dict):
-        scn_raw = (indicators.get("scenario", "") or "")
-    if not scn_raw and isinstance(evidence, dict):
-        scn_raw = (evidence.get("scenario", "") or "")
+    # --- Scenario type flags ---
+    # OFConfirmEngine writes `scenario_base` (legacy classifier) and `scenario_v4`
+    # (current classifier) into indicators; the historical `scenario` key is NOT
+    # written by the engine. Read all three so this builder is not silently zero
+    # in production. Preference order: scenario_base → scenario → scenario_v4.
+    def _scn_pick(d: Any) -> str:
+        if not isinstance(d, dict):
+            return ""
+        return str(
+            d.get("scenario_base")
+            or d.get("scenario")
+            or d.get("scenario_v4")
+            or ""
+        )
+
+    scn_raw = _scn_pick(indicators) or _scn_pick(evidence)
     # Also check of_confirm dict (where scenario is stored post-build)
     if not scn_raw and isinstance(evidence, dict):
         ofc = evidence.get("of_confirm") or {}
-        if isinstance(ofc, dict):
-            scn_raw = (ofc.get("scenario", "") or "")
+        scn_raw = _scn_pick(ofc)
 
     feat["scenario_is_reversal"]     = 1.0 if scn_raw == "reversal" else 0.0
     feat["scenario_is_continuation"] = 1.0 if scn_raw == "continuation" else 0.0

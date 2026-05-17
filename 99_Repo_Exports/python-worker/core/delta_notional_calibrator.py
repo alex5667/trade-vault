@@ -49,12 +49,6 @@ class DeltaNotionalTiers:
     g_liq_ema: float = 0.0
     b_liq_ema: float = 0.0
 
-    # Telemetry-only: hour-of-week liquidity scaling (not used for decisions by default)
-    scale: float = 1.0
-    hour_of_week: int = -1
-    g_liq_ema: float = 0.0
-    b_liq_ema: float = 0.0
-
 
 class DeltaNotionalCalibrator:
     """
@@ -121,14 +115,6 @@ class DeltaNotionalCalibrator:
             b = float(bm.get(h, 0.0))
             bm[h] = (1.0 - a) * b + a * x
 
-
-    @staticmethod
-    def _clamp(x: float, lo: float, hi: float) -> float:  # type: ignore
-        if x < lo:
-            return lo
-        if x > hi:
-            return hi
-        return x
 
     @staticmethod
     def _clamp(x: float, lo: float, hi: float) -> float:

@@ -952,7 +952,7 @@ class DecisionPolicy:
                 self.liq_cfg = {}
 
         view = _MetaModelView(model)
-        x_row, missing = self._build_feature_row(
+        _, missing = self._build_feature_row(
             model=view,
             indicators=indicators,
             direction=direction,
@@ -992,13 +992,20 @@ class DecisionPolicy:
         # Let's inspect MetaModelLR.predict_proba again.
         # It calls _f(feat.get(name, 0.0)).
 
-        # If model.features includes "spread_bucket_..." or "session_...", we need those derived.
-        # _build_feature_row logic is complex and handles derivation.
-        # Ideally we should refactor, but for now let's construct a feat dict from the row we just built.
-
-        feat_dict = {}
-        for i, col in enumerate(model.features):
-            feat_dict[col] = x_row[i]
+        # _build_feature_row was used only for the missing-feature check above.
+        # MetaModelLR.predict_proba takes a dict and handles transforms internally.
+        # Building feat_dict from x_row produces all-zeros for bare feature names (no f_/bucket: prefix),
+        # which makes p_edge_raw constant at the intercept-dominated value (~0.1777).
+        # Use indicators directly instead, adding of_ prefix aliases.
+        feat_dict = dict(indicators)
+        _of_aliases = {
+            "base_score": "of_base_score",
+            "score_final_raw": "of_score_final_raw",
+            "score_final_01": "of_score_final",
+        }
+        for bare, of_key in _of_aliases.items():
+            if bare not in feat_dict and of_key in feat_dict:
+                feat_dict[bare] = feat_dict[of_key]
 
         try:
             p_edge_raw = model.predict_proba(feat_dict)

@@ -139,21 +139,21 @@ def test_hour_of_week_utc():
 
 def test_session_utc():
     """Test session_utc function."""
-    # Asia session: 00:00-06:59
+    # ASIA session: 00:00-07:59 UTC
     ts_asia = int(datetime(2024, 1, 1, 3, 0, tzinfo=UTC).timestamp() * 1000)
-    assert session_utc(ts_asia) == "asia"
+    assert session_utc(ts_asia) == "ASIA"
 
-    # EU session: 07:00-12:59
+    # EU session: 08:00-13:59 UTC
     ts_eu = int(datetime(2024, 1, 1, 9, 0, tzinfo=UTC).timestamp() * 1000)
-    assert session_utc(ts_eu) == "eu"
+    assert session_utc(ts_eu) == "EU"
 
-    # US session: 13:00-19:59
-    ts_us = int(datetime(2024, 1, 1, 15, 0, tzinfo=UTC).timestamp() * 1000)
-    assert session_utc(ts_us) == "us"
+    # NY session: 14:00-20:59 UTC
+    ts_ny = int(datetime(2024, 1, 1, 15, 0, tzinfo=UTC).timestamp() * 1000)
+    assert session_utc(ts_ny) == "NY"
 
-    # Late session: 20:00-23:59
-    ts_late = int(datetime(2024, 1, 1, 21, 0, tzinfo=UTC).timestamp() * 1000)
-    assert session_utc(ts_late) == "late"
+    # OFF session: 21:00-23:59 UTC
+    ts_off = int(datetime(2024, 1, 1, 21, 0, tzinfo=UTC).timestamp() * 1000)
+    assert session_utc(ts_off) == "OFF"
 
     # Invalid timestamp
     assert session_utc(0) == "na"

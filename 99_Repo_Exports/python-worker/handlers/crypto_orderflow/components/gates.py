@@ -275,13 +275,13 @@ class GateOrchestrator:
                 ts_decision_ms=ts_dec_ms, latency_us=latency_us, inputs_hash=inp_hash, notes={"error": str(exc)}
             )
 
-    def check_entry_policy(self, ctx: Any, payload: dict) -> GateDecisionV1:
+    def check_entry_policy(self, ctx: Any, kind: str) -> GateDecisionV1:
         t0 = time.monotonic()
         ts_dec_ms = int(time.time() * 1000)
         ts_ev_ms = _get_ts_ms(ctx)
         sym = str(getattr(ctx, "symbol", "") or "").strip().upper()
-        kind = payload.get("kind", "") or "custom"
-        inp_hash = _fast_hash(kind=kind, payload_keys=list(payload.keys()), sym=sym)
+        kind = (kind or "custom").strip() or "custom"
+        inp_hash = _fast_hash(kind=kind, sym=sym)
         gate_name = "EntryPolicyGate"
 
         if self._entry_policy is None:
@@ -1349,12 +1349,12 @@ class GateOrchestrator:
         gate_name = "ConfidenceGate"
 
         veto = confidence < min_conf
-        
+
         latency_us = int((time.monotonic() - t0) * 1_000_000)
         return GateDecisionV1(
             stage="confidence", gate=gate_name, decision="DENY" if veto else "ALLOW",
             reason_code="LOW_CONFIDENCE" if veto else "OK", severity="WARN" if veto else "INFO",
-            profile="default", fail_policy="OPEN",
+            profile="default", fail_policy="CLOSED",
             ts_event_ms=ts_ev_ms, ts_decision_ms=ts_dec_ms,
             latency_us=latency_us, inputs_hash=inp_hash,
             notes={"val": confidence, "thr": min_conf}

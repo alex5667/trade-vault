@@ -42,7 +42,7 @@ def _valid_event(**overrides: Any) -> dict[str, Any]:
         "ts": str(NOW_MS),
         "exit_ts_ms": str(NOW_MS),
         "event_id": _sha1(f"POSITION_CLOSED|sid-abc-123|{NOW_MS}||"),
-        "symbol": "",
+        "symbol": "BTCUSDT",
         # A3 join-critical fields:
         "side": "LONG",
         "order_id": "ord-001",

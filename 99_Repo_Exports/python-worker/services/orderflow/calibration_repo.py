@@ -197,7 +197,7 @@ class CalibrationRepository:
             log_silent_error(exc, 'calib_load_failure', sym, 'repo:load_atr_tf_choice')
 
         # 2. Load Calibrator States (History/Regimes)
-        if hasattr(runtime, "atr_tf_calibrator"):
+        if hasattr(runtime, "atr_tf_calib"):
             c_prefix = str(runtime.config.get("atr_tf_calib_key_prefix", "calib:atrtf"))
             c_set_prefix = str(runtime.config.get("atr_tf_calib_regimes_set_prefix", "calib:atrtf:regimes"))
             regimes_key = f"{c_set_prefix}:{sym}"
@@ -211,7 +211,7 @@ class CalibrationRepository:
                     if raw:
                         st = json.loads(raw)
                         if isinstance(st, dict):
-                            runtime.atr_tf_calibrator.load_regime_state(st)
+                            runtime.atr_tf_calib.load_regime_state(st)
             except Exception as exc:
                 log_silent_error(exc, 'calib_load_failure', sym, 'repo:load_atr_tf_regimes')
 
@@ -436,10 +436,8 @@ class CalibrationRepository:
         key = f"{prefix}:{sym}:{rg}"
         regimes_key = f"{set_prefix}:{sym}"
 
-        # NOTE: Using a generic dump_regime_state if available, or specific one
-        # For ATR TF we use atr_tf_calibrator (assumed similar to others)
-        if hasattr(runtime, "atr_tf_calibrator"):
-            payload = runtime.atr_tf_calibrator.dump_regime_state(symbol=sym, regime=rg, updated_ts_ms=int(ts_ms))
+        if hasattr(runtime, "atr_tf_calib"):
+            payload = runtime.atr_tf_calib.dump_regime_state(symbol=sym, regime=rg, updated_ts_ms=int(ts_ms))
             try:
                 await self.r.set(key, json.dumps(payload, ensure_ascii=False), ex=ttl_sec)
                 await self.r.sadd(regimes_key, rg)

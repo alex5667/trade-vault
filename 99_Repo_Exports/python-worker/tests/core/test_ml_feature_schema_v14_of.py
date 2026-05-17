@@ -3,13 +3,24 @@ from __future__ import annotations
 """
 Smoke + contract tests for ml_feature_schema_v14_of.
 
-Scope (Phase 0 — schema-only):
+Scope:
   - schema imports cleanly
   - key count within sanity range
-  - no collision between og_* group and v13_of base
+  - no collision between og_*/oe_*/xv_*/xvi_*/xvii_* groups and v13_of base
   - registry resolves v14_of and aliases (v14, "v14_of")
-  - v14 keys = v13 keys ∪ og_* set (no removal)
-  - registry FeatureSchemaInfo names contain f_og_* columns
+  - v14 keys = v13 keys ∪ all new groups (no removal, append-only)
+  - registry FeatureSchemaInfo names contain all new columns
+  Group OG   (16): og_* — rule-gate consensus indicators
+  Group OE   (61): external data (composites + breadth + deribit + PIT rolling
+                    + macro + fng_delta + prior_stale bool-as-float)
+  Group XV    (4): cross-venue sanity (OKX/Kraken/Coinbase)
+  Group XVI   (7): CoinGecko macro context (global + per-symbol)
+  Group XVII  (3): Deribit extended (options OI + per-symbol perp basis)
+  Group XVIII (9): DefiLlama slow-regime (stablecoins + TVL + DEX + fees + perps)
+  Group XIX   (4): CoinPaprika fallback
+  Group XX    (4): CoinMarketCap fallback
+  Group XXI   (6): Bybit cross-venue
+  Total new = 114 keys
 """
 
 import pytest
@@ -30,8 +41,16 @@ def test_v14_schema_imports():
     info = v14_of_info()
     assert info["ver"] == "v14_of"
     assert info["schema_hash"] == SCHEMA_HASH
-    assert info["n_new_keys"] == 16
+    assert info["n_new_keys"] == 114  # 16+61+4+7+3+9+4+4+6
     assert info["groups"]["group_og_rule_consensus"] == 16
+    assert info["groups"]["group_oe_external_data"] == 61
+    assert info["groups"]["group_xv_cross_venue"] == 4
+    assert info["groups"]["group_xvi_coingecko_macro"] == 7
+    assert info["groups"]["group_xvii_deribit_ext"] == 3
+    assert info["groups"]["group_xviii_defillama"] == 9
+    assert info["groups"]["group_xix_coinpaprika"] == 4
+    assert info["groups"]["group_xx_cmc"] == 4
+    assert info["groups"]["group_xxi_bybit"] == 6
 
 
 def test_v14_extends_v13_strictly_append_only():
@@ -45,11 +64,12 @@ def test_v14_extends_v13_strictly_append_only():
     assert not removed, f"v14_of removed keys (append-only violation): {sorted(removed)}"
 
     added = v14 - v13
-    assert len(added) == 16, f"expected 16 new keys, got {len(added)}: {sorted(added)}"
-    assert all(k.startswith("og_") for k in added), (
-        f"all new v14_of keys must use og_ prefix; got non-prefixed: "
-        f"{sorted(k for k in added if not k.startswith('og_'))}"
+    assert len(added) == 114, (
+        f"expected 114 new keys (16+61+4+7+3+9+4+4+6), "
+        f"got {len(added)}: {sorted(added)}"
     )
+    og_added = {k for k in added if k.startswith("og_")}
+    assert len(og_added) == 16, f"expected 16 og_* keys, got {len(og_added)}"
 
 
 def test_v14_og_no_collision_with_v13():
@@ -67,7 +87,7 @@ def test_v14_keys_sorted_deterministic():
 def test_v14_key_count_within_sanity_bounds():
     from core.ml_feature_schema_v14_of import V14_OF_NUMERIC_KEYS
     n = len(V14_OF_NUMERIC_KEYS)
-    assert 245 <= n <= 280, f"v14_of key count {n} outside sanity bounds [245, 280]"
+    assert 245 <= n <= 380, f"v14_of key count {n} outside sanity bounds [245, 380]"
 
 
 def test_registry_resolves_v14_of():
@@ -76,10 +96,14 @@ def test_registry_resolves_v14_of():
     assert info is not None
     names = getattr(info, "names", None) or getattr(info, "feature_names", None)
     assert names, "FeatureSchemaInfo must expose names/feature_names"
-    # Names use `n:` prefix for numeric keys (registry convention).
-    # All 16 og_* keys must surface as `n:og_*` entries.
     og_keys = [n for n in names if n.startswith("n:og_")]
     assert len(og_keys) == 16, f"expected 16 n:og_* entries, got {len(og_keys)}: {og_keys}"
+    from core.ml_feature_schema_v13_of import V13_OF_NUMERIC_KEYS
+    v13_with_prefix = {f"n:{k}" for k in V13_OF_NUMERIC_KEYS}
+    new_in_registry = [n for n in names if n.startswith("n:") and n not in v13_with_prefix]
+    assert len(new_in_registry) == 114, (
+        f"expected 114 new n:* entries (all groups), got {len(new_in_registry)}"
+    )
 
 
 def test_registry_v14_alias_normalization():
@@ -101,6 +125,12 @@ def test_edge_stack_spec_accepts_v14():
     og_cols = [c for c in cols if c.startswith("f_og_")]
     assert len(og_cols) == 16, (
         f"v14_of edge-stack must include all 16 f_og_* cols; got {len(og_cols)}: {og_cols}"
+    )
+    from core.ml_feature_schema_v13_of import V13_OF_NUMERIC_KEYS
+    v13_f = {f"f_{k}" for k in V13_OF_NUMERIC_KEYS}
+    new_cols = [c for c in cols if c.startswith("f_") and c not in v13_f]
+    assert len(new_cols) == 114, (
+        f"v14_of edge-stack must include all 114 new f_* cols; got {len(new_cols)}"
     )
 
 

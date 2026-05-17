@@ -75,7 +75,7 @@ class EntryPolicyFreezeV1:
         metrics: Snapshot of metrics that triggered freeze
     """
     ver: int = 1
-    symbol=""
+    symbol: str = ""
     group: str = "default"
     scenario: str = ""
     until_ts_ms: int = 0

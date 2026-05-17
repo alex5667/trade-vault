@@ -272,7 +272,8 @@ class TickProcessor:
 
             # ── process_ts_ms ────────────────────────────────────────────────
             tick["process_ts_ms"] = get_ny_time_millis()
-            runtime.last_ts_ms = event_ts_ms
+            # runtime.last_ts_ms is owned by G0 inside strategy.process_tick — do not pre-write here,
+            # otherwise G0 monotonicity/clamp/quarantine branch becomes unreachable.
 
             # ── Lag tracking ─────────────────────────────────────────────────────
             lag_ms = self._update_lag(symbol, now_ms, event_ts_ms, lag_tracker_max_ms, msg_id=msg_id)
@@ -453,7 +454,7 @@ class TickProcessor:
                     r_tracker = self._lag_trackers.get(f"_redis_{symbol}")
                     if r_tracker is None:
                         from common.metrics2 import LagTracker
-                        r_tracker = LagTracker(max_ms=max_ms)  # type: ignore
+                        r_tracker = LagTracker()
                         self._lag_trackers[f"_redis_{symbol}"] = r_tracker
                     r_tracker.update(min(r_lag, max_ms))
                     ctr = self._lag_export_counters.get(symbol, 0)  # reuse same counter

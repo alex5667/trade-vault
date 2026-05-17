@@ -62,6 +62,14 @@ ml_confirm_cfg_valid = _metric(Gauge, "ml_confirm_cfg_valid", "Whether ML config
 ml_confirm_enforce_share = _metric(Gauge, "ml_confirm_enforce_share", "Current enforce_share", ["kind"])
 ml_confirm_model_loaded = _metric(Gauge, "ml_confirm_model_loaded", "Whether ML model is loaded", ["kind"])
 
+# Activated when champion cfg/model is unavailable and gate falls back to a
+# hash-key stub.  Increment BEFORE the fallback executes so the counter is
+# visible even when the stub itself fails.  reason: "hash_fallback" | "no_cfg".
+ml_confirm_fallback_total = _metric(
+    Counter, "ml_confirm_fallback_total",
+    "ML confirm gate cfg/model fallback activations", ["kind", "reason"]
+)
+
 ml_confirm_model_load_seconds = _metric(
     Histogram, "ml_confirm_model_load_seconds", "Time to load the ML model", ["kind"],
     buckets=(0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10)

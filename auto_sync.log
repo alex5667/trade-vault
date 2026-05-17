@@ -408,3 +408,32 @@ fatal: Could not read from remote repository.
 Please make sure you have the correct access rights
 and the repository exists.
 2026-05-15 05:45:02 - Синхронизация завершена успешно.
+[main 91424cf2] Auto-sync vault notes 2026-05-16 05:45:01
+ 45 files changed, 8557 insertions(+), 96 deletions(-)
+ create mode 100644 80_Research/ADR-0004 ML v5_of Feature Expansion.md
+ create mode 100644 80_Research/ADR-0005 TCA EMA Priors Pipeline.md
+ create mode 100644 80_Research/ADR-0006 Cross-Symbol and Liq-OI Feature Pipeline.md
+ create mode 100644 80_Research/ADR-0007 Point-in-Time Historical Priors.md
+ create mode 100644 99_Automation/logs/update_2026-05-16_03-37-46.log
+ create mode 100644 99_Repo_Exports/python-worker/handlers/crypto_orderflow/components/layer_enforce_gate.py
+ create mode 100644 99_Repo_Exports/python-worker/handlers/crypto_orderflow/components/layer_enforce_reader.py
+ create mode 100644 99_Repo_Exports/python-worker/orderflow_services/cross_context_aggregator_v1.py
+ create mode 100644 99_Repo_Exports/python-worker/orderflow_services/ml_outcome_calibration_tracker_v1.py
+ create mode 100644 99_Repo_Exports/python-worker/orderflow_services/of_layer_a_shadow_gate_v1.py
+ create mode 100644 99_Repo_Exports/python-worker/orderflow_services/of_layer_b_shadow_gate_v1.py
+ create mode 100644 99_Repo_Exports/python-worker/orderflow_services/of_layer_c_shadow_gate_v1.py
+ create mode 100644 99_Repo_Exports/python-worker/orderflow_services/of_layer_d_shadow_trail_v1.py
+ create mode 100644 99_Repo_Exports/python-worker/orderflow_services/of_layer_enforce_autotuner_v1.py
+ create mode 100644 99_Repo_Exports/python-worker/orderflow_services/of_layers_shadow_calibrator_v1.py
+ create mode 100644 99_Repo_Exports/python-worker/orderflow_services/pit_priors_exporter_v1.py
+ create mode 100644 99_Repo_Exports/python-worker/orderflow_services/tca_priors_exporter_v1.py
+ create mode 100644 99_Repo_Exports/python-worker/services/tp_hit_trailing_orchestrator_layer_d_consumer.py
+ create mode 100644 99_Repo_Exports/python-worker/services/trade_monitor/layer_d_early_arm_hook.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_layer_enforce_gate.py
+ create mode 100644 99_Repo_Exports/python-worker/tools/build_pit_priors_v1.py
+git@github.com: Permission denied (publickey).
+fatal: Could not read from remote repository.
+
+Please make sure you have the correct access rights
+and the repository exists.
+2026-05-16 05:45:02 - Синхронизация завершена успешно.

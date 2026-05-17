@@ -1044,25 +1044,22 @@ class DecisionPolicyMixin:
             dec.floor = dec.p_min
             return dec
 
-        # Predict
-        # construct feat dict from row? No, predict_proba expects dict?
-        # MetaModelLR.predict_proba expects Dict[str, Any]
-        # BUT _build_feature_row returns List[float] for feature_cols.
-        # This is inefficient: we built list, now need to rebuild dict or unsafe existing methods.
-        # Actually MetaModelLR.predict_proba iterates over self.features and does lookups.
-        # So we can just pass indicators directly?
-        # _build_feature_row handles critical checks and derived features (like spread_bucket).
-        # MetaModelLR *might* depend on derived features.
-        # Let's inspect MetaModelLR.predict_proba again.
-        # It calls _f(feat.get(name, 0.0)).
-
-        # If model.features includes "spread_bucket_..." or "session_...", we need those derived.
-        # _build_feature_row logic is complex and handles derivation.
-        # Ideally we should refactor, but for now let's construct a feat dict from the row we just built.
-
-        feat_dict = {}
-        for i, col in enumerate(model.features):
-            feat_dict[col] = x_row[i]
+        # BUG FIX: _build_feature_row returns 0.0 for bare feature names (no prefix like f_/bucket:/etc.)
+        # because the vectorizer only handles prefixed columns. MetaModelLR features (base_score, obi, etc.)
+        # are all bare → x_row is all-zeros → constant p_edge (intercept-dominated, always 0.1777).
+        # Fix: build feat_dict directly from indicators, adding known of_ prefix aliases.
+        # MetaModelLR.predict_proba handles its own transforms and robust_scaler internally.
+        # x_row (from _build_feature_row above) was used only for the missing-feature check.
+        feat_dict = dict(indicators)
+        # of_ prefix aliases: indicators_with_v4 stores these under of_ prefix
+        _of_aliases = {
+            "base_score": "of_base_score",
+            "score_final_raw": "of_score_final_raw",
+            "score_final_01": "of_score_final",
+        }
+        for bare, of_key in _of_aliases.items():
+            if bare not in feat_dict and of_key in feat_dict:
+                feat_dict[bare] = feat_dict[of_key]
 
         try:
             p_edge_raw = model.predict_proba(feat_dict)

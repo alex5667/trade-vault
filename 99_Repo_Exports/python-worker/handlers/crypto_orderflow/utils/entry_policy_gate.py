@@ -139,9 +139,9 @@ class _FeatureDriftTracker:
             dd = {}
 
         try:
-            n = dd.get("n") or 0
-            mu = dd.get("mu") or 0.0
-            mad = dd.get("mad") or 0.0
+            n = int(float(dd.get("n") or 0))
+            mu = float(dd.get("mu") or 0.0)
+            mad = float(dd.get("mad") or 0.0)
         except Exception:
             n, mu, mad = 0, 0.0, 0.0
 
@@ -205,7 +205,14 @@ class EntryPolicyGate:
 
         profile = (os.getenv("GATE_PROFILE", "") or "").strip().lower()
         if profile in {"", "normal"}:
-            profile = "default"
+            # FEATURE_DRIFT_PROFILE=soft|tighten|hard maps to GATE_PROFILE conventions
+            _fdp = (os.getenv("FEATURE_DRIFT_PROFILE", "") or "").strip().lower()
+            if _fdp == "hard":
+                profile = "hard"
+            elif _fdp in {"tighten", "strict"}:
+                profile = "strict"
+            else:
+                profile = "default"
 
         # Strict timestamp normalization (single source of truth)
         ts_raw = getattr(ctx, "ts_ms", None) or getattr(ctx, "ts", None) or 0

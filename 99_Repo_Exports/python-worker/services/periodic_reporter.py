@@ -2804,17 +2804,11 @@ class PeriodicReporter:
                 # Добавляем контекст во вторую часть, чтобы при вклинивании других сообщений было понятно к чему она
                 part2 = f"📄 Часть 2/2 | <b>{html.escape(str(source))} ({report_type_label}) / {html.escape(display_symbol)}</b>\n\n" + part2
 
-                logger.info(f"📤 Публикация отчета в Redis stream для {source}/{symbol} (часть 1/2, {len(part1)} символов)...")
-                success1 = self.reporting.send_telegram_message(part1)
-
-                # Небольшая задержка между частями для избежания rate limit
-                import time
-                time.sleep(0.3)
-
-                logger.info(f"📤 Публикация отчета в Redis stream для {source}/{symbol} (часть 2/2, {len(part2)} символов)...")
-                success2 = self.reporting.send_telegram_message(part2)
-
-                success = success1 and success2
+                logger.info(
+                    f"📤 Публикация отчета bundle в Redis stream для {source}/{symbol} "
+                    f"(2 части: {len(part1)} + {len(part2)} символов)..."
+                )
+                success = self.reporting.send_telegram_report_bundle([part1, part2])
             else:
                 # Отправка основного отчета (если не превышает лимит)
                 logger.info(f"📤 Публикация отчета в Redis stream для {source}/{symbol}...")

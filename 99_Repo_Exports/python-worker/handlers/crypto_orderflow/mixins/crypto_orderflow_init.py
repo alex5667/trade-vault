@@ -360,6 +360,7 @@ class CryptoOrderFlowInitMixin:
             observability=self._observability,
             confirmations_engine=getattr(self, "_confirmations", None),
             emitter=getattr(self, "_emitter", None),
+            drift_alarm=self._feature_drift_alarm,
         )
 
     # ------------------------------------------------------------

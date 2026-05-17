@@ -2,31 +2,21 @@ from __future__ import annotations
 
 """tp_hit_trailing_orchestrator_layer_d_consumer.py
 
-Standalone consumer для stream `trail:arm:requests` от Layer D early-arm hook.
+Standalone consumer for stream `trail:arm:requests` from Layer D early-arm hook.
 
-Назначение:
-  - Хост-процесс (можно интегрировать в tp_hit_trailing_orchestrator).
-  - XREADGROUP консюмит arm-requests с HMAC verification.
-  - Вызывает _arm_trailing_via_callable() — каждый proection callback.
-  - Идемпотентно: per signal_id (Redis SET с TTL).
+Flow:
+  layer_d_early_arm_hook.evaluate_and_emit() → XADD trail:arm:requests
+    → this consumer XREADGROUP → HMAC verify → dedup → arm_callback(payload)
 
-Контракт payload:
-  {
-    "signal_id":  str,
-    "symbol":     str,
-    "side":       "LONG"|"SHORT",
-    "mfe_r":      float,
-    "mfe_bps":    float,
-    "one_r_bps":  float,
-    "ts_ms":      int,
-    "source":     "MFE_EARLY_ARM",
-    "arm_threshold_r": float
-  }
-  + field "sig" = HMAC-SHA256(payload, LAYER_D_HMAC_SECRET).
+arm_callback is built by _make_arm_callback():
+  - Instantiates TpHitTrailingOrchestrator (lazy, once).
+  - Reads current mid price from stream:tick_{SYMBOL} (xrevrange).
+  - Fetches signal from Redis (for trail_profile / entry_price).
+  - Injects trail_after_tp1=True so orchestrator bypasses the TP1 flag check.
+  - Calls orchestrator.start_trailing() → OrderTrailingDispatcher → gateway.
 
-Этот файл — **skeleton**. Реальная интеграция в tp_hit_trailing_orchestrator
-требует вызова существующего _process_tp1_event / equivalent кода для arm.
-Здесь предоставляется отдельный entry для тестирования и поэтапного rollout.
+Idempotency: the orchestrator's own dedup key (dedup:tp1_trailing:{sid})
+prevents double-processing if real TP1 fires after Layer D already armed.
 
 ENV:
   LAYER_D_CONSUMER_ENABLE        0
@@ -37,6 +27,7 @@ ENV:
   LAYER_D_DEDUP_TTL_SEC          3600
   LAYER_D_CONSUMER_REDIS_URL     redis://redis-worker-1:6379/0
   LAYER_D_CONSUMER_PROM_PORT     9853
+  REDIS_URL                      redis://redis-worker-1:6379/0 (for orchestrator)
 """
 
 import hashlib
@@ -130,7 +121,7 @@ def run(arm_callback: Callable[[dict[str, Any]], bool] | None = None) -> int:
             resp = r.xreadgroup(group, consumer, {stream: ">"}, count=64, block=5000)
             if not resp:
                 continue
-            for _stream, entries in resp:  # type: ignore[union-attr]
+            for _, entries in resp:  # type: ignore[union-attr]
                 for entry_id, fields in entries:
                     payload_raw = fields.get("payload", "")
                     sig = fields.get("sig", "")
@@ -188,5 +179,79 @@ def run(arm_callback: Callable[[dict[str, Any]], bool] | None = None) -> int:
             time.sleep(1)
 
 
+def _get_mid_price(redis_client: redis.Redis, symbol: str) -> float:
+    """Latest mid price from stream:tick_{SYMBOL}. Returns 0.0 on miss."""
+    try:
+        entries = redis_client.xrevrange(f"stream:tick_{symbol}", "+", "-", count=1)
+        if entries:
+            fields = entries[0][1]  # type: ignore[index]
+            for k in ("mid", "price", "close", "bid_ask_mid"):
+                v = fields.get(k)
+                if v:
+                    f = float(v)
+                    if f > 0:
+                        return f
+    except Exception as ex:
+        log.debug("get_mid_price %s: %s", symbol, ex)
+    return 0.0
+
+
+def _make_arm_callback(redis_url: str) -> Callable[[dict[str, Any]], bool]:
+    """Build arm_callback backed by TpHitTrailingOrchestrator.start_trailing().
+
+    Called once at startup; the returned closure holds the orchestrator instance.
+    """
+    from services.tp_hit_trailing_orchestrator import TpHitTrailingOrchestrator
+
+    _r = redis.from_url(redis_url, decode_responses=True)
+    _orch = TpHitTrailingOrchestrator()
+
+    def arm_callback(payload: dict[str, Any]) -> bool:
+        sid = str(payload.get("signal_id", "") or "")
+        symbol = str(payload.get("symbol", "") or "").upper()
+        mfe_r = float(payload.get("mfe_r", 0.0) or 0.0)
+
+        if not sid or not symbol:
+            log.warning("arm_callback: missing sid or symbol")
+            return False
+
+        price = _get_mid_price(_r, symbol)
+        if price <= 0:
+            log.warning("arm_callback: no mid price for %s sid=%s — skip", symbol, sid)
+            return False
+
+        # Load original signal from Redis for trail_profile / entry_price.
+        # Inject trail_after_tp1=True to bypass the flag guard.
+        signal: dict[str, Any] = {"trail_after_tp1": True, "source": "layer_d_early_arm"}
+        signal_key: str | None = None
+        try:
+            sig_data = _orch._get_signal(sid)
+            if sig_data:
+                loaded, signal_key = sig_data
+                signal = dict(loaded)
+                signal["trail_after_tp1"] = True
+        except Exception as ex:
+            log.debug("arm_callback _get_signal sid=%s: %s", sid, ex)
+
+        result = _orch.start_trailing(
+            sid=sid,
+            symbol=symbol,
+            price=price,
+            source="layer_d_early_arm",
+            signal_payload=signal,
+            signal_key=signal_key,
+        )
+        log.info(
+            "arm_callback: sid=%s sym=%s price=%.4f mfe_r=%.3f success=%s skipped=%s err=%s",
+            sid, symbol, price, mfe_r, result.success, result.skipped,
+            getattr(result, "error", ""),
+        )
+        # skipped = dedup hit or filtered — treat as success (no retry needed)
+        return result.success or result.skipped
+
+    return arm_callback
+
+
 if __name__ == "__main__":
-    raise SystemExit(run(arm_callback=None))
+    _redis_url = _env("LAYER_D_CONSUMER_REDIS_URL", "redis://redis-worker-1:6379/0")
+    raise SystemExit(run(arm_callback=_make_arm_callback(_redis_url)))

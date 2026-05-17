@@ -19,11 +19,15 @@ def render():
         f.write("# GENERATED FILE - DO NOT EDIT DIRECTLY\n")
         f.write("# Source: config/symbols.yml\n\n")
 
-        universe = ",".join(config.get("universe", []))
-        f.write(f"TRADE_SYMBOLS_UNIVERSE={universe}\n")
+        # Use 'active' list if present, otherwise fall back to full universe.
+        active = config.get("active") or config.get("universe", [])
+        active_str = ",".join(active)
+        f.write(f"TRADE_SYMBOLS_UNIVERSE={active_str}\n")
 
-        # Legacy compat
-        f.write(f"CRYPTO_SYMBOLS={universe}\n\n")
+        # Legacy compat + Go worker required vars
+        f.write(f"CRYPTO_SYMBOLS={active_str}\n")
+        f.write(f"FUTURES_SYMBOLS={active_str}\n")
+        f.write(f"REQUIRED_SYMBOLS={active_str}\n\n")
 
         shards = config.get("shards", {})
         for shard_name, symbols in shards.items():

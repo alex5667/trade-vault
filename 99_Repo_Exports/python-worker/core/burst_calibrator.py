@@ -40,10 +40,9 @@ class BurstCalibrator:
             w = int(max(self.min_window_ms, min(w, 800)))
 
         # 2) Tick-gap-driven: if ticks are VERY sparse, shrink window to be faster
-        # But don't shrink below base if it's just "somewhat" sparse
-        if gap_p50_ms > 0:
-             # If gap is e.g. 5000ms, and base is 2500, we might stay at 2500.
-             # If gap is 500ms, and base is 2500, we might shrink to e.g. 400.
+        # Tick-gap shrink only when ticks arrive faster than min_window (very dense).
+        # For sparse/normal gaps (>= min_window_ms), pressure logic is sufficient.
+        if 0 < gap_p50_ms < self.min_window_ms:
              w = int(min(w, max(self.min_window_ms, int(1.2 * gap_p50_ms))))
 
         w = int(max(self.min_window_ms, min(self.max_window_ms, w)))

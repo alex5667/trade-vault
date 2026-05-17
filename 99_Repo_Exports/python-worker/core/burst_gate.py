@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from utils.time_utils import get_ny_time_millis as _get_ny_time_millis
+
 
 @dataclass
 class BurstCandidate:

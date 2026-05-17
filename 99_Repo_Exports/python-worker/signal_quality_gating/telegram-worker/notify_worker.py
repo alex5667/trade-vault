@@ -65,7 +65,9 @@ JSON_FIELD_KEYS = {
     "indicators",
     "confirmations",
     # UI controls
-    "buttons"
+    "buttons",
+    # multi-part report bundle (parts are sent back-to-back, no interleaving)
+    "parts",
 }
 
 def _b2s(x: Any) -> Any:
@@ -1058,6 +1060,41 @@ async def handle_message(entry: dict[str, Any], stream_name: str = None, message
                 label = "sent" if success else "delivery failed"
                 print(f"{status} Report #{message_log_counter} {label} ({len(text)} chars)")
             return success
+
+        # ✅ PRIORITY 1b: Handle multi-part report bundles.
+        # All parts go to Telegram back-to-back from this single iteration,
+        # so messages from other producers cannot interleave between parts.
+        if msg_type == "report_bundle":
+            parts = entry.get("parts")
+            if isinstance(parts, str):
+                try:
+                    parts = json.loads(parts)
+                except Exception:
+                    parts = None
+            if not isinstance(parts, list) or not parts:
+                print(f"⚠️ notify_worker: report_bundle has no usable 'parts'")
+                return True
+
+            buttons = entry.get("buttons")
+            n = len(parts)
+            all_ok = True
+            for i, chunk in enumerate(parts):
+                if not isinstance(chunk, str) or not chunk:
+                    continue
+                # Buttons (if any) attach only to the last part.
+                cur_buttons = buttons if (buttons and i == n - 1) else None
+                ok = await send_html_to_telegram(chunk, buttons=cur_buttons)
+                if not ok:
+                    all_ok = False
+                    print(f"❌ notify_worker: bundle part {i+1}/{n} failed ({len(chunk)} chars)")
+                # Pause between parts to avoid Telegram rate limit (429).
+                if i < n - 1:
+                    await asyncio.sleep(0.35)
+
+            if message_log_counter % MESSAGE_LOG_INTERVAL == 0:
+                status = "✅" if all_ok else "⚠️"
+                print(f"{status} Report bundle #{message_log_counter}: {n} parts, ok={all_ok}")
+            return all_ok
 
         # ✅ PRIORITY 2: Handle Signals (Outbox or Legacy)
         signal_payload = entry.get("signal_payload")

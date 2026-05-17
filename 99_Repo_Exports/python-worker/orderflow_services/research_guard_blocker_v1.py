@@ -242,39 +242,3 @@ def assert_research_guard_open(
         raise SystemExit(int(exit_code_blocked))
     print(f'STRATEGY_RESEARCH_GUARD_INVALID purpose={purpose} reason={reason}')
     raise SystemExit(int(exit_code_invalid))
-import json
-
-import redis
-
-
-def check_research_guard_blocker(redis_url: str, blocker_key: str) -> tuple[bool, str, dict[str, Any]]:
-    """,
-    Checks the P5 Strategy Research Guard blocker state in Redis.
-    Fail-open if report-only=1 or if state is missing/invalid.
-    
-    Returns:
-        blocked (bool): True if the guard is active and enforces blocking.
-        reason (str): Description of the blocking reason.
-        details (dict): The full state dictionary.
-    """,
-    try:
-        r = redis.from_url(redis_url)
-        data = r.get(blocker_key)
-
-        if not data:
-            return False, "no_data", {}
-
-        state = json.loads(data)
-        report_only = int(state.get("report_only", 1))
-
-        if report_only == 1:
-            return False, "report_only", state
-
-        is_blocked = bool(state.get("blocker_active", False))
-        reason = (state.get("reason", ""))
-
-        return is_blocked, reason, state
-
-    except Exception as e:
-        # Fail-open on error for safety during rollout
-        return False, f"error_reading_state:{e}", {}

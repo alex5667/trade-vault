@@ -21,6 +21,7 @@ from dataclasses import asdict, dataclass
 import numpy as np
 
 from core.instrument_config import OrderFlowConfig, SymbolSpecs
+from core.redis_client import get_redis_publish
 from core.redis_keys import RedisStreams as RS
 from core.retention import MAXLEN_GLOBAL, MAXLEN_PER_SYMBOL
 
@@ -75,6 +76,7 @@ class UnifiedSignalGenerator:
         self.specs = symbol_specs
         self.config = config
         self.redis = redis_client
+        self._publish_redis = get_redis_publish()
         self.logger = logger or logging.getLogger(__name__)
 
         # Streams для публикации
@@ -353,24 +355,26 @@ class UnifiedSignalGenerator:
             signal_dict = asdict(signal)
             signal_json = json.dumps(signal_dict)
 
-            # Публикуем в audit stream (для aggregation hub)
-            self.redis.xadd(
-                self.audit_stream,
-                {'data': signal_json},
-                maxlen=MAXLEN_PER_SYMBOL
-            )
-
-            # Публикуем в unified stream (для общего мониторинга)
-            self.redis.xadd(
-                self.unified_stream,
-                {
-                    'symbol': signal.symbol,
-                    'side': signal.side,
-                    'confidence': str(signal.confidence),
-                    'data': signal_json
-                },
-                maxlen=MAXLEN_GLOBAL
-            )
+            # Batched XADD via dedicated publish pool — two streams in one round-trip.
+            with self._publish_redis.pipeline(transaction=False) as pipe:
+                pipe.xadd(
+                    self.audit_stream,
+                    {'data': signal_json},
+                    maxlen=MAXLEN_PER_SYMBOL,
+                    approximate=True,
+                )
+                pipe.xadd(
+                    self.unified_stream,
+                    {
+                        'symbol': signal.symbol,
+                        'side': signal.side,
+                        'confidence': str(signal.confidence),
+                        'data': signal_json,
+                    },
+                    maxlen=MAXLEN_GLOBAL,
+                    approximate=True,
+                )
+                pipe.execute()
 
             self.logger.info(
                 f"📤 Signal published: {signal.symbol} {signal.side} "

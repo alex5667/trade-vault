@@ -297,6 +297,139 @@ class V13RuntimeTracker:
         except Exception:
             pass
 
+    # ───────────────────────────────────────────────────────────────────────────
+    # Public interface: snapshot()
+    # ───────────────────────────────────────────────────────────────────────────
+
+    def snapshot(self) -> dict[str, float]:
+        """Return v13_of NA/NB/NC/NE/NF keys + derived NC/NF helpers.
+
+        All values are floats; missing/uncomputed = 0.0. Designed to merge into
+        the outbound `indicators` dict so the v13_of feature schema sees real
+        values instead of vectorizer defaults (train/serve skew fix).
+
+        Does NOT include Group NX interactions — those need outer indicators
+        (spread_bps, funding_rate, OI delta). Use `compute_interactions()` for
+        the NX-keys at the call site that has the indicators dict.
+        """
+        try:
+            # Derived: lambda_asym = (buy - sell) / (buy + sell), clamped to [-1, 1].
+            lb = float(getattr(self, "kyle_lambda_buy", 0.0) or 0.0)
+            ls = float(getattr(self, "kyle_lambda_sell", 0.0) or 0.0)
+            denom = lb + ls
+            lambda_asym = (lb - ls) / denom if denom > 1e-12 else 0.0
+            lambda_asym = max(-1.0, min(1.0, lambda_asym))
+
+            # Derived: toxicity_regime_score = pin × (1 + sweep ratio).
+            # Bounded composite — high PIN + high sweep = toxic regime.
+            pin = float(getattr(self, "pin_estimate", 0.0) or 0.0)
+            sweep = float(getattr(self, "aggressive_sweep_ratio", 0.0) or 0.0)
+            toxicity_regime_score = max(0.0, min(1.0, pin * (1.0 + sweep)))
+
+            # Derived: zscore_mid_to_vwap from rolling mid_vwap diff buffer.
+            zscore_mid_to_vwap = 0.0
+            try:
+                buf = list(self._mid_vwap_diff_buf)
+                if len(buf) >= 5:
+                    mean = sum(buf) / len(buf)
+                    std = self.mid_vwap_diff_std
+                    if std > 1e-12:
+                        zscore_mid_to_vwap = (buf[-1] - mean) / std
+                        zscore_mid_to_vwap = max(-10.0, min(10.0, zscore_mid_to_vwap))
+            except Exception:
+                pass
+
+            return {
+                # Group NA — OHLC volatility
+                "garman_klass_vol": self.garman_klass_vol,
+                "parkinson_vol": self.parkinson_vol,
+                "yang_zhang_vol": self.yang_zhang_vol,
+                "vol_of_vol": self.vol_of_vol,
+                # Group NB — academic liquidity
+                "amihud_illiquidity": self.amihud_illiquidity,
+                "corwin_schultz_spread": self.corwin_schultz_spread,
+                "hasbrouck_info_share": self.hasbrouck_info_share,
+                "depth_resilience_half_life": self.depth_resilience_half_life,
+                # Group NC — flow toxicity
+                "pin_estimate": self.pin_estimate,
+                "aggressive_sweep_ratio": self.aggressive_sweep_ratio,
+                "lambda_asym": lambda_asym,
+                "toxicity_regime_score": toxicity_regime_score,
+                # Group NE — entropy
+                "price_entropy_50": self.price_entropy_50,
+                "order_size_gini": self.order_size_gini,
+                "mutual_info_price_volume": self.mutual_info_price_volume,
+                # Group NF — mean reversion
+                "half_life_mean_reversion": self.half_life_mean_reversion,
+                "adf_pvalue_50": self.adf_pvalue_50,
+                "zscore_mid_to_vwap": zscore_mid_to_vwap,
+            }
+        except Exception:
+            return {}
+
+    @staticmethod
+    def compute_interactions(
+        snap: dict[str, float], indicators: dict[str, Any] | None
+    ) -> dict[str, float]:
+        """Compute v13_of Group NX interaction features.
+
+        Args:
+            snap: result of `snapshot()` (provides amihud, depth_resil, entropy,
+                  aggressive_sweep_ratio).
+            indicators: outer indicators dict providing spread_bps, funding_rate,
+                        open_interest_delta, hurst_exp_50, vol_regime_code, vpin.
+
+        Returns:
+            dict with up to 5 NX-keys. Missing source ⇒ key omitted (the
+            vectorizer will impute 0.0).
+        """
+        out: dict[str, float] = {}
+        if not snap:
+            return out
+        ind = indicators or {}
+
+        try:
+            depth_resil = float(snap.get("depth_resilience_half_life", 0.0) or 0.0)
+            sweep = float(snap.get("aggressive_sweep_ratio", 0.0) or 0.0)
+            out["depth_resil_x_sweep"] = depth_resil * sweep
+        except Exception:
+            pass
+
+        try:
+            entropy = float(snap.get("price_entropy_50", 0.0) or 0.0)
+            spread_bps = float(ind.get("spread_bps", 0.0) or 0.0)
+            out["entropy_x_spread"] = entropy * spread_bps
+        except Exception:
+            pass
+
+        try:
+            amihud = float(snap.get("amihud_illiquidity", 0.0) or 0.0)
+            oi_delta = ind.get("open_interest_delta")
+            if oi_delta is not None:
+                out["amihud_x_oi_delta"] = amihud * float(oi_delta)
+        except Exception:
+            pass
+
+        try:
+            hurst = ind.get("hurst_exp_50")
+            vol_regime = ind.get("vol_regime_code")
+            if hurst is not None and vol_regime is not None:
+                out["hurst_x_vol_regime"] = float(hurst) * float(vol_regime)
+        except Exception:
+            pass
+
+        try:
+            vpin = ind.get("vpin")
+            funding = ind.get("funding_rate")
+            if vpin is not None and funding is not None:
+                f = float(funding)
+                sign = 1.0 if f > 0 else (-1.0 if f < 0 else 0.0)
+                out["vpin_x_funding"] = float(vpin) * sign
+        except Exception:
+            pass
+
+        return out
+
     # ═══════════════════════════════════════════════════════════════════════════
     # Group NA: OHLC Volatility (called on bar close)
     # ═══════════════════════════════════════════════════════════════════════════

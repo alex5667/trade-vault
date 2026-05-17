@@ -481,6 +481,22 @@ ml_feature_vector_size_mismatch_total = _get_or_create_prom_counter(
     ["expected", "got", "model_ver"],
 )
 
+# Section 6: per-key feature missing-rate telemetry. Incremented every scoring
+# call: `seen_total` always, `missing_total` whenever the key is absent / None
+# / NaN in the incoming `indicators` dict. Alerts compute missing_total/seen_total
+# per feature → catches schema declarations whose producers stopped running.
+# Cardinality is bounded by the schema size (≤ 400 keys × ≤ 2 schema versions).
+ml_feature_missing_total = _get_or_create_prom_counter(
+    "ml_feature_missing_total",
+    "ML feature missing/None/NaN per scoring call by schema_ver and feature",
+    ["schema_ver", "feature"],
+)
+ml_feature_seen_total = _get_or_create_prom_counter(
+    "ml_feature_seen_total",
+    "ML feature seen (denominator for missing-rate) by schema_ver and feature",
+    ["schema_ver", "feature"],
+)
+
 # Section 6: Abstain telemetry — emitted whenever the ML scorer declines to
 # produce a confidence (model missing, schema mismatch, predict failure, etc.).
 # reason: no_model | schema_mismatch | feature_extraction_failed | predict_failed
@@ -499,6 +515,52 @@ ml_p_edge_bucket = _get_or_create_prom_histogram(
     "Distribution of conf01 (p_edge) values produced by the ML scorer",
     ["model_ver"],
     buckets=(0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.95),
+)
+
+# Section 6: Feature-level missing / stale counters.
+# ml_feature_missing_total — feature resolved to zero due to unavailable source
+#   {feature, symbol, bucket}: bucket = "phase78_anchor" | "phase78_tca" | "phase78_pit" | "phase79_deriv"
+ml_feature_missing_total = _get_or_create_prom_counter(
+    "ml_feature_missing_total",
+    "ML feature resolved to zero due to missing/unavailable source data",
+    ["feature", "symbol", "bucket"],
+)
+
+# ml_feature_stale_total — source data existed but exceeded lag threshold
+#   {feature, symbol}: emitted when lag-guard fires (stale=True) for anchor/TCA/deriv
+ml_feature_stale_total = _get_or_create_prom_counter(
+    "ml_feature_stale_total",
+    "ML feature source data exceeded lag threshold (stale)",
+    ["feature", "symbol"],
+)
+
+# Section 6: EV-R distribution per bucket / symbol_family.
+# Emitted by ml_outcome_calibration_tracker per reconciled trade.
+# symbol_family: "BTC" | "ETH" | "SOL" | "other"
+# bucket: kind:session composite label
+ml_ev_r_bucket = _get_or_create_prom_histogram(
+    "ml_ev_r",
+    "Distribution of realised EV-R (r_multiple) per bucket and symbol family",
+    ["bucket", "symbol_family"],
+    buckets=(-3.0, -2.0, -1.5, -1.0, -0.5, 0.0, 0.5, 1.0, 1.5, 2.0, 3.0, 5.0),
+)
+
+# Section 6: Shadow block rate — what fraction of signals would be blocked
+# by a challenger model that is currently in shadow mode.
+# Emitted as a ratio (0..1) per model version.
+ml_shadow_block_rate = _get_or_create_prom_gauge(
+    "ml_shadow_block_rate",
+    "Fraction of signals that shadow model would block (0..1), per model_ver",
+    ["model_ver"],
+)
+
+# Section 6: Champion/challenger delta — difference in a given metric between
+# the live champion model and the shadow challenger.
+# metric: "winrate_delta" | "brier_delta" | "ece_delta" | "ev_r_delta"
+ml_champion_challenger_delta = _get_or_create_prom_gauge(
+    "ml_champion_challenger_delta",
+    "Delta of metric between champion and challenger model (champion - challenger)",
+    ["metric"],
 )
 
 # Note: histograms are expensive, use separate buckets if critical,
@@ -775,6 +837,8 @@ burst_active_gauge = _get_or_create_prom_gauge('burst_active', 'Burst mode activ
 burst_flush_total = _get_or_create_prom_counter('burst_flush_total', 'Total burst flushes', ['symbol', 'mode'])
 signals_emitted_total = _get_or_create_prom_counter('signals_emitted_total', 'Total signals actually emitted', ['symbol'])
 burst_window_ms_gauge = _get_or_create_prom_gauge('burst_window_ms', 'Current burst window (ms)', ['symbol'])
+pending_flush_total = _get_or_create_prom_counter('pending_flush_total', 'Timer-triggered pending buffer flushes (no new tick required)', ['symbol'])
+burst_error_total = _get_or_create_prom_counter('burst_error_total', 'burst.consider() exceptions that caused burst-bypass direct emit', ['symbol'])
 tick_gap_p50_ms_gauge = _get_or_create_prom_gauge('tick_gap_p50_ms', 'Tick gap p50 (ms)', ['symbol'])
 tick_gap_p95_ms_gauge = _get_or_create_prom_gauge(
     "tick_gap_p95_ms", "Tick gap p95 (ms)", ["symbol"]
@@ -2376,4 +2440,29 @@ regime_stale_total = _get_or_create_prom_counter(
     "regime_stale_total",
     "Total occurrences of a stale market regime being detected",
     ["symbol", "action"]
+)
+
+# ---------------------------------------------------------------------------
+# Unified external context source monitoring (P94 plan — Phase 8.5+)
+#
+# Sources: breadth, deribit, sentiment, crossvenue, coingecko, defillama
+# Labels: source — canonical source name (slug, no spaces)
+# ---------------------------------------------------------------------------
+
+external_ctx_read_ok_total = _get_or_create_prom_counter(
+    "external_ctx_read_ok_total",
+    "External context reads that returned fresh (non-stale) data",
+    ["source"],
+)
+
+external_ctx_stale_total = _get_or_create_prom_counter(
+    "external_ctx_stale_total",
+    "External context reads where data was stale or unavailable (features defaulted to 0)",
+    ["source"],
+)
+
+external_ctx_age_ms = _get_or_create_prom_gauge(
+    "external_ctx_age_ms",
+    "Age of the last successful external context read in milliseconds",
+    ["source"],
 )

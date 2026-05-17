@@ -5,6 +5,7 @@ from typing import Any
 
 from services.orderflow.metrics import (
     ticks_dropped_total,
+    ticks_side_unknown_total,
     ticks_unknown_side_policy_total,
 )
 
@@ -17,6 +18,10 @@ class UnknownSidePolicyHandler:
         """Returns True if tick должен быть пропущен (drop/quarantine)."""
         if not unknown_side:
             return False
+
+        # G0 spec metric: count every unknown-side tick regardless of subsequent policy decision.
+        with contextlib.suppress(Exception):
+            ticks_side_unknown_total.labels(symbol=symbol).inc()
 
         with contextlib.suppress(Exception):
             ticks_unknown_side_policy_total.labels(symbol=symbol, policy=str(self._side_policy)).inc()

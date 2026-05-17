@@ -27,6 +27,7 @@ from services.orderflow.configuration import _safe_int
 from services.orderflow.metrics import (
     processing_time_us,
     signals_published_total,
+    tick_ts_missing_total,
     ticks_dropped_total,
     ticks_processed_total,
     ticks_read_total,
@@ -188,6 +189,10 @@ class TickProcessor:
                     ticks_dropped_total.labels(symbol=symbol, reason=reason_label).inc()
                 except Exception:
                     pass
+                # G0 spec metric: bad_ts / bad_ts_unit count as missing timestamp.
+                if dq_reason in ("bad_ts", "bad_ts_unit"):
+                    with contextlib.suppress(Exception):
+                        tick_ts_missing_total.labels(symbol=symbol).inc()
                 if self._exec_quarantine_enable:
                     self._quarantine_writer.xadd_dq_quarantine(tick, dq_reason)
                 return True
@@ -203,7 +208,8 @@ class TickProcessor:
             )
 
             tick["process_ts_ms"] = get_ny_time_millis()
-            runtime.last_ts_ms = event_ts_ms
+            # runtime.last_ts_ms is owned by G0 inside strategy.process_tick — do not pre-write here,
+            # otherwise G0 monotonicity/clamp/quarantine branch becomes unreachable.
 
             lag_ms = self._metrics_handler.update_lag(
                 symbol, now_ms, event_ts_ms, lag_tracker_max_ms, msg_id=msg_id

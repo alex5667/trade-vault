@@ -12,8 +12,8 @@ def test_v4_schema_length():
 def test_v5_schema_length():
     num_keys, bool_keys = _get_v5_of_keys()
     total_len = len(num_keys) + len(bool_keys)
-    # The prompt expected 144 for V5, but it is 108
-    assert total_len == 108, f"V5 length mismatch. Expected 108, got {total_len}"
+    # Phase 4.10: 266 num + 34 bool = 300 total
+    assert total_len == 300, f"V5 length mismatch. Expected 300, got {total_len}"
 
 def test_signal_v1_strict_contract():
     try:

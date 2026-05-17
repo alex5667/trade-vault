@@ -54,6 +54,21 @@ def slice_path(series: list[tuple[int, float]], ts0: int, ts1: int) -> list[tupl
     return [(ts, px) for ts, px in series if ts0 <= ts <= ts1]
 
 
+def label_confidence(path: list[tuple[int, float]], *, max_gap_ms: int = 5000) -> float:
+    """Return tick-density confidence in [0.0, 1.0].
+
+    1.0 — path present with no gap > max_gap_ms.
+    0.5 — path present but has at least one gap > max_gap_ms (sparse ticks).
+    0.0 — path is empty (no ticks → label reliability unknown).
+    """
+    if not path:
+        return 0.0
+    for i in range(1, len(path)):
+        if path[i][0] - path[i - 1][0] > max_gap_ms:
+            return 0.5
+    return 1.0
+
+
 def infer_tp_sl_bps(indicators: dict[str, Any], *, tp_k_atr: float, sl_k_atr: float, fallback_tp_bps: float, fallback_sl_bps: float) -> tuple[float, float, float]:
     stop_bps = _f(indicators.get("stop_bps", 0.0), 0.0)
     atr_bps = _f(indicators.get("atr_bps", 0.0), 0.0)
@@ -130,6 +145,10 @@ def main() -> None:
         if entry_px <= 0.0:
             entry_px = pick_entry_price(path)
 
+        # entry_latency_ms: time from signal ts0 to first available tick in path
+        entry_latency_ms = max(0, path[0][0] - ts0) if path else 0
+        conf = label_confidence(path)
+
         tp_bps, sl_bps, scale_bps = infer_tp_sl_bps(
             indicators,
             tp_k_atr=float(args.tp_k_atr),
@@ -178,6 +197,14 @@ def main() -> None:
             "realized_close_bps": float(res.realized_close_bps),
             "edge_after_cost_bps": float(res.edge_after_cost_bps),
             "y_edge_cost_aware": int(res.y_edge_cost_aware),
+            # timing fields (0 when barrier not reached)
+            "tp_hit_first_ms": int(res.tp_hit_first_ms),
+            "sl_hit_first_ms": int(res.sl_hit_first_ms),
+            "time_to_mfe_ms": int(res.time_to_mfe_ms),
+            "time_to_mae_ms": int(res.time_to_mae_ms),
+            "entry_latency_ms": int(entry_latency_ms),
+            # data-quality confidence: 1.0=dense, 0.5=sparse, 0.0=no ticks
+            "label_confidence": float(conf),
         })
 
     os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)

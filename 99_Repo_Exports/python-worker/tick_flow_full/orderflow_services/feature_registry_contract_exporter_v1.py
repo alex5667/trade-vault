@@ -81,6 +81,12 @@ def main() -> None:
             m: dict[str, Any] = r.hgetall(metrics_key) or {}
             UP.set(1)
 
+            # Skip update if Redis hash is empty (cold start: contract_check timer
+            # hasn't run yet). Don't emit success=0 before we have real data.
+            if not m:
+                time.sleep(interval_s)
+                continue
+
             status = (m.get("status", "") or "")
             success = 1.0 if status == "ok" else 0.0
             LAST_SUCCESS.set(success)
@@ -98,8 +104,9 @@ def main() -> None:
             if age > stale_s:
                 LAST_SUCCESS.set(0.0)
         except Exception:
+            # Transient Redis error: mark exporter unhealthy but do NOT flip
+            # LAST_SUCCESS — that would generate false contract-mismatch alerts.
             UP.set(0)
-            LAST_SUCCESS.set(0)
         time.sleep(interval_s)
 
 

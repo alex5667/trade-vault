@@ -118,6 +118,15 @@ SIGNAL_LOSS_SILENT_TOTAL = Counter(
     ["reason"],
 )
 
+# Explicit reject counter — incremented BEFORE the DLQ write so it is visible
+# even when the DLQ write itself fails (SIGNAL_LOSS_SILENT_TOTAL only fires on
+# DLQ write failure, not on the schema reject decision itself).
+DISPATCHER_SCHEMA_VERSION_REJECTED_TOTAL = Counter(
+    "dispatcher_schema_version_rejected_total",
+    "Envelopes rejected due to unsupported or malformed schema_version",
+    ["consumer", "schema_version"],
+)
+
 # ── #19: latency / depth metrics ──────────────────────────────────────────────
 # ENV override: OUTBOX_DISPATCH_BUCKETS=1,5,10,25,50,100,250,500,1000,2500,5000
 def _parse_outbox_buckets(env_var: str, default: tuple) -> tuple:
@@ -761,6 +770,11 @@ class SignalDispatcher:
                     schema_version=sv_label,
                 ).inc()
             if sv_int is None or sv_int not in ACCEPTED_SCHEMA_VERSIONS:
+                with contextlib.suppress(Exception):
+                    DISPATCHER_SCHEMA_VERSION_REJECTED_TOTAL.labels(
+                        consumer=self.consumer,
+                        schema_version=sv_label,
+                    ).inc()
                 self._send_dlq(msg_id, fields, reason=f"unsupported_schema_version:{sv_label}")
                 self.redis.xack(self.outbox_stream, self.group, msg_id)
                 self._retryq.cancel(msg_id)

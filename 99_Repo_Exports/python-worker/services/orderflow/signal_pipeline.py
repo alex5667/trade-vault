@@ -60,6 +60,7 @@ from services.outbox.atomic_outbox import atomic_xadd_async
 from services.outbox.envelope_builder import build_outbox_envelope, build_trace_sidecar_meta_from_ctx, dumps_env
 
 # Imports for publishing logic
+from services.ev_tp1_stats import EvTp1StatsConfig, attach_tp1_hit_prob_to_ctx
 from services.pnl_math import calculate_position_size
 from services.signal_preprocess import preprocess_signal_for_publish
 from services.tp_config import parse_tp_ratio
@@ -103,11 +104,17 @@ try:
         "Total outbox envelopes rejected due to malformed structure",
         ["symbol"]
     )
+    _G9_CONFIDENCE_MISSING_TOTAL = Counter(
+        "g9_confidence_missing_total",
+        "Signals where confidence was absent (fallback to 0.3); likely a contract bug upstream",
+        ["symbol"]
+    )
 except ImportError:
     _FEATURE_TO_DECISION_MS = None
     _DECISION_TO_OUTBOX_MS = None
     _PRE_PUBLISH_VETO_TOTAL = None
     _INVALID_ENVELOPE_TOTAL = None
+    _G9_CONFIDENCE_MISSING_TOTAL = None
 
 # Signal Pipeline Logger
 logger = logging.getLogger("of_signal_pipeline")
@@ -174,6 +181,7 @@ class SignalPipeline:
             atr_floor_gate=AtrFloorGate.from_env(),
             breadth_gate=BreadthGate.from_env(),
         )
+        self._ev_tp1_cfg = EvTp1StatsConfig.from_env()
 
         # ------------------------------------------------------------------
         # Decision Snapshot (A2)
@@ -253,8 +261,8 @@ class SignalPipeline:
         self._cached_flow_thr_imp = float(os.getenv("EXEC_MAX_PERM_IMPACT_P95_BPS", "0") or 0.0)
 
         self._cached_manip_enabled = os.getenv("MANIP_ENABLED", "1").lower() in {"1", "true", "yes", "on"}
-        self._cached_manip_profile = os.getenv("MANIP_GATE_PROFILE", os.getenv("GATE_PROFILE", "default") or "default").strip().lower()
-        self._cached_manip_mode_override = (os.getenv("MANIP_MODE", "") or "").strip().lower()
+        _manip_mode_override = (os.getenv("MANIP_MODE", "") or "").strip().lower()
+        self._cached_manip_profile = _manip_mode_override or os.getenv("MANIP_GATE_PROFILE", os.getenv("GATE_PROFILE", "default") or "default").strip().lower()
         self._cached_manip_thr_qs = float(os.getenv("MANIP_QUOTE_STUFF_SCORE_MAX", "0") or 0.0)
         self._cached_manip_thr_lay = float(os.getenv("MANIP_LAYERING_SCORE_MAX", "0") or 0.0)
         self._cached_manip_thr_otr_z = float(os.getenv("MANIP_OTR_Z_MAX", "0") or 0.0)
@@ -801,6 +809,12 @@ class SignalPipeline:
             spread_bps=float(micro.get("spread_bps") or 0.0),
         )
 
+        # entry_price is available from strategy payload; sl/tp1 are computed later
+        # by _calculate_levels() — gate position must move AFTER that call for EV mode
+        # to evaluate correctly (see TODO below at edge_cost_cached call site).
+        _entry_raw = signal.get("entry")
+        _entry_price = float(_entry_raw) if _entry_raw is not None else None
+
         # Main ctx expected by gates
         ctx = SimpleNamespace(
             symbol=str(getattr(runtime, "symbol", "") or ""),
@@ -817,6 +831,9 @@ class SignalPipeline:
             indicators=indicators,
             of=of,
             redis=getattr(runtime, "redis_client", None),
+            entry_price=_entry_price,
+            sl_price=None,   # populated after _calculate_levels(); gate fails-open until then
+            tp1_price=None,  # populated after _calculate_levels(); gate fails-open until then
         )
         return ctx
 
@@ -1023,7 +1040,6 @@ class SignalPipeline:
             )): return
 
         if _apply_decision(self.orchestrator.consistency_once(ctx=ctx, symbol=symbol, kind=kind, side=direction)): return  # type: ignore
-        if _apply_decision(self.orchestrator.edge_cost_cached(ctx=ctx, kind=kind, symbol=symbol, side=direction)): return  # type: ignore
 
         # ------------------------------------------------------------------
         # Pipeline: Continue with levels and enrichment
@@ -1318,6 +1334,24 @@ class SignalPipeline:
         _levels["sl"] = sl
         _levels["tp_levels"] = tp_levels
         _levels["lot"] = lot
+
+        # ----------------------------------------------------------------
+        # G8 · Edge-Cost Gate (EV mode) — runs AFTER levels are computed
+        # sl_price / tp1_price are now available; attach online EV stats from Redis
+        # then evaluate. Fail-open on Redis errors (no veto if stats absent).
+        # ----------------------------------------------------------------
+        ctx.sl_price = sl
+        ctx.tp1_price = tp_levels[0] if tp_levels else None
+        with contextlib.suppress(Exception):
+            attach_tp1_hit_prob_to_ctx(
+                ctx,
+                redis_client=getattr(runtime, "redis_client", None),
+                kind=kind,
+                symbol=symbol,
+                tf=str(signal.get("tf") or indicators.get("tf") or "na"),
+                cfg=self._ev_tp1_cfg,
+            )
+        if _apply_decision(self.orchestrator.edge_cost_cached(ctx=ctx, kind=kind, symbol=symbol, side=direction)): return  # type: ignore
 
         # ---- DYNAMIC TRAILING CALLBACK ----
         trail_callback_pct = None
@@ -1725,16 +1759,20 @@ class SignalPipeline:
             _conf_raw = indicators.get("confidence")
         if _conf_raw is None:
             _conf_raw = 0.3
+            with contextlib.suppress(Exception):
+                if _G9_CONFIDENCE_MISSING_TOTAL is not None:
+                    _G9_CONFIDENCE_MISSING_TOTAL.labels(symbol=symbol).inc()
+            logger.debug("G9: confidence absent for %s, fallback=0.3", symbol)
         confidence = max(0.0, min(1.0, float(_conf_raw)))
 
         # --- Hard Confidence Gate (User request: drop signal if confidence too low) ---
         if not bool(runtime.config.get("disable_confidence_filter", False)):
-            # Per-symbol override: MIN_CONF_{SYMBOL} env var (e.g. MIN_CONF_DOGEUSDT=35)
-            _sym_key = f"MIN_CONF_{symbol.upper().replace('-','')}"
-            _sym_min = os.getenv(_sym_key)
-            if _sym_min is not None:
+            # Per-symbol override: MIN_SIGNAL_CONFIDENCE__{SYMBOL} (documented) or MIN_CONF_{SYMBOL} (legacy).
+            _sym = symbol.upper().replace("-", "")
+            _sym_min_raw = os.getenv(f"MIN_SIGNAL_CONFIDENCE__{_sym}") or os.getenv(f"MIN_CONF_{_sym}")
+            if _sym_min_raw is not None:
                 try:
-                    min_conf_pct = float(_sym_min)
+                    min_conf_pct = float(_sym_min_raw)
                 except (TypeError, ValueError):
                     min_conf_pct = self._cached_min_conf_pct
             else:

@@ -365,12 +365,12 @@ def run_prom_rules_bundle_smoke_check() -> bool:
     module = os.getenv(
         "PROM_RULES_BUNDLE_SMOKE_MODULE",
         "orderflow_services.prom_rules_bundle_health_check_v1",
-    ),
+    )
     rc, stdout, stderr = run_tool_rc(  # type: ignore
         module,  # type: ignore
         args=["--promtool", promtool_mode],  # type: ignore
         timeout=timeout_s,
-    ),
+    )
     block_reason = (os.getenv("PROM_RULES_BUNDLE_SMOKE_BLOCK_REASON", "prom_rules_bundle_smoke") or "prom_rules_bundle_smoke").strip()
     block_ttl_s = int(os.getenv("PROM_RULES_BUNDLE_SMOKE_BLOCK_TTL_S", str(6 * 3600)))
 
@@ -442,13 +442,13 @@ def run_prom_rules_loaded_probe() -> bool:
     module = os.getenv(
         "PROM_RULES_LOADED_PROBE_MODULE",
         "orderflow_services.prom_rules_loaded_probe_v1",
-    ),
+    )
 
     rc, stdout, stderr = run_tool_rc(  # type: ignore
         module,  # type: ignore
         args=["--timeout", str(timeout_s)],  # type: ignore
         timeout=timeout_s + 15,
-    ),
+    )
 
     block_reason = (os.getenv("PROM_RULES_LOADED_PROBE_BLOCK_REASON", "prom_rules_loaded_probe") or "prom_rules_loaded_probe").strip()
     block_ttl_s = int(os.getenv("PROM_RULES_LOADED_PROBE_BLOCK_TTL_S", str(6 * 3600)))
@@ -532,7 +532,7 @@ def run_world_practice_smoke_check() -> bool:
     module = os.getenv(
         "WORLD_PRACTICE_SMOKE_MODULE",
         "orderflow_services.world_practice_gauges_smoke_check_v1",
-    ),
+    )
     timeout_s = int(os.getenv("WORLD_PRACTICE_SMOKE_TIMEOUT_S", "120"))
 
     rc, stdout, stderr = run_tool_rc(module=module, args=[], timeout=timeout_s)  # type: ignore
@@ -629,7 +629,7 @@ def run_lob_pressure_smoke_check() -> bool:
     module = os.getenv(
         "LOB_PRESSURE_SMOKE_MODULE",
         "orderflow_services.lob_pressure_smoke_check_v1",
-    ),
+    )
     timeout_s = int(os.getenv("LOB_PRESSURE_SMOKE_TIMEOUT_S", "120"))
 
     rc, stdout, stderr = run_tool_rc(module=module, args=[], timeout=timeout_s)  # type: ignore
@@ -722,7 +722,7 @@ def run_new_features_smoke_check_a8() -> bool:
     module = os.getenv(
         "A8_NEW_FEATURES_SMOKE_MODULE",
         "orderflow_services.new_features_gauges_smoke_check_v1",
-    ),
+    )
     timeout_s = int(os.getenv("A8_NEW_FEATURES_SMOKE_TIMEOUT_S", "120"))
 
     rc, stdout, stderr = run_tool_rc(module=module, args=[], timeout=timeout_s)  # type: ignore
@@ -919,7 +919,7 @@ def run_atr_policy_restore_cert_execute() -> bool:
     module = os.getenv(
         "OF_GATE_EXPORTERS_SMOKE_MODULE",
         "orderflow_services.of_gate_exporters_smoke_p111",
-    ),
+    )
 
     rc, stdout, stderr = run_tool_rc(module, timeout=timeout_s)
     if rc == 0:
@@ -1012,7 +1012,7 @@ def run_of_inputs_exporters_smoke_p107() -> bool:
     module = os.getenv(
         "OF_INPUTS_EXPORTERS_SMOKE_MODULE",
         "orderflow_services.of_inputs_exporters_smoke_p107",
-    ),
+    )
 
     rc, stdout, stderr = run_tool_rc(module, timeout=timeout_s)  # type: ignore
     if rc == 0:  # type: ignore
@@ -1069,7 +1069,7 @@ def run_of_inputs_exporters_smoke_p107() -> bool:
     text = (
         f"OF_INPUTS_EXPORTERS_SMOKE_P107 rc={rc} "
         f"failed={failed_names} :: {head}"
-    ),
+    )
     sid = "of_inputs_exporters_smoke:" + hashlib.sha1(signature.encode("utf-8")).hexdigest()[:16]
     sev = "crit" if rc == 2 else "page"
     _notify_stream(text, severity=sev, sid=sid, source="of_inputs_exporters_smoke_p107")  # type: ignore

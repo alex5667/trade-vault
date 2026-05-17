@@ -544,13 +544,17 @@ class LogSampler:
 # Session / time bucketing helpers (UTC)
 # ---------------------------------------------------------------------------
 def hour_of_week_utc(ts_ms: int) -> int:
-    """0..167, UTC hour-of-week."""
+    """0..167, UTC hour-of-week. Returns -1 for invalid (zero/negative) timestamps."""
+    if ts_ms <= 0:
+        return -1
     from datetime import datetime
     dt = datetime.fromtimestamp(float(ts_ms) / 1000.0, tz=UTC)
     return int(dt.weekday() * 24 + dt.hour)
 
 def session_utc(ts_ms: int) -> str:
-    """Simple UTC sessions (stable, no overlaps)."""
+    """Simple UTC sessions (stable, no overlaps). Returns 'na' for invalid timestamps."""
+    if ts_ms <= 0:
+        return "na"
     from datetime import datetime
     h = datetime.fromtimestamp(float(ts_ms) / 1000.0, tz=UTC).hour
     if 0 <= h < 8:

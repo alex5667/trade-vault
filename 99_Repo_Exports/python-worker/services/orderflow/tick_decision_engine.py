@@ -12,7 +12,7 @@ from common.normalization import generate_signal_id, normalize_direction
 from common.time_utils import normalize_epoch_ms_v2
 from core.atr_floor_policy import compute_atr_bps_threshold
 from core.cvd_reclaim import compute_cvd_reclaim
-from core.data_health import compute_data_health, apply_book_evidence_policy
+from core.data_health import compute_data_health, apply_book_evidence_policy, apply_shadow_only_policy
 from core.dyn_cfg_keys import DynCfgKeys as DK
 from core.exec_regime_bucket_v1 import compute_exec_regime_bucket
 from core.footprint_policy import is_soft_confirmation, fp_confirmations_from_microbar
@@ -1123,7 +1123,9 @@ class TickDecisionEngine:
                             g4_canary_veto_total.labels(symbol=runtime.symbol).inc()
 
                 indicators["data_health_veto_active"] = is_veto
-                indicators["data_health_shadow_only"] = is_unhealthy  # SHADOW mode for unhealthy
+                # shadow-only uses its own threshold (data_health_shadow_only_below, default 0.40)
+                # independent from veto_thr (default 0.70) — apply_shadow_only_policy owns this
+                apply_shadow_only_policy(indicators=indicators, dh=dh, cfg=cfg)
 
                 if dh.reasons:
                     indicators["data_health_veto_reason"] = ",".join(list(dh.reasons)[:5])
@@ -1829,6 +1831,10 @@ class TickDecisionEngine:
 
                 if ofc:
                     ev = ofc.evidence
+                    # G10 reads absorption_volume from top-level indicators; ev is not accessible there.
+                    if isinstance(ev, dict):
+                        indicators.setdefault("absorption_volume", float(ev.get("absorption_volume", 0.0) or 0.0))
+                        indicators.setdefault("absorption", int(ev.get("absorption", 0) or 0))
                     # Use dec directly from build() instead of overwriting with None
                     if dec and hasattr(dec, "need") and hasattr(dec, "have"):
                         # P2: Dynamic Confirmation Need (Expert Scaler)
@@ -2779,8 +2785,7 @@ class TickDecisionEngine:
                     has_ofi = bool(indicators.get("ofi_stable", 0))
 
                     if not (has_reclaim or has_absorb or has_obi or has_ofi):
-                        # Veto
-                        # sampled_warning(logger, "ADVERSE_REV", "🛑 [ADVERSE] Reversal Veto: No confirmation evidence")
+                        g10_adverse_veto_total.labels(gate="G10_ADVERSE_REVERSAL").inc()
                         return None
 
                 # CONTINUATION CHECK (Wait for Bar)
@@ -2980,7 +2985,9 @@ class TickDecisionEngine:
                                     preprocess_signal_for_publish(final_sig, runtime.symbol, "CryptoOrderFlow", self.logger)
                                     await self.publish_signal(runtime, final_sig)
                             else:
-                                pass
+                                g10_adverse_veto_total.labels(gate="G10_ADVERSE_CONTINUATION").inc()
+                        else:
+                            g10_adverse_veto_total.labels(gate="G10_ADVERSE_TIMEOUT").inc()
 
                         # Clear buffer after check (one-shot)
                         runtime.pending_adverse_payload = None

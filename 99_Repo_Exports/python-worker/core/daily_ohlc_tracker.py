@@ -26,12 +26,18 @@ class DailyCandleTracker:
         self.day_open = -1.0
         self.day_vol = 0.0
 
-        # Dependencies
+        # Dependencies — lazy: avoid synchronous Redis connect at construction.
         self.pm = get_persistence_manager()
-        self.redis = get_redis()
+        self._redis: Any | None = None
 
         # Redis key for fallback/init
         self.redis_key_daily = f"daily_ohlc:{self.symbol}"
+
+    @property
+    def redis(self) -> Any:
+        if self._redis is None:
+            self._redis = get_redis()
+        return self._redis
 
     def _get_utc_date_str(self) -> str:
         return datetime.now(UTC).strftime("%Y-%m-%d")

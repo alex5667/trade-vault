@@ -158,7 +158,7 @@ def load_trades_from_postgres(
         close_reason_detail,
         entry_tag,
         strategy,
-        strong_gate_ok,
+        strong_gate_ok
     """
 
     sql = f"SELECT {cols} FROM trades_closed WHERE source = %s AND symbol = %s"

@@ -331,6 +331,22 @@ def main() -> None:
                     metric_outcome_count.labels(result=result, bucket=bucket, model_ver=model_ver).inc()
                     metric_p_edge_outcome.labels(result=result, model_ver=model_ver).observe(p_edge)
 
+                    # EV-R distribution histogram (Section 6)
+                    r_mult = _safe_float(fields.get("r_multiple"))
+                    if math.isfinite(r_mult) and result in ("WIN", "LOSS"):
+                        _sym = fields.get("symbol", "")
+                        _sfam = (
+                            "BTC" if "BTC" in _sym else
+                            "ETH" if "ETH" in _sym else
+                            "SOL" if "SOL" in _sym else
+                            "other"
+                        )
+                        try:
+                            from services.orderflow.metrics import ml_ev_r_bucket
+                            ml_ev_r_bucket.labels(bucket=bucket, symbol_family=_sfam).observe(r_mult)
+                        except Exception:
+                            pass
+
                     # ECE/Brier only on WIN/LOSS (BE muddles binary calibration)
                     if result in ("WIN", "LOSS"):
                         tracker.update(model_ver, p_edge, win)

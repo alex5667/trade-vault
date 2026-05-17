@@ -480,20 +480,23 @@ def _get_v13_of_keys() -> tuple:
 
 
 # ---------------------------------------------------------------------------
-# v14_of schema — v13_of + Group OG rule-gate consensus (Phase 0: schema-only)
-# Created 2026-05-13: ~258 numeric keys (242 base + 16 new)
+# v14_of schema — v13_of + Group OG + Group OE (Phase 0+1: schema + population)
+# Created 2026-05-13 (OG, 16 keys); extended 2026-05-16 (OE, +20 keys) → ~278 total
 # ---------------------------------------------------------------------------
 
 def _get_v14_of_keys() -> tuple:
     """Returns (num_keys, bool_keys) for v14_of.
 
-    v14_of = v13_of (~242) + 16 additional keys in one group:
+    v14_of = v13_of (~242) + 36 additional keys across two groups:
       Group OG (16): OrderFlow Rule-Gate Consensus
                      (have/need legs, contributions, reason codes, gate bits)
+      Group OE (20): External Data
+                     (5 composites, 5 breadth, 7 Deribit IV/funding, 3 Fear&Greed)
 
     All keys are numeric (float/int); no separate bool block.
-    Population path: see Phase 1 — of_confirm_engine writes og_* to indicators.
-    Fail-open: missing keys vectorize to 0.0 (safe before Phase 1 lands).
+    Population path: of_confirm_engine writes keys into indicators via
+    build_og_payload (OG) and build_external_features_payload (OE).
+    Fail-open: missing keys vectorize to 0.0.
     """
     from core.ml_feature_schema_v14_of import V14_OF_NUMERIC_KEYS  # type: ignore
     return list(V14_OF_NUMERIC_KEYS), []  # v14_of has no separate bool block

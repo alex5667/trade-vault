@@ -322,3 +322,118 @@ class TestEdgeCases:
         assert math.isfinite(t.pin_estimate)
         assert math.isfinite(t.price_entropy_50)
         assert math.isfinite(t.half_life_mean_reversion)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# snapshot() + compute_interactions() — v13_of NA/NB/NC/NE/NF + NX groups
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class TestSnapshot:
+    """Tests for the snapshot()/compute_interactions() pair that feeds the
+    v13_of registry vectorizer through `signals:of:inputs`."""
+
+    _EXPECTED_KEYS = {
+        # NA
+        "garman_klass_vol", "parkinson_vol", "yang_zhang_vol", "vol_of_vol",
+        # NB
+        "amihud_illiquidity", "corwin_schultz_spread", "hasbrouck_info_share",
+        "depth_resilience_half_life",
+        # NC (incl. derived lambda_asym, toxicity_regime_score)
+        "pin_estimate", "aggressive_sweep_ratio",
+        "lambda_asym", "toxicity_regime_score",
+        # NE
+        "price_entropy_50", "order_size_gini", "mutual_info_price_volume",
+        # NF (incl. derived zscore_mid_to_vwap)
+        "half_life_mean_reversion", "adf_pvalue_50", "zscore_mid_to_vwap",
+    }
+
+    def test_snapshot_shape_on_fresh_tracker(self):
+        """Fresh tracker → all 18 keys present, all 0.0 (or NaN-safe)."""
+        snap = V13RuntimeTracker().snapshot()
+        assert set(snap.keys()) == self._EXPECTED_KEYS
+        for k, v in snap.items():
+            assert isinstance(v, float), f"{k} not float: {type(v).__name__}"
+            assert math.isfinite(v), f"{k} not finite: {v}"
+
+    def test_snapshot_returns_finite_floats_after_workload(self):
+        """After feeding ticks+bars, snapshot still returns finite floats."""
+        t = V13RuntimeTracker()
+        _feed_ticks(t, n=40, base=100.0)
+        _feed_bars(t, n=8, base=100.0)
+        snap = t.snapshot()
+        assert set(snap.keys()) == self._EXPECTED_KEYS
+        for k, v in snap.items():
+            assert math.isfinite(v), f"{k}={v} not finite"
+
+    def test_lambda_asym_bounded(self):
+        """lambda_asym ∈ [-1, 1] regardless of kyle values."""
+        t = V13RuntimeTracker()
+        t.kyle_lambda_buy = 100.0
+        t.kyle_lambda_sell = 0.0
+        snap = t.snapshot()
+        assert snap["lambda_asym"] == 1.0
+        t.kyle_lambda_buy = 0.0
+        t.kyle_lambda_sell = 100.0
+        snap = t.snapshot()
+        assert snap["lambda_asym"] == -1.0
+        t.kyle_lambda_buy = 0.0
+        t.kyle_lambda_sell = 0.0
+        snap = t.snapshot()
+        assert snap["lambda_asym"] == 0.0  # zero/zero → defined 0
+
+    def test_toxicity_regime_score_bounded(self):
+        """toxicity_regime_score ∈ [0, 1]."""
+        t = V13RuntimeTracker()
+        t.pin_estimate = 0.9
+        t.aggressive_sweep_ratio = 0.5
+        snap = t.snapshot()
+        assert 0.0 <= snap["toxicity_regime_score"] <= 1.0
+        # Extreme inputs should still cap.
+        t.pin_estimate = 5.0
+        t.aggressive_sweep_ratio = 5.0
+        snap = t.snapshot()
+        assert snap["toxicity_regime_score"] == 1.0
+
+    def test_compute_interactions_empty_snap(self):
+        """compute_interactions({}, *) returns {}."""
+        assert V13RuntimeTracker.compute_interactions({}, {}) == {}
+        assert V13RuntimeTracker.compute_interactions({}, None) == {}
+
+    def test_compute_interactions_partial_inputs(self):
+        """Indicators with only some keys → only those NX features emitted."""
+        snap = {
+            "depth_resilience_half_life": 2.0,
+            "aggressive_sweep_ratio": 0.5,
+            "price_entropy_50": 1.5,
+            "amihud_illiquidity": 0.0001,
+        }
+        out = V13RuntimeTracker.compute_interactions(snap, {"spread_bps": 4.0})
+        assert out["depth_resil_x_sweep"] == 2.0 * 0.5
+        assert out["entropy_x_spread"] == 1.5 * 4.0
+        # No OI / hurst / vpin / funding → no other NX keys.
+        assert "amihud_x_oi_delta" not in out
+        assert "hurst_x_vol_regime" not in out
+        assert "vpin_x_funding" not in out
+
+    def test_compute_interactions_full(self):
+        """All required indicators present → all 5 NX keys emitted."""
+        snap = {
+            "depth_resilience_half_life": 1.0,
+            "aggressive_sweep_ratio": 0.3,
+            "price_entropy_50": 2.0,
+            "amihud_illiquidity": 1e-5,
+        }
+        ind = {
+            "spread_bps": 5.0,
+            "open_interest_delta": 1_000_000.0,
+            "hurst_exp_50": 0.6,
+            "vol_regime_code": 2,
+            "vpin": 0.4,
+            "funding_rate": -0.0001,
+        }
+        out = V13RuntimeTracker.compute_interactions(snap, ind)
+        assert out["depth_resil_x_sweep"] == 1.0 * 0.3
+        assert out["entropy_x_spread"] == 2.0 * 5.0
+        assert out["amihud_x_oi_delta"] == 1e-5 * 1_000_000.0
+        assert out["hurst_x_vol_regime"] == 0.6 * 2.0
+        assert out["vpin_x_funding"] == 0.4 * -1.0  # sign(funding) = -1

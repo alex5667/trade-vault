@@ -91,21 +91,19 @@ QUERIES: dict[str, str] = {
     "fill_prob":         'trade_fill_prob',
     "exec_cost":         'histogram_quantile(0.95, sum(rate(trade_exec_pen_bucket[10m])) by (le))',
     "spread_p95":        'histogram_quantile(0.95, sum(rate(trade_spread_bps_bucket[10m])) by (le))',
-    "edge_neg_share":    'max(of_enforce_promoter_bucket_edge_neg_share)',
+    "edge_neg_share":    'max(of_enforce_promoter_bucket_edge_neg_share) or vector(0)',
 
     # 10. Safety & Registry ──────────────────────────────────────────────────
     "reg_success":       'feature_registry_contract_last_success',
     "reg_age":          'feature_registry_contract_last_age_seconds',
     "liqmap_age":        'max(liqmap_snapshot_age_ms)',
-    "circuit_trips":     'sum(of_inputs_v3_circuit_cfg_disabled)',
+    "circuit_trips":     'sum(of_inputs_v3_circuit_cfg_disabled) or vector(0)',
     "ts_missing":        'of_gate_timescale_policies_missing',
     "deriv_ctx_age":     'max(deriv_ctx_exporter_snapshot_age_ms)',
-    "freezer_block":     'max(of_enforce_freezer_block_active)',
-    "ws_disconnects":    'sum(increase(binance_ws_disconnects_total[1h])) or vector(0)',
-    "api_weight":        'max(binance_api_weight_used) or vector(0)',
+    "freezer_block":     'max(of_enforce_freezer_block_active) or vector(0)',
 
     # 11. Core Pipeline & Research ───────────────────────────────────────────
-    "of_gate_ok":        '(sum(rate(of_gate_ok_hard_total[5m])) / clamp_min(sum(rate(of_gate_eligible_total[5m])), 1)) * 100',
+    "of_gate_ok":        '(sum(rate(of_gate_ok_hard_total[5m])) / sum(rate(of_gate_eligible_total[5m]))) * 100',
     "cont_ctx_veto":     'sum(increase(strong_gate_veto_total{reason=~".*continuation_gate.*"}[1h])) or vector(0)',
     "strong_gate_insuf_of": 'sum(increase(strong_gate_veto_total{reason="insufficient_of"}[1h])) or vector(0)',
     "g10_adverse_veto":  'sum(increase(g10_adverse_veto_total[1h])) or vector(0)',
@@ -120,7 +118,6 @@ QUERIES: dict[str, str] = {
     "redis_rss":         'max(process_resident_memory_bytes{job="redis-workers"}) / 1024 / 1024 / 1024',
     "redis_pel":         'max(tick_gate_group_pending) or vector(0)',
     "db_errors":         'sum(increase(ofc_ctx_writer_db_fail_total[1h])) or vector(0)',
-    "exec_rejects":      'sum(increase(binance_exec_rejects_total[1h])) or vector(0)',
     "news_budget":       '(news_budget_usd_used / clamp_min(news_budget_usd_limit, 0.01)) * 100',
 
     # 12. Experimental & Subsystems (News Agent / P4.1 / Autoguard) ──────────
@@ -131,16 +128,13 @@ QUERIES: dict[str, str] = {
     "slo_contract_stale":'sum(latency_contract_slo_stale_total) or vector(0)',
     "slo_deploy_lint":   'max(latency_contract_deploy_lint_gate_active)',
     "exec_autoguard":    'max(exec_health_slo_autoguard_freeze_active)',
-    "of_gate_dlq":       'max(of_gate_dlq_len)',
+    "of_gate_dlq":       'max(of_gate_dlq_len) or vector(0)',
     "liqmap_drops":      'sum(increase(liqmap_evt_drop_total[1h])) or vector(0)',
     "tm_loop_lag":       'time() - avg(trade_monitor_loop_age_seconds)',
     "tm_instances":      'count(trade_monitor_loop_age_seconds) or vector(0)',
 
     # 13. High-Frequency Microstructure & SRE Tier-1 ─────────────────────────
-    "clock_drift":       'max(node_timex_estimated_error_seconds)',
-    "tcp_listen_drops":  'sum(increase(node_netstat_TcpExt_ListenDrops[1h])) or vector(0)',
     "redis_buf_drops":   'sum(increase(redis_client_output_buffer_limit_disconnections_total[1h])) or vector(0)',
-    "ctx_switches":      'sum(rate(node_context_switches_total[5m])) or vector(0)',
     "orphan_orders":     'sum(increase(exec_gate_confirmations_orphan_total[1h])) or vector(0)',
     "redis_clients":     'max(redis_connected_clients) or vector(0)',
     "redis_cmd_sec":     'sum(rate(redis_commands_processed_total[5m])) or vector(0)',
@@ -169,10 +163,8 @@ QUERIES: dict[str, str] = {
     "ofc_ms_io":         'avg(sum(rate(ofconfirm_build_stages_us_sum{stage="capture_export"}[10m])) / sum(rate(ofconfirm_build_stages_us_count{stage="capture_export"}[10m]))) / 1000',
     # 17. Phase 2 Validation (Gates) ─────────────────────────────────────────
     "phase2_veto_adverse": 'sum(rate(of_session_outcome_total{outcome=~"veto_adverse.*"}[5m])) or vector(0)',
-    "phase2_manip_penalty": 'max(manip_tighten_penalty_bps_gauge) or vector(0)',
     "phase2_veto_low_conf_share": 'sum(rate(of_session_outcome_total{outcome="veto_low_conf"}[1h])) / clamp_min(sum(rate(of_session_outcome_total[1h])), 1)',
     "phase2_strong_gate_stressed": 'sum(rate(strong_gate_veto_total{mode="ENFORCE", reason="stressed_liq"}[5m])) or vector(0)',
-    "phase2_drift_tighten": 'sum(feature_drift_profile_tighten_active) or vector(0)',
 
     # 18. CoinGecko API Health ───────────────────────────────────────────────
     "cg_requests":       'sum(rate(coingecko_requests_total[5m])) or vector(0)',
@@ -622,12 +614,12 @@ def run_cycle() -> None:
     [MICROSTRUCTURE & EXECUTION]
     - Micro-Mid Div: {fmt(m['micro_div'], ".2f")}bps | OBI Z: {fmt(m['obi_z'], ".2f")}
     - Fill Prob: {fmt(m['fill_prob'], ".2f")} | Exec Cost P95: {fmt(m['exec_cost'], ".1f")}bps
-    - Exec Rejects 1h: {fmt(m['exec_rejects'], ".0f")} | Binance Weight: {fmt(m['api_weight'], ".0f")}
+    - Exec Rejects 1h: {fmt(m.get('exec_rejects'), ".0f")} | Binance Weight: {fmt(m.get('api_weight'), ".0f")}
 
     [SYSTEM & RESILIENCE]
     - Registry: {'OK' if m['reg_success'] == 1 else ('FAIL' if m['reg_success'] == 0 else 'N/A')} | TS Missing: {fmt(m['ts_missing'], ".0f")}
     - Circuit Trips: {fmt(m['circuit_trips'], ".0f")} | Freezer Block: {fmt(m['freezer_block'], ".0f")}
-    - Deriv Ctx Age: {ms(m['deriv_ctx_age'])} | WS Disconnects 1h: {fmt(m['ws_disconnects'], ".0f")}
+    - Deriv Ctx Age: {ms(m['deriv_ctx_age'])} | WS Disconnects 1h: {fmt(m.get('ws_disconnects'), ".0f")}
     - OF Gate OK: {fmt(m['of_gate_ok'], ".1f") + '%' if m['of_gate_ok'] is not None else 'N/A'}
     - Strong Gate Veto(Insuff_OF): {fmt(m['strong_gate_insuf_of'], ".0f")} | G10 Adverse: {fmt(m['g10_adverse_veto'], ".0f")} | Entries: {fmt(m['outcome_entry'], ".0f")}
     - TradeMonitor Lag/Inst: {fmt(m['tm_loop_lag'], ".0f")}s / {fmt(m['tm_instances'], ".0f")}
@@ -646,8 +638,8 @@ def run_cycle() -> None:
     - Liqmap Drops 1h: {fmt(m['liqmap_drops'], ".0f")}
 
     [TIER-1 SRE & SYSTEM SATURATION]
-    - Clock Drift: {fmt(m['clock_drift'], ".4f")}s | Ctx Switches/s: {fmt(m['ctx_switches'], ".0f")}
-    - TCP Listen Drops 1h: {fmt(m['tcp_listen_drops'], ".0f")} | Redis Buf Drops 1h: {fmt(m['redis_buf_drops'], ".0f")}
+    - Clock Drift: {fmt(m.get('clock_drift'), ".4f")}s | Ctx Switches/s: {fmt(m.get('ctx_switches'), ".0f")}
+    - TCP Listen Drops 1h: {fmt(m.get('tcp_listen_drops'), ".0f")} | Redis Buf Drops 1h: {fmt(m['redis_buf_drops'], ".0f")}
     - Orphan Orders 1h: {fmt(m['orphan_orders'], ".0f")}
     - Redis Clients: {fmt(m['redis_clients'], ".0f")} | Redis Cmd/s: {fmt(m['redis_cmd_sec'], ".0f")}
     - Worker Lag P99: {fmt(m['worker_lag_p99'], ".0f")}ms | Redis Entry Lag P99: {fmt(m.get('redis_entry_lag_p99'), ".0f")}ms | Signal Emit P99: {fmt(m['signal_emit_p99'], ".1f")}ms

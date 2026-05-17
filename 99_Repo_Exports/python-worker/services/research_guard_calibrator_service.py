@@ -148,41 +148,48 @@ def _update_prometheus(result: ResearchGuardCalibResult) -> None:
 # Redis loaders
 # ---------------------------------------------------------------------------
 
+def _hgetall(redis_client: Any, key: str) -> dict[str, str]:
+    try:
+        data = redis_client.hgetall(key)
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
 def _load_nightly_report(redis_client: Any) -> NightlyReport:
-    """Load latest nightly report from Redis blocker + summary keys."""
+    """Load latest nightly report from Redis blocker + summary hashes (HGETALL)."""
     blocker_key = os.getenv("STRATEGY_RESEARCH_GUARD_BLOCKER_KEY", BLOCKER_KEY_DEFAULT)
     summary_key = os.getenv("STRATEGY_RESEARCH_GUARD_SUMMARY_KEY", SUMMARY_KEY_DEFAULT)
 
     report = NightlyReport()
 
     try:
-        # Read summary metrics
-        summary_raw = redis_client.get(summary_key)
-        if summary_raw:
-            summary = json.loads(summary_raw)
-            report.psr = float(summary.get("psr", 0.0))
-            report.dsr = float(summary.get("dsr", 0.0))
-            report.pbo = float(summary.get("pbo", 0.0))
-            report.ece = float(summary.get("ece", 0.0))
-            report.brier = float(summary.get("brier", 0.0))
-            report.report_ts = int(summary.get("timestamp", 0) or
-                                   summary.get("ts", 0) or
-                                   summary.get("updated_ts_ms", 0) / 1000)
+        summary = _hgetall(redis_client, summary_key)
+        if summary:
+            report.psr = float(summary.get("psr", 0.0) or 0.0)
+            report.dsr = float(summary.get("dsr", 0.0) or 0.0)
+            report.pbo = float(summary.get("pbo", 0.0) or 0.0)
+            report.ece = float(summary.get("ece", 0.0) or 0.0)
+            report.brier = float(summary.get("brier", 0.0) or 0.0)
+            ts_ms_raw = summary.get("updated_ts_ms") or summary.get("ts_ms") or "0"
+            ts_ms = int(float(ts_ms_raw) or 0)
+            report.report_ts = ts_ms // 1000 if ts_ms > 0 else 0
             report.has_data = True
 
-        # Read blocker state
-        blocker_raw = redis_client.get(blocker_key)
-        if blocker_raw:
-            blocker = json.loads(blocker_raw)
-            report.blocker_active = bool(blocker.get("blocker_active", False))
+        blocker = _hgetall(redis_client, blocker_key)
+        if blocker:
+            report.blocker_active = int(float(blocker.get("blocker_active", "0") or "0")) > 0
             if not report.has_data:
                 report.has_data = True
+            if report.report_ts == 0:
+                ts_ms_raw = blocker.get("updated_ts_ms", "0") or "0"
+                ts_ms = int(float(ts_ms_raw) or 0)
+                report.report_ts = ts_ms // 1000 if ts_ms > 0 else 0
 
-        # Compute age
         if report.report_ts > 0:
             report.report_age_sec = max(0.0, time.time() - report.report_ts)
         elif report.has_data:
-            report.report_age_sec = 0.0  # Unknown but data exists
+            report.report_age_sec = 0.0
 
     except Exception as e:
         logger.warning("Failed to load nightly report: %s", e)

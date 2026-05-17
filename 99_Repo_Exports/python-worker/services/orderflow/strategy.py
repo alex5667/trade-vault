@@ -135,6 +135,8 @@ from services.orderflow.metrics import (
     ticks_pressure_filtered_total,
     ticks_side_unknown_total,
     veto_low_conf_total,
+    atr_gate_veto_total,
+    burst_error_total,
 )
 from services.orderflow.runtime import SymbolRuntime
 from services.orderflow.signal_pipeline import SignalPipeline
@@ -184,6 +186,8 @@ def _sample_uid_symbol_ts(symbol: str, ts_ms: int) -> int:
 SPREAD_BPS_MISSING_DEFAULT = float(os.getenv("SPREAD_BPS_MISSING_DEFAULT", "15.0") or 15.0)
 SLIPPAGE_BPS_MISSING_DEFAULT = float(os.getenv("SLIPPAGE_BPS_MISSING_DEFAULT", "4.0") or 4.0)
 DATA_HEALTH_ON_SPREAD_MISSING = float(os.getenv("DATA_HEALTH_ON_SPREAD_MISSING", "0.80") or 0.80)
+DATA_HEALTH_SHADOW_ONLY_ENABLE = os.getenv("DATA_HEALTH_SHADOW_ONLY_ENABLE", "1").strip().lower() in ("1", "true", "yes", "on")
+DATA_HEALTH_SHADOW_ONLY_TH = float(os.getenv("DATA_HEALTH_SHADOW_ONLY_TH", "0.40") or 0.40)
 
 
 
@@ -307,6 +311,21 @@ class OrderFlowStrategy:
         self._manip_tighten_cap: float = float(os.getenv("MANIP_TIGHTEN_ADD_CAP_BPS", "6.0") or 6.0)
         self._atr_sanity_enable: bool = bool(int(os.getenv("ATR_SANITY_ENABLE", "1") or 1))
         self._atr_bad_ttl_sec: int = int(os.getenv("ATR_BAD_TTL_SEC", "600") or 600)
+
+        # ── G9 Confidence Calibration (mirrors StrategyApp / TickDecisionEngine) ──
+        self._conf_cal_mode: str = (os.getenv("CONF_CAL_MODE", "raw") or "raw").strip().lower()
+        self._conf_cal_proof_path: str = os.getenv("CONF_CAL_PROOF_STATE_PATH", "/tmp/conf_cal_proof_state.json")
+        self.conf_cal_proof: dict | None = None
+        self._conf_cal_proof_mtime: float = 0.0
+        self._conf_cal_proof_last_check_ms: int = 0
+        self.conf_cal_runtime = None
+        _bundle_path = os.getenv("CONF_CAL_CHAMPION_BUNDLE_PATH", "")
+        if _bundle_path:
+            try:
+                from orderflow_services.confidence_calibrator_bundle_runtime import ConfidenceCalibratorBundleRuntime as _CCBR
+                self.conf_cal_runtime = _CCBR(_bundle_path)
+            except Exception as _exc:
+                logging.getLogger("orderflow_strategy").warning("G9: ConfidenceCalibratorBundleRuntime init failed: %s", _exc)
         self._atr_bad_symbols_set_ttl_sec: int = int(os.getenv("ATR_BAD_SYMBOLS_SET_TTL_SEC", "86400") or 86400)
         self._metrics_counter_ttl_sec: int = int(os.getenv("METRICS_COUNTER_TTL_SEC", "604800") or 604800)
         self._atr_jump_window_sec: int = int(os.getenv("ATR_JUMP_WINDOW_SEC", "3600") or 3600)
@@ -1097,12 +1116,13 @@ class OrderFlowStrategy:
         # Determine signal direction
         direction = "LONG" if delta_event["delta"] >= 0 else "SHORT"
 
-        # [NEW] SMT Leader Coherence injection
+        # G6: SMT Leader Coherence Gate (MONITOR mode — no veto, contributes to gate_bits)
+        _smt_gate_dec = None
         if hasattr(self, "_smt_leader_gate") and self._smt_leader_gate:
             try:
                 class _Ctx: pass
                 _ctx = _Ctx()
-                self._smt_leader_gate.evaluate(
+                _smt_gate_dec = self._smt_leader_gate.evaluate(
                     ctx=_ctx,
                     symbol=runtime.symbol,
                     kind="orderflow_strategy",
@@ -1112,6 +1132,9 @@ class OrderFlowStrategy:
                     indicators["smt_leader_confirm"] = int(getattr(_ctx, "smt_leader_confirm", 0))
                     indicators["smt_coh"] = float(getattr(_ctx, "smt_coh", 0.0))
                     indicators["smt_leader_dir"] = str(getattr(_ctx, "smt_leader_dir", "NA"))
+                    indicators["smt_align"] = int(getattr(_ctx, "smt_align", 0))
+                    indicators["smt_blocked"] = int(getattr(_ctx, "smt_blocked", 0))
+                    indicators["smt_leader_conf_score"] = float(getattr(_ctx, "smt_leader_conf_score", float("nan")) or float("nan"))
             except Exception as e:
                 self.logger.error("Failed to inject SMT Coherence state: %s", e)
 
@@ -1128,12 +1151,6 @@ class OrderFlowStrategy:
         passed, tier, delta_usd, dn_tiers_decision = self._eval_dn_gate(runtime, tick_ts, delta_event, price, indicators)
         if not passed:
              return None
-
-        # Add indicators
-        indicators["dn_tier"] = int(tier)
-        indicators["dn_usd"] = float(delta_usd)
-        indicators["dn_t1_usd"] = float(dn_tiers_decision.tier1_usd)
-        indicators["dn_src"] = str(dn_tiers_decision.src)
 
         # P2: Inject Liquidity Scale (Hour-of-Week) for Risk/Conf
         indicators["liquidity_scale"] = float(dn_tiers_decision.scale)
@@ -1503,9 +1520,29 @@ class OrderFlowStrategy:
             indicators[IK.DATA_HEALTH_REASONS] = ",".join(list(dh.reasons or [])[:5])
             indicators[IK.BOOK_HEALTH_OK] = int(dh.book_health_ok)
             apply_book_evidence_policy(indicators=indicators, dh=dh, cfg=cfg)
-            apply_shadow_only_policy(indicators=indicators, dh=dh, cfg=cfg)
+            if DATA_HEALTH_SHADOW_ONLY_ENABLE:
+                _shadow_cfg = cfg if "data_health_shadow_only_below" in cfg else {**cfg, "data_health_shadow_only_below": DATA_HEALTH_SHADOW_ONLY_TH}
+                apply_shadow_only_policy(indicators=indicators, dh=dh, cfg=_shadow_cfg)
+                if indicators.get("data_health_shadow_only") == 1:
+                    indicators["data_health_veto_active"] = 1
+                    indicators.setdefault("data_health_veto_reason", indicators.get("data_health_shadow_reason", ""))
+            else:
+                indicators["data_health_shadow_only"] = 0
+                indicators["data_health_shadow_reason"] = ""
         except Exception:
             pass
+
+        # G4 enforce gate — drop signal if shadow-only fired (score < DATA_HEALTH_SHADOW_ONLY_TH)
+        if indicators.get("data_health_veto_active", 0) == 1:
+            with contextlib.suppress(Exception):
+                of_session_outcome_total.labels(runtime.symbol, sess, "veto_data_health_shadow").inc()
+            self.logger.warning(
+                "🛑 [G4-ENFORCE] (%s) data_health shadow veto: score=%.2f reasons=%s",
+                runtime.symbol,
+                float(indicators.get(IK.DATA_HEALTH, 0.0)),
+                indicators.get("data_health_veto_reason", ""),
+            )
+            return None
 
         # ------------------------------------------------------------------
         # Expected slippage model (bps) for adverse selection filtering
@@ -1721,6 +1758,12 @@ class OrderFlowStrategy:
             atr_bps = (atr / px * 10000.0) if (px > 0 and atr > 0) else 0.0
             indicators["atr_bps"] = float(atr_bps)
 
+            # Fix 1: expose atr_bps_th + calibration meta (needed by G3, OFConfirm, ML)
+            indicators["atr_bps_th"] = float(runtime.dynamic_cfg.get(DK.ATR_BPS_TH, 0.0) or 0.0)
+            indicators["atr_floor_tier"] = int(runtime.dynamic_cfg.get(DK.ATR_FLOOR_TIER, 1) or 1)
+            indicators["atr_floor_picked_bps"] = indicators["atr_bps_th"]
+            indicators["atr_floor_ready"] = int(runtime.dynamic_cfg.get(DK.ATR_CALIB_READY, 0) or 0)
+
             est = expected_slippage_bps(
                 spread_bps=spr,
                 churn_score=churn,
@@ -1745,6 +1788,37 @@ class OrderFlowStrategy:
         except Exception:
             # keep setdefault() values above
             pass
+
+        # ------------------------------------------------------------------
+        # G3: ATR Floor (Volatility Gate) — ENFORCE + fail-open
+        # Fail-open: ATR unavailable (bad/missing) or calibrator not ready → pass.
+        # ------------------------------------------------------------------
+        try:
+            _g3_th = float(indicators.get("atr_bps_th", 0.0) or 0.0)
+            _g3_bps = float(indicators.get("atr_bps", 0.0) or 0.0)
+            _g3_bad = int(indicators.get("atr_bad", 0) or 0)
+            _g3_ready = int(indicators.get("atr_floor_ready", 0) or 0)
+            if _g3_th > 0 and _g3_bps > 0 and _g3_bad == 0 and _g3_ready:
+                if _g3_bps < _g3_th:
+                    _g3_reason = f"bps={_g3_bps:.2f}<th={_g3_th:.2f}"
+                    indicators["atr_floor_veto"] = 1
+                    indicators["atr_floor_veto_reason"] = _g3_reason
+                    sess = indicators.get("session", "OFF")
+                    of_session_outcome_total.labels(runtime.symbol, sess, "veto_atr_floor").inc()
+                    atr_gate_veto_total.labels(runtime.symbol, "below_floor", "enforce").inc()
+                    if runtime.delta_log_sampler.should_log("atr_floor_veto"):
+                        logger.info(
+                            "🛑 [G3-ATR-FLOOR] (%s) VETO: %s tier=%d ready=%d",
+                            runtime.symbol, _g3_reason,
+                            indicators.get("atr_floor_tier", -1), _g3_ready,
+                        )
+                    return None
+            indicators.setdefault("atr_floor_veto", 0)
+            indicators.setdefault("atr_floor_veto_reason", "")
+        except Exception as _g3_exc:
+            log_silent_error(_g3_exc, "atr_floor_gate", runtime.symbol, "process_tick:G3")
+            indicators.setdefault("atr_floor_veto", 0)
+            indicators.setdefault("atr_floor_veto_reason", "")
 
         # ------------------------------------------------------------
         # OFConfirm Engine (single source of truth for decision & score)
@@ -2056,6 +2130,15 @@ class OrderFlowStrategy:
                         r_str = (indicators.get(IK.DATA_HEALTH_REASONS, ""))
                         indicators[IK.DATA_HEALTH_REASONS] = (r_str + ",spread_missing") if r_str else "spread_missing"
                         indicators[IK.BOOK_HEALTH_OK] = 0
+                        # Re-apply shadow-only: data_health was degraded after the initial G4 call
+                        if DATA_HEALTH_SHADOW_ONLY_ENABLE:
+                            _dh_now = float(indicators[IK.DATA_HEALTH])
+                            _shadow_thr = float(cfg2.get("data_health_shadow_only_below", DATA_HEALTH_SHADOW_ONLY_TH))
+                            if _dh_now < _shadow_thr:
+                                indicators["data_health_shadow_only"] = 1
+                                indicators["data_health_shadow_reason"] = (
+                                    indicators.get(IK.DATA_HEALTH_REASONS, "") or ""
+                                )[:200]
                     else:
                         # Cold start: annotate with milder reason, do NOT degrade data_health
                         r_str = (indicators.get(IK.DATA_HEALTH_REASONS, ""))
@@ -2236,10 +2319,22 @@ class OrderFlowStrategy:
             indicators["abs_lvl_calib_src"] = (cfg2.get("abs_lvl_calib_src", "static"))
 
             if ofc:
+                # G6: OR GATE_BIT_SMT into gate_bits when SMT had state (apply=True)
+                try:
+                    if _smt_gate_dec is not None and getattr(_smt_gate_dec, "apply", False):
+                        ofc.gate_bits = int(getattr(ofc, "gate_bits", 0)) | OFConfirmEngine.GATE_BIT_SMT
+                except Exception:
+                    pass
+
                 ev = ofc.evidence
                 indicators["of_confirm"] = ofc.to_dict()
                 indicators["of_confirm_v3"] = ofc.to_dict()
                 indicators["of_confirm_ok"] = int(ofc.ok)
+
+                # G10 reads absorption_volume from top-level indicators; ev is not accessible there.
+                if isinstance(ev, dict):
+                    indicators.setdefault("absorption_volume", float(ev.get("absorption_volume", 0.0) or 0.0))
+                    indicators.setdefault("absorption", int(ev.get("absorption", 0) or 0))
 
                 # ------------------------------------------------------------------
                 # CRITICAL: Propagate meta_enforce_cov_bucket and meta_enforce_applied
@@ -3223,38 +3318,70 @@ class OrderFlowStrategy:
         # ------------------------------------------------------------
         # G9 · CONFIDENCE-GATE (Calibrated Confidence Filter)
         # ------------------------------------------------------------
-        cal_mode = os.getenv("CONF_CAL_MODE", "raw").lower()
         conf_gate_mode = "raw"
         conf_gate_reason = "baseline"
         cal_proof_valid = False
+        should_cal = False
 
-        if cal_mode == "cal_always":
+        if self._conf_cal_mode == "cal_always":
+            should_cal = True
             conf_gate_mode = "calibrated"
             conf_gate_reason = "forced"
-        elif cal_mode == "cal_after_proof":
-            proof = getattr(runtime, "conf_cal_proof", None)
-            if proof and isinstance(proof, dict) and int(tick_ts) - int(proof.get("ts_ms", 0)) <= 6 * 3600 * 1000:
-                conf_gate_mode = "calibrated"
-                conf_gate_reason = "proven"
-                cal_proof_valid = True
+        elif self._conf_cal_mode == "cal_after_proof":
+            self._ensure_proof_state(tick_ts)
+            _proof = self.conf_cal_proof if isinstance(self.conf_cal_proof, dict) else None
+            if _proof and bool(_proof.get("valid")):
+                _evidence_ts = int(_proof.get("evidence_ts", _proof.get("ts", 0)) or 0)
+                _max_age = int(runtime.config.get("confidence_cal_gating_proof_max_age_sec", 21600))
+                _age = (int(tick_ts / 1000.0) - _evidence_ts) if _evidence_ts > 0 else 10 ** 18
+                if _age <= _max_age:
+                    should_cal = True
+                    conf_gate_mode = "calibrated"
+                    conf_gate_reason = "proof_valid"
+                    cal_proof_valid = True
+                    with contextlib.suppress(Exception):
+                        indicators["confidence_cal_proof_age_sec"] = _age if _age < 10 ** 17 else -1
+                else:
+                    conf_gate_reason = "proof_stale"
             else:
-                conf_gate_mode = "raw"
-                conf_gate_reason = "no_proof"
+                conf_gate_reason = "no_proof" if _proof is None else "proof_invalid"
 
-        # Apply canary if enabled
-        try:
-            canary_share = float(runtime.config.get("conf_cal_canary_share", os.getenv("CONF_CAL_CANARY_SHARE", "0.0")))
-        except Exception:
-            canary_share = 0.0
+        # Canary check — deterministic per symbol+session
+        if should_cal:
+            try:
+                canary_share = float(runtime.config.get("conf_cal_canary_share", os.getenv("CONF_CAL_CANARY_SHARE", "0.0")))
+            except Exception:
+                canary_share = 0.0
+            if canary_share > 0.0:
+                import zlib as _zlib
+                _h = _zlib.crc32(f"{runtime.symbol}:{(int(tick_ts) // 3600000)}".encode()) % 100
+                if _h >= int(canary_share * 100):
+                    should_cal = False
+                    conf_gate_reason += "_canary_skip"
 
-        if conf_gate_mode == "calibrated" and canary_share > 0.0:
-            import hashlib
-            # Deterministic pseudo-random based on symbol and tick session (hourly)
-            hash_input = f"{runtime.symbol}:{(int(tick_ts)//3600000)}"
-            h = int(hashlib.md5(hash_input.encode()).hexdigest()[:8], 16) / 0xffffffff
-            if h >= canary_share:
-                conf_gate_mode = "raw"
-                conf_gate_reason = "canary_skip"
+        # Apply calibration — overrides confidence value before the gate compares it
+        if should_cal and self.conf_cal_runtime is not None:
+            try:
+                _cal_ctx = {
+                    "session": indicators.get("session"),
+                    "regime": indicators.get("regime", "neutral"),
+                    "symbol": runtime.symbol,
+                }
+                _cal_res = self.conf_cal_runtime.get_calibrated_confidence(
+                    raw_conf=confidence, context=_cal_ctx
+                )
+                if _cal_res is None:
+                    _cal_conf = confidence
+                elif isinstance(_cal_res, dict):
+                    _v = _cal_res.get("calibrated_confidence")
+                    _cal_conf = float(_v) if _v is not None else float(_cal_res.get("result", confidence))
+                else:
+                    _cal_conf = float(_cal_res)
+                conf_gate_reason += f"_cal({confidence:.3f}->{_cal_conf:.3f})"
+                confidence = _cal_conf
+            except Exception as _cal_exc:
+                conf_gate_reason += f"_error"
+                self.logger.debug("G9: calibration error for %s: %s", runtime.symbol, _cal_exc)
 
         ab_mode = os.getenv("CONF_CAL_AB_MODE", "off").lower()
         if ab_mode != "off":
@@ -3267,8 +3394,7 @@ class OrderFlowStrategy:
         indicators["confidence_decision"] = "pass" if confidence >= min_conf else "fail"
         indicators["confidence_cal_proof_valid"] = int(cal_proof_valid)
 
-        # Delegation to SignalPipeline: strategy.py only annotates confidence.
-        # CONFIDENCE_GATE_OWNER = signal_pipeline
+        # CONFIDENCE_GATE_OWNER = signal_pipeline (enforcement via check_confidence)
 
         # Telemetry: Hidden Divergence Usage
         if indicators.get("hidden_div_used"):
@@ -3548,8 +3674,13 @@ class OrderFlowStrategy:
 
                 # Do not emit now; we will flush at deadline.
                 return None
-            except Exception:
-                pass # Bookkeeping moved to SignalPipeline
+            except Exception as _burst_exc:
+                with contextlib.suppress(Exception):
+                    burst_error_total.labels(symbol=runtime.symbol).inc()
+                logger.warning(
+                    "⚠️ [BURST] (%s) burst.consider() error, bypassing burst window: %s",
+                    runtime.symbol, _burst_exc,
+                )
                 return payload
 
         # No burst: emit immediately
@@ -3659,6 +3790,28 @@ class OrderFlowStrategy:
         except Exception as exc:
             self.logger.warning("confidence scorer fallback due to error: %s", exc)
             return 0.1
+
+    def _ensure_proof_state(self, tick_ts: int) -> None:
+        """Rate-limited reload of conf_cal proof state from disk."""
+        now_ms = int(time.time() * 1000)
+        check_interval_ms = int(os.getenv("CONF_CAL_PROOF_CHECK_MS", "10000"))
+        if (now_ms - self._conf_cal_proof_last_check_ms) < check_interval_ms:
+            return
+        self._conf_cal_proof_last_check_ms = now_ms
+        path = self._conf_cal_proof_path
+        if not path:
+            return
+        try:
+            mtime = os.path.getmtime(path)
+            if mtime > self._conf_cal_proof_mtime:
+                import json as _json
+                with open(path) as _f:
+                    self.conf_cal_proof = _json.load(_f)
+                self._conf_cal_proof_mtime = mtime
+        except FileNotFoundError:
+            pass
+        except Exception as _e:
+            self.logger.debug("G9: conf_cal_proof reload error: %s", _e)
 
     def _get_atr_for_symbol(self, symbol: str, cfg: dict[str, Any], tf_override: str | None = None, runtime: Any | None = None) -> float | None:
         """
@@ -4063,65 +4216,11 @@ class OrderFlowStrategy:
              # fail-safe
              pass
 
-        # ------------------------------------------------------------------
-        # ATR TF Calibrator update (freshness + consistency)
-        # Deterministic time: bar.end_ts_ms
-        # ------------------------------------------------------------------
-        try:
-            if bool(int(os.getenv("ATR_TF_CALIB_ENABLE", "1"))):
-                now_ts = int(getattr(bar, "end_ts_ms", 0) or 0)
-                close_px = float(getattr(bar, "close", 0.0) or 0.0)
-                rg = str(getattr(runtime, "last_regime", "na") or "na").lower()
-                if now_ts > 0 and close_px > 0:
-                    cand_str = str(runtime.config.get("atr_tf_candidates", os.getenv("ATR_TF_CANDIDATES", "1m,5m,15m")) or "")
-                    cands = tuple([x.strip() for x in cand_str.split(",") if x.strip()])
-                    if not cands:
-                        cands = ("1m", "5m", "15m")
-
-                    # floor hint: helps detect absurdly low ATR for current regime (optional)
-                    hint_floor = float(runtime.dynamic_cfg.get(DK.ATR_BPS_TH, 0.0) or runtime.config.get("atr_bps_min_static", 0.0) or 0.0)
-
-                    scores_inst: dict[str, float] = {}
-                    # score each tf from ATRCache meta
-                    for tf in cands:
-                        v, m = self.atr_cache.get_with_meta(symbol=runtime.symbol, timeframe=tf, now_ms=now_ts)
-                        vv = float(v or 0.0)
-                        if vv <= 0 or not m:
-                            continue
-                        age_ms = int((m or {}).get("age_ms", 0) or 0)
-                        atr_bps = 10000.0 * (vv / close_px) if close_px > 0 else 0.0
-                        # build inst score in [0..~1.5]
-                        # freshness: decays with age
-                        # consistency: penalize too-low vs hint
-                        # NOTE: scoring function is mirrored in ATRTFCalibrator docs
-                        fresh = float(1.0 / (1.0 + (max(0, age_ms) / float(max(1, int(os.getenv("ATR_TF_CALIB_MAX_AGE_MS", str(10 * 60_000))) ) / 2))))
-                        cons = 1.0
-                        if hint_floor > 0 and atr_bps > 0:
-                            cons = max(0.0, min(1.5, float(atr_bps / hint_floor)))
-                        sc = float(0.7 * fresh + 0.3 * min(1.0, cons))
-                        # tiny bonus for tracker hash (more trustworthy)
-                        src = str((m or {}).get("src", (m or {}).get("source", "")) or "")
-                        if src == "tracker_hash":
-                            sc *= 1.05
-                        scores_inst[tf] = float(sc)
-
-                    runtime.atr_tf_calib.update(regime=rg, scores_inst=scores_inst, ts_ms=now_ts)
-                    dec = runtime.atr_tf_calib.pick(regime=rg, default_tf=str(runtime.config.get("atr_tf", "5m") or "5m"), candidates=cands)
-                    runtime.dynamic_cfg[DK.ATR_TF_SELECTED] = str(dec.tf)
-                    runtime.dynamic_cfg[DK.ATR_TF_SRC] = str(dec.src)
-                    runtime.dynamic_cfg[DK.ATR_TF_N] = int(dec.n)
-                    runtime.dynamic_cfg[DK.ATR_TF_READY] = int(dec.ready)
-                    runtime.dynamic_cfg[DK.ATR_TF_SCORES_EMA] = dict(dec.scores_ema or {})
-                    runtime.dynamic_cfg[DK.ATR_TF_SCORES_INST] = dict(dec.last_scores_inst or {})
-                    runtime.dynamic_cfg[DK.ATR_TF_PICKED_SCORE] = float(dec.picked_score or 0.0)
-                    runtime.dynamic_cfg[DK.ATR_TF_SECOND_SCORE] = float(dec.second_score or 0.0)
-
-        except Exception:
-            pass
-
         # --------------------------------------------------------
         # ATR Sanity Calibrator (Source Selection) - User Diff Integration
         # --------------------------------------------------------
+        now_ts = int(getattr(bar, "end_ts_ms", 0) or 0)
+        rg = str(getattr(runtime, "last_regime", "na") or "na").lower()
         try:
             if bool(int(runtime.config.get("atr_sanity_enable", int(os.getenv("ATR_SANITY_ENABLE", "1"))) or 1)):
                 close_ts = int(now_ts)
@@ -4330,6 +4429,7 @@ class OrderFlowStrategy:
                         runtime._calib_bars_since_persist = 0
                         if self.calib_svc:
                             await self.calib_svc.persist_dn(runtime, regime=rg, ts_ms=int(bar.end_ts_ms))
+                            await self.calib_svc.persist_tick_dn(runtime, regime=rg, ts_ms=int(bar.end_ts_ms))
 
         except Exception as exc:
              log_silent_error(exc, 'calib_update_failure', runtime.symbol, '_on_microbar_closed:dn_calib')
@@ -4443,13 +4543,13 @@ class OrderFlowStrategy:
                             # Shadow mode: ensure selected is initialized but don't change it
                             runtime.dynamic_cfg.setdefault("atr_tf_selected", current_tf)
 
-                        # Persist selected TF (throttled, only in enforce or on init)
+                        # Persist selected TF (throttled; always — shadow persists P² history too)
                         persist_gap = int(runtime.config.get("atr_tf_calib_persist_gap_ms", 300_000))
                         if persist_gap < 60_000:
                             persist_gap = 60_000
-                        last_p = int(getattr(runtime, "_atr_tf_last_persist_ts_ms", 0) or 0)
-                        if now_ts > 0 and (now_ts - last_p) >= persist_gap and allow_switch:
-                            runtime._atr_tf_last_persist_ts_ms = int(now_ts)
+                        last_p = int(getattr(runtime, "_atr_tf_choice_last_persist_ts_ms", 0) or 0)
+                        if now_ts > 0 and (now_ts - last_p) >= persist_gap:
+                            runtime._atr_tf_choice_last_persist_ts_ms = int(now_ts)
                             choice_state = {
                                 "tf": runtime.get_atr_tf_selected(),
                                 "src": str(choice.src),

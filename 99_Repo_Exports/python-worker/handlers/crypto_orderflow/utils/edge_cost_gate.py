@@ -701,9 +701,10 @@ def _load_drift_active(
         except Exception:
             return None
         try:
-            f = dd.get("factor") or 1.0
-            s = dd.get("score") or float("nan")
-            feat = (dd.get("feature") or "")
+            f = float(dd.get("factor") or 1.0)
+            s_raw = dd.get("score")
+            s = float(s_raw) if s_raw else float("nan")
+            feat = str(dd.get("feature") or "")
             if not math.isfinite(f) or f <= 0:
                 return None
             return f, s, feat
@@ -1832,6 +1833,12 @@ class EdgeCostGate:
         # STRICT: drift-aware K inflation.
         # ------------------------------------------------------------------
         mode = (_cached_getenv("FEATURE_DRIFT_MODE", "") or "").strip().lower()
+        if not mode:
+            _fdp = (os.getenv("FEATURE_DRIFT_PROFILE", "") or "").strip().lower()
+            if _fdp == "hard":
+                mode = "enforce"
+            elif _fdp == "tighten":
+                mode = "tighten"
         tighten = bool(getattr(ctx, "_edge_drift_tighten", False)) or (mode == "enforce")
         if tighten and drift_factor > 1.0:
             k_cap = _env_float("EDGE_DRIFT_K_CAP_MULT", 2.5)

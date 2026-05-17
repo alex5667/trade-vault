@@ -3470,6 +3470,148 @@ services:
           memory: 1G
         reservations:
           memory: 64M
+  v5-of-train-timer:
+    # Nightly retrain bundle for v5_of (300-feature full-coverage GBDT/LR challenger).
+    # See python-worker/tools/nightly_v5_of_train_bundle.py.
+    # Reuses dataset built by v14-of-train-timer (ml_dataset_v14.jsonl);
+    # default interval 6h. Writes metrics:v5_of_train:last and artifacts to
+    # /var/lib/trade/ml_models/v5_of_<ts>/. Does NOT touch champion config —
+    # promotion requires manual `make ml-approve` after gates pass.
+    build: *id001
+    container_name: scanner-v5-of-train-timer
+    restart: unless-stopped
+    environment:
+    - REDIS_URL=redis://redis-worker-1:6379/0
+    - PYTHONPATH=.:/app
+    - PYTHONUNBUFFERED=1
+    - V5OF_TRAIN_ENABLED=${V5OF_TRAIN_ENABLED:-1}
+    - V5OF_TRAIN_INTERVAL_SEC=${V5OF_TRAIN_INTERVAL_SEC:-21600}
+    - V5OF_DATASET_PATH=${V5OF_DATASET_PATH:-/var/lib/trade/of_reports/v14_of_train_work/ml_dataset_v14.jsonl}
+    - V5OF_OUT_ROOT=${V5OF_OUT_ROOT:-/var/lib/trade/ml_models}
+    - V5OF_LR_C=${V5OF_LR_C:-0.05}
+    - V5OF_GBDT_MAX_DEPTH=${V5OF_GBDT_MAX_DEPTH:-2}
+    - V5OF_GBDT_N_EST=${V5OF_GBDT_N_EST:-50}
+    - V5OF_GBDT_LR=${V5OF_GBDT_LR:-0.05}
+    - V5OF_GBDT_SUBSAMPLE=${V5OF_GBDT_SUBSAMPLE:-0.7}
+    - V5OF_MIN_POS=${V5OF_MIN_POS:-20}
+    - V5OF_LABEL_COL=${V5OF_LABEL_COL:-y_edge_cost_aware}
+    - SCANNER_CONSUMER_NAME=scanner-v5-of-train-timer
+    - TZ=UTC
+    depends_on: *id002
+    networks: *id003
+    volumes:
+    - ./python-worker:/app
+    - /var/lib/trade/of_reports:/var/lib/trade/of_reports
+    - /var/lib/trade/ml_models:/var/lib/trade/ml_models
+    working_dir: /app
+    command:
+    - bash
+    - -c
+    - |
+      # Start 5 minutes after v14-of-train-timer so the dataset is fresh.
+      sleep 420
+      exec python3 -m tools.nightly_v5_of_train_bundle --loop
+    profiles:
+    - default
+    deploy:
+      resources:
+        limits:
+          cpus: '0.50'
+          memory: 768M
+        reservations:
+          memory: 128M
+  v-meta-train-timer:
+    # Meta-stacking trainer: blends v14_of (LR, 22 feat) + v5_of (GBDT, 210 feat)
+    # via meta-LR (2 features: p_v14, p_v5). 5-fold K-fold OOF predictions →
+    # train meta-LR → publish cfg:ml_confirm:meta_lr_blend:candidate (NEVER
+    # champion; manual promote via make ml-approve required).
+    # Tracks AUC uplift in metrics:v_meta_train:last.
+    build: *id001
+    container_name: scanner-v-meta-train-timer
+    restart: unless-stopped
+    environment:
+    - REDIS_URL=redis://redis-worker-1:6379/0
+    - PYTHONPATH=.:/app
+    - PYTHONUNBUFFERED=1
+    - V_META_TRAIN_ENABLED=${V_META_TRAIN_ENABLED:-1}
+    - V_META_TRAIN_INTERVAL_SEC=${V_META_TRAIN_INTERVAL_SEC:-21600}
+    - V_META_DATASET_PATH=${V_META_DATASET_PATH:-/var/lib/trade/of_reports/v14_of_train_work/ml_dataset_v14.jsonl}
+    - V_META_OUT_ROOT=${V_META_OUT_ROOT:-/var/lib/trade/ml_models}
+    - V_META_LABEL_COL=${V_META_LABEL_COL:-y_edge_cost_aware}
+    - V_META_CANDIDATE_KEY=${V_META_CANDIDATE_KEY:-cfg:ml_confirm:meta_lr_blend:candidate}
+    - V_META_METRICS_KEY=${V_META_METRICS_KEY:-metrics:v_meta_train:last}
+    - SCANNER_CONSUMER_NAME=scanner-v-meta-train-timer
+    - TZ=UTC
+    depends_on: *id002
+    networks: *id003
+    volumes:
+    - ./python-worker:/app
+    - /var/lib/trade/of_reports:/var/lib/trade/of_reports
+    - /var/lib/trade/ml_models:/var/lib/trade/ml_models
+    working_dir: /app
+    command:
+    - bash
+    - -c
+    - |
+      # Run 10 min after v5_of_train_timer (which starts 7 min after v14).
+      sleep 1020
+      exec python3 -m tools.nightly_v_meta_train_bundle --loop
+    profiles:
+    - default
+    deploy:
+      resources:
+        limits:
+          cpus: '0.30'
+          memory: 512M
+        reservations:
+          memory: 96M
+  schema-arbiter:
+    # Auto-select best feature_schema among v14_of / v5_of / meta_lr_blend.
+    # Reads training metrics, applies composite score (AUC + PR_AUC + Brier),
+    # requires K=3 stable wins + hysteresis margin, then promotes (mode=SHADOW)
+    # if V_ARBITER_AUTO_APPLY=1, otherwise just recommends via Telegram.
+    # See python-worker/tools/schema_arbiter_v1.py.
+    # NOTE: v13_of lives in edge_stack_v1 subsystem (separate code path) and is
+    # NOT managed by this arbiter — keep its own promotion path intact.
+    build: *id001
+    container_name: scanner-schema-arbiter
+    restart: unless-stopped
+    environment:
+    - REDIS_URL=redis://redis-worker-1:6379/0
+    - PYTHONPATH=.:/app
+    - PYTHONUNBUFFERED=1
+    - V_ARBITER_ENABLED=${V_ARBITER_ENABLED:-1}
+    - V_ARBITER_INTERVAL_SEC=${V_ARBITER_INTERVAL_SEC:-3600}
+    - V_ARBITER_AUTO_APPLY=${V_ARBITER_AUTO_APPLY:-0}
+    - V_ARBITER_STABILITY_K=${V_ARBITER_STABILITY_K:-3}
+    - V_ARBITER_HYSTERESIS_AUC=${V_ARBITER_HYSTERESIS_AUC:-0.005}
+    - V_ARBITER_SKIP_NOTIFY_HOURS=${V_ARBITER_SKIP_NOTIFY_HOURS:-6}
+    - V_ARBITER_HISTORY_MAX=${V_ARBITER_HISTORY_MAX:-12}
+    - V_ARBITER_STATE_KEY=${V_ARBITER_STATE_KEY:-state:schema_arbiter:last}
+    - NOTIFY_STREAM=${NOTIFY_STREAM:-notify:telegram}
+    - SCANNER_CONSUMER_NAME=scanner-schema-arbiter
+    - TZ=UTC
+    depends_on: *id002
+    networks: *id003
+    volumes:
+    - ./python-worker:/app
+    working_dir: /app
+    command:
+    - bash
+    - -c
+    - |
+      # Run 20 min after v-meta-train-timer so all 3 metric keys are fresh.
+      sleep 1620
+      exec python3 -m tools.schema_arbiter_v1 --loop
+    profiles:
+    - default
+    deploy:
+      resources:
+        limits:
+          cpus: '0.10'
+          memory: 192M
+        reservations:
+          memory: 48M
   v14-of-train-metrics-exporter:
     # Prometheus exporter: reads Redis `metrics:v14_of_train:last` → v14_of_train_* gauges.
     # Scrape target on :9836/metrics.

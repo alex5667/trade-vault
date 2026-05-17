@@ -409,6 +409,14 @@ async def main() -> None:
                     "last_error": last_error,
                 },
             )
+        except aioredis.BusyLoadingError as e:
+            logger.warning("ofc_contextual_decision_writer: Redis loading dataset, waiting 5s: %s", e)
+            metrics.last_ok.set(0)
+            await asyncio.sleep(5)
+        except (aioredis.ConnectionError, aioredis.TimeoutError) as e:
+            logger.warning("ofc_contextual_decision_writer: Redis connection error, waiting 5s: %s", e)
+            metrics.last_ok.set(0)
+            await asyncio.sleep(5)
         except Exception:
             logger.exception("ofc_contextual_decision_writer loop failure")
             metrics.last_ok.set(0)

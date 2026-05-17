@@ -181,9 +181,6 @@ class EntryPolicyLcbGuardService:
             }
             await self.r.xadd(RS.ENTRY_AUDIT, {"data": json.dumps(audit_payload)}, maxlen=10000, approximate=True)
 
-    async def run_forever(self) -> None:  # type: ignore
-        log.info(f"🚀 LCB Guard Service starting | in={self.cfg.in_stream} group={self.cfg.group}")
-
     async def _ensure_group(self) -> None:
         while True:
             try:

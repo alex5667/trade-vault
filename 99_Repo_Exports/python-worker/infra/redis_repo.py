@@ -923,6 +923,7 @@ class RedisTradeRepository:
             "baseline_tp2": _to_str(getattr(pos, "baseline_tp2", 0.0)),
             "baseline_tp3": _to_str(getattr(pos, "baseline_tp3", 0.0)),
             "atr": _to_str(getattr(pos, "atr", 0.0)),
+            "atr_used_for_levels": _to_str(getattr(pos, "atr", 0.0)),
 
             # Conditional trailing flags (debuggable in Redis order:{id}).
             # Stored as "0/1" strings for consistent reading in recovery.
@@ -1185,6 +1186,7 @@ class RedisTradeRepository:
             "max_favorable_ts": str(closed.max_favorable_ts),
             "schema_version": str(closed.schema_version),
             "atr": f"{getattr(closed, 'atr', 0.0)}",
+            "atr_used_for_levels": f"{getattr(closed, 'atr', 0.0)}",
             "sl_price": f"{getattr(closed, 'sl', 0.0)}",
             "tp1_price": f"{getattr(closed, 'tp1_price', 0.0)}",
 

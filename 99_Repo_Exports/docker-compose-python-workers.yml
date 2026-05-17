@@ -414,6 +414,12 @@ services:
     - FEATURE_DRIFT_MODE=enforce
     - ADVERSE_CHECK_ENABLE=1
     - MANIP_MODE=hard
+    - MANIP_QUOTE_STUFF_SCORE_MAX=${MANIP_QUOTE_STUFF_SCORE_MAX:-0.6}
+    - MANIP_LAYERING_SCORE_MAX=${MANIP_LAYERING_SCORE_MAX:-0.6}
+    - MANIP_OTR_Z_MAX=${MANIP_OTR_Z_MAX:-3.5}
+    - CRYPTO_BURST_ENABLE=${CRYPTO_BURST_ENABLE:-1}
+    - BURST_FLUSH_MODE=${BURST_FLUSH_MODE:-wall}
+    - BURST_FLUSH_INTERVAL_MS=${BURST_FLUSH_INTERVAL_MS:-200}
     - DQ_GATE_ENABLE=1
     - DQ_GATE_MODE=enforce
     - FEATURE_DRIFT_BASE_ALPHA=0.01
@@ -489,6 +495,9 @@ services:
     - USE_SIGNAL_OUTBOX=true
     - SCANNER_CONSUMER_NAME=scanner-python-worker
     - CRYPTO_OF_READ_BLOCK_MS=20
+    - CRYPTO_OF_ADAPTIVE_LAG_HIGH_MS=30
+    - CRYPTO_OF_DROP_ON_LAG=1
+    - CRYPTO_OF_MAX_LAG_MS=1500
     - TZ=UTC
     depends_on:
       postgres:
@@ -664,6 +673,12 @@ services:
     - FEATURE_DRIFT_MODE=enforce
     - ADVERSE_CHECK_ENABLE=1
     - MANIP_MODE=hard
+    - MANIP_QUOTE_STUFF_SCORE_MAX=${MANIP_QUOTE_STUFF_SCORE_MAX:-0.6}
+    - MANIP_LAYERING_SCORE_MAX=${MANIP_LAYERING_SCORE_MAX:-0.6}
+    - MANIP_OTR_Z_MAX=${MANIP_OTR_Z_MAX:-3.5}
+    - CRYPTO_BURST_ENABLE=${CRYPTO_BURST_ENABLE:-1}
+    - BURST_FLUSH_MODE=${BURST_FLUSH_MODE:-wall}
+    - BURST_FLUSH_INTERVAL_MS=${BURST_FLUSH_INTERVAL_MS:-200}
     - DQ_GATE_ENABLE=1
     - DQ_GATE_MODE=enforce
     - AUTO_CALIBRATION_THRESHOLD=100
@@ -4438,6 +4453,7 @@ services:
       - PYTHONUNBUFFERED=1
       - LAYER_D_CONSUMER_ENABLE=${LAYER_D_CONSUMER_ENABLE:-0}
       - LAYER_D_CONSUMER_REDIS_URL=redis://redis-worker-1:6379/0
+      - REDIS_URL=redis://redis-worker-1:6379/0
       - LAYER_D_ARM_STREAM=${LAYER_D_ARM_STREAM:-trail:arm:requests}
       - LAYER_D_CONSUMER_GROUP=${LAYER_D_CONSUMER_GROUP:-layer_d_arm_cg}
       - LAYER_D_CONSUMER_NAME=${LAYER_D_CONSUMER_NAME:-consumer-1}
@@ -4466,7 +4482,7 @@ services:
       - |
         sleep 30
         if [ "$${LAYER_D_CONSUMER_ENABLE:-0}" = "0" ]; then
-          echo "LAYER_D_CONSUMER_ENABLE=0 — idle (skeleton; arm_callback=None)"
+          echo "LAYER_D_CONSUMER_ENABLE=0 — idle (arm_callback wired; enable to activate)"
           while true; do sleep 3600; done
         fi
         python -m services.tp_hit_trailing_orchestrator_layer_d_consumer
@@ -4510,6 +4526,282 @@ services:
       - sh
       - -c
       - sleep 10 && python -m tools.ml_drift_monitor_v14_of
+
+  # ────────────────────────────────────────────────────────────────────────
+  # ADR-0004 ML v5_of cross-context services + outcome tracker
+  # ────────────────────────────────────────────────────────────────────────
+  scanner-ml-outcome-tracker:
+    build: *id001
+    container_name: scanner-ml-outcome-tracker
+    environment:
+    - REDIS_URL=${REDIS_URL:-redis://redis-worker-1:6379/0}
+    - ML_OUTCOME_TRACKER_PORT=9143
+    - ML_OUTCOME_TRACKER_GROUP=ml-outcome-tracker
+    - ML_OUTCOME_TRACKER_CONSUMER=ml-outcome-tracker-1
+    - ML_OUTCOME_TRACKER_BATCH=200
+    - ML_OUTCOME_TRACKER_EMA_HL_TRADES=500
+    - PYTHONPATH=.:/app
+    - PYTHONUNBUFFERED=1
+    - TZ=UTC
+    working_dir: /app
+    volumes:
+    - ./python-worker:/app
+    networks:
+    - scanner-core
+    - scanner-infra
+    restart: on-failure:5
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.2'
+        reservations:
+          memory: 64M
+    command: python -u orderflow_services/ml_outcome_calibration_tracker_v1.py
+
+  scanner-fills-tca-enricher:
+    build: *id001
+    container_name: scanner-fills-tca-enricher
+    environment:
+    - REDIS_URL=${REDIS_URL:-redis://redis-worker-1:6379/0}
+    - FILLS_TCA_ENRICHER_PORT=9147
+    - FILLS_TCA_GROUP=fills-tca-enricher
+    - FILLS_TCA_CONSUMER=fills-tca-enricher-1
+    - FILLS_TCA_BATCH=200
+    - FILLS_TCA_HORIZON_5S_DELAY_MS=5500
+    - FILLS_TCA_TOLERANCE_MS=500
+    - FILLS_TCA_PENDING_MAX=10000
+    - ORDERS_EXEC_STREAM=orders:exec
+    - FILLS_FILLED_STREAM=stream:fills:filled
+    - PYTHONPATH=.:/app
+    - PYTHONUNBUFFERED=1
+    - TZ=UTC
+    working_dir: /app
+    volumes:
+    - ./python-worker:/app
+    networks:
+    - scanner-core
+    - scanner-infra
+    restart: on-failure:5
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.2'
+        reservations:
+          memory: 64M
+    command: python -u orderflow_services/fills_tca_enricher_v1.py
+
+  scanner-tca-priors-exporter:
+    build: *id001
+    container_name: scanner-tca-priors-exporter
+    environment:
+    - REDIS_URL=${REDIS_URL:-redis://redis-worker-1:6379/0}
+    - TCA_PRIORS_PORT=9144
+    - TCA_PRIORS_GROUP=tca-priors-exporter
+    - TCA_PRIORS_CONSUMER=tca-priors-exporter-1
+    - TCA_PRIORS_BATCH=100
+    - TCA_PRIORS_EMA_HL_FILLS=200
+    - TCA_PRIORS_TTL_SEC=7200
+    - TCA_PRIORS_MIN_SAMPLES=30
+    - PYTHONPATH=.:/app
+    - PYTHONUNBUFFERED=1
+    - TZ=UTC
+    working_dir: /app
+    volumes:
+    - ./python-worker:/app
+    networks:
+    - scanner-core
+    - scanner-infra
+    restart: on-failure:5
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.2'
+        reservations:
+          memory: 64M
+    command: python -u orderflow_services/tca_priors_exporter_v1.py
+
+  scanner-cross-context-aggregator:
+    build: *id001
+    container_name: scanner-cross-context-aggregator
+    environment:
+    - REDIS_URL=${REDIS_URL:-redis://redis-worker-1:6379/0}
+    - CROSS_CTX_PORT=9145
+    - CROSS_CTX_GROUP=cross-context-aggregator
+    - CROSS_CTX_CONSUMER=cross-context-aggregator-1
+    - CROSS_CTX_BATCH=500
+    - CROSS_CTX_ANCHORS=BTCUSDT,ETHUSDT
+    - CROSS_CTX_TTL_SEC=60
+    - CROSS_CTX_MAX_LAG_MS=2000
+    - PYTHONPATH=.:/app
+    - PYTHONUNBUFFERED=1
+    - TZ=UTC
+    working_dir: /app
+    volumes:
+    - ./python-worker:/app
+    networks:
+    - scanner-core
+    - scanner-infra
+    restart: on-failure:5
+    deploy:
+      resources:
+        limits:
+          memory: 384M
+          cpus: '0.3'
+        reservations:
+          memory: 96M
+    command: python -u orderflow_services/cross_context_aggregator_v1.py
+
+  scanner-hawkes-vpin:
+    build: *id001
+    container_name: scanner-hawkes-vpin
+    environment:
+    - REDIS_URL=${REDIS_URL:-redis://redis-worker-1:6379/0}
+    - HAWKES_SYMBOLS=${HAWKES_SYMBOLS:-BTCUSDT,ETHUSDT,SOLUSDT}
+    - HAWKES_BETA=${HAWKES_BETA:-0.0333}
+    - HAWKES_ALPHA=${HAWKES_ALPHA:-0.5}
+    - HAWKES_VPIN_ALPHA=${HAWKES_VPIN_ALPHA:-0.05}
+    - HAWKES_TTL_SEC=30
+    - HAWKES_PORT=9148
+    - HAWKES_GROUP=of-hawkes-vpin
+    - HAWKES_CONSUMER=of-hawkes-vpin-1
+    - HAWKES_MAX_LAG_MS=30000
+    - PYTHONPATH=.:/app
+    - PYTHONUNBUFFERED=1
+    - TZ=UTC
+    working_dir: /app
+    volumes:
+    - ./python-worker:/app
+    networks:
+    - scanner-core
+    - scanner-infra
+    restart: on-failure:5
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.3'
+        reservations:
+          memory: 64M
+    command: python -u orderflow_services/of_hawkes_vpin_v1.py
+
+  scanner-pit-priors-exporter:
+    build: *id001
+    container_name: scanner-pit-priors-exporter
+    environment:
+    - REDIS_URL=${REDIS_URL:-redis://redis-worker-1:6379/0}
+    - PIT_PRIORS_EXPORTER_PORT=9146
+    - PIT_PRIORS_EXPORTER_INTERVAL=60
+    - PIT_PRIOR_STALE_MS=86400000
+    - PIT_PRIORS_SYMBOLS=BTCUSDT,ETHUSDT,SOLUSDT
+    - PIT_PRIORS_KINDS=default,reclaim,sweep,absorption
+    - PYTHONPATH=.:/app
+    - PYTHONUNBUFFERED=1
+    - TZ=UTC
+    working_dir: /app
+    volumes:
+    - ./python-worker:/app
+    networks:
+    - scanner-core
+    - scanner-infra
+    restart: on-failure:5
+    deploy:
+      resources:
+        limits:
+          memory: 192M
+          cpus: '0.1'
+        reservations:
+          memory: 48M
+    command: python -u orderflow_services/pit_priors_exporter_v1.py
+
+  scanner-pit-priors-rolling:
+    build: *id001
+    container_name: scanner-pit-priors-rolling
+    environment:
+    - REDIS_URL=${REDIS_URL:-redis://redis-worker-1:6379/0}
+    - PIT_ROLLING_INTERVAL_S=3600
+    - PIT_ROLLING_EMBARGO_MS=3600000
+    - PIT_ROLLING_MIN_SAMPLES=20
+    - PIT_ROLLING_TTL_SEC=90000
+    - PYTHONPATH=.:/app
+    - PYTHONUNBUFFERED=1
+    - TZ=UTC
+    working_dir: /app
+    volumes:
+    - ./python-worker:/app
+    networks:
+    - scanner-core
+    - scanner-infra
+    restart: on-failure:5
+    deploy:
+      resources:
+        limits:
+          memory: 384M
+          cpus: '0.2'
+        reservations:
+          memory: 96M
+    command: python -u orderflow_services/pit_priors_rolling_v1.py
+
+  scanner-liq-evt-archiver:
+    build: *id001
+    container_name: scanner-liq-evt-archiver
+    environment:
+    - REDIS_URL=${REDIS_URL:-redis://redis-worker-1:6379/0}
+    - PG_DSN=${PG_DSN:-postgresql://trading:R0xU1KuRUygJqfxeOBTzQh423Qw0DOG8@scanner-postgres:5432/scanner_analytics}
+    - LIQ_EVT_STREAM=stream:liq_evt
+    - LIQ_ARCHIVER_GROUP=liq_archive_group
+    - LIQ_ARCHIVER_CONSUMER=liq_archive_1
+    - LIQ_ARCHIVER_BATCH_SIZE=200
+    - LIQ_ARCHIVER_FLUSH_MS=2000
+    - LIQ_ARCHIVER_BLOCK_MS=2000
+    - LIQ_ARCHIVER_METRICS_PORT=9134
+    - PYTHONPATH=.:/app
+    - PYTHONUNBUFFERED=1
+    - TZ=UTC
+    working_dir: /app
+    volumes:
+    - ./python-worker:/app
+    networks:
+    - scanner-core
+    - scanner-infra
+    restart: on-failure:5
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.15'
+        reservations:
+          memory: 64M
+    command: python -u orderflow_services/liq_evt_archiver_v1.py
+
+  scanner-macro-calendar:
+    build: *id001
+    container_name: scanner-macro-calendar
+    environment:
+    - CTX_MAIN_REDIS_URL=${CTX_MAIN_REDIS_URL:-redis://redis:6379/0}
+    - MACRO_INTERVAL_S=60
+    - MACRO_ACTIVE_WINDOW_MIN=120
+    - MACRO_TTL_S=3600
+    - PYTHONPATH=.:/app
+    - PYTHONUNBUFFERED=1
+    - TZ=UTC
+    working_dir: /app
+    volumes:
+    - ./python-worker:/app
+    networks:
+    - scanner-core
+    - scanner-infra
+    restart: on-failure:5
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+          cpus: '0.05'
+        reservations:
+          memory: 32M
+    command: python -u services/macro_calendar_scheduler.py
 
 networks:
   scanner-core:

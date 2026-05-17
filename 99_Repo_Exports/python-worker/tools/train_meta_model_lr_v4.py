@@ -17,104 +17,36 @@ pd.set_option('future.no_silent_downcasting', True)
 
 from core.feature_engineering import apply_transform
 
-# Feature Schema Imports
-from core.meta_features_v1 import (
-    META_FEAT_V1_COLS,
-    META_FEAT_V1_HASH,
-    META_FEAT_V1_NAME,
-    META_FEAT_V1_TRANSFORMS,
-    META_FEAT_V1_VERSION,
-    build_meta_features_v1,
-)
-from core.meta_features_v2 import (
-    META_FEAT_V2_COLS,
-    META_FEAT_V2_HASH,
-    META_FEAT_V2_NAME,
-    META_FEAT_V2_NEW_COLS,
-    META_FEAT_V2_TRANSFORMS,
-    META_FEAT_V2_VERSION,
-    build_meta_features_v2,
-)
-from core.meta_features_v3 import (
-    META_FEAT_V3_COLS,
-    META_FEAT_V3_HASH,
-    META_FEAT_V3_NAME,
-    META_FEAT_V3_NEW_COLS,
-    META_FEAT_V3_TRANSFORMS,
-    META_FEAT_V3_VERSION,
-    build_meta_features_v3,
-)
-from core.meta_features_v4 import (
-    META_FEAT_V4_COLS,
-    META_FEAT_V4_HASH,
-    META_FEAT_V4_NAME,
-    META_FEAT_V4_NEW_COLS,
-    META_FEAT_V4_TRANSFORMS,
-    META_FEAT_V4_VERSION,
-    build_meta_features_v4,
-)
-from core.meta_features_v5 import (
-    META_FEAT_V5_COLS,
-    META_FEAT_V5_HASH,
-    META_FEAT_V5_NAME,
-    META_FEAT_V5_TRANSFORMS,
-    META_FEAT_V5_VERSION,
-    build_meta_features_v5,
-)
-from core.meta_features_v6 import (
-    META_FEAT_V6_COLS,
-    META_FEAT_V6_HASH,
-    META_FEAT_V6_NAME,
-    META_FEAT_V6_TRANSFORMS,
-    META_FEAT_V6_VERSION,
-    build_meta_features_v6,
-)
+# Builder branching below still discriminates v2..v6 by *function identity*
+# (those builders take different kwargs). The NEW_COLS lists and v1 default
+# name are also used downstream for column-level missing-mask reporting and
+# argparse defaults. Keep these names imported explicitly; everything else
+# (cols/hash/transforms/builders for v1..v10) comes from the central registry.
+from core.meta_features_v1 import META_FEAT_V1_NAME
+from core.meta_features_v2 import META_FEAT_V2_NEW_COLS, build_meta_features_v2
+from core.meta_features_v3 import META_FEAT_V3_NEW_COLS, build_meta_features_v3
+from core.meta_features_v4 import META_FEAT_V4_NEW_COLS, build_meta_features_v4
+from core.meta_features_v5 import build_meta_features_v5
+from core.meta_features_v6 import build_meta_features_v6
 from core.meta_model_lr import MetaModelLR
 
-# Schema Registry
+# Train==Serve: derive schema metadata from the central registry so v7..v10
+# (and any future schemas) are trainable without re-listing them here.
+from core.meta_schema_registry import (
+    META_SCHEMA_BUILDERS,
+    META_SCHEMA_REGISTRY,
+    META_SCHEMA_TRANSFORMS,
+)
+
 SCHEMAS = {
-    META_FEAT_V1_NAME: {
-        "version": META_FEAT_V1_VERSION,
-        "cols": META_FEAT_V1_COLS,
-        "hash": META_FEAT_V1_HASH,
-        "transforms": META_FEAT_V1_TRANSFORMS,
-        "builder": build_meta_features_v1,
-    },
-    META_FEAT_V2_NAME: {
-        "version": META_FEAT_V2_VERSION,
-        "cols": META_FEAT_V2_COLS,
-        "hash": META_FEAT_V2_HASH,
-        "transforms": META_FEAT_V2_TRANSFORMS,
-        "builder": build_meta_features_v2,
-    },
-    META_FEAT_V3_NAME: {
-        "version": META_FEAT_V3_VERSION,
-        "cols": META_FEAT_V3_COLS,
-        "hash": META_FEAT_V3_HASH,
-        "transforms": META_FEAT_V3_TRANSFORMS,
-        "builder": build_meta_features_v3,
-    },
-    META_FEAT_V4_NAME: {
-        "version": META_FEAT_V4_VERSION,
-        "cols": META_FEAT_V4_COLS,
-        "hash": META_FEAT_V4_HASH,
-        "transforms": META_FEAT_V4_TRANSFORMS,
-        "builder": build_meta_features_v4,
-    },
-    META_FEAT_V5_NAME: {
-        "version": META_FEAT_V5_VERSION,
-        "cols": META_FEAT_V5_COLS,
-        "hash": META_FEAT_V5_HASH,
-        "transforms": META_FEAT_V5_TRANSFORMS,
-        "builder": build_meta_features_v5,
-    },
-    META_FEAT_V6_NAME: {
-        "version": META_FEAT_V6_VERSION,
-        "cols": META_FEAT_V6_COLS,
-        "hash": META_FEAT_V6_HASH,
-        "transforms": META_FEAT_V6_TRANSFORMS,
-        "builder": build_meta_features_v6,
-    },
+    name: {
+        "version": ver,
+        "cols": cols,
+        "hash": h,
+        "transforms": META_SCHEMA_TRANSFORMS[name],
+        "builder": META_SCHEMA_BUILDERS[name],
+    }
+    for name, (ver, cols, h) in META_SCHEMA_REGISTRY.items()
 }
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -218,6 +150,30 @@ def build_row_features(
             ml_scenario=ml_scenario,
         )
     elif builder_func == build_meta_features_v6:
+        feat, _ = builder_func(
+            evidence=row,
+            indicators=row,
+            runtime_snap=None,
+            runtime_prev_snap=None,
+            indicators_with_v4=row,
+            legs=row,
+            have=have,
+            need=need,
+            ok_soft=ok_soft,
+            rule_score=rule_score,
+            exec_risk_norm=exec_risk_norm,
+            exec_risk_bps=exec_risk_bps,
+            ml_scenario=ml_scenario,
+        )
+    elif builder_func.__name__ in (
+        "build_meta_features_v7",
+        "build_meta_features_v8",
+        "build_meta_features_v9",
+        "build_meta_features_v10",
+    ):
+        # v7..v10 are pass-through builders: (evidence, indicators, **kwargs).
+        # They consume `indicators_with_v4`/`runtime_snap` etc. when available
+        # but tolerate absence — for parquet rows we just pass the row twice.
         feat, _ = builder_func(
             evidence=row,
             indicators=row,

@@ -53,6 +53,7 @@ try:
         ml_confirm_enforce_share,
         ml_confirm_errors_total,
         ml_confirm_events_total,
+        ml_confirm_fallback_total,
         ml_confirm_latency_seconds,
         ml_confirm_model_load_seconds,
         ml_confirm_model_loaded,
@@ -74,6 +75,7 @@ except Exception:
     ml_confirm_events_total = ml_confirm_errors_total = ml_confirm_cfg_present = \
     ml_confirm_cfg_valid = ml_confirm_enforce_share = ml_confirm_model_loaded = \
     ml_confirm_model_load_seconds = ml_confirm_latency_seconds = ml_missing_critical_total = \
+    ml_confirm_fallback_total = \
     lambda *args, **kwargs: _MockMetric()
 
 try:
@@ -925,6 +927,9 @@ class MLConfirmGate:
                 h = self.r.hgetall(self._cfg_hash_key)
                 if h and isinstance(h, dict) and len(h) > 0:
                     cfg_dict = self._coerce_hash_cfg(h)
+                    if METRICS_REGISTRY_AVAILABLE:
+                        with contextlib.suppress(Exception):
+                            ml_confirm_fallback_total.labels(kind="unknown", reason="hash_fallback").inc()  # type: ignore[union-attr]
                     self._cfg_source = "hash_fallback"
                     self._cfg_key_used = self._cfg_hash_key
                     # Represent as JSON for the cache/metrics
@@ -1060,6 +1065,9 @@ class MLConfirmGate:
                 h = await redis_async.hgetall(self._cfg_hash_key)
                 if h and isinstance(h, dict) and len(h) > 0:
                      cfg_dict = self._coerce_hash_cfg(h)
+                     if METRICS_REGISTRY_AVAILABLE:
+                         with contextlib.suppress(Exception):
+                             ml_confirm_fallback_total.labels(kind="unknown", reason="hash_fallback").inc()  # type: ignore[union-attr]
                      self._cfg_source = "hash_fallback"
                      self._cfg_key_used = self._cfg_hash_key
                      raw_payload = json.dumps(cfg_dict, ensure_ascii=False, separators=(",", ":")).encode("utf-8")

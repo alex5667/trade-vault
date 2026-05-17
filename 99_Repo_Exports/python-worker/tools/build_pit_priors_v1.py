@@ -139,16 +139,37 @@ def build_pit_priors(
         n = len(samples)
         if n == 0:
             continue
-        winrate = sum(s[0] for s in samples) / n
+        wins = [s for s in samples if s[0] == 1.0]
+        losses = [s for s in samples if s[0] == 0.0]
+        winrate = len(wins) / n
         ev_r = sum(s[1] for s in samples) / n
         oldest = min(s[2] for s in samples)
         newest = max(s[2] for s in samples)
+        sl_hit_rate = len(losses) / n  # = 1 - winrate, explicit for training
+
+        # profit_factor: gross_profit / gross_loss (>1 = positive expectancy)
+        gross_profit = sum(s[1] for s in wins)
+        gross_loss = abs(sum(s[1] for s in losses))
+        profit_factor = gross_profit / gross_loss if gross_loss > 1e-8 else (10.0 if gross_profit > 0 else 0.0)
+
+        # r_multiple spread stats (robust; model sees consistency)
+        r_vals = [s[1] for s in samples]
+        r_mean = ev_r
+        r_var = sum((r - r_mean) ** 2 for r in r_vals) / n
+        r_std = r_var ** 0.5
+        r_sorted = sorted(r_vals)
+        ev_r_median = r_sorted[n // 2]
+
         out[key] = {
             "winrate": winrate,
             "ev_r": ev_r,
+            "ev_r_median": ev_r_median,
             "sample_count": float(n),
             "oldest_ts_ms": float(oldest),
             "newest_ts_ms": float(newest),
+            "sl_hit_rate": sl_hit_rate,
+            "profit_factor": profit_factor,
+            "r_std": r_std,
         }
     return out
 

@@ -60,7 +60,7 @@ class AdverseOutcome:
 @dataclass
 class AdverseGateCalibResult:
     """Result of a single per-symbol adverse gate calibration evaluation."""
-    symbol=""
+    symbol: str = ""
     window_h: int = 24
 
     # Sample counts

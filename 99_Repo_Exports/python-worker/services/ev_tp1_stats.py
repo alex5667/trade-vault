@@ -214,21 +214,27 @@ def attach_tp1_hit_prob_to_ctx(
 ) -> None:
     """
     Attach TP1 hit probability to context for EV gate evaluation.
-    
-    Sets ctx.p_hit_tp1 if probability data is available.
+
+    Sets ctx.tp1_hit_prob and ctx.tp1_hit_n — field names matched to
+    EdgeCostGate._ev_bps() which reads getattr(ctx, "tp1_hit_prob") and
+    getattr(ctx, "tp1_hit_n").
     """
+    if not cfg.enabled or redis_client is None:
+        return
     regime = extract_regime_label_from_ctx(ctx)
-    p_hit = get_tp1_hit_prob(
-        redis_client,
-        kind=kind,
-        symbol=symbol,
-        tf=tf,
-        regime=regime,
-        cfg=cfg,
-    )
-    if p_hit is not None:
+    k = _key(kind, symbol, tf, regime)
+    try:
+        data = redis_client.hmget(k, "ema_tp1", "total_trades")
+        ema_raw, n_raw = data[0], data[1]
+        if ema_raw is None:
+            return
+        p_hit = max(0.0, min(1.0, float(ema_raw)))
+        n = int(n_raw) if n_raw is not None else 0
         with contextlib.suppress(Exception):
-            ctx.p_hit_tp1 = float(p_hit)
+            ctx.tp1_hit_prob = p_hit
+            ctx.tp1_hit_n = n
+    except Exception:
+        return
 
 
 class RedisEvTp1StatsProvider:

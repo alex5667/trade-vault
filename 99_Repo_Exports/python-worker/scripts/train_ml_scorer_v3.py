@@ -96,6 +96,28 @@ def _sha256_16(items: Sequence[str]) -> str:
     return hashlib.sha256(payload).hexdigest()[:16]
 
 
+def _get_schema_hash(schema_ver: str) -> str:
+    """Return SCHEMA_HASH from the named schema module (fail-open → 'unknown')."""
+    import importlib
+    _ver_to_module = {
+        "v5_of": "core.ml_feature_schema_v5_of",
+        "v5": "core.ml_feature_schema_v5_of",
+        "v4_of": "core.ml_feature_schema_v4_of",
+        "v4": "core.ml_feature_schema_v4_of",
+        "v12_of": "core.ml_feature_schema_v12_of",
+        "v14_of": "core.ml_feature_schema_v14_of",
+        "v11_of": "core.ml_feature_schema_v11_of",
+    }
+    mod_name = _ver_to_module.get(schema_ver)
+    if not mod_name:
+        return "unknown"
+    try:
+        mod = importlib.import_module(mod_name)
+        return str(getattr(mod, "SCHEMA_HASH", "unknown"))
+    except Exception:
+        return "unknown"
+
+
 def _median(xs: Sequence[float]) -> float:
     ys = sorted(x for x in xs)
     n = len(ys)
@@ -680,6 +702,17 @@ def main() -> int:
     parser.add_argument("--n_splits", type=int, default=5)
     parser.add_argument("--purge_ms", type=int, default=300_000)
     parser.add_argument("--embargo_ms", type=int, default=120_000)
+    # ADR-0007: cross-validation embargo MUST be >= PIT priors embargo,
+    # otherwise priors used as features could leak into validation folds.
+    parser.add_argument(
+        "--pit_embargo_ms", type=int,
+        default=int(os.getenv("PIT_EMBARGO_MS", "3600000") or 3_600_000),
+        help="ADR-0007 PIT priors embargo. CV embargo_ms must be >= this value if priors features are used.",
+    )
+    parser.add_argument(
+        "--require_pit_embargo_coherence", action="store_true",
+        help="Fail-loud if --embargo_ms < --pit_embargo_ms (recommended when training with prior_* features).",
+    )
     parser.add_argument("--winsorize_sigma", type=float, default=3.0)
     parser.add_argument(
         "--feature_schema_ver",
@@ -694,6 +727,26 @@ def main() -> int:
         help="1 = send Telegram approval request after training, 0 = auto-promote/reject by champion comparison (default)",
     )
     args = parser.parse_args()
+
+    # ADR-0007 leakage guard: when training with prior_* features, the CV embargo
+    # must be at least as long as the PIT priors embargo. Otherwise validation
+    # folds may receive prior aggregates that include same-period outcomes.
+    if args.require_pit_embargo_coherence and args.embargo_ms < args.pit_embargo_ms:
+        logger.error(
+            "ADR-0007 leakage guard FAILED: --embargo_ms=%d < --pit_embargo_ms=%d. "
+            "When PIT priors are used as features, training CV embargo must be "
+            ">= PIT embargo to prevent prior_* leakage into validation folds. "
+            "Either raise --embargo_ms to %d or drop the --require_pit_embargo_coherence flag.",
+            args.embargo_ms, args.pit_embargo_ms, args.pit_embargo_ms,
+        )
+        return 1
+    if args.embargo_ms < args.pit_embargo_ms:
+        logger.warning(
+            "CV embargo_ms=%d < pit_embargo_ms=%d. If training data contains "
+            "prior_* features, validation may have label leakage. Consider "
+            "passing --require_pit_embargo_coherence to enforce.",
+            args.embargo_ms, args.pit_embargo_ms,
+        )
 
     if lgb is None:
         logger.error("lightgbm not installed.")
@@ -774,9 +827,26 @@ def main() -> int:
         logger.error("ROC-AUC too low (%.2f < 0.50). Model not saved.", metrics["roc_auc_oof"])
         return 1
 
-    # 9. Calibrator (predicted_R → conf01)
+    # 9. Calibrator — separate time-ordered split: first 70% → fit, last 30% → eval.
+    # Prevents calibration-set leakage when calibrator and metrics share the same OOF pool.
     oof_mask = np.isfinite(oof_preds)
-    calibrator = _build_r_to_conf01_isotonic(y[oof_mask], oof_preds[oof_mask])
+    oof_ts_arr = np.array([ts_ms[i] for i in range(len(ts_ms)) if oof_mask[i]])
+    oof_y_arr = y[oof_mask]
+    oof_p_arr = oof_preds[oof_mask]
+    _cal_order = np.argsort(oof_ts_arr)
+    _n_cal = max(10, int(len(oof_y_arr) * 0.70))
+    _cal_idx = _cal_order[:_n_cal]
+    _cal_eval_idx = _cal_order[_n_cal:]
+    calibrator = _build_r_to_conf01_isotonic(oof_y_arr[_cal_idx], oof_p_arr[_cal_idx])
+    # Brier on held-out calibration-eval slice (30%)
+    if len(_cal_eval_idx) >= 10 and calibrator is not None:
+        try:
+            _ce_proba = np.array(calibrator.predict(oof_p_arr[_cal_eval_idx]), dtype=np.float64)
+            _ce_y = (oof_y_arr[_cal_eval_idx] > 0).astype(np.float64)
+            metrics["calibration_eval_brier"] = float(np.mean((_ce_y - _ce_proba) ** 2))
+            metrics["calibration_eval_n"] = int(len(_cal_eval_idx))
+        except Exception:
+            pass
 
     # Section 8 prod-checklist guard: model.n_features_in_ must match
     # len(feature_names) — otherwise the saved artifact will fail-closed
@@ -789,15 +859,25 @@ def main() -> int:
         )
 
     # 10. Package and save as CANDIDATE (not yet promoted)
+    # Feature importance (LightGBM gain — no extra deps)
+    _fi_gain: dict[str, float] = {}
+    try:
+        _imp = model.feature_importance(importance_type="gain")
+        _fi_gain = dict(sorted(zip(feature_names, _imp.tolist()), key=lambda kv: -kv[1]))
+    except Exception:
+        pass
+
     out_pack: dict[str, Any] = {
         "schema_version": "v3_unified",
         "kind": "ml_scorer_v3",
         "model": model,
         "feature_names": feature_names,
         "feature_cols_hash": _sha256_16(feature_names),
-        "feature_schema_ver": "v3_unified",
+        "feature_schema_ver": args.feature_schema_ver,
+        "schema_hash": _get_schema_hash(args.feature_schema_ver),
         "robust_scaler_params": scaler_params,
         "calibrator": calibrator,  # IsotonicRegression or None
+        "feature_importance_gain": _fi_gain,
         "metrics": metrics,
         "trained_at_ms": get_ny_time_millis(),
         "n_samples": len(X),

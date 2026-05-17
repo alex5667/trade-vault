@@ -110,16 +110,31 @@ def main():
         json.dump(report, f, indent=2)
 
     try:
-        r = redis.from_url(args.redis_url)
-        # Publish metrics summary
-        r.set("metrics:strategy_research_guard:last", json.dumps(report["metrics"]))
-        # Publish blocker state
-        blocker_state = {
-            "blocker_active": report["blocker_active"],
-            "reason": report["reason"],
-            "report_only": report["report_only"]
+        r = redis.from_url(args.redis_url, decode_responses=True)
+        now_ms = int(time.time() * 1000)
+        summary_key = "metrics:strategy_research_guard:last"
+        blocker_key = os.getenv("STRATEGY_RESEARCH_GUARD_BLOCKER_KEY", "cfg:research_guard:blocker:v1")
+
+        # Write summary as Redis hash — consumed by state exporter (HGETALL) and calibrator (HGETALL)
+        summary_fields: dict[str, str] = {
+            k: str(v) for k, v in report["metrics"].items()
         }
-        r.set(os.getenv("STRATEGY_RESEARCH_GUARD_BLOCKER_KEY", "cfg:research_guard:blocker:v1"), json.dumps(blocker_state))
+        summary_fields.update({
+            "updated_ts_ms": str(now_ms),
+            "ts_ms": str(now_ms),
+            "success": "1",
+        })
+        r.hset(summary_key, mapping=summary_fields)
+
+        # Write blocker as Redis hash — consumed by evaluate_research_guard_gate (HGETALL)
+        blocker_fields: dict[str, str] = {
+            "blocked": "1" if report["blocker_active"] else "0",
+            "blocker_active": "1" if report["blocker_active"] else "0",
+            "reason": report["reason"],
+            "report_only": str(report["report_only"]),
+            "updated_ts_ms": str(now_ms),
+        }
+        r.hset(blocker_key, mapping=blocker_fields)
         print("Successfully published research guard state to Redis.")
     except Exception as e:
         print(f"Failed to publish to redis: {e}")

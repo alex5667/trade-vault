@@ -22,7 +22,7 @@ from dataclasses import dataclass
 
 from core.ml_feature_schema_v4_of import MLFeatureSchemaV4OF
 
-SCHEMA_HASH = "2db5bda868a6"  # Phase 7.6: +LOB velocity (8 slopes); Phase 7.7: +fill-queue lite (5 features)
+SCHEMA_HASH = "c3e1a7f29d50"  # Phase 4.10: +11 rolling PIT priors (266 num + 34 bool = 300 total)
 
 
 
@@ -153,6 +153,18 @@ class MLFeatureSchemaV5OF(MLFeatureSchemaV4OF):
             "book_gap_ms",
 
             # ---------------------------------------------------------------
+            # [Phase 4.9] DQ rolling window features — 1-minute sliding window.
+            # Computed from _DQ_ROLLING_CACHE (cold start ⇒ 0.0).
+            # ---------------------------------------------------------------
+            "tick_lag_p95_1m",        # p95 tick-to-ingest lag over last 60s (ms)
+            "tick_reorder_rate_1m",   # fraction of out-of-order ticks over 60s
+            "tick_dedupe_rate_1m",    # fraction of duplicate-ts ticks over 60s
+            "tick_gap_count_1m",      # count of gap events (>500ms) over 60s
+            "bad_time_streak",        # consecutive bad-time ticks ending at now
+            "book_update_rate_hz",    # EMA of book update rate (Hz); 0 = unknown
+            "book_staleness_z",       # robust z-score of book update rate
+
+            # ---------------------------------------------------------------
             # [Phase 7.4] Gate trace — derived diagnostics from rule engine
             # ---------------------------------------------------------------
             # rule_have_need_gap: have - need (negative = below threshold)
@@ -175,6 +187,14 @@ class MLFeatureSchemaV5OF(MLFeatureSchemaV4OF):
             "depth_imbalance_5_delta_3s",
             "spread_widen_velocity_bps_s",  # 1s window, clamped ≥ 0
             "fill_prob_decay_slope",        # 1s window, signed
+            # [Phase 4.4] Additional LOB dynamics from ring buffer
+            "obi_stability_decay",          # 1/(1+std(obi_3s)); 1.0=stable
+            "book_churn_delta_1s",          # |Δobi| + |Δdepth_imb5| per sec
+            "book_churn_z",                 # robust z-score of book_churn_delta_1s
+            "spread_mean_revert_score",     # (mean_spread-now)/mean ∈ [-1,1]
+            # microprice shift velocity/acceleration (via _LOB_MICRO_CACHE)
+            "micro_mid_shift_vel_bps_s",    # velocity of microprice shift, bps/s
+            "micro_mid_shift_accel_bps_s2", # acceleration of microprice shift, bps/s²
 
             # ---------------------------------------------------------------
             # [Phase 7.7] Fill-queue (lite) — one-shot from existing depth_*
@@ -188,6 +208,11 @@ class MLFeatureSchemaV5OF(MLFeatureSchemaV4OF):
             "depth_to_taker_rate_ratio",
             # maker_fill_vs_taker_cost_edge: fill_prob_proxy * tp1_bps - exec_cost
             "maker_fill_vs_taker_cost_edge",
+            # fill_prob_Xs: fill probability at fixed max-wait horizons 1s/3s/5s
+            # (same formula as fill_prob_proxy but with max_wait_s pinned)
+            "fill_prob_1s",
+            "fill_prob_3s",
+            "fill_prob_5s",
 
             # ---------------------------------------------------------------
             # [Phase 7.8] Cross-context hydration — sourced from ADR-0005/06/07
@@ -197,12 +222,22 @@ class MLFeatureSchemaV5OF(MLFeatureSchemaV4OF):
             "btc_ret_30s", "btc_ret_1m", "btc_ret_5m",
             "eth_ret_30s", "eth_ret_1m", "eth_ret_5m",
             "rel_ret_1m_vs_btc", "rel_ret_5m_vs_btc",
+            # ADR-0006 extended cross-context features
+            "leader_confidence",          # BTC+ETH direction sign consistency ∈ [-1,1]
+            "market_risk_on_score",       # avg(btc_ret_1m, eth_ret_1m) composite
+            "rel_ofi_ml_norm_btc",        # (target_ofi - btc_ofi_1m) / (|btc_ofi_1m| + eps)
+            "rel_lob_micro_shift_bps_btc",# target_mps_1m - btc_mps_1m (bps)
 
-            # ADR-0007 PIT priors
+            # ADR-0007 PIT priors (extended: +profit_factor, sl_hit_rate, r_std, ev_r_median)
             "prior_winrate_symbol_kind_session",
             "prior_ev_r_symbol_kind_session",
-            "prior_sample_count_log",  # log1p of sample_count to compress scale
+            "prior_ev_r_median",          # median R-multiple (robust central tendency)
+            "prior_sample_count_log",     # log1p of sample_count to compress scale
             "prior_age_ms",
+            "prior_stale_ms",             # raw staleness ms (numeric; prior_stale bool kept for compat)
+            "prior_profit_factor",        # gross_profit / gross_loss; >1 = positive EV
+            "prior_sl_hit_rate",          # LOSS / (WIN+LOSS); explicit for training
+            "prior_r_std",                # std of R-multiples (consistency metric)
 
             # ADR-0005 TCA EMA priors
             "tca_eff_spread_bps_ema",
@@ -213,6 +248,200 @@ class MLFeatureSchemaV5OF(MLFeatureSchemaV4OF):
             "tca_is_bps_ema",
             "tca_samples",
             "tca_stale_ms",
+            # ADR-0005 p95 percentiles — rolling p95 over last 500 fills per bucket
+            "spread_p95_bps_symbol_kind_session",   # p95 of eff_spread_bps
+            "slippage_p95_bps_symbol_kind_session",  # p95 of is_bps (impl. shortfall)
+
+            # ---------------------------------------------------------------
+            # [Phase 7.9] Derivatives context — funding / OI / liquidations /
+            # basis / long-short ratio / market breadth from existing
+            # `ctx:deriv:{symbol}` snapshot. Lag-guard: DERIV_CTX_MAX_LAG_MS=60000.
+            # ---------------------------------------------------------------
+            "funding_rate",
+            "funding_rate_z",
+            "oi_notional_usd",
+            "oi_delta_5m", "oi_delta_1m", "oi_accel",
+            "basis_bps",
+            "premium_index_bps",
+            "basis_pressure_score",
+            "liq_long_notional_1m", "liq_short_notional_1m",
+            "liq_long_notional_5m", "liq_short_notional_5m",
+            "liq_imbalance_1m", "liq_imbalance_5m", "liq_imbalance_z",
+            "long_short_ratio", "long_short_ratio_z",
+            "leader_btc_eth_confirm",
+            "leader_direction_conflict",
+            "sector_breadth_ret_24h",
+            "sector_breadth_vol_z",
+            # fraction of tracked USDT futures with positive 1-min return (~1Hz WS)
+            "sector_breadth_1m",
+
+            # ---------------------------------------------------------------
+            # [Phase 8.1] Composite derivative scores — derived from same
+            # ctx:deriv:{symbol} snapshot, no new infra. See of_confirm_engine.py
+            # Phase 7.9b block. Fail-open: 0.0 when _deriv_stale.
+            # ---------------------------------------------------------------
+            "taker_buy_sell_imbalance",
+            "taker_buy_sell_ratio",    # buy/sell volume ratio (>1 = buy dominates)
+            "taker_buy_sell_ratio_z",  # robust z-score of ratio over history
+            "force_order_imbalance_1m",
+            "force_order_long_notional_1m",   # liq buy-side notional USD (alias liq_long_notional_1m)
+            "force_order_short_notional_1m",  # liq sell-side notional USD
+            "force_order_cluster_score",      # directional liq imbalance × log1p(total/1M)
+            "oi_confirmation_score",   # sign(oi_delta_5m)*sign(funding_rate_z)
+            "squeeze_risk_score",      # |funding_z|*|ls_z| when both>1.5, cap 25
+            "liq_impulse_score",       # |liq_imbalance_z| when >2.0
+            "top_trader_long_short_ratio",    # Binance top-trader position L/S
+            "futures_crowding_score",         # funding_z × ls_z / 9, clipped ±3
+
+            # ---------------------------------------------------------------
+            # [Phase 8.1] Live market breadth — from runtime:breadth HASH
+            # (binance_miniticker_breadth_ws, updated ~1Hz). Lag-guard:
+            # BREADTH_MAX_LAG_MS default 10000.
+            # ---------------------------------------------------------------
+            "market_breadth_ret_24h",
+            "market_breadth_vol_z",
+            "btc_leader_ret_breadth",
+            "eth_leader_ret_breadth",
+            "breadth_leader_confirm",
+
+            # ---------------------------------------------------------------
+            # [Phase 8.1] Deribit vol-regime context — from ctx:deribit:global
+            # (deribit_scheduler, ~60s). Lag-guard: DERIBIT_MAX_LAG_MS=120000.
+            # ---------------------------------------------------------------
+            "deribit_btc_iv_proxy",
+            "deribit_eth_iv_proxy",
+            "deribit_btc_iv_z",
+            "deribit_eth_iv_z",
+            "deribit_btc_funding_8h",
+            "deribit_eth_funding_8h",
+            "deribit_vol_regime_code",  # normal=0, elevated=1, extreme=2
+
+            # ---------------------------------------------------------------
+            # [Phase 8.1] Sentiment — from ctx:sentiment:global (Fear&Greed
+            # daily). Lag-guard: SENTIMENT_MAX_LAG_MS=7200000 (2h).
+            # ---------------------------------------------------------------
+            "fear_greed_index",
+
+            # ---------------------------------------------------------------
+            # [Phase 8.2] Cyclical time encoding + news gate
+            # hour_sin/cos/dow_sin/cos replace one-hot session flags with
+            # continuous cyclical encoding (no artificial midnight/day boundary).
+            # news_blackout = float(news_gate_veto): 1.0 when news blackout
+            # is active, sourced from indicators["news_gate_veto"].
+            # ---------------------------------------------------------------
+            "hour_sin",
+            "hour_cos",
+            "dow_sin",
+            "dow_cos",
+            "news_blackout",
+
+            # ---------------------------------------------------------------
+            # [Phase 8.4] Hawkes/VPIN process features — from ctx:hawkes:{symbol}
+            # HASH written by of_hawkes_vpin_v1.py. Stale-guard: HAWKES_MAX_LAG_MS=30000.
+            # ---------------------------------------------------------------
+            "hawkes_dt_s",
+            "hawkes_taker_buy_lam",
+            "hawkes_taker_sell_lam",
+            "hawkes_cancel_bid_lam",
+            "hawkes_cancel_ask_lam",
+            "hawkes_limit_add_lam",
+            "hawkes_taker_lam",
+            "hawkes_cancel_lam",
+            "hawkes_churn_lam",
+            "added_bid_rate_ema",
+            "added_ask_rate_ema",
+            "added_total_rate_ema",
+            "vpin_tox_ema",
+            "vpin_tox_z",
+            "hawkes_S_taker_buy",    # state 0/1 (Hawkes S-process: buying pressure)
+            "hawkes_S_taker_sell",
+            "hawkes_S_cancel_bid",
+            "hawkes_S_cancel_ask",
+            "hawkes_S_limit_add",
+
+            # ---------------------------------------------------------------
+            # [Phase 8.4] Hawkes derived composites
+            # ---------------------------------------------------------------
+            "hawkes_buy_sell_lam_ratio",   # taker_buy_lam / taker_sell_lam (clamped)
+            "hawkes_cancel_imbalance",     # (cancel_bid - cancel_ask) / (sum+eps)
+
+            # ---------------------------------------------------------------
+            # [Phase 8.4] OI delta and premium z-scores (from v3 deriv snapshot)
+            # ---------------------------------------------------------------
+            "oi_delta_z",         # robust z-score of oi_delta_1m over history
+            "premium_index_z",    # robust z-score of premium_index over history
+
+            # ---------------------------------------------------------------
+            # [Phase 8.4] 5-min breadth, news remaining, queue alias
+            # ---------------------------------------------------------------
+            "sector_breadth_5m",     # 5-min rolling market breadth (runtime:breadth HASH)
+            "news_until_ms_norm",    # remaining blackout normalised to [0,1] over 30m
+
+            # queue_ahead_qty_5: alias of queue_ahead_qty_l5 for stable schema key
+            "queue_ahead_qty_5",
+
+            # ---------------------------------------------------------------
+            # [Phase 8.4] Gate trace — interpretability features
+            # ---------------------------------------------------------------
+            "of_confirm_scenario",       # scenario int: trend=1,range=2,reversal=3,chop=4,breakout=5
+            "of_confirm_reason_group",   # gate result: PASS=1,NEAR_PASS=2,HARD_FAIL=3
+            "strong_need",               # bool-as-float: strong_need mode active
+            "strong_have",               # have count when strong_need active, else 0
+
+            # ---------------------------------------------------------------
+            # [Phase 8.5] Gate trace completeness + ATR age
+            # ---------------------------------------------------------------
+            "rule_have",        # explicit alias of 'have' for schema stability
+            "rule_need",        # explicit alias of 'need' for schema stability
+            "have_need_ratio",  # have/need; ∞→0 when need=0
+            "atr_age_ms",       # ATR staleness in ms (complements atr_fresh bool)
+
+            # ---------------------------------------------------------------
+            # [Phase 4.10] Rolling PIT priors — 7d/30d from pit_priors_rolling_v1.
+            # Written by orderflow_services/pit_priors_rolling_v1.py (hourly).
+            # Embargo: 1h. Fail-open: 0.0 / neutral defaults when service cold.
+            # ---------------------------------------------------------------
+            # 7d cross-session (pit_priors:rolling:7d:{sym}:{kind}:all)
+            "prior_winrate_symbol_kind_7d",         # winrate last 7d (all sessions)
+            "prior_ev_r_symbol_kind_7d",            # EV/R last 7d
+            "prior_profit_factor_symbol_kind_7d",   # gross_profit / gross_loss, 7d
+            "prior_sl_hit_rate_symbol_kind_7d",     # SL hit fraction, 7d
+            "prior_tp1_hit_rate_symbol_kind_7d",    # TP1 hit fraction on winners, 7d
+            "prior_samples_symbol_kind_7d",         # log1p(sample_count_7d)
+            # 7d session-specific (pit_priors:rolling:7d:{sym}:{kind}:{session})
+            "prior_winrate_symbol_kind_session_7d", # winrate in current session, 7d
+            # 30d MAE/MFE/giveback (pit_priors:rolling:30d:{sym}:{kind}:all)
+            "prior_median_mae_r_winners_30d",       # median MAE/R on winning trades, 30d
+            "prior_p90_mae_r_winners_30d",          # p90 MAE/R on winning trades, 30d
+            "prior_median_mfe_r_30d",               # median MFE/R all trades, 30d
+            "prior_giveback_p75_30d",               # p75 giveback (mfe_r - r) on winners, 30d
+
+            # ---------------------------------------------------------------
+            # [Phase 4.5] VPIN rolling windows + Hawkes limit_add bid/ask split
+            # Written by of_hawkes_vpin_v1.py into ctx:hawkes:{symbol} HASH.
+            # ---------------------------------------------------------------
+            "vpin_tox_1m",              # 1-min rolling mean VPIN toxicity
+            "vpin_tox_5m",              # 5-min rolling mean VPIN toxicity
+            "vpin_tox_slope",           # VPIN slope (tox_1m - tox_5m)
+            "hawkes_limit_add_bid_lam", # Hawkes intensity: bid-side limit adds
+            "hawkes_limit_add_ask_lam", # Hawkes intensity: ask-side limit adds
+            "hawkes_limit_add_imbalance",  # (bid_lam - ask_lam) / (sum + eps)
+
+            # ---------------------------------------------------------------
+            # [Phase 4.6] Cross-symbol sector aggregation (in-process cache).
+            # Median of oi_delta_z / OBI across all symbols in same worker.
+            # ---------------------------------------------------------------
+            "sector_delta_z_median",   # median oi_delta_z across active symbols
+            "sector_obi_median",       # median OBI across active symbols
+
+            # ---------------------------------------------------------------
+            # [Phase 4.7] Liq heatmap aliases — derived from liqmap_5m_* features.
+            # Source: liqmap_features_v1 computed from liqmap:snapshot:{symbol}:5m.
+            # ---------------------------------------------------------------
+            "liq_cluster_dist_above_bps",  # distance to nearest short-liq cluster (bps up)
+            "liq_cluster_dist_below_bps",  # distance to nearest long-liq cluster (bps dn)
+            "liq_heatmap_density_above",   # log1p(near_short_usd / 1M)
+            "liq_heatmap_density_below",   # log1p(near_long_usd / 1M)
         ]
 
         extra_bool: list[str] = [
@@ -227,8 +456,13 @@ class MLFeatureSchemaV5OF(MLFeatureSchemaV4OF):
             "session_europe",
             "session_us",
             "weekend_flag",
+            # Phase 6: EU/US overlap window 13-16 UTC
+            "session_overlap_eu_us",
             # Phase 7.8: ADR-0007 PIT prior staleness flag
             "prior_stale",
+            # Phase 8.1: Fear&Greed regime flags
+            "fear_greed_regime_extreme_fear",   # index < 25
+            "fear_greed_regime_extreme_greed",  # index > 75
         ]
         # Note: cvd_quarantine_active is already in v4_of bool_keys — no need to re-add.
 

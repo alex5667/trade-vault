@@ -21,6 +21,139 @@ _LOB_VELOCITY_MAX_LEN = 256
 _LOB_VELOCITY_WINDOWS_MS = (1_000, 3_000)  # 1s, 3s
 _LOB_VELOCITY_CACHE: dict[str, deque[tuple[int, float, float, float, float, float]]] = {}
 
+# Phase 7.6b: micro cache for mid-price / churn dynamics.
+# Format: (ts_ms, microprice_shift_bps)
+_LOB_MICRO_CACHE: dict[str, deque[tuple[int, float]]] = {}
+
+# Phase 4.6: cross-symbol sector aggregation for sector_delta_z_median / sector_obi_median.
+# Format: symbol → (wall_time_s, oi_delta_z, obi)
+# Updated on each signal; stale entries (> 60s) excluded from median.
+_SECTOR_CROSS_CACHE: dict[str, tuple[float, float, float]] = {}
+_SECTOR_CROSS_MAX_AGE_S: float = 60.0
+
+# Phase 4.9: per-symbol DQ rolling window state.
+# Format: (ts_ms, lag_ms, is_reorder, is_dedupe, is_gap, is_bad_time)
+_DQ_ROLLING_CACHE: dict[str, deque[tuple[int, float, int, int, int, int]]] = {}
+_DQ_LAST_TS: dict[str, int] = {}  # last tick ts_ms per symbol for gap/reorder detection
+_DQ_ROLLING_MAX_LEN = 512
+_DQ_WINDOW_MS = 60_000  # 1-minute rolling window for DQ features
+_DQ_GAP_THRESHOLD_MS = 500  # gap > 500ms = gap event
+
+# ──────────────────────────────────────────────────────────────────────────
+# Redis context read-through cache.
+# Prevents multiple synchronous Redis calls per tick — callers hit the cache
+# and Redis is queried at most once every REDIS_CTX_CACHE_TTL_S seconds.
+# Format: cache_key → (wall_time_s, raw_bytes_dict)
+# ──────────────────────────────────────────────────────────────────────────
+_REDIS_CTX_CACHE: dict[str, tuple[float, dict]] = {}
+_REDIS_CTX_TTL_S: float = float(os.getenv("REDIS_CTX_CACHE_TTL_S", "5.0"))
+
+
+def _ctx_hgetall(client: Any, key: str, ttl_s: float | None = None) -> dict:
+    """Return cached hgetall(key); refresh from Redis at most every ttl_s seconds."""
+    if client is None:
+        return {}
+    _ttl = _REDIS_CTX_TTL_S if ttl_s is None else ttl_s
+    entry = _REDIS_CTX_CACHE.get(key)
+    now_s = time.monotonic()
+    if entry is not None and now_s - entry[0] < _ttl:
+        return entry[1] if isinstance(entry[1], dict) else {}
+    try:
+        raw: dict = client.hgetall(key) or {}
+        _REDIS_CTX_CACHE[key] = (now_s, raw)
+        return raw
+    except Exception:
+        return (entry[1] if isinstance(entry[1], dict) else {}) if entry is not None else {}
+
+
+def _ctx_get(client: Any, key: str, ttl_s: float | None = None) -> Any:
+    """Return cached get(key); refresh from Redis at most every ttl_s seconds."""
+    if client is None:
+        return None
+    _ttl = _REDIS_CTX_TTL_S if ttl_s is None else ttl_s
+    entry = _REDIS_CTX_CACHE.get(key)
+    now_s = time.monotonic()
+    if entry is not None and now_s - entry[0] < _ttl:
+        return entry[1]
+    try:
+        raw = client.get(key)
+        _REDIS_CTX_CACHE[key] = (now_s, raw)
+        return raw
+    except Exception:
+        return entry[1] if entry is not None else None
+
+
+def _ext_ctx_track(source: str, stale: bool, ts_ms: float, now_ms: float) -> None:
+    """Increment unified external context monitoring metrics. Best-effort, never raises."""
+    try:
+        from services.orderflow.metrics import (
+            external_ctx_age_ms,
+            external_ctx_read_ok_total,
+            external_ctx_stale_total,
+        )
+        if stale:
+            external_ctx_stale_total.labels(source=source).inc()
+        else:
+            external_ctx_read_ok_total.labels(source=source).inc()
+            if ts_ms > 0:
+                external_ctx_age_ms.labels(source=source).set(max(0.0, now_ms - ts_ms))
+    except Exception:
+        pass
+
+
+def _dq_compute(
+    symbol: str,
+    now_ms: int,
+    *,
+    lag_ms: float,
+    last_ts_ms: int,
+) -> dict[str, float]:
+    """Append DQ sample and compute rolling DQ features over last 60s."""
+    is_reorder = 1 if now_ms < last_ts_ms else 0
+    is_dedupe = 1 if now_ms == last_ts_ms else 0
+    gap_ms = now_ms - last_ts_ms if last_ts_ms > 0 else 0
+    is_gap = 1 if gap_ms > _DQ_GAP_THRESHOLD_MS else 0
+    # bad_time: future skew > 1s or stale > 5s
+    is_bad_time = 1 if (lag_ms < -1_000 or lag_ms > 5_000) else 0
+
+    buf = _DQ_ROLLING_CACHE.get(symbol)
+    if buf is None:
+        buf = deque(maxlen=_DQ_ROLLING_MAX_LEN)
+        _DQ_ROLLING_CACHE[symbol] = buf
+    buf.append((now_ms, lag_ms, is_reorder, is_dedupe, is_gap, is_bad_time))
+
+    cutoff = now_ms - _DQ_WINDOW_MS
+    window = [s for s in buf if s[0] >= cutoff]
+    n = len(window)
+
+    out: dict[str, float] = {
+        "tick_lag_p95_1m": 0.0,
+        "tick_reorder_rate_1m": 0.0,
+        "tick_dedupe_rate_1m": 0.0,
+        "tick_gap_count_1m": 0.0,
+        "bad_time_streak": 0.0,
+    }
+    if n == 0:
+        return out
+
+    lags = sorted(s[1] for s in window)
+    p95_idx = min(len(lags) - 1, int(0.95 * len(lags)))
+    out["tick_lag_p95_1m"] = lags[p95_idx]
+    out["tick_reorder_rate_1m"] = sum(s[2] for s in window) / n
+    out["tick_dedupe_rate_1m"] = sum(s[3] for s in window) / n
+    out["tick_gap_count_1m"] = float(sum(s[4] for s in window))
+
+    # bad_time_streak: consecutive bad-time ticks ending now (from tail of buf)
+    streak = 0
+    for s in reversed(list(buf)):
+        if s[5] == 1:
+            streak += 1
+        else:
+            break
+    out["bad_time_streak"] = float(streak)
+
+    return out
+
 
 def _lob_velocity_compute(
     symbol: str,
@@ -52,6 +185,11 @@ def _lob_velocity_compute(
         "depth_imbalance_5_delta_3s": 0.0,
         "spread_widen_velocity_bps_s": 0.0,
         "fill_prob_decay_slope": 0.0,
+        # Phase 4.4: additional LOB dynamics
+        "obi_stability_decay": 1.0,
+        "book_churn_delta_1s": 0.0,
+        "book_churn_z": 0.0,
+        "spread_mean_revert_score": 0.0,
     }
 
     if len(buf) < 2:
@@ -59,7 +197,6 @@ def _lob_velocity_compute(
 
     for window_ms in _LOB_VELOCITY_WINDOWS_MS:
         cutoff_ms = now_ms - window_ms
-        # Find the oldest sample within the window.
         anchor: tuple[int, float, float, float, float, float] | None = None
         for sample in buf:
             if sample[0] >= cutoff_ms:
@@ -75,6 +212,84 @@ def _lob_velocity_compute(
         if window_ms == 1_000:
             out["spread_widen_velocity_bps_s"] = max(0.0, (spread_bps - anchor[4]) / dt_s)
             out["fill_prob_decay_slope"] = (fill_prob_proxy - anchor[5]) / dt_s
+            # book_churn_delta_1s: total LOB flux = |Δobi| + |Δdepth_imb5| per second
+            out["book_churn_delta_1s"] = (abs(obi - anchor[1]) + abs(depth_imbalance_5 - anchor[3])) / dt_s
+
+    # obi_stability_decay: stability of OBI over 3s window (1 = perfectly stable)
+    window_obis = [s[1] for s in buf if s[0] >= now_ms - 3_000]
+    if len(window_obis) >= 2:
+        _obi_mean = sum(window_obis) / len(window_obis)
+        _obi_var = sum((x - _obi_mean) ** 2 for x in window_obis) / len(window_obis)
+        _obi_std = _obi_var ** 0.5
+        out["obi_stability_decay"] = 1.0 / (1.0 + _obi_std)
+
+        # book_churn_z: robust z-score of churn relative to buffer history
+        _churn_vals = [
+            abs(buf[i][1] - buf[i - 1][1]) + abs(buf[i][3] - buf[i - 1][3])
+            for i in range(1, len(buf))
+        ]
+        if _churn_vals:
+            _churn_sorted = sorted(_churn_vals)
+            _med = _churn_sorted[len(_churn_sorted) // 2]
+            _devs = sorted(abs(c - _med) for c in _churn_vals)
+            _mad = _devs[len(_devs) // 2] or 1e-8
+            _churn_cur = out["book_churn_delta_1s"]
+            out["book_churn_z"] = (_churn_cur - _med) / (1.4826 * _mad)
+
+    # spread_mean_revert_score: (spread_mean - spread_now) / spread_mean ∈ [-1, 1]
+    window_spreads = [s[4] for s in buf if s[0] >= now_ms - 3_000]
+    if window_spreads:
+        _sp_mean = sum(window_spreads) / len(window_spreads)
+        if _sp_mean > 1e-8:
+            _revert = (_sp_mean - spread_bps) / _sp_mean
+            out["spread_mean_revert_score"] = max(-1.0, min(1.0, _revert))
+
+    return out
+
+
+def _lob_micro_compute(
+    symbol: str,
+    now_ms: int,
+    *,
+    microprice_shift_bps: float,
+) -> dict[str, float]:
+    """Track microprice shift over time; compute velocity and acceleration."""
+    buf = _LOB_MICRO_CACHE.get(symbol)
+    if buf is None:
+        buf = deque(maxlen=_LOB_VELOCITY_MAX_LEN)
+        _LOB_MICRO_CACHE[symbol] = buf
+    buf.append((now_ms, microprice_shift_bps))
+
+    out: dict[str, float] = {
+        "micro_mid_shift_vel_bps_s": 0.0,
+        "micro_mid_shift_accel_bps_s2": 0.0,
+    }
+    if len(buf) < 2:
+        return out
+
+    # velocity: slope over 1s window
+    cutoff_1s = now_ms - 1_000
+    anchor_1s: tuple[int, float] | None = None
+    for sample in buf:
+        if sample[0] >= cutoff_1s:
+            anchor_1s = sample
+            break
+    if anchor_1s is not None and anchor_1s[0] != now_ms:
+        dt_s = max(1e-3, (now_ms - anchor_1s[0]) / 1000.0)
+        vel = (microprice_shift_bps - anchor_1s[1]) / dt_s
+        out["micro_mid_shift_vel_bps_s"] = vel
+
+        # acceleration: compare current velocity to previous velocity
+        cutoff_2s = now_ms - 2_000
+        anchor_2s: tuple[int, float] | None = None
+        for sample in buf:
+            if sample[0] >= cutoff_2s:
+                anchor_2s = sample
+                break
+        if anchor_2s is not None and anchor_2s[0] != anchor_1s[0]:
+            dt_prev = max(1e-3, (anchor_1s[0] - anchor_2s[0]) / 1000.0)
+            prev_vel = (anchor_1s[1] - anchor_2s[1]) / dt_prev
+            out["micro_mid_shift_accel_bps_s2"] = (vel - prev_vel) / dt_s
 
     return out
 
@@ -466,6 +681,7 @@ class OFConfirmEngine:
     GATE_BIT_TAKER_FLOW = 1 << 26
     GATE_BIT_LIQMAP = 1 << 25
     GATE_BIT_NEWS = 1 << 24
+    GATE_BIT_SMT = 1 << 23  # G6: SMT coherence gate had state and evaluated
 
     # --- Golden replay: runtime snapshot (minimal set of fields engine reads) ---
     RUNTIME_SNAPSHOT_VERSION: int = 1
@@ -526,6 +742,27 @@ class OFConfirmEngine:
         self._ofc_ctx_loader = None
         self._ofc_ctx_bundle = None
         self._ofc_ctx_last_check_ms = 0
+
+        # Sync redis clients for Phase 7.8/7.9/8.1 context reads.
+        # Split across two instances by writer:
+        #   - worker-1 (REDIS_URL): ctx:deriv:* (Python deriv-ctx-collector), ctx:anchor:*,
+        #                           ctx:pit:*, ctx:tca:* (cross-context aggregator).
+        #   - main `redis` (CTX_MAIN_REDIS_URL): runtime:breadth, ctx:deribit:global,
+        #                           ctx:sentiment:global (Go-worker marketdata schedulers).
+        # Without these clients all populate blocks skip → fail-open 0.0 → train/serve skew.
+        # Fail-open: any init error → None, populate keeps skipping.
+        self._redis_client = None
+        self._redis_client_main = None
+        try:
+            import os as _os
+            import redis as _redis
+            _url = _os.environ.get("REDIS_URL", "redis://redis-worker-1:6379/0")
+            self._redis_client = _redis.from_url(_url, socket_timeout=2.0, socket_connect_timeout=2.0)
+            _main_url = _os.environ.get("CTX_MAIN_REDIS_URL", "redis://redis:6379/0")
+            self._redis_client_main = _redis.from_url(_main_url, socket_timeout=2.0, socket_connect_timeout=2.0)
+        except Exception:
+            self._redis_client = None
+            self._redis_client_main = None
 
     @property
     def ml_gate(self) -> Any | None:
@@ -1007,6 +1244,8 @@ class OFConfirmEngine:
 
         # --- Data health gate (stricter than book_ok) ---
         # If overall data_health is low, we fail-closed ONLY for evidences that depend on book/time.
+        # Note: book_evidence_allowed (written by apply_book_evidence_policy) is an ML feature only;
+        # this gate re-evaluates independently via data_health + book_health_ok → data_health_veto_book_evidence.
         try:
             dh = float(indicators.get("data_health", 1.0) or 1.0)
         except Exception:
@@ -1560,6 +1799,19 @@ class OFConfirmEngine:
             indicators["fill_prob_p_base"] = float(fp["p_base"])
             indicators["fill_prob_p_wait"] = float(fp["p_wait"])
 
+            # fixed-horizon fill probability variants (Phase 8.2)
+            _fp_kw = dict(
+                direction=direction,
+                cancel_to_trade_bid=float(indicators.get("cancel_to_trade_bid", 0.0) or 0.0),
+                cancel_to_trade_ask=float(indicators.get("cancel_to_trade_ask", 0.0) or 0.0),
+                eta_fill_bid_sec=float(indicators.get("eta_fill_bid_sec", 0.0) or 0.0),
+                eta_fill_ask_sec=float(indicators.get("eta_fill_ask_sec", 0.0) or 0.0),
+            )
+            for _hw in (1.0, 3.0, 5.0):
+                with contextlib.suppress(Exception):
+                    _fph = compute_fill_prob_proxy(**_fp_kw, max_wait_s=_hw)
+                    indicators[f"fill_prob_{int(_hw)}s"] = _fph["fill_prob_proxy"]
+
             w_fill = float(cfg.get("exec_fill_pen_w", 0.20) or 0.20)
             exec_fill_pen = w_fill * (1.0 - float(fp["fill_prob_proxy"]))
             indicators["exec_fill_pen"] = float(exec_fill_pen)
@@ -1641,6 +1893,24 @@ class OFConfirmEngine:
         # NEW (2026-02-12): Decoupled scoring for ML/Meta analysis
 
         # --- Burst / Hawkes Gate (derived from indicators) ---
+        # Hydrate burst gate inputs from runtime (not yet in indicators at this stage).
+        try:
+            indicators.setdefault("book_churn_score", float(getattr(runtime, "book_churn_score", 0.0) or 0.0))
+            indicators.setdefault("book_rate_z", float(getattr(runtime, "book_rate_z", 0.0) or 0.0))
+            indicators.setdefault("pressure_sps", float(getattr(runtime, "pressure_sps", 0.0) or 0.0))
+            _hs = getattr(runtime, "hawkes_snapshot", None)
+            if isinstance(_hs, dict):
+                indicators.setdefault("hawkes_trade_lam", float(_hs.get("hawkes_taker_lam", 0.0) or 0.0))
+                indicators.setdefault("hawkes_cancel_lam", float(_hs.get("hawkes_cancel_lam", 0.0) or 0.0))
+                indicators.setdefault("hawkes_combined_lam", float(_hs.get("hawkes_churn_lam", _hs.get("hawkes_taker_lam", 0.0)) or 0.0))
+            _l3 = getattr(runtime, "l3_stats", None)
+            if _l3 is not None:
+                indicators.setdefault("taker_rate_ema",
+                    float(getattr(_l3, "taker_buy_rate_ema", 0.0) or 0.0) + float(getattr(_l3, "taker_sell_rate_ema", 0.0) or 0.0))
+                indicators.setdefault("cancel_rate_ema",
+                    float(getattr(_l3, "cancel_bid_rate_ema", 0.0) or 0.0) + float(getattr(_l3, "cancel_ask_rate_ema", 0.0) or 0.0))
+        except Exception:
+            pass
         burst_pen, burst_veto, burst_reason, burst_snap = eval_burst_gate(indicators, cfg2)
 
         # --- P2d: Liquidity Pressure Gate (Queue Imbalance + Multi-level OFI) ---
@@ -1852,7 +2122,9 @@ class OFConfirmEngine:
             from common.news_gate import NewsGate
             _ng = getattr(self, "_news_gate", None)
             if _ng is None:
-                self._news_gate = NewsGate(redis_client=None)
+                # Use main Redis: news:hi:active + calendar:agg:crypto live on main redis
+                _ng_redis = getattr(self, "_redis_client_main", None) or getattr(self, "_redis_client", None)
+                self._news_gate = NewsGate(redis_client=_ng_redis)
                 _ng = self._news_gate
 
             ndec = _ng.decide(
@@ -1997,7 +2269,10 @@ class OFConfirmEngine:
             indicators["dq_policy_hash"] = str(dq_hash)
 
             # Bind meta-schema + cols ordering to policy via manifest.
-            meta_name = (cfg2.get(MetaKeys.SCHEMA_NAME, "meta_feat_v8"))
+            # Cols MUST come from the *active* schema, not a hardcoded fallback —
+            # otherwise the manifest hash silently diverges from served features
+            # for any schema other than v8, breaking Train==Serve parity.
+            meta_name = str(cfg2.get(MetaKeys.SCHEMA_NAME, "meta_feat_v8"))
             reg = globals().get("META_SCHEMA_REGISTRY", {})
             ver, h = (0, "")
             try:
@@ -2005,7 +2280,15 @@ class OFConfirmEngine:
             except Exception:
                 ver, h = (0, "")
 
-            cols = tuple(globals().get("META_FEAT_V8_COLS", ()))
+            try:
+                from core.meta_schema_registry import get_schema_cols as _get_schema_cols
+                cols = tuple(_get_schema_cols(meta_name))
+            except Exception:
+                cols = ()
+            if not cols:
+                # Last-resort fallback when the active schema is unknown:
+                # use legacy v8 cols so we never publish an empty-cols manifest.
+                cols = tuple(globals().get("META_FEAT_V8_COLS", ()))
             man, man_hash = build_feature_manifest_v1(
                 meta_schema_name=meta_name,
                 meta_schema_version=int(ver),
@@ -2814,7 +3097,8 @@ class OFConfirmEngine:
 
             # Enrich indicators passed to ML gate for deterministic replay/dataset alignment
             try:
-                sb = evidence.get('score_breakdown', {}) if isinstance(evidence, dict) else {}
+                _sb_raw = indicators_with_v4.get('score_breakdown')
+                sb = _sb_raw if isinstance(_sb_raw, dict) else {}
                 sb_small = {
                     'agg': (sb.get('agg', '')) ,
                     'raw_sum': float(sb.get('raw_sum', 0.0) or 0.0),
@@ -2899,6 +3183,42 @@ class OFConfirmEngine:
 
             if scenario_v4:
                 indicators_with_v4["scenario_v4"] = str(scenario_v4)
+
+            # Phase 8.4: gate trace features — scenario code, pass/fail group, strong-need state.
+            try:
+                _scn_code_map = {
+                    "trend": 1, "continuation": 1,
+                    "range": 2, "range_meanrev": 2,
+                    "reversal": 3,
+                    "chop": 4, "saw_chop_spoof_proxy": 4,
+                    "breakout": 5, "vol_shock_news_proxy": 5,
+                }
+                indicators_with_v4.setdefault(
+                    "of_confirm_scenario",
+                    float(_scn_code_map.get(str(scenario_v4 or "").lower(), 0)),
+                )
+                _ok_v = int(ok)
+                _have_v = int(have)
+                _need_v = int(need)
+                _rg = 1 if _ok_v else (2 if _have_v >= max(1, _need_v - 1) else 3)
+                indicators_with_v4.setdefault("of_confirm_reason_group", float(_rg))
+                _sn = bool(
+                    int(cfg2.get("strong_need_reversal", 0) or 0)
+                    or int(cfg2.get("strong_need_continuation", 0) or 0)
+                )
+                indicators_with_v4.setdefault("strong_need", float(1 if _sn else 0))
+                indicators_with_v4.setdefault("strong_have", float(_have_v) if _sn else 0.0)
+                # 4.11: explicit rule_have / rule_need aliases (have/need already in dict
+                # but under short names; schema uses rule_* for clarity)
+                indicators_with_v4.setdefault("rule_have", float(_have_v))
+                indicators_with_v4.setdefault("rule_need", float(_need_v))
+            except Exception:
+                indicators_with_v4.setdefault("of_confirm_scenario", 0.0)
+                indicators_with_v4.setdefault("of_confirm_reason_group", 0.0)
+                indicators_with_v4.setdefault("strong_need", 0.0)
+                indicators_with_v4.setdefault("strong_have", 0.0)
+                indicators_with_v4.setdefault("rule_have", 0.0)
+                indicators_with_v4.setdefault("rule_need", 0.0)
 
             # ------------------------------------------------------------------
             # Phase 2.3B: feature alias bridge for v5 serving path.
@@ -3181,6 +3501,40 @@ class OFConfirmEngine:
                 indicators_with_v4.setdefault("cvd_quarantine_active", False)
 
             # ------------------------------------------------------------------
+            # Phase 4.9: DQ rolling window features — 1-minute sliding window.
+            # Uses module-level _DQ_ROLLING_CACHE + _DQ_LAST_TS keyed by symbol.
+            # Cold start (< 2 samples): all features default to 0.0.
+            # Also adds book_update_rate_hz and book_staleness_z from existing gauges.
+            # ------------------------------------------------------------------
+            try:
+                _dq_now_ms = now_ts
+                _dq_lag = indicators_with_v4.get("tick_lag_ms") or 0.0
+                _dq_last = _DQ_LAST_TS.get(symbol, 0)
+                _dq_result = _dq_compute(
+                    symbol=symbol,
+                    now_ms=_dq_now_ms,
+                    lag_ms=_dq_lag,
+                    last_ts_ms=_dq_last,
+                )
+                _DQ_LAST_TS[symbol] = _dq_now_ms
+                for _dqk, _dqv in _dq_result.items():
+                    indicators_with_v4.setdefault(_dqk, _dqv)
+                # book_update_rate_hz from existing indicator (set by book microstructure)
+                _book_hz = float(indicators_with_v4.get("book_rate_hz") or
+                                 indicators.get("book_rate_ema_hz") or 0.0)
+                indicators_with_v4.setdefault("book_update_rate_hz", _book_hz)
+                # book_staleness_z from existing robust z-score of book update rate
+                _book_z = indicators_with_v4.get("book_rate_z") or 0.0
+                indicators_with_v4.setdefault("book_staleness_z", _book_z)
+            except Exception:
+                for _dqk in (
+                    "tick_lag_p95_1m", "tick_reorder_rate_1m",
+                    "tick_dedupe_rate_1m", "tick_gap_count_1m",
+                    "bad_time_streak", "book_update_rate_hz", "book_staleness_z",
+                ):
+                    indicators_with_v4.setdefault(_dqk, 0.0)
+
+            # ------------------------------------------------------------------
             # Phase 7.3: ATR freshness — atr_fresh ∈ {True, False}.
             # True iff atr_age_ms is positive AND below ATR_FRESH_MS threshold.
             # Default 60s — 4x ATRCache TTL gives margin for irregular updates.
@@ -3194,8 +3548,10 @@ class OFConfirmEngine:
                 )
                 _atr_fresh = bool(_atr_age > 0.0 and _atr_age < _atr_fresh_ms)
                 indicators_with_v4.setdefault("atr_fresh", _atr_fresh)
+                indicators_with_v4.setdefault("atr_age_ms", _atr_age)
             except Exception:
                 indicators_with_v4.setdefault("atr_fresh", False)
+                indicators_with_v4.setdefault("atr_age_ms", 0.0)
 
             # ------------------------------------------------------------------
             # Phase 7.4: Gate trace — derived from local have/need/missing/ok_soft.
@@ -3223,25 +3579,53 @@ class OFConfirmEngine:
                 indicators_with_v4.setdefault("gate_pressure_score", 0.0)
 
             # ------------------------------------------------------------------
-            # Phase 7.5: Session / weekend flags — derived from existing hour_utc/dow.
+            # Phase 7.5: Session / weekend flags + cyclical time encoding.
             # Session ranges in UTC (intentionally overlapping):
             #   Asia    00:00..08:00
             #   Europe  07:00..16:00
             #   US      13:00..22:00
             # weekend_flag: Sat(5) or Sun(6).
+            # ctx_hour_utc / ctx_dow are set by build() at line ~2134; hour_utc
+            # and dow live only in ctx_features, not in indicators_with_v4.
             # ------------------------------------------------------------------
             try:
-                _h = float(indicators_with_v4.get("hour_utc") or 0.0)
-                _d = float(indicators_with_v4.get("dow") or 0.0)
+                _h = float(indicators_with_v4.get("ctx_hour_utc") or 0.0)
+                _d = float(indicators_with_v4.get("ctx_dow") or 0.0)
                 indicators_with_v4.setdefault("session_asia", bool(0.0 <= _h < 8.0))
                 indicators_with_v4.setdefault("session_europe", bool(7.0 <= _h < 16.0))
                 indicators_with_v4.setdefault("session_us", bool(13.0 <= _h < 22.0))
                 indicators_with_v4.setdefault("weekend_flag", bool(_d >= 5.0))
+                # EU/US overlap window: 13:00–16:00 UTC (highest liquidity, tight spreads)
+                indicators_with_v4.setdefault("session_overlap_eu_us", 13.0 <= _h < 16.0)
+                # Phase 8.2: cyclical encoding avoids artificial midnight/day boundary
+                _h_ang = 2.0 * math.pi * _h / 24.0
+                _d_ang = 2.0 * math.pi * _d / 7.0
+                indicators_with_v4.setdefault("hour_sin", math.sin(_h_ang))
+                indicators_with_v4.setdefault("hour_cos", math.cos(_h_ang))
+                indicators_with_v4.setdefault("dow_sin", math.sin(_d_ang))
+                indicators_with_v4.setdefault("dow_cos", math.cos(_d_ang))
             except Exception:
                 indicators_with_v4.setdefault("session_asia", False)
                 indicators_with_v4.setdefault("session_europe", False)
                 indicators_with_v4.setdefault("session_us", False)
                 indicators_with_v4.setdefault("weekend_flag", False)
+                indicators_with_v4.setdefault("session_overlap_eu_us", False)
+                for _tf in ("hour_sin", "hour_cos", "dow_sin", "dow_cos"):
+                    indicators_with_v4.setdefault(_tf, 0.0)
+
+            # Phase 8.2: news_blackout — float 0/1 from news_gate_veto (set in build() ~line 2056)
+            indicators_with_v4.setdefault(
+                "news_blackout",
+                float(indicators_with_v4.get("news_gate_veto") or 0),
+            )
+
+            # Phase 8.2: fixed-horizon fill probability — fail-open mirror from indicators.
+            # Computed earlier at the fill_prob_proxy block (~line 1807); setdefault here
+            # guards against the outer try-except swallowing that block on rare failures.
+            for _fh_key in ("fill_prob_1s", "fill_prob_3s", "fill_prob_5s"):
+                indicators_with_v4.setdefault(
+                    _fh_key, float(indicators.get(_fh_key) or 0.0)
+                )
 
             # ------------------------------------------------------------------
             # Phase 7.6: LOB velocity — slopes over 1s/3s rolling windows.
@@ -3260,12 +3644,25 @@ class OFConfirmEngine:
                 )
                 for _vk, _vv in _velocity.items():
                     indicators_with_v4.setdefault(_vk, _vv)
+                # Phase 4.4: micro mid-shift velocity/acceleration
+                _micro = _lob_micro_compute(
+                    symbol=symbol,
+                    now_ms=int(now_ts),
+                    microprice_shift_bps=float(
+                        indicators_with_v4.get("l3_microprice_shift_bps_20") or 0.0
+                    ),
+                )
+                for _mk, _mv in _micro.items():
+                    indicators_with_v4.setdefault(_mk, _mv)
             except Exception:
                 for _vk in (
                     "obi_slope_1s", "obi_slope_3s",
                     "qimb_slope_1s", "qimb_slope_3s",
                     "depth_imbalance_5_delta_1s", "depth_imbalance_5_delta_3s",
                     "spread_widen_velocity_bps_s", "fill_prob_decay_slope",
+                    "obi_stability_decay", "book_churn_delta_1s", "book_churn_z",
+                    "spread_mean_revert_score",
+                    "micro_mid_shift_vel_bps_s", "micro_mid_shift_accel_bps_s2",
                 ):
                     indicators_with_v4.setdefault(_vk, 0.0)
 
@@ -3284,29 +3681,76 @@ class OFConfirmEngine:
                     _key = f"ctx:anchor:{_short}:returns"
                     _data = {}
                     try:
-                        if hasattr(self, "_redis_client") and self._redis_client is not None:  # type: ignore[attr-defined]
-                            _raw = self._redis_client.hgetall(_key)  # type: ignore[attr-defined]
-                            _data = {
-                                (k.decode() if isinstance(k, (bytes, bytearray)) else str(k)):
-                                (v.decode() if isinstance(v, (bytes, bytearray)) else str(v))
-                                for k, v in (_raw or {}).items()
-                            }
+                        _raw = _ctx_hgetall(self._redis_client, _key)  # type: ignore[attr-defined]
+                        _data = {
+                            (k.decode() if isinstance(k, (bytes, bytearray)) else str(k)):
+                            (v.decode() if isinstance(v, (bytes, bytearray)) else str(v))
+                            for k, v in (_raw or {}).items()
+                        }
                     except Exception:
                         _data = {}
                     _hash_ts = float(_data.get("ts_ms") or 0.0)
                     _stale = (_now_ms_local - _hash_ts) > _max_lag_ms if _hash_ts > 0 else True
+                    if _stale:
+                        try:
+                            from services.orderflow.metrics import ml_feature_stale_total
+                            ml_feature_stale_total.labels(feature=f"{_short}_ret", symbol=symbol).inc()
+                        except Exception:
+                            pass
                     for _w in ("30s", "1m", "5m"):
                         _fname = f"{_short}_ret_{_w}"
                         _val = 0.0 if _stale else float(_data.get(f"ret_{_w}") or 0.0)
                         indicators_with_v4.setdefault(_fname, _val)
 
                 # rel_ret_*_vs_btc = ret_target_window - btc_ret_window
-                # Approximation: target's price changes already in indicators (vol_fast_bps proxy)
-                # TODO(ADR-0006): wire target-symbol returns when available
                 _btc_1m = float(indicators_with_v4.get("btc_ret_1m") or 0.0)
                 _btc_5m = float(indicators_with_v4.get("btc_ret_5m") or 0.0)
+                _eth_1m = float(indicators_with_v4.get("eth_ret_1m") or 0.0)
                 indicators_with_v4.setdefault("rel_ret_1m_vs_btc", -_btc_1m)  # placeholder
                 indicators_with_v4.setdefault("rel_ret_5m_vs_btc", -_btc_5m)  # placeholder
+
+                # --- ADR-0006 extended: leader_confidence + market_risk_on ---
+                # leader_confidence: direction consistency of BTC+ETH over 30s/1m/5m windows
+                _btc_30s = float(indicators_with_v4.get("btc_ret_30s") or 0.0)
+                _eth_30s = float(indicators_with_v4.get("eth_ret_30s") or 0.0)
+                _eth_5m = float(indicators_with_v4.get("eth_ret_5m") or 0.0)
+                _btc_signs = [math.copysign(1, r) if abs(r) > 1e-8 else 0.0 for r in (_btc_30s, _btc_1m, _btc_5m)]
+                _eth_signs = [math.copysign(1, r) if abs(r) > 1e-8 else 0.0 for r in (_eth_30s, _eth_1m, _eth_5m)]
+                _all_signs = _btc_signs + _eth_signs
+                _n_signs = len(_all_signs)
+                _lc = sum(_all_signs) / _n_signs if _n_signs else 0.0  # ∈ [-1, 1]
+                indicators_with_v4.setdefault("leader_confidence", _lc)
+
+                # market_risk_on_score: composite anchor return (BTC+ETH average over 1m)
+                _risk_on = (_btc_1m + _eth_1m) / 2.0
+                indicators_with_v4.setdefault("market_risk_on_score", _risk_on)
+
+                # rel_ofi_ml_norm_btc: target OFI normalized vs BTC OFI from aggregator
+                _btc_ofi_1m = 0.0
+                _btc_mps_1m = 0.0
+                try:
+                    _raw_btc = _ctx_hgetall(self._redis_client, "ctx:anchor:btc:returns")  # type: ignore[attr-defined]
+                    _btc_hash = {
+                        (k.decode() if isinstance(k, (bytes, bytearray)) else str(k)):
+                        (v.decode() if isinstance(v, (bytes, bytearray)) else str(v))
+                        for k, v in (_raw_btc or {}).items()
+                    }
+                    _btc_ofi_1m = float(_btc_hash.get("ofi_1m_ema") or 0.0)
+                    _btc_mps_1m = float(_btc_hash.get("microprice_shift_1m_ema") or 0.0)
+                except Exception:
+                    pass
+                _target_ofi = float(indicators_with_v4.get("ofi_imbalance_fast") or
+                                    indicators_with_v4.get("l3_ofi_5") or 0.0)
+                _target_mps = float(indicators_with_v4.get("l3_microprice_shift_bps_20") or 0.0)
+                _eps = 1e-8
+                indicators_with_v4.setdefault(
+                    "rel_ofi_ml_norm_btc",
+                    (_target_ofi - _btc_ofi_1m) / (abs(_btc_ofi_1m) + _eps),
+                )
+                indicators_with_v4.setdefault(
+                    "rel_lob_micro_shift_bps_btc",
+                    _target_mps - _btc_mps_1m,
+                )
 
                 # --- ADR-0007: PIT historical priors ---
                 _kind_label = str(scenario or indicators.get("ml_scenario") or "default")
@@ -3317,26 +3761,20 @@ class OFConfirmEngine:
                 )
                 _latest_ptr = ""
                 try:
-                    if hasattr(self, "_redis_client") and self._redis_client is not None:  # type: ignore[attr-defined]
-                        _raw_ptr = self._redis_client.get(  # type: ignore[attr-defined]
-                            f"pit_priors:latest:{symbol}:{_kind_label}:{_session_label}"
-                        )
-                        _latest_ptr = (_raw_ptr.decode() if isinstance(_raw_ptr, (bytes, bytearray)) else str(_raw_ptr or ""))
+                    _raw_ptr = _ctx_get(self._redis_client, f"pit_priors:latest:{symbol}:{_kind_label}:{_session_label}")  # type: ignore[attr-defined]
+                    _latest_ptr = (_raw_ptr.decode() if isinstance(_raw_ptr, (bytes, bytearray)) else str(_raw_ptr or ""))
                 except Exception:
                     _latest_ptr = ""
 
                 _pit_data: dict[str, str] = {}
                 if _latest_ptr:
                     try:
-                        if hasattr(self, "_redis_client") and self._redis_client is not None:  # type: ignore[attr-defined]
-                            _raw_pit = self._redis_client.hgetall(  # type: ignore[attr-defined]
-                                f"pit_priors:{symbol}:{_kind_label}:{_session_label}:{_latest_ptr}"
-                            )
-                            _pit_data = {
-                                (k.decode() if isinstance(k, (bytes, bytearray)) else str(k)):
-                                (v.decode() if isinstance(v, (bytes, bytearray)) else str(v))
-                                for k, v in (_raw_pit or {}).items()
-                            }
+                        _raw_pit = _ctx_hgetall(self._redis_client, f"pit_priors:{symbol}:{_kind_label}:{_session_label}:{_latest_ptr}")  # type: ignore[attr-defined]
+                        _pit_data = {
+                            (k.decode() if isinstance(k, (bytes, bytearray)) else str(k)):
+                            (v.decode() if isinstance(v, (bytes, bytearray)) else str(v))
+                            for k, v in (_raw_pit or {}).items()
+                        }
                     except Exception:
                         _pit_data = {}
                 _pit_samples = float(_pit_data.get("sample_count") or 0.0)
@@ -3344,29 +3782,119 @@ class OFConfirmEngine:
                 if _pit_samples >= _pit_min:
                     indicators_with_v4.setdefault("prior_winrate_symbol_kind_session", float(_pit_data.get("winrate") or 0.0))
                     indicators_with_v4.setdefault("prior_ev_r_symbol_kind_session", float(_pit_data.get("ev_r") or 0.0))
+                    indicators_with_v4.setdefault("prior_ev_r_median", float(_pit_data.get("ev_r_median") or 0.0))
                     indicators_with_v4.setdefault("prior_sample_count_log", math.log1p(_pit_samples))
                     _pit_age_ms = float(_now_ms_local - float(_pit_data.get("newest_ts_ms") or 0.0))
                     indicators_with_v4.setdefault("prior_age_ms", max(0.0, _pit_age_ms))
+                    indicators_with_v4.setdefault("prior_stale_ms", max(0.0, _pit_age_ms))
                     indicators_with_v4.setdefault("prior_stale", _pit_age_ms > float(os.getenv("PIT_PRIOR_STALE_MS", "86400000") or "86400000"))
+                    indicators_with_v4.setdefault("prior_profit_factor", float(_pit_data.get("profit_factor") or 1.0))
+                    indicators_with_v4.setdefault("prior_sl_hit_rate", float(_pit_data.get("sl_hit_rate") or 0.5))
+                    indicators_with_v4.setdefault("prior_r_std", float(_pit_data.get("r_std") or 0.0))
                 else:
                     indicators_with_v4.setdefault("prior_winrate_symbol_kind_session", 0.0)
                     indicators_with_v4.setdefault("prior_ev_r_symbol_kind_session", 0.0)
+                    indicators_with_v4.setdefault("prior_ev_r_median", 0.0)
                     indicators_with_v4.setdefault("prior_sample_count_log", 0.0)
                     indicators_with_v4.setdefault("prior_age_ms", 0.0)
+                    indicators_with_v4.setdefault("prior_stale_ms", 0.0)
                     indicators_with_v4.setdefault("prior_stale", True)
+                    indicators_with_v4.setdefault("prior_profit_factor", 1.0)
+                    indicators_with_v4.setdefault("prior_sl_hit_rate", 0.5)
+                    indicators_with_v4.setdefault("prior_r_std", 0.0)
+
+                # --- Rolling 7d/30d priors (pit_priors_rolling_v1) ---
+                # Keys: pit_priors:rolling:{7d|30d}:{symbol}:{kind}:{session|all}
+                # Fail-open: all new keys → 0.0 when service not yet populated.
+                _ROLLING_PRIOR_7D_KEYS = (
+                    "prior_winrate_symbol_kind_7d",
+                    "prior_ev_r_symbol_kind_7d",
+                    "prior_profit_factor_symbol_kind_7d",
+                    "prior_sl_hit_rate_symbol_kind_7d",
+                    "prior_tp1_hit_rate_symbol_kind_7d",
+                    "prior_samples_symbol_kind_7d",
+                )
+                _ROLLING_PRIOR_7D_SESS_KEYS = (
+                    "prior_winrate_symbol_kind_session_7d",
+                )
+                _ROLLING_PRIOR_30D_KEYS = (
+                    "prior_median_mae_r_winners_30d",
+                    "prior_p90_mae_r_winners_30d",
+                    "prior_median_mfe_r_30d",
+                    "prior_giveback_p75_30d",
+                )
+                try:
+                    # Rolling priors: try scenario-specific first; if not enough samples,
+                    # fall back to "default" kind alias (writes the full symbol's history).
+                    # Per-scenario buckets often <20 samples for small-volume symbols.
+                    def _hg_decode(raw: Any) -> dict[str, str]:
+                        return {
+                            (k.decode() if isinstance(k, (bytes, bytearray)) else str(k)):
+                            (v.decode() if isinstance(v, (bytes, bytearray)) else str(v))
+                            for k, v in (raw or {}).items()
+                        }
+                    _pit_min_r_lookup = float(os.getenv("PIT_ROLLING_MIN_SAMPLES", "20") or "20")
+                    _r7a_raw = _ctx_hgetall(self._redis_client, f"pit_priors:rolling:7d:{symbol}:{_kind_label}:all")  # type: ignore[attr-defined]
+                    _r7a: dict[str, str] = _hg_decode(_r7a_raw)
+                    if float(_r7a.get("sample_count") or 0.0) < _pit_min_r_lookup and _kind_label != "default":
+                        _r7a_raw = _ctx_hgetall(self._redis_client, f"pit_priors:rolling:7d:{symbol}:default:all")  # type: ignore[attr-defined]
+                        _r7a = _hg_decode(_r7a_raw)
+                    _r7s_raw = _ctx_hgetall(self._redis_client, f"pit_priors:rolling:7d:{symbol}:{_kind_label}:{_session_label}")  # type: ignore[attr-defined]
+                    _r7s: dict[str, str] = _hg_decode(_r7s_raw)
+                    if float(_r7s.get("sample_count") or 0.0) < _pit_min_r_lookup and _kind_label != "default":
+                        _r7s_raw = _ctx_hgetall(self._redis_client, f"pit_priors:rolling:7d:{symbol}:default:{_session_label}")  # type: ignore[attr-defined]
+                        _r7s = _hg_decode(_r7s_raw)
+                    _r30_raw = _ctx_hgetall(self._redis_client, f"pit_priors:rolling:30d:{symbol}:{_kind_label}:all")  # type: ignore[attr-defined]
+                    _r30: dict[str, str] = _hg_decode(_r30_raw)
+                    if float(_r30.get("sample_count") or 0.0) < _pit_min_r_lookup and _kind_label != "default":
+                        _r30_raw = _ctx_hgetall(self._redis_client, f"pit_priors:rolling:30d:{symbol}:default:all")  # type: ignore[attr-defined]
+                        _r30 = _hg_decode(_r30_raw)
+                    _r7a_n = float(_r7a.get("sample_count") or 0.0)
+                    _r7s_n = float(_r7s.get("sample_count") or 0.0)
+                    _r30_n = float(_r30.get("sample_count") or 0.0)
+                    _pit_min_r = float(os.getenv("PIT_ROLLING_MIN_SAMPLES", "20") or "20")
+
+                    if _r7a_n >= _pit_min_r:
+                        indicators_with_v4.setdefault("prior_winrate_symbol_kind_7d", float(_r7a.get("winrate") or 0.0))
+                        indicators_with_v4.setdefault("prior_ev_r_symbol_kind_7d", float(_r7a.get("ev_r") or 0.0))
+                        indicators_with_v4.setdefault("prior_profit_factor_symbol_kind_7d", float(_r7a.get("profit_factor") or 1.0))
+                        indicators_with_v4.setdefault("prior_sl_hit_rate_symbol_kind_7d", float(_r7a.get("sl_hit_rate") or 0.5))
+                        indicators_with_v4.setdefault("prior_tp1_hit_rate_symbol_kind_7d", float(_r7a.get("tp1_hit_rate") or 0.0))
+                        indicators_with_v4.setdefault("prior_samples_symbol_kind_7d", math.log1p(_r7a_n))
+                    else:
+                        for _rk in _ROLLING_PRIOR_7D_KEYS:
+                            indicators_with_v4.setdefault(_rk, 0.0)
+                        indicators_with_v4.setdefault("prior_profit_factor_symbol_kind_7d", 1.0)
+                        indicators_with_v4.setdefault("prior_sl_hit_rate_symbol_kind_7d", 0.5)
+
+                    indicators_with_v4.setdefault(
+                        "prior_winrate_symbol_kind_session_7d",
+                        float(_r7s.get("winrate") or 0.0) if _r7s_n >= _pit_min_r else 0.0,
+                    )
+
+                    if _r30_n >= _pit_min_r:
+                        indicators_with_v4.setdefault("prior_median_mae_r_winners_30d", float(_r30.get("median_mae_r_winners") or 0.0))
+                        indicators_with_v4.setdefault("prior_p90_mae_r_winners_30d", float(_r30.get("p90_mae_r_winners") or 0.0))
+                        indicators_with_v4.setdefault("prior_median_mfe_r_30d", float(_r30.get("median_mfe_r") or 0.0))
+                        indicators_with_v4.setdefault("prior_giveback_p75_30d", float(_r30.get("giveback_p75") or 0.0))
+                    else:
+                        for _rk in _ROLLING_PRIOR_30D_KEYS:
+                            indicators_with_v4.setdefault(_rk, 0.0)
+                except Exception:
+                    for _rk in _ROLLING_PRIOR_7D_KEYS + _ROLLING_PRIOR_7D_SESS_KEYS + _ROLLING_PRIOR_30D_KEYS:
+                        indicators_with_v4.setdefault(_rk, 0.0)
+                    indicators_with_v4.setdefault("prior_profit_factor_symbol_kind_7d", 1.0)
+                    indicators_with_v4.setdefault("prior_sl_hit_rate_symbol_kind_7d", 0.5)
 
                 # --- ADR-0005: TCA EMA priors ---
                 _tca_data: dict[str, str] = {}
                 try:
-                    if hasattr(self, "_redis_client") and self._redis_client is not None:  # type: ignore[attr-defined]
-                        _raw_tca = self._redis_client.hgetall(  # type: ignore[attr-defined]
-                            f"tca:ema:{symbol}:{_kind_label}:{_session_label}"
-                        )
-                        _tca_data = {
-                            (k.decode() if isinstance(k, (bytes, bytearray)) else str(k)):
-                            (v.decode() if isinstance(v, (bytes, bytearray)) else str(v))
-                            for k, v in (_raw_tca or {}).items()
-                        }
+                    _raw_tca = _ctx_hgetall(self._redis_client, f"tca:ema:{symbol}:{_kind_label}:{_session_label}")  # type: ignore[attr-defined]
+                    _tca_data = {
+                        (k.decode() if isinstance(k, (bytes, bytearray)) else str(k)):
+                        (v.decode() if isinstance(v, (bytes, bytearray)) else str(v))
+                        for k, v in (_raw_tca or {}).items()
+                    }
                 except Exception:
                     _tca_data = {}
                 _tca_samples = float(_tca_data.get("samples") or 0.0)
@@ -3375,6 +3903,12 @@ class OFConfirmEngine:
                 _tca_stale_max = float(os.getenv("TCA_STALE_MAX_MS", "600000") or "600000")
                 _tca_age = _now_ms_local - _tca_last if _tca_last > 0 else _tca_stale_max + 1
                 _tca_fresh = (_tca_samples >= _tca_min and _tca_age <= _tca_stale_max)
+                if not _tca_fresh:
+                    try:
+                        from services.orderflow.metrics import ml_feature_stale_total
+                        ml_feature_stale_total.labels(feature="tca_ema", symbol=symbol).inc()
+                    except Exception:
+                        pass
                 indicators_with_v4.setdefault("tca_eff_spread_bps_ema", float(_tca_data.get("eff_spread") or 0.0) if _tca_fresh else 0.0)
                 indicators_with_v4.setdefault("tca_realized_spread_1s_bps_ema", float(_tca_data.get("realized_1s") or 0.0) if _tca_fresh else 0.0)
                 indicators_with_v4.setdefault("tca_realized_spread_5s_bps_ema", float(_tca_data.get("realized_5s") or 0.0) if _tca_fresh else 0.0)
@@ -3383,21 +3917,1020 @@ class OFConfirmEngine:
                 indicators_with_v4.setdefault("tca_is_bps_ema", float(_tca_data.get("is_bps") or 0.0) if _tca_fresh else 0.0)
                 indicators_with_v4.setdefault("tca_samples", _tca_samples)
                 indicators_with_v4.setdefault("tca_stale_ms", max(0.0, _tca_age))
+                # p95 percentiles (available once TCA exporter accumulates ≥20 samples)
+                indicators_with_v4.setdefault("spread_p95_bps_symbol_kind_session", float(_tca_data.get("spread_p95_bps") or 0.0) if _tca_fresh else 0.0)
+                indicators_with_v4.setdefault("slippage_p95_bps_symbol_kind_session", float(_tca_data.get("slippage_p95_bps") or 0.0) if _tca_fresh else 0.0)
             except Exception:
                 # Fail-open: all cross-context features default to 0.0 / False
-                for _f in (
+                for _fk in (
                     "btc_ret_30s", "btc_ret_1m", "btc_ret_5m",
                     "eth_ret_30s", "eth_ret_1m", "eth_ret_5m",
                     "rel_ret_1m_vs_btc", "rel_ret_5m_vs_btc",
+                    "leader_confidence", "market_risk_on_score",
+                    "rel_ofi_ml_norm_btc", "rel_lob_micro_shift_bps_btc",
                     "prior_winrate_symbol_kind_session", "prior_ev_r_symbol_kind_session",
-                    "prior_sample_count_log", "prior_age_ms",
+                    "prior_ev_r_median",
+                    "prior_sample_count_log", "prior_age_ms", "prior_stale_ms",
+                    "prior_r_std",
                     "tca_eff_spread_bps_ema", "tca_realized_spread_1s_bps_ema",
                     "tca_realized_spread_5s_bps_ema", "tca_perm_impact_1s_bps_ema",
                     "tca_perm_impact_5s_bps_ema", "tca_is_bps_ema",
                     "tca_samples", "tca_stale_ms",
+                    "spread_p95_bps_symbol_kind_session",
+                    "slippage_p95_bps_symbol_kind_session",
                 ):
-                    indicators_with_v4.setdefault(_f, 0.0)
+                    indicators_with_v4.setdefault(_fk, 0.0)
                 indicators_with_v4.setdefault("prior_stale", True)
+                indicators_with_v4.setdefault("prior_profit_factor", 1.0)
+                indicators_with_v4.setdefault("prior_sl_hit_rate", 0.5)
+                for _rk in (
+                    "prior_winrate_symbol_kind_7d", "prior_ev_r_symbol_kind_7d",
+                    "prior_profit_factor_symbol_kind_7d", "prior_sl_hit_rate_symbol_kind_7d",
+                    "prior_tp1_hit_rate_symbol_kind_7d", "prior_samples_symbol_kind_7d",
+                    "prior_winrate_symbol_kind_session_7d",
+                    "prior_median_mae_r_winners_30d", "prior_p90_mae_r_winners_30d",
+                    "prior_median_mfe_r_30d", "prior_giveback_p75_30d",
+                ):
+                    indicators_with_v4.setdefault(_rk, 0.0)
+                indicators_with_v4.setdefault("prior_profit_factor_symbol_kind_7d", 1.0)
+                indicators_with_v4.setdefault("prior_sl_hit_rate_symbol_kind_7d", 0.5)
+
+            # ------------------------------------------------------------------
+            # Phase 7.9: Derivatives context — funding / OI / liquidation features
+            # sourced from existing `ctx:deriv:{symbol}` snapshot (populated by
+            # services/orderflow/derivatives_context.py + deriv_ctx_exporter).
+            # No new infra needed — snapshot is already maintained.
+            # ------------------------------------------------------------------
+            try:
+                _deriv_data: dict[str, Any] = {}
+                _deriv_age_max_ms = float(os.getenv("DERIV_CTX_MAX_LAG_MS", "60000") or "60000")
+                _deriv_stale = True
+                try:
+                    _raw_deriv = _ctx_get(self._redis_client, f"ctx:deriv:{symbol}")  # type: ignore[attr-defined]
+                    if _raw_deriv:
+                        if isinstance(_raw_deriv, (bytes, bytearray)):
+                            _raw_deriv = _raw_deriv.decode("utf-8", "ignore")
+                        _deriv_data = json.loads(_raw_deriv)
+                        _deriv_ts = float(_deriv_data.get("ts_ms") or 0.0)
+                        _deriv_stale = (int(now_ts) - _deriv_ts) > _deriv_age_max_ms if _deriv_ts > 0 else True
+                        if _deriv_stale:
+                            try:
+                                from services.orderflow.metrics import ml_feature_stale_total
+                                ml_feature_stale_total.labels(feature="deriv_ctx", symbol=symbol).inc()
+                            except Exception:
+                                pass
+                except Exception:
+                    _deriv_data = {}
+
+                # Funding
+                _funding_rate = float(_deriv_data.get("funding_rate") or 0.0) if not _deriv_stale else 0.0
+                _funding_rate_z = float(_deriv_data.get("funding_rate_z") or 0.0) if not _deriv_stale else 0.0
+                indicators_with_v4.setdefault("funding_rate", _funding_rate)
+                indicators_with_v4.setdefault("funding_rate_z", _funding_rate_z)
+
+                # OI
+                _oi_notional = float(_deriv_data.get("oi_notional_usd") or 0.0) if not _deriv_stale else 0.0
+                _oi_delta_5m = float(_deriv_data.get("delta_oi_5m") or 0.0) if not _deriv_stale else 0.0
+                indicators_with_v4.setdefault("oi_notional_usd", _oi_notional)
+                indicators_with_v4.setdefault("oi_delta_5m", _oi_delta_5m)
+                # 1m delta proxy: 1/5 of 5m delta (linear scaling, model can learn correction)
+                indicators_with_v4.setdefault("oi_delta_1m", _oi_delta_5m / 5.0)
+                # z-score from snapshot is OI accelerometer (oi_accel flag in snapshot)
+                indicators_with_v4.setdefault("oi_accel", float(_deriv_data.get("oi_accel") or 0.0) if not _deriv_stale else 0.0)
+
+                # Basis / premium
+                _basis_bps = float(_deriv_data.get("basis_bps") or 0.0) if not _deriv_stale else 0.0
+                _premium_index = float(_deriv_data.get("premium_index") or 0.0) if not _deriv_stale else 0.0
+                indicators_with_v4.setdefault("basis_bps", _basis_bps)
+                indicators_with_v4.setdefault("premium_index_bps", _premium_index * 10000.0)
+                # Composite basis pressure: combined funding + basis signal
+                _basis_pressure = abs(_funding_rate_z) + abs(_basis_bps) / 10.0
+                indicators_with_v4.setdefault("basis_pressure_score", _basis_pressure if not _deriv_stale else 0.0)
+
+                # Liquidation imbalance (already computed in v2 of snapshot)
+                _liq_buy_1m = float(_deriv_data.get("liq_buy_notional_1m") or 0.0) if not _deriv_stale else 0.0
+                _liq_sell_1m = float(_deriv_data.get("liq_sell_notional_1m") or 0.0) if not _deriv_stale else 0.0
+                indicators_with_v4.setdefault("liq_long_notional_1m", _liq_buy_1m)
+                indicators_with_v4.setdefault("liq_short_notional_1m", _liq_sell_1m)
+                # 5m proxy: 5x running window (snapshot only has 1m, this is approximate)
+                indicators_with_v4.setdefault("liq_long_notional_5m", _liq_buy_1m * 5.0)
+                indicators_with_v4.setdefault("liq_short_notional_5m", _liq_sell_1m * 5.0)
+                _liq_total_1m = _liq_buy_1m + _liq_sell_1m
+                _liq_imb_1m = (_liq_buy_1m - _liq_sell_1m) / _liq_total_1m if _liq_total_1m > 0 else 0.0
+                indicators_with_v4.setdefault("liq_imbalance_1m", _liq_imb_1m)
+                indicators_with_v4.setdefault("liq_imbalance_5m", _liq_imb_1m)  # same proxy
+                indicators_with_v4.setdefault("liq_imbalance_z", float(_deriv_data.get("liq_imbalance_z") or 0.0) if not _deriv_stale else 0.0)
+
+                # Long/short ratio
+                indicators_with_v4.setdefault("long_short_ratio", float(_deriv_data.get("long_short_ratio") or 0.0) if not _deriv_stale else 0.0)
+                indicators_with_v4.setdefault("long_short_ratio_z", float(_deriv_data.get("long_short_ratio_z") or 0.0) if not _deriv_stale else 0.0)
+
+                # Direction-conflict signal (BTC/ETH leader confirms target direction)
+                _leader_confirm = float(_deriv_data.get("leader_btc_eth_confirm") or 0.0) if not _deriv_stale else 0.0
+                indicators_with_v4.setdefault("leader_btc_eth_confirm", _leader_confirm)
+                # Conflict = inverse of confirmation
+                indicators_with_v4.setdefault("leader_direction_conflict", 1.0 - abs(_leader_confirm) if not _deriv_stale else 0.0)
+
+                # Sector breadth (24h return / volume z)
+                indicators_with_v4.setdefault("sector_breadth_ret_24h", float(_deriv_data.get("market_breadth_ret_24h") or 0.0) if not _deriv_stale else 0.0)
+                indicators_with_v4.setdefault("sector_breadth_vol_z", float(_deriv_data.get("market_breadth_volume_z") or 0.0) if not _deriv_stale else 0.0)
+
+                # Phase 7.9b: composite scores derived from same snapshot.
+                # Taker buy/sell imbalance — already in DerivativesContextSnapshot.
+                indicators_with_v4.setdefault(
+                    "taker_buy_sell_imbalance",
+                    float(_deriv_data.get("taker_buy_sell_imbalance") or 0.0) if not _deriv_stale else 0.0,
+                )
+                # Phase 8.3: taker ratio + z-score (v3 snapshot fields).
+                indicators_with_v4.setdefault(
+                    "taker_buy_sell_ratio",
+                    float(_deriv_data.get("taker_buy_sell_ratio") or 0.0) if not _deriv_stale else 0.0,
+                )
+                indicators_with_v4.setdefault(
+                    "taker_buy_sell_ratio_z",
+                    float(_deriv_data.get("taker_buy_sell_ratio_z") or 0.0) if not _deriv_stale else 0.0,
+                )
+                # Alias of liq_imbalance_1m for forceOrder semantics in plan.
+                indicators_with_v4.setdefault("force_order_imbalance_1m", _liq_imb_1m if not _deriv_stale else 0.0)
+                # Phase 8.3: individual liq notionals under force_order naming.
+                indicators_with_v4.setdefault("force_order_long_notional_1m", _liq_buy_1m if not _deriv_stale else 0.0)
+                indicators_with_v4.setdefault("force_order_short_notional_1m", _liq_sell_1m if not _deriv_stale else 0.0)
+                # Phase 8.3: cluster score + top-trader + crowding (v3 snapshot).
+                indicators_with_v4.setdefault(
+                    "force_order_cluster_score",
+                    float(_deriv_data.get("force_order_cluster_score") or 0.0) if not _deriv_stale else 0.0,
+                )
+                indicators_with_v4.setdefault(
+                    "top_trader_long_short_ratio",
+                    float(_deriv_data.get("top_trader_long_short_ratio") or 0.0) if not _deriv_stale else 0.0,
+                )
+                indicators_with_v4.setdefault(
+                    "futures_crowding_score",
+                    float(_deriv_data.get("futures_crowding_score") or 0.0) if not _deriv_stale else 0.0,
+                )
+                # Phase 8.4: oi_delta z-score and premium_index z-score (from v3 snapshot).
+                indicators_with_v4.setdefault(
+                    "oi_delta_z",
+                    float(_deriv_data.get("oi_delta_z") or 0.0) if not _deriv_stale else 0.0,
+                )
+                indicators_with_v4.setdefault(
+                    "premium_index_z",
+                    float(_deriv_data.get("premium_index_z") or 0.0) if not _deriv_stale else 0.0,
+                )
+                # Phase 8.4+: open_interest_z — z-score of OI notional level (not delta).
+                indicators_with_v4.setdefault(
+                    "open_interest_z",
+                    float(_deriv_data.get("open_interest_z") or 0.0) if not _deriv_stale else 0.0,
+                )
+                # OI confirmation: +1 if OI delta and funding z agree (continuation),
+                # -1 if they disagree (short-cover / squeeze hint), 0 if either is 0.
+                _oi_conf = (
+                    math.copysign(1.0, _oi_delta_5m) * math.copysign(1.0, _funding_rate_z)
+                    if (_oi_delta_5m != 0.0 and _funding_rate_z != 0.0)
+                    else 0.0
+                )
+                indicators_with_v4.setdefault("oi_confirmation_score", _oi_conf if not _deriv_stale else 0.0)
+                # Squeeze risk: funding × L/S both extreme (>1.5σ).
+                _ls_z = float(_deriv_data.get("long_short_ratio_z") or 0.0)
+                _squeeze = (
+                    min(25.0, abs(_funding_rate_z) * abs(_ls_z))
+                    if (abs(_funding_rate_z) > 1.5 and abs(_ls_z) > 1.5)
+                    else 0.0
+                )
+                indicators_with_v4.setdefault("squeeze_risk_score", _squeeze if not _deriv_stale else 0.0)
+                # Liquidation impulse: only when |liq_imbalance_z| > 2.0.
+                _liq_z_abs = abs(float(_deriv_data.get("liq_imbalance_z") or 0.0))
+                _liq_impulse = _liq_z_abs if _liq_z_abs > 2.0 else 0.0
+                indicators_with_v4.setdefault("liq_impulse_score", _liq_impulse if not _deriv_stale else 0.0)
+            except Exception:
+                for _df in (
+                    "funding_rate", "funding_rate_z",
+                    "oi_notional_usd", "oi_delta_5m", "oi_delta_1m", "oi_accel",
+                    "basis_bps", "premium_index_bps", "basis_pressure_score",
+                    "liq_long_notional_1m", "liq_short_notional_1m",
+                    "liq_long_notional_5m", "liq_short_notional_5m",
+                    "liq_imbalance_1m", "liq_imbalance_5m", "liq_imbalance_z",
+                    "long_short_ratio", "long_short_ratio_z",
+                    "leader_btc_eth_confirm", "leader_direction_conflict",
+                    "sector_breadth_ret_24h", "sector_breadth_vol_z",
+                    # Phase 7.9b composites
+                    "taker_buy_sell_imbalance", "force_order_imbalance_1m",
+                    "oi_confirmation_score", "squeeze_risk_score", "liq_impulse_score",
+                    # Phase 8.3
+                    "taker_buy_sell_ratio", "taker_buy_sell_ratio_z",
+                    "force_order_long_notional_1m", "force_order_short_notional_1m",
+                    "force_order_cluster_score", "top_trader_long_short_ratio",
+                    "futures_crowding_score",
+                    # Phase 8.4
+                    "oi_delta_z", "premium_index_z", "open_interest_z",
+                ):
+                    indicators_with_v4.setdefault(_df, 0.0)
+
+            # ------------------------------------------------------------------
+            # Phase 8.1: External joiners — live market breadth, Deribit IV
+            # regime, Fear & Greed. Each block independent, own stale guard.
+            # All fail-open via setdefault; no exception escapes this section.
+            # ------------------------------------------------------------------
+            # --- W3a: Live breadth (runtime:breadth HASH on main redis) ---
+            # NOTE: runtime:breadth is written by Go marketdata scheduler on main `redis`,
+            # not on worker-1. Use _redis_client_main; fall back to _redis_client if absent.
+            try:
+                _breadth_max_lag_ms = float(os.getenv("BREADTH_MAX_LAG_MS", "10000") or "10000")
+                _breadth_stale = True
+                _breadth_data: dict[str, Any] = {}
+                _rc_main = getattr(self, "_redis_client_main", None) or getattr(self, "_redis_client", None)
+                try:
+                    _raw = _ctx_hgetall(_rc_main, "runtime:breadth")
+                    if _raw:
+                        _breadth_data = {
+                            (k.decode() if isinstance(k, (bytes, bytearray)) else str(k)):
+                            (v.decode() if isinstance(v, (bytes, bytearray)) else str(v))
+                            for k, v in _raw.items()
+                        }
+                        _b_ts = float(_breadth_data.get("ts_ms") or 0.0)
+                        _breadth_stale = (int(now_ts) - _b_ts) > _breadth_max_lag_ms if _b_ts > 0 else True
+                except Exception:
+                    _breadth_data = {}
+                _bf = lambda k: float(_breadth_data.get(k) or 0.0) if not _breadth_stale else 0.0
+                indicators_with_v4.setdefault("market_breadth_ret_24h", _bf("ret_24h"))
+                indicators_with_v4.setdefault("market_breadth_vol_z", _bf("vol_z"))
+                indicators_with_v4.setdefault("btc_leader_ret_breadth", _bf("btc_ret"))
+                indicators_with_v4.setdefault("eth_leader_ret_breadth", _bf("eth_ret"))
+                indicators_with_v4.setdefault("breadth_leader_confirm", _bf("leader_confirm"))
+                indicators_with_v4.setdefault("sector_breadth_1m", _bf("breadth_1m"))
+                indicators_with_v4.setdefault("sector_breadth_5m", _bf("breadth_5m"))
+                # Phase breadth-v2: granular 1m/5m returns + segment breadth
+                indicators_with_v4.setdefault("market_breadth_ret_1m", _bf("ret_1m"))
+                indicators_with_v4.setdefault("market_breadth_ret_5m", _bf("ret_5m"))
+                indicators_with_v4.setdefault("major_breadth_1m", _bf("major_breadth_1m"))
+                indicators_with_v4.setdefault("major_ret_1m", _bf("major_ret_1m"))
+                indicators_with_v4.setdefault("meme_breadth_1m", _bf("meme_breadth_1m"))
+                indicators_with_v4.setdefault("meme_ret_1m", _bf("meme_ret_1m"))
+                indicators_with_v4.setdefault("alt_breadth_1m", _bf("alt_breadth_1m"))
+                indicators_with_v4.setdefault("alt_ret_1m", _bf("alt_ret_1m"))
+                indicators_with_v4.setdefault("alt_breadth_5m", _bf("alt_breadth_5m"))
+                indicators_with_v4.setdefault("alt_ret_5m", _bf("alt_ret_5m"))
+                indicators_with_v4.setdefault("sector_breadth_score", _bf("sector_breadth_score"))
+                # Phase P1: 5-min volume rolling sum + z-score
+                indicators_with_v4.setdefault("market_breadth_vol_5m", _bf("market_breadth_vol_5m"))
+                indicators_with_v4.setdefault("market_breadth_volume_z", _bf("market_breadth_volume_z"))
+                # Phase P1: symbol relative strength vs market / BTC / sector
+                _mkt_ret_1m = float(_breadth_data.get("ret_1m") or 0.0) if not _breadth_stale else 0.0
+                _btc_ret_1m = float(indicators_with_v4.get("btc_ret_1m") or 0.0)
+                _rel_vs_btc = float(indicators_with_v4.get("rel_ret_1m_vs_btc") or 0.0)
+                _sym_ret_1m = _btc_ret_1m + _rel_vs_btc  # Phase 7.8 identity
+                indicators_with_v4.setdefault("symbol_rel_strength_vs_btc_1m", _rel_vs_btc)
+                indicators_with_v4.setdefault("symbol_rel_strength_vs_market_1m", _sym_ret_1m - _mkt_ret_1m)
+                _MAJOR_SYMS = frozenset({
+                    "BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT", "XRPUSDT",
+                    "ADAUSDT", "DOTUSDT", "AVAXUSDT", "MATICUSDT", "LINKUSDT",
+                    "LTCUSDT", "UNIUSDT", "ATOMUSDT", "NEARUSDT", "ARBUSDT",
+                    "OPUSDT", "APTUSDT", "SUIUSDT", "INJUSDT", "TIAUSDT",
+                })
+                _MEME_SYMS = frozenset({
+                    "DOGEUSDT", "SHIBUSDT", "PEPEUSDT", "FLOKIUSDT", "BONKUSDT",
+                    "WIFUSDT", "DOGSUSDT", "MEMEUSDT", "BOMEUSDT", "NEIROUSDT",
+                    "POPCATUSDT", "ACTUSDT",
+                })
+                if symbol in _MAJOR_SYMS:
+                    _sector_ret = float(_breadth_data.get("major_ret_1m") or 0.0) if not _breadth_stale else 0.0
+                elif symbol in _MEME_SYMS:
+                    _sector_ret = float(_breadth_data.get("meme_ret_1m") or 0.0) if not _breadth_stale else 0.0
+                else:
+                    _sector_ret = float(_breadth_data.get("alt_ret_1m") or 0.0) if not _breadth_stale else 0.0
+                indicators_with_v4.setdefault("symbol_rel_strength_vs_sector_1m", _sym_ret_1m - _sector_ret)
+                _ext_ctx_track("breadth", _breadth_stale, float(_breadth_data.get("ts_ms") or 0), float(now_ts))
+            except Exception:
+                for _df in (
+                    "market_breadth_ret_24h", "market_breadth_vol_z",
+                    "btc_leader_ret_breadth", "eth_leader_ret_breadth",
+                    "breadth_leader_confirm", "sector_breadth_1m", "sector_breadth_5m",
+                    "market_breadth_ret_1m", "market_breadth_ret_5m",
+                    "major_breadth_1m", "major_ret_1m",
+                    "meme_breadth_1m", "meme_ret_1m",
+                    "alt_breadth_1m", "alt_ret_1m", "alt_breadth_5m", "alt_ret_5m",
+                    "sector_breadth_score",
+                    "market_breadth_vol_5m", "market_breadth_volume_z",
+                    "symbol_rel_strength_vs_btc_1m", "symbol_rel_strength_vs_market_1m",
+                    "symbol_rel_strength_vs_sector_1m",
+                ):
+                    indicators_with_v4.setdefault(_df, 0.0)
+
+            # --- W3b: Deribit IV/funding regime (ctx:deribit:global STRING) ---
+            # NOTE: ctx:deribit:global is on main `redis` (Go scheduler writer).
+            try:
+                _deribit_max_lag_ms = float(os.getenv("DERIBIT_MAX_LAG_MS", "120000") or "120000")
+                _deribit_stale = True
+                _deribit_data: dict[str, Any] = {}
+                _rc_main = getattr(self, "_redis_client_main", None) or getattr(self, "_redis_client", None)
+                try:
+                    _raw_db = _ctx_get(_rc_main, "ctx:deribit:global")
+                    if _raw_db:
+                        if isinstance(_raw_db, (bytes, bytearray)):
+                            _raw_db = _raw_db.decode("utf-8", "ignore")
+                        _deribit_data = json.loads(_raw_db)
+                        _db_ts = float(_deribit_data.get("ts_ms") or 0.0)
+                        _deribit_stale = (int(now_ts) - _db_ts) > _deribit_max_lag_ms if _db_ts > 0 else True
+                except Exception:
+                    _deribit_data = {}
+                _df_n = lambda k: float(_deribit_data.get(k) or 0.0) if not _deribit_stale else 0.0
+                indicators_with_v4.setdefault("deribit_btc_iv_proxy", _df_n("btc_deribit_iv_proxy"))
+                indicators_with_v4.setdefault("deribit_eth_iv_proxy", _df_n("eth_deribit_iv_proxy"))
+                indicators_with_v4.setdefault("deribit_btc_iv_z", _df_n("btc_deribit_iv_z"))
+                indicators_with_v4.setdefault("deribit_eth_iv_z", _df_n("eth_deribit_iv_z"))
+                indicators_with_v4.setdefault("deribit_btc_funding_8h", _df_n("btc_deribit_funding_8h"))
+                indicators_with_v4.setdefault("deribit_eth_funding_8h", _df_n("eth_deribit_funding_8h"))
+                _regime_str = str(_deribit_data.get("btc_eth_vol_regime") or "normal").lower()
+                _regime_code = {"normal": 0.0, "elevated": 1.0, "extreme": 2.0}.get(_regime_str, 0.0)
+                indicators_with_v4.setdefault("deribit_vol_regime_code", _regime_code if not _deribit_stale else 0.0)
+                # Phase P1: Deribit term structure from ctx:deribit:global
+                indicators_with_v4.setdefault("deribit_btc_iv_7d", _df_n("btc_iv_7d"))
+                indicators_with_v4.setdefault("deribit_btc_iv_30d", _df_n("btc_iv_30d"))
+                indicators_with_v4.setdefault("deribit_eth_iv_7d", _df_n("eth_iv_7d"))
+                indicators_with_v4.setdefault("deribit_eth_iv_30d", _df_n("eth_iv_30d"))
+                indicators_with_v4.setdefault("deribit_iv_term_structure_7d_30d", _df_n("deribit_iv_term_structure_7d_30d"))
+                indicators_with_v4.setdefault("deribit_put_call_ratio", _df_n("deribit_put_call_ratio"))
+                indicators_with_v4.setdefault("deribit_options_oi_call_put_ratio", _df_n("deribit_options_oi_call_put_ratio"))
+                indicators_with_v4.setdefault("deribit_event_vol_premium_score", _df_n("deribit_event_vol_premium_score"))
+                _ext_ctx_track("deribit", _deribit_stale, float(_deribit_data.get("ts_ms") or 0), float(now_ts))
+            except Exception:
+                for _df in (
+                    "deribit_btc_iv_proxy", "deribit_eth_iv_proxy",
+                    "deribit_btc_iv_z", "deribit_eth_iv_z",
+                    "deribit_btc_funding_8h", "deribit_eth_funding_8h",
+                    "deribit_vol_regime_code",
+                    "deribit_btc_iv_7d", "deribit_btc_iv_30d",
+                    "deribit_eth_iv_7d", "deribit_eth_iv_30d",
+                    "deribit_iv_term_structure_7d_30d",
+                    "deribit_put_call_ratio", "deribit_options_oi_call_put_ratio",
+                    "deribit_event_vol_premium_score",
+                ):
+                    indicators_with_v4.setdefault(_df, 0.0)
+
+            # --- W3c: Fear & Greed (ctx:sentiment:global STRING) ---
+            # NOTE: ctx:sentiment:global is on main `redis` (Go scheduler writer).
+            try:
+                _fng_max_lag_ms = float(os.getenv("SENTIMENT_MAX_LAG_MS", "7200000") or "7200000")
+                _fng_stale = True
+                _fng_data: dict[str, Any] = {}
+                _rc_main = getattr(self, "_redis_client_main", None) or getattr(self, "_redis_client", None)
+                try:
+                    _raw_fng = _ctx_get(_rc_main, "ctx:sentiment:global")
+                    if _raw_fng:
+                        if isinstance(_raw_fng, (bytes, bytearray)):
+                            _raw_fng = _raw_fng.decode("utf-8", "ignore")
+                        _fng_data = json.loads(_raw_fng)
+                        # Prefer ingest_ts_ms (moment Go-collector wrote snapshot) over
+                        # ts_ms (alternative.me data timestamp = start of UTC day = 8+h lag).
+                        _fng_ts = float(_fng_data.get("ingest_ts_ms") or _fng_data.get("ts_ms") or 0.0)
+                        _fng_stale = (int(now_ts) - _fng_ts) > _fng_max_lag_ms if _fng_ts > 0 else True
+                except Exception:
+                    _fng_data = {}
+                # Sentinel scheduler stores fng index under various possible field names;
+                # try the common ones in order of preference.
+                # Go SentimentScheduler writes `fear_greed_value` (verified 2026-05-16).
+                # Other names kept as fallbacks for alternative providers.
+                _fng_val_raw = (
+                    _fng_data.get("fear_greed_value")
+                    or _fng_data.get("fng_value")
+                    or _fng_data.get("value")
+                    or _fng_data.get("index")
+                    or _fng_data.get("fear_greed_index")
+                    or 0
+                )
+                try:
+                    _fng_val = float(_fng_val_raw)
+                except (TypeError, ValueError):
+                    _fng_val = 0.0
+                indicators_with_v4.setdefault("fear_greed_index", _fng_val if not _fng_stale else 0.0)
+                indicators_with_v4.setdefault(
+                    "fear_greed_regime_extreme_fear",
+                    bool(_fng_val < 25.0) if not _fng_stale else False,
+                )
+                indicators_with_v4.setdefault(
+                    "fear_greed_regime_extreme_greed",
+                    bool(_fng_val > 75.0) if not _fng_stale else False,
+                )
+                indicators_with_v4.setdefault(
+                    "fear_greed_delta_1d",
+                    float(_fng_data.get("fear_greed_delta_1d") or 0.0) if not _fng_stale else 0.0,
+                )
+                _ext_ctx_track("sentiment", _fng_stale, float(_fng_data.get("ingest_ts_ms") or _fng_data.get("ts_ms") or 0), float(now_ts))
+            except Exception:
+                indicators_with_v4.setdefault("fear_greed_index", 0.0)
+                indicators_with_v4.setdefault("fear_greed_regime_extreme_fear", False)
+                indicators_with_v4.setdefault("fear_greed_regime_extreme_greed", False)
+                indicators_with_v4.setdefault("fear_greed_delta_1d", 0.0)
+
+            # Phase 8.2: news_blackout — boolean-as-float mirror of news_gate_veto
+            # already present in `indicators` from the news gate; expose under a
+            # clean schema name so ML can use it directly.
+            try:
+                _nb = indicators.get("news_gate_veto", 0)
+                indicators_with_v4.setdefault("news_blackout", float(1 if _nb else 0))
+                # Phase 8.4: news_until_ms_norm — remaining blackout duration normalised to [0,1]
+                # over a 30-minute window. 0 when no blackout; 1 when ≥30m remain.
+                _news_until_ms = float(indicators.get("news_until_ts_ms") or 0.0)
+                if _news_until_ms > 0.0:
+                    _news_remain_s = max(0.0, (_news_until_ms - float(now_ts)) / 1000.0)
+                    _news_norm = min(1.0, _news_remain_s / 1800.0)
+                else:
+                    _news_norm = 0.0
+                indicators_with_v4.setdefault("news_until_ms_norm", _news_norm)
+            except Exception:
+                indicators_with_v4.setdefault("news_blackout", 0.0)
+                indicators_with_v4.setdefault("news_until_ms_norm", 0.0)
+
+            # ------------------------------------------------------------------
+            # W3d: Hawkes/VPIN (ctx:hawkes:{symbol} HASH — worker Redis).
+            # Written by orderflow_services/of_hawkes_vpin_v1.py.
+            # Fail-open: all 20 v7_of Hawkes/VPIN keys default to 0.0.
+            # ------------------------------------------------------------------
+            _HAWKES_KEYS = (
+                "hawkes_dt_s",
+                "hawkes_taker_buy_lam", "hawkes_taker_sell_lam",
+                "hawkes_cancel_bid_lam", "hawkes_cancel_ask_lam",
+                "hawkes_limit_add_lam",
+                "hawkes_taker_lam", "hawkes_cancel_lam", "hawkes_churn_lam",
+                "added_bid_rate_ema", "added_ask_rate_ema", "added_total_rate_ema",
+                "vpin_tox_ema", "vpin_tox_z",
+                "vpin_tox_1m", "vpin_tox_5m", "vpin_tox_slope",
+                "hawkes_limit_add_bid_lam", "hawkes_limit_add_ask_lam", "hawkes_limit_add_imbalance",
+                "hawkes_S_taker_buy", "hawkes_S_taker_sell",
+                "hawkes_S_cancel_bid", "hawkes_S_cancel_ask", "hawkes_S_limit_add",
+            )
+            try:
+                _hawkes_max_lag_ms = float(os.getenv("HAWKES_MAX_LAG_MS", "30000") or "30000")
+                _raw_hk = _ctx_hgetall(self._redis_client, f"ctx:hawkes:{symbol}")  # type: ignore[attr-defined]
+                _hk_data: dict[str, str] = {
+                    (k.decode() if isinstance(k, (bytes, bytearray)) else str(k)):
+                    (v.decode() if isinstance(v, (bytes, bytearray)) else str(v))
+                    for k, v in (_raw_hk or {}).items()
+                }
+                _hk_ts_ms = float(_hk_data.get("ts_ms") or 0.0)
+                _hk_stale = (
+                    _hk_ts_ms <= 0
+                    or (_now_ms_local - _hk_ts_ms) > _hawkes_max_lag_ms
+                )
+                for _hk_key in _HAWKES_KEYS:
+                    indicators_with_v4.setdefault(
+                        _hk_key,
+                        float(_hk_data.get(_hk_key) or 0.0) if not _hk_stale else 0.0,
+                    )
+            except Exception:
+                for _hk_key in _HAWKES_KEYS:
+                    indicators_with_v4.setdefault(_hk_key, 0.0)
+
+            # Phase 8.4: Hawkes derived composites (buy/sell intensity ratio, cancel directional imb).
+            try:
+                _lam_buy = float(indicators_with_v4.get("hawkes_taker_buy_lam") or 0.0)
+                _lam_sell = float(indicators_with_v4.get("hawkes_taker_sell_lam") or 0.0)
+                indicators_with_v4.setdefault(
+                    "hawkes_buy_sell_lam_ratio",
+                    _lam_buy / max(_lam_sell, 1e-9),
+                )
+                _cancel_bid = float(indicators_with_v4.get("hawkes_cancel_bid_lam") or 0.0)
+                _cancel_ask = float(indicators_with_v4.get("hawkes_cancel_ask_lam") or 0.0)
+                _cancel_total = _cancel_bid + _cancel_ask
+                indicators_with_v4.setdefault(
+                    "hawkes_cancel_imbalance",
+                    (_cancel_bid - _cancel_ask) / max(_cancel_total, 1e-9),
+                )
+            except Exception:
+                indicators_with_v4.setdefault("hawkes_buy_sell_lam_ratio", 1.0)
+                indicators_with_v4.setdefault("hawkes_cancel_imbalance", 0.0)
+
+            # ------------------------------------------------------------------
+            # Phase 8.5: Cross-venue sanity (Group XV) — ctx:crossvenue:{symbol}
+            # Source: Go crossvenue aggregator (OKX/Kraken/Coinbase spot WS).
+            # Stale guard: CROSSVENUE_MAX_LAG_MS (30s) + quality_status=STALE.
+            # Fail-open: all keys → 0.0 when stale/unavailable.
+            # ------------------------------------------------------------------
+            try:
+                _cv_max_lag_ms = float(os.getenv("CROSSVENUE_MAX_LAG_MS", "30000") or "30000")
+                _cv_data: dict[str, Any] = {}
+                _cv_stale = True
+                _rc_cv = getattr(self, "_redis_client_main", None) or getattr(self, "_redis_client", None)
+                try:
+                    _raw_cv = _ctx_get(_rc_cv, f"ctx:crossvenue:{symbol}")
+                    if _raw_cv:
+                        if isinstance(_raw_cv, (bytes, bytearray)):
+                            _raw_cv = _raw_cv.decode("utf-8", "ignore")
+                        _cv_data = json.loads(_raw_cv) if isinstance(_raw_cv, str) else {}
+                        _cv_ts = float(_cv_data.get("ts_ms") or 0.0)
+                        _cv_stale = (
+                            (int(now_ts) - _cv_ts) > _cv_max_lag_ms if _cv_ts > 0 else True
+                        ) or (str(_cv_data.get("quality_status") or "").upper() == "STALE")
+                except Exception:
+                    _cv_data = {}
+                _cv_agree = float(_cv_data.get("cross_venue_direction_agree") or 0.0) if not _cv_stale else 0.0
+                _cv_disz = float(_cv_data.get("venue_dislocation_z") or 0.0) if not _cv_stale else 0.0
+                indicators_with_v4.setdefault("cross_venue_agree_score", _cv_agree)
+                indicators_with_v4.setdefault(
+                    "cross_venue_dislocation_bps",
+                    float(_cv_data.get("cross_venue_mid_spread_bps") or 0.0) if not _cv_stale else 0.0,
+                )
+                indicators_with_v4.setdefault("cross_venue_dislocation_z", _cv_disz)
+                indicators_with_v4.setdefault(
+                    "binance_local_noise_score",
+                    min(1.0, _cv_disz / 3.0) * max(0.0, 1.0 - _cv_agree) if not _cv_stale else 0.0,
+                )
+                _ext_ctx_track("crossvenue", _cv_stale, float(_cv_data.get("ts_ms") or 0), float(now_ts))
+            except Exception:
+                for _cvk in (
+                    "cross_venue_agree_score", "cross_venue_dislocation_bps",
+                    "cross_venue_dislocation_z", "binance_local_noise_score",
+                ):
+                    indicators_with_v4.setdefault(_cvk, 0.0)
+
+            # ------------------------------------------------------------------
+            # Phase 8.5: CoinGecko macro context (Groups XVI) — runtime:coingecko:*
+            # Source: Go coingecko_scheduler (~30s global, ~60s per-symbol HSET).
+            # Stale guard: CG_MAX_LAG_MS (600s default).
+            # Fail-open: all keys → 0.0 when stale/unavailable.
+            # ------------------------------------------------------------------
+            try:
+                _cg_max_lag_ms = float(os.getenv("CG_MAX_LAG_MS", "600000") or "600000")
+                _rc_cg = getattr(self, "_redis_client_main", None) or getattr(self, "_redis_client", None)
+                # global snapshot (runtime:coingecko:global HASH)
+                _cg_global: dict[str, Any] = {}
+                _cg_global_stale = True
+                try:
+                    _raw_cgg = _ctx_hgetall(_rc_cg, "runtime:coingecko:global")
+                    if _raw_cgg:
+                        _cg_global = {
+                            (k.decode() if isinstance(k, (bytes, bytearray)) else str(k)):
+                            (v.decode() if isinstance(v, (bytes, bytearray)) else str(v))
+                            for k, v in _raw_cgg.items()
+                        }
+                        _cg_g_ts = float(_cg_global.get("ts_ms") or 0.0)
+                        _cg_global_stale = (
+                            (int(now_ts) - _cg_g_ts) > _cg_max_lag_ms if _cg_g_ts > 0 else True
+                        )
+                except Exception:
+                    _cg_global = {}
+                _cgf = lambda k: float(_cg_global.get(k) or 0.0) if not _cg_global_stale else 0.0
+                indicators_with_v4.setdefault("cg_btc_dom_pct", _cgf("btc_dom_pct"))
+                indicators_with_v4.setdefault("cg_stable_dom_pct", _cgf("stable_dom_pct"))
+                indicators_with_v4.setdefault("cg_btc_dom_mom", _cgf("btc_dom_mom"))
+                indicators_with_v4.setdefault("cg_global_turnover", _cgf("global_turnover"))
+                # per-symbol snapshot (runtime:coingecko:market:{symbol} HASH)
+                _cg_sym: dict[str, Any] = {}
+                _cg_sym_stale = True
+                try:
+                    _raw_cgsym = _ctx_hgetall(_rc_cg, f"runtime:coingecko:market:{symbol}")
+                    if _raw_cgsym:
+                        _cg_sym = {
+                            (k.decode() if isinstance(k, (bytes, bytearray)) else str(k)):
+                            (v.decode() if isinstance(v, (bytes, bytearray)) else str(v))
+                            for k, v in _raw_cgsym.items()
+                        }
+                        _cg_s_ts = float(_cg_sym.get("ts_ms") or 0.0)
+                        _cg_sym_stale = (
+                            (int(now_ts) - _cg_s_ts) > _cg_max_lag_ms if _cg_s_ts > 0 else True
+                        )
+                except Exception:
+                    _cg_sym = {}
+                _cgfs = lambda k: float(_cg_sym.get(k) or 0.0) if not _cg_sym_stale else 0.0
+                indicators_with_v4.setdefault("cg_symbol_rank", _cgfs("market_cap_rank"))
+                indicators_with_v4.setdefault("cg_rel_strength_btc_1h", _cgfs("rel_strength_btc_1h"))
+                indicators_with_v4.setdefault("cg_volume_mcap_ratio", _cgfs("volume_mcap_ratio"))
+                _ext_ctx_track("coingecko", _cg_global_stale, float(_cg_global.get("ts_ms") or 0), float(now_ts))
+            except Exception:
+                for _cgk in (
+                    "cg_btc_dom_pct", "cg_stable_dom_pct", "cg_btc_dom_mom",
+                    "cg_global_turnover", "cg_symbol_rank", "cg_rel_strength_btc_1h",
+                    "cg_volume_mcap_ratio",
+                ):
+                    indicators_with_v4.setdefault(_cgk, 0.0)
+
+            # ------------------------------------------------------------------
+            # Phase P3: CoinPaprika fallback provider (Group XIX).
+            # Source: runtime:provider:coinpaprika:global + :market:{symbol} HASH.
+            # Stale guard: CP_MAX_LAG_MS (900s default).
+            # ------------------------------------------------------------------
+            try:
+                _cp_max_lag_ms = float(os.getenv("CP_MAX_LAG_MS", "900000") or "900000")
+                _rc_pf = getattr(self, "_redis_client_main", None) or getattr(self, "_redis_client", None)
+                _cp_global: dict[str, Any] = {}
+                _cp_global_stale = True
+                try:
+                    _raw_cpg = _ctx_hgetall(_rc_pf, "runtime:provider:coinpaprika:global")
+                    if _raw_cpg:
+                        _cp_global = {
+                            (k.decode() if isinstance(k, (bytes, bytearray)) else str(k)):
+                            (v.decode() if isinstance(v, (bytes, bytearray)) else str(v))
+                            for k, v in _raw_cpg.items()
+                        }
+                        _cp_g_ts = float(_cp_global.get("ts_ms") or 0.0)
+                        _cp_global_stale = (
+                            (int(now_ts) - _cp_g_ts) > _cp_max_lag_ms if _cp_g_ts > 0 else True
+                        )
+                except Exception:
+                    _cp_global = {}
+                _cp_sym: dict[str, Any] = {}
+                _cp_sym_stale = True
+                try:
+                    _raw_cps = _ctx_hgetall(_rc_pf, f"runtime:provider:coinpaprika:market:{symbol}")
+                    if _raw_cps:
+                        _cp_sym = {
+                            (k.decode() if isinstance(k, (bytes, bytearray)) else str(k)):
+                            (v.decode() if isinstance(v, (bytes, bytearray)) else str(v))
+                            for k, v in _raw_cps.items()
+                        }
+                        _cp_s_ts = float(_cp_sym.get("ts_ms") or 0.0)
+                        _cp_sym_stale = (
+                            (int(now_ts) - _cp_s_ts) > _cp_max_lag_ms if _cp_s_ts > 0 else True
+                        )
+                except Exception:
+                    _cp_sym = {}
+                indicators_with_v4.setdefault(
+                    "cp_btc_dom_pct",
+                    float(_cp_global.get("btc_dominance_pct") or 0.0) if not _cp_global_stale else 0.0,
+                )
+                indicators_with_v4.setdefault(
+                    "cp_symbol_ret_7d",
+                    float(_cp_sym.get("percent_change_7d") or 0.0) if not _cp_sym_stale else 0.0,
+                )
+                indicators_with_v4.setdefault(
+                    "cp_volume_mcap_ratio",
+                    float(_cp_sym.get("volume_mcap_ratio") or 0.0) if not _cp_sym_stale else 0.0,
+                )
+                indicators_with_v4.setdefault(
+                    "cp_market_cap_rank",
+                    float(_cp_sym.get("rank") or 0.0) if not _cp_sym_stale else 0.0,
+                )
+            except Exception:
+                for _cpk in ("cp_btc_dom_pct", "cp_symbol_ret_7d", "cp_volume_mcap_ratio", "cp_market_cap_rank"):
+                    indicators_with_v4.setdefault(_cpk, 0.0)
+
+            # ------------------------------------------------------------------
+            # Phase P3: CoinMarketCap fallback provider (Group XX).
+            # Source: runtime:provider:coinmarketcap:global HASH.
+            # Stale guard: CMC_MAX_LAG_MS (900s default).
+            # ------------------------------------------------------------------
+            try:
+                _cmc_max_lag_ms = float(os.getenv("CMC_MAX_LAG_MS", "900000") or "900000")
+                _cmc_global: dict[str, Any] = {}
+                _cmc_global_stale = True
+                try:
+                    _raw_cmcg = _ctx_hgetall(_rc_pf, "runtime:provider:coinmarketcap:global")
+                    if _raw_cmcg:
+                        _cmc_global = {
+                            (k.decode() if isinstance(k, (bytes, bytearray)) else str(k)):
+                            (v.decode() if isinstance(v, (bytes, bytearray)) else str(v))
+                            for k, v in _raw_cmcg.items()
+                        }
+                        _cmc_g_ts = float(_cmc_global.get("ts_ms") or 0.0)
+                        _cmc_global_stale = (
+                            (int(now_ts) - _cmc_g_ts) > _cmc_max_lag_ms if _cmc_g_ts > 0 else True
+                        )
+                except Exception:
+                    _cmc_global = {}
+                _cmcf = lambda k: float(_cmc_global.get(k) or 0.0) if not _cmc_global_stale else 0.0
+                indicators_with_v4.setdefault("cmc_btc_dom_pct", _cmcf("btc_dominance_pct"))
+                indicators_with_v4.setdefault("cmc_total_mcap_usd", _cmcf("total_market_cap_usd") / 1e12)
+                indicators_with_v4.setdefault("cmc_total_volume_usd", _cmcf("total_volume_24h_usd") / 1e9)
+                indicators_with_v4.setdefault("cmc_active_cryptos", _cmcf("active_cryptocurrencies"))
+            except Exception:
+                for _cmck in ("cmc_btc_dom_pct", "cmc_total_mcap_usd", "cmc_total_volume_usd", "cmc_active_cryptos"):
+                    indicators_with_v4.setdefault(_cmck, 0.0)
+
+            # ------------------------------------------------------------------
+            # Phase 8.5: Deribit extended (Group XVII) — options OI + perp basis.
+            # Re-uses _deribit_data/_deribit_stale/_deribit_max_lag_ms (Phase 8.1 W3b).
+            # Per-symbol basis: ctx:deribit:{symbol} — only BTC/ETH have data, others → 0.
+            # ------------------------------------------------------------------
+            try:
+                _dxf = lambda k: float((_deribit_data or {}).get(k) or 0.0) if not _deribit_stale else 0.0
+                indicators_with_v4.setdefault(
+                    "deribit_btc_options_oi_usd",
+                    _dxf("btc_options_oi_proxy") / 1e9,
+                )
+                indicators_with_v4.setdefault(
+                    "deribit_eth_options_oi_usd",
+                    _dxf("eth_options_oi_proxy") / 1e9,
+                )
+                _rc_dx = getattr(self, "_redis_client_main", None) or getattr(self, "_redis_client", None)
+                _deribit_sym_data: dict[str, Any] = {}
+                _deribit_sym_stale = True
+                try:
+                    _raw_ds = _ctx_get(_rc_dx, f"ctx:deribit:{symbol}")
+                    if _raw_ds:
+                        if isinstance(_raw_ds, (bytes, bytearray)):
+                            _raw_ds = _raw_ds.decode("utf-8", "ignore")
+                        _deribit_sym_data = json.loads(_raw_ds) if isinstance(_raw_ds, str) else {}
+                        _ds_ts = float(_deribit_sym_data.get("ts_ms") or 0.0)
+                        _deribit_sym_stale = (
+                            (int(now_ts) - _ds_ts) > _deribit_max_lag_ms if _ds_ts > 0 else True
+                        )
+                except Exception:
+                    _deribit_sym_data = {}
+                indicators_with_v4.setdefault(
+                    "deribit_perp_basis_bps",
+                    float(_deribit_sym_data.get("deribit_perp_basis_bps") or 0.0)
+                    if not _deribit_sym_stale else 0.0,
+                )
+            except Exception:
+                for _dxk in (
+                    "deribit_btc_options_oi_usd", "deribit_eth_options_oi_usd", "deribit_perp_basis_bps",
+                ):
+                    indicators_with_v4.setdefault(_dxk, 0.0)
+
+            # ------------------------------------------------------------------
+            # Phase 8.5: DefiLlama slow-regime context (Group XVIII).
+            # Source:
+            #   runtime:defillama:stablecoins   HASH (~900s poll)
+            #   runtime:defillama:chain:Ethereum HASH (~900s poll)
+            #   runtime:defillama:dexs:Ethereum  HASH (~300s poll)
+            # Stale guard: DL_MAX_LAG_MS (1800s default) — slow-regime only.
+            # Fail-open: all features → 0.0 when stale/unavailable.
+            # ------------------------------------------------------------------
+            try:
+                _dl_max_lag_ms = float(os.getenv("DL_MAX_LAG_MS", "1800000") or "1800000")
+                _rc_dl = getattr(self, "_redis_client_main", None) or getattr(self, "_redis_client", None)
+                # stablecoins snapshot
+                _dl_stable: dict[str, Any] = {}
+                _dl_stable_stale = True
+                try:
+                    _raw_dls = _ctx_hgetall(_rc_dl, "runtime:defillama:stablecoins")
+                    if _raw_dls:
+                        _dl_stable = {
+                            (k.decode() if isinstance(k, (bytes, bytearray)) else str(k)):
+                            (v.decode() if isinstance(v, (bytes, bytearray)) else str(v))
+                            for k, v in _raw_dls.items()
+                        }
+                        _dls_ts = float(_dl_stable.get("ts_ms") or 0.0)
+                        _dl_stable_stale = (
+                            (int(now_ts) - _dls_ts) > _dl_max_lag_ms if _dls_ts > 0 else True
+                        )
+                except Exception:
+                    _dl_stable = {}
+                _dlsf = lambda k: float(_dl_stable.get(k) or 0.0) if not _dl_stable_stale else 0.0
+                indicators_with_v4.setdefault("dl_stablecoin_mcap_usd", _dlsf("stablecoin_mcap_total") / 1e12)
+                indicators_with_v4.setdefault("dl_stablecoin_mcap_delta_1d", _dlsf("stablecoin_mcap_delta_1d"))
+                _dl_regime_str = str(_dl_stable.get("stablecoin_risk_regime") or "neutral").lower()
+                _dl_regime_code = {"neutral": 0.0, "risk_on": 1.0, "risk_off": -1.0}.get(_dl_regime_str, 0.0)
+                indicators_with_v4.setdefault(
+                    "dl_stablecoin_risk_regime_code",
+                    _dl_regime_code if not _dl_stable_stale else 0.0,
+                )
+                # Ethereum TVL snapshot
+                _dl_eth_chain: dict[str, Any] = {}
+                _dl_eth_stale = True
+                try:
+                    _raw_dlc = _ctx_hgetall(_rc_dl, "runtime:defillama:chain:Ethereum")
+                    if _raw_dlc:
+                        _dl_eth_chain = {
+                            (k.decode() if isinstance(k, (bytes, bytearray)) else str(k)):
+                            (v.decode() if isinstance(v, (bytes, bytearray)) else str(v))
+                            for k, v in _raw_dlc.items()
+                        }
+                        _dlc_ts = float(_dl_eth_chain.get("ts_ms") or 0.0)
+                        _dl_eth_stale = (
+                            (int(now_ts) - _dlc_ts) > _dl_max_lag_ms if _dlc_ts > 0 else True
+                        )
+                except Exception:
+                    _dl_eth_chain = {}
+                indicators_with_v4.setdefault(
+                    "dl_eth_tvl_usd",
+                    float(_dl_eth_chain.get("tvl_usd") or 0.0) / 1e9 if not _dl_eth_stale else 0.0,
+                )
+                # Ethereum DEX volume snapshot
+                _dl_eth_dex: dict[str, Any] = {}
+                _dl_dex_stale = True
+                try:
+                    _raw_dld = _ctx_hgetall(_rc_dl, "runtime:defillama:dexs:Ethereum")
+                    if _raw_dld:
+                        _dl_eth_dex = {
+                            (k.decode() if isinstance(k, (bytes, bytearray)) else str(k)):
+                            (v.decode() if isinstance(v, (bytes, bytearray)) else str(v))
+                            for k, v in _raw_dld.items()
+                        }
+                        _dld_ts = float(_dl_eth_dex.get("ts_ms") or 0.0)
+                        _dl_dex_stale = (
+                            (int(now_ts) - _dld_ts) > _dl_max_lag_ms if _dld_ts > 0 else True
+                        )
+                except Exception:
+                    _dl_eth_dex = {}
+                indicators_with_v4.setdefault(
+                    "dl_eth_dex_vol_delta_1d_pct",
+                    float(_dl_eth_dex.get("dex_volume_delta_1d_pct") or 0.0) if not _dl_dex_stale else 0.0,
+                )
+                indicators_with_v4.setdefault(
+                    "dl_dex_volume_spike_z",
+                    float(_dl_eth_dex.get("dex_volume_spike_z") or 0.0) if not _dl_dex_stale else 0.0,
+                )
+                # DefiLlama fees (Ethereum) — protocol revenue momentum
+                _dl_eth_fees: dict[str, Any] = {}
+                _dl_fees_stale = True
+                try:
+                    _raw_dlf = _ctx_hgetall(_rc_dl, "runtime:defillama:fees:Ethereum")
+                    if _raw_dlf:
+                        _dl_eth_fees = {
+                            (k.decode() if isinstance(k, (bytes, bytearray)) else str(k)):
+                            (v.decode() if isinstance(v, (bytes, bytearray)) else str(v))
+                            for k, v in _raw_dlf.items()
+                        }
+                        _dlf_ts = float(_dl_eth_fees.get("ts_ms") or 0.0)
+                        _dl_fees_stale = (
+                            (int(now_ts) - _dlf_ts) > _dl_max_lag_ms if _dlf_ts > 0 else True
+                        )
+                except Exception:
+                    _dl_eth_fees = {}
+                indicators_with_v4.setdefault(
+                    "dl_eth_fees_24h_usd",
+                    float(_dl_eth_fees.get("fees_24h_usd") or 0.0) / 1e6 if not _dl_fees_stale else 0.0,
+                )
+                indicators_with_v4.setdefault(
+                    "dl_eth_fees_revenue_momentum",
+                    float(_dl_eth_fees.get("fees_revenue_momentum") or 0.0) if not _dl_fees_stale else 0.0,
+                )
+                # DefiLlama perps OI delta
+                _dl_perps: dict[str, Any] = {}
+                _dl_perps_stale = True
+                try:
+                    _raw_dlp = _ctx_hgetall(_rc_dl, "runtime:defillama:perps_oi")
+                    if _raw_dlp:
+                        _dl_perps = {
+                            (k.decode() if isinstance(k, (bytes, bytearray)) else str(k)):
+                            (v.decode() if isinstance(v, (bytes, bytearray)) else str(v))
+                            for k, v in _raw_dlp.items()
+                        }
+                        _dlp_ts = float(_dl_perps.get("ts_ms") or 0.0)
+                        _dl_perps_stale = (
+                            (int(now_ts) - _dlp_ts) > _dl_max_lag_ms if _dlp_ts > 0 else True
+                        )
+                except Exception:
+                    _dl_perps = {}
+                indicators_with_v4.setdefault(
+                    "dl_perps_oi_delta_1d_pct",
+                    float(_dl_perps.get("defillama_perps_oi_delta_1d_pct") or 0.0) if not _dl_perps_stale else 0.0,
+                )
+                _ext_ctx_track("defillama", _dl_stable_stale, float(_dl_stable.get("ts_ms") or 0), float(now_ts))
+            except Exception:
+                for _dlk in (
+                    "dl_stablecoin_mcap_usd", "dl_stablecoin_mcap_delta_1d",
+                    "dl_stablecoin_risk_regime_code", "dl_eth_tvl_usd", "dl_eth_dex_vol_delta_1d_pct",
+                    "dl_dex_volume_spike_z", "dl_eth_fees_24h_usd", "dl_eth_fees_revenue_momentum",
+                    "dl_perps_oi_delta_1d_pct",
+                ):
+                    indicators_with_v4.setdefault(_dlk, 0.0)
+
+            # ------------------------------------------------------------------
+            # Phase 4.12: Macro event calendar (ctx:macro:global STRING).
+            # Source: services/macro_calendar_scheduler.py (60s poll, main redis).
+            # Fields: macro_event_severity (0/1/2), minutes_to/after_macro_event.
+            # Stale guard: MACRO_MAX_LAG_MS (3600s default) — slow-update only.
+            # Fail-open: 0.0 on stale / unavailable.
+            # ------------------------------------------------------------------
+            try:
+                _macro_max_lag_ms = float(os.getenv("MACRO_MAX_LAG_MS", "3600000") or "3600000")
+                _macro_stale = True
+                _macro_data: dict[str, Any] = {}
+                _rc_macro = getattr(self, "_redis_client_main", None) or getattr(self, "_redis_client", None)
+                try:
+                    _raw_macro = _ctx_get(_rc_macro, "ctx:macro:global")
+                    if _raw_macro:
+                        if isinstance(_raw_macro, (bytes, bytearray)):
+                            _raw_macro = _raw_macro.decode("utf-8", "ignore")
+                        _macro_data = json.loads(_raw_macro)
+                        _macro_ts = float(_macro_data.get("ts_ms") or 0.0)
+                        _macro_stale = (int(now_ts) - _macro_ts) > _macro_max_lag_ms if _macro_ts > 0 else True
+                except Exception:
+                    _macro_data = {}
+                _mf = lambda k: float(_macro_data.get(k) or 0.0) if not _macro_stale else 0.0
+                indicators_with_v4.setdefault("macro_event_severity", _mf("macro_event_severity"))
+                indicators_with_v4.setdefault("minutes_to_macro_event", _mf("minutes_to_macro_event"))
+                indicators_with_v4.setdefault("minutes_after_macro_event", _mf("minutes_after_macro_event"))
+                _ext_ctx_track("macro", _macro_stale, float(_macro_data.get("ts_ms") or 0), float(now_ts))
+            except Exception:
+                for _mk in ("macro_event_severity", "minutes_to_macro_event", "minutes_after_macro_event"):
+                    indicators_with_v4.setdefault(_mk, 0.0)
+
+            # ------------------------------------------------------------------
+            # Phase P2: Bybit cross-venue context (Group XXI).
+            # Source: runtime:bybit:{symbol} HASH (Go bybit_features_collector, ~15s).
+            # Keys: bybit_funding_rate, bybit_ret_1m, bybit_oi_delta_5m,
+            #       bybit_taker_buy_sell_ratio, binance_bybit_price_diff_bps,
+            #       binance_bybit_oi_divergence.
+            # Stale guard: BYBIT_MAX_LAG_MS (120s default).
+            # ------------------------------------------------------------------
+            try:
+                _bybit_max_lag_ms = float(os.getenv("BYBIT_MAX_LAG_MS", "120000") or "120000")
+                _rc_bybit = getattr(self, "_redis_client_main", None) or getattr(self, "_redis_client", None)
+                _bybit_sym: dict[str, Any] = {}
+                _bybit_stale = True
+                try:
+                    _raw_bybit = _ctx_hgetall(_rc_bybit, f"runtime:bybit:{symbol}")
+                    if _raw_bybit:
+                        _bybit_sym = {
+                            (k.decode() if isinstance(k, (bytes, bytearray)) else str(k)):
+                            (v.decode() if isinstance(v, (bytes, bytearray)) else str(v))
+                            for k, v in _raw_bybit.items()
+                        }
+                        _bybit_ts = float(_bybit_sym.get("ts_ms") or 0.0)
+                        _bybit_stale = (
+                            (int(now_ts) - _bybit_ts) > _bybit_max_lag_ms if _bybit_ts > 0 else True
+                        )
+                except Exception:
+                    _bybit_sym = {}
+                _bbtf = lambda k: float(_bybit_sym.get(k) or 0.0) if not _bybit_stale else 0.0
+                indicators_with_v4.setdefault("bybit_funding_rate", _bbtf("funding_rate"))
+                indicators_with_v4.setdefault("bybit_ret_1m", _bbtf("ret_1m"))
+                indicators_with_v4.setdefault("bybit_oi_delta_5m", _bbtf("oi_delta_5m"))
+                indicators_with_v4.setdefault("bybit_taker_buy_sell_ratio", _bbtf("taker_buy_sell_ratio"))
+                # Compute cross-venue features inline using Binance indicators_with_v4 data
+                _bybit_last = _bbtf("last_price")
+                _binance_mid = float(indicators_with_v4.get("mid_price") or indicators_with_v4.get("last_price") or 0.0)
+                _price_diff_bps = (
+                    (_binance_mid - _bybit_last) / _binance_mid * 10000.0
+                    if _binance_mid > 0 and not _bybit_stale else 0.0
+                )
+                indicators_with_v4.setdefault("binance_bybit_price_diff_bps", _price_diff_bps)
+                _bybit_oi_d5m = _bbtf("oi_delta_5m")
+                _binance_oi_d5m = float(indicators_with_v4.get("oi_delta_5m") or 0.0)
+                indicators_with_v4.setdefault(
+                    "binance_bybit_oi_divergence",
+                    _bybit_oi_d5m - _binance_oi_d5m if not _bybit_stale else 0.0,
+                )
+            except Exception:
+                for _bk in (
+                    "bybit_funding_rate", "bybit_ret_1m", "bybit_oi_delta_5m",
+                    "bybit_taker_buy_sell_ratio", "binance_bybit_price_diff_bps", "binance_bybit_oi_divergence",
+                ):
+                    indicators_with_v4.setdefault(_bk, 0.0)
+
+            # ------------------------------------------------------------------
+            # Phase 4.6: Cross-symbol sector aggregation.
+            #   sector_delta_z_median  — median oi_delta_z across symbols (same process)
+            #   sector_obi_median      — median OBI across symbols (same process)
+            # Uses module-level _SECTOR_CROSS_CACHE, updated each signal, entries
+            # older than _SECTOR_CROSS_MAX_AGE_S=60s excluded.
+            # ------------------------------------------------------------------
+            try:
+                _now_wall = time.monotonic()
+                _dz_this = float(indicators_with_v4.get("oi_delta_z") or 0.0)
+                _obi_this = float(indicators_with_v4.get("obi") or 0.0)
+                _SECTOR_CROSS_CACHE[symbol] = (_now_wall, _dz_this, _obi_this)
+                _fresh = [
+                    (_dz, _ob)
+                    for (_wt, _dz, _ob) in _SECTOR_CROSS_CACHE.values()
+                    if _now_wall - _wt <= _SECTOR_CROSS_MAX_AGE_S
+                ]
+                if len(_fresh) >= 2:
+                    _dz_vals = [x[0] for x in _fresh]
+                    _obi_vals = [x[1] for x in _fresh]
+                    _dz_vals.sort()
+                    _obi_vals.sort()
+                    _mid = len(_dz_vals) // 2
+                    _sector_dz_med = (
+                        _dz_vals[_mid] if len(_dz_vals) % 2 == 1
+                        else (_dz_vals[_mid - 1] + _dz_vals[_mid]) * 0.5
+                    )
+                    _mid2 = len(_obi_vals) // 2
+                    _sector_obi_med = (
+                        _obi_vals[_mid2] if len(_obi_vals) % 2 == 1
+                        else (_obi_vals[_mid2 - 1] + _obi_vals[_mid2]) * 0.5
+                    )
+                else:
+                    _sector_dz_med = _dz_this
+                    _sector_obi_med = _obi_this
+                indicators_with_v4.setdefault("sector_delta_z_median", _sector_dz_med)
+                indicators_with_v4.setdefault("sector_obi_median", _sector_obi_med)
+            except Exception:
+                indicators_with_v4.setdefault("sector_delta_z_median", 0.0)
+                indicators_with_v4.setdefault("sector_obi_median", 0.0)
+
+            # ------------------------------------------------------------------
+            # Phase 4.7: Liq heatmap aliases — derived from existing liqmap_5m_*
+            # features (already in indicators dict from liqmap_features_v1).
+            #   liq_cluster_dist_above_bps  = liqmap_5m_dist_up_bps (nearest short cluster)
+            #   liq_cluster_dist_below_bps  = liqmap_5m_dist_dn_bps (nearest long cluster)
+            #   liq_heatmap_density_above   = log1p(near_short_usd / 1M)
+            #   liq_heatmap_density_below   = log1p(near_long_usd / 1M)
+            # ------------------------------------------------------------------
+            try:
+                _lm_dist_up = float(indicators_with_v4.get("liqmap_5m_dist_up_bps") or 0.0)
+                _lm_dist_dn = float(indicators_with_v4.get("liqmap_5m_dist_dn_bps") or 0.0)
+                _lm_near_short = float(indicators_with_v4.get("liqmap_5m_near_short_usd") or 0.0)
+                _lm_near_long = float(indicators_with_v4.get("liqmap_5m_near_long_usd") or 0.0)
+                indicators_with_v4.setdefault("liq_cluster_dist_above_bps", max(0.0, _lm_dist_up))
+                indicators_with_v4.setdefault("liq_cluster_dist_below_bps", max(0.0, _lm_dist_dn))
+                indicators_with_v4.setdefault(
+                    "liq_heatmap_density_above",
+                    math.log1p(max(0.0, _lm_near_short) / 1e6),
+                )
+                indicators_with_v4.setdefault(
+                    "liq_heatmap_density_below",
+                    math.log1p(max(0.0, _lm_near_long) / 1e6),
+                )
+            except Exception:
+                for _lhk in (
+                    "liq_cluster_dist_above_bps", "liq_cluster_dist_below_bps",
+                    "liq_heatmap_density_above", "liq_heatmap_density_below",
+                ):
+                    indicators_with_v4.setdefault(_lhk, 0.0)
 
             # ------------------------------------------------------------------
             # Phase 7.7: Fill-queue features (lite) — derived from existing depth_*.
@@ -3419,6 +4952,7 @@ class OFConfirmEngine:
                 )
                 indicators_with_v4.setdefault("queue_ahead_qty_l1", _depth_l1)
                 indicators_with_v4.setdefault("queue_ahead_qty_l5", _depth_l5)
+                indicators_with_v4.setdefault("queue_ahead_qty_5", _depth_l5)
 
                 _taker_buy = float(indicators_with_v4.get("taker_buy_rate_ema") or 0.0)
                 _taker_sell = float(indicators_with_v4.get("taker_sell_rate_ema") or 0.0)
@@ -3442,7 +4976,7 @@ class OFConfirmEngine:
             except Exception:
                 for _fk in (
                     "eta_fill_sec_norm", "queue_ahead_qty_l1", "queue_ahead_qty_l5",
-                    "depth_to_taker_rate_ratio", "maker_fill_vs_taker_cost_edge",
+                    "queue_ahead_qty_5", "depth_to_taker_rate_ratio", "maker_fill_vs_taker_cost_edge",
                 ):
                     indicators_with_v4.setdefault(_fk, 0.0)
 
@@ -4013,6 +5547,37 @@ class OFConfirmEngine:
         try:
             from core.v14_of_features import build_og_payload
             indicators.update(build_og_payload(ofc=ofc, dec=dec, indicators=indicators))
+        except Exception:
+            pass
+
+        # v14_of Group OE + Phase 7.8/7.9/7.9b: copy external/derivative/composite
+        # feature keys from inference-time `indicators_with_v4` into outbound
+        # `indicators`, otherwise they vectorize to 0.0 in the offline dataset
+        # (train/serve skew). Pure copy, no I/O. See external_features_payload_v1.py.
+        try:
+            from core.external_features_payload_v1 import build_external_features_payload
+            # indicators_with_v4 is created upstream in this same `build()` method
+            # (around line 2961). It contains Phase 7.x/8.x populates with stale
+            # guards already applied. NameError → fall-through to fail-open path.
+            indicators.update(
+                build_external_features_payload(indicators_with_v4, indicators)
+            )
+        except Exception:
+            pass
+
+        # v13_of Groups NA/NB/NC/NE/NF + NX interactions: merge V13RuntimeTracker
+        # snapshot into outbound `indicators` so the registry vectorizer sees
+        # real values (otherwise 28 v13_of keys are constant 0 — fixes train/serve
+        # skew identified 2026-05-16).
+        try:
+            v13_tracker = getattr(runtime, "v13_tracker", None)
+            if v13_tracker is not None:
+                v13_snap = v13_tracker.snapshot()
+                if v13_snap:
+                    indicators.update(v13_snap)
+                    indicators.update(
+                        v13_tracker.compute_interactions(v13_snap, indicators)
+                    )
         except Exception:
             pass
 

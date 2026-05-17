@@ -355,6 +355,78 @@ def reset_atr_redis():
             _atr_connection_pool = None
 
 
+# ---------------------------------------------------------------------------
+# Dedicated publish pool — XADD/PUBLISH only, does not compete with XREADGROUP
+# ---------------------------------------------------------------------------
+# Motivation: the main pool (REDIS_MAX_CONNECTIONS=80) is shared between blocking
+# XREADGROUP reads and signal XADD writes. Under high symbol load the pool
+# exhausts and XADD blocks (~100ms P99). A separate small pool ensures publish
+# calls always get a connection without waiting for readers to release.
+# ---------------------------------------------------------------------------
+
+_publish_redis_client: Any | None = None
+_publish_redis_lock = Lock()
+_publish_connection_pool: Any | None = None
+
+
+def get_redis_publish():
+    """Return a dedicated Redis client for XADD/PUBLISH operations.
+
+    Separate pool so signal publishing never waits for XREADGROUP connections.
+
+    Env overrides:
+    - PUBLISH_REDIS_MAX_CONNECTIONS (default 64)
+    - PUBLISH_REDIS_SOCKET_TIMEOUT_MS (default 200)
+    """
+    if redis is None:
+        raise RuntimeError("redis package is not installed.")
+
+    global _publish_redis_client, _publish_connection_pool
+
+    if _publish_redis_client is not None:
+        return _publish_redis_client
+
+    with _publish_redis_lock:
+        if _publish_redis_client is not None:
+            return _publish_redis_client
+
+        redis_url = get_env("REDIS_URL", "redis://redis-worker-1:6379/0")
+        # Default raised from 20 to 64: at 20 the pool starved under
+        # concurrent XADD load (Signal Emit p99 ~90ms observed in prod),
+        # while redis-server itself handles thousands of connections fine.
+        max_conn = max(5, min(int(get_env("PUBLISH_REDIS_MAX_CONNECTIONS", "64")), 100))  # type: ignore
+        timeout_ms = int(get_env("PUBLISH_REDIS_SOCKET_TIMEOUT_MS", "200"))  # type: ignore
+        timeout_s = max(0.05, min(timeout_ms / 1000.0, 2.0))
+
+        _publish_connection_pool = redis.ConnectionPool.from_url(
+            redis_url,
+            max_connections=max_conn,
+            socket_timeout=timeout_s,
+            socket_connect_timeout=timeout_s,
+            socket_keepalive=True,
+            decode_responses=True,
+            health_check_interval=30,
+            retry_on_timeout=False,
+        )
+        _publish_redis_client = redis.Redis(connection_pool=_publish_connection_pool)
+        print(f"✅ Publish Redis pool created (max_connections={max_conn}, timeout={timeout_s}s)")
+        return _publish_redis_client
+
+
+def reset_redis_publish():
+    """Reset publish Redis singleton + pool."""
+    global _publish_redis_client, _publish_connection_pool
+    with _publish_redis_lock:
+        if _publish_redis_client is not None:
+            with contextlib.suppress(Exception):
+                _publish_redis_client.close()
+            _publish_redis_client = None
+        if _publish_connection_pool is not None:
+            with contextlib.suppress(Exception):
+                _publish_connection_pool.disconnect()
+            _publish_connection_pool = None
+
+
 async def wait_for_redis_async(client, max_retries: int = 30, delay: float = 10.0) -> bool:
     """
     Pings Redis and waits if BusyLoadingError is raised.

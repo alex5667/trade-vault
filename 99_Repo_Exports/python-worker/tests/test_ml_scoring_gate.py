@@ -292,3 +292,63 @@ class TestConfidenceScorerMLShadow:
         assert 0.0 <= conf <= 1.0
         assert parts.get("ml_shadow_status") == "model_unavailable"
         assert parts.get("scorer_mode") in ("shadow", "ml_enforce_fallback")
+
+
+# ───────────────────────────────────────────────────────────────────────────────
+# Per-key NaN / missing-rate telemetry
+# ───────────────────────────────────────────────────────────────────────────────
+
+class TestFeatureMissingMetric:
+    """Tests for `_maybe_open_missing_metric` — Prometheus telemetry that
+    catches dead feature declarations whose producers stopped running."""
+
+    def test_metric_disabled_when_sample_zero(self):
+        """ML_FEATURE_MISSING_SAMPLE_EVERY=0 → no emitter, no telemetry."""
+        from services.ml_scoring_gate import MLScoringGate
+        with patch.dict(os.environ, {"ML_FEATURE_MISSING_SAMPLE_EVERY": "0"}):
+            gate = MLScoringGate(model_path="/nonexistent")
+        assert gate._maybe_open_missing_metric("v13_of") is None
+
+    def test_metric_samples_every_nth_call(self):
+        """Sampling cadence: every N-th call returns an emitter, others None."""
+        from services.ml_scoring_gate import MLScoringGate
+        with patch.dict(os.environ, {"ML_FEATURE_MISSING_SAMPLE_EVERY": "3"}):
+            gate = MLScoringGate(model_path="/nonexistent")
+        results = [gate._maybe_open_missing_metric("v13_of") for _ in range(6)]
+        # Calls 1,2 skipped (1%3, 2%3 ≠ 0); call 3 sampled (3%3==0);
+        # 4,5 skipped; 6 sampled.
+        assert results[0] is None
+        assert results[1] is None
+        assert results[2] is not None
+        assert results[3] is None
+        assert results[4] is None
+        assert results[5] is not None
+
+    def test_emitter_increments_seen_and_missing_counters(self):
+        """The emitter increments seen always, missing on None/NaN."""
+        from services.ml_scoring_gate import MLScoringGate
+        from services.orderflow.metrics import (
+            ml_feature_missing_total,
+            ml_feature_seen_total,
+        )
+        with patch.dict(os.environ, {"ML_FEATURE_MISSING_SAMPLE_EVERY": "1"}):
+            gate = MLScoringGate(model_path="/nonexistent")
+
+        emitter = gate._maybe_open_missing_metric("v13_of_test")
+        assert emitter is not None
+
+        sv = "v13_of_test"
+        feat = "__test_missing_metric_feature__"
+
+        seen_before = ml_feature_seen_total.labels(schema_ver=sv, feature=feat)._value.get()
+        miss_before = ml_feature_missing_total.labels(schema_ver=sv, feature=feat)._value.get()
+
+        emitter(feat, 0.5)             # finite → seen+1
+        emitter(feat, None)            # None  → seen+1, missing+1
+        emitter(feat, float("nan"))    # NaN   → seen+1, missing+1
+
+        seen_after = ml_feature_seen_total.labels(schema_ver=sv, feature=feat)._value.get()
+        miss_after = ml_feature_missing_total.labels(schema_ver=sv, feature=feat)._value.get()
+
+        assert seen_after - seen_before == 3
+        assert miss_after - miss_before == 2
