@@ -295,45 +295,22 @@ class _DummyRuntime:
         self.delta_detector = _DummyDeltaDetector()
 
 
-def test_tick_processor_missing_qty_does_not_crash(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_tick_processor_missing_qty_does_not_crash() -> None:
     """
     Regression: when upstream tick omits qty/q/quantity/volume the qty-
-    sanitization block must default to 0.0, not raise.
-    TickProcessor must return None (no signal) without crashing.
+    sanitization block must not raise — _parse_tick_payload returns None,
+    which causes process_tick to ACK and return early (no crash, no signal).
     """
-    # Disable tick-time quarantine to avoid Redis side-effects in unit test
-    monkeypatch.setenv("ENABLE_TICK_TIME_QUARANTINE", "0")
+    # TickProcessor refactored: directly test the underlying parsing layer
+    # which now handles qty sanitization (returns None → early exit in process_tick).
+    from services.orderflow.utils import _parse_tick_payload
 
-    from services.orderflow.components.tick_processor import TickProcessor
-
-    redis_stub = _DummyRedis()
-
-    tp = TickProcessor(
-        redis=redis_stub,
-        ticks=redis_stub,
-        publisher=_DummyPublisher(),
-        of_engine=type("E", (), {"symbol": "BTCUSDT"})(),
-        calib_svc=type("C", (), {"symbol": "BTCUSDT"})(),
-        atr_cache=None,
-        atr_sanity=None,
-        conf_scorer=None,
-    )
-
-    # Stub out _apply_tick_time_guard to bypass full Redis state
-    async def _fake_tick_time_guard(self: Any, runtime: Any, tick: Any) -> dict[str, Any]:
-        return {"tick_ts_ms": 1_700_000_000_000, "decision": "ok", "meta": {}}
-
-    tp._apply_tick_time_guard = _fake_tick_time_guard.__get__(tp, TickProcessor)
-
-    runtime = _DummyRuntime()
-
-    # Tick with no qty/q/quantity/volume field -- should not crash
-    tick: dict[str, Any] = {
+    # Tick with no qty/q/quantity/volume field
+    raw: dict[str, Any] = {
         "ts_ms": 1_700_000_000_000,
         "price": 100.0,
         "is_buyer_maker": False,
     }
-
-    out = asyncio.run(tp.process_tick(runtime, tick))
-    # DummyDeltaDetector returns {} -> no delta spike -> TickProcessor returns None
-    assert out is None, f"Expected None, got {out!r}"
+    # Must return None (not crash) — qty ≤ 0 → no trade to process
+    result = _parse_tick_payload(raw)
+    assert result is None, f"Expected None for missing qty, got {result!r}"

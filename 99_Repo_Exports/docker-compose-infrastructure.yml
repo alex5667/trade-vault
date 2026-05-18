@@ -253,6 +253,53 @@ services:
     shm_size: 512mb
     sysctls:
       net.core.somaxconn: 4096
+  redis-main-stream-bootstrap:
+    image: redis:7-alpine
+    container_name: redis-main-stream-bootstrap
+    restart: on-failure
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+    - scanner-infra
+    environment:
+    - TZ=UTC
+    command: >
+      sh -c "
+        for stream in stream:liq_evt_quarantine stream:symbols; do
+          redis-cli -h redis XADD \"$$stream\" '*' type init source bootstrap &&
+          redis-cli -h redis XTRIM \"$$stream\" MAXLEN 1;
+        done
+      "
+    deploy:
+      resources:
+        limits:
+          cpus: '0.05'
+          memory: 32M
+
+  redis-worker-2-stream-bootstrap:
+    image: redis:7-alpine
+    container_name: redis-worker-2-stream-bootstrap
+    restart: on-failure
+    depends_on:
+      redis-worker-2:
+        condition: service_healthy
+    networks:
+    - scanner-infra
+    environment:
+    - TZ=UTC
+    command: >
+      sh -c "
+        for stream in orders:exec dlq:signals dlq:ticks dlq:events dlq:book_deltas; do
+          redis-cli -h redis-worker-2 XADD \"$$stream\" '*' type init source bootstrap &&
+          redis-cli -h redis-worker-2 XTRIM \"$$stream\" MAXLEN 1;
+        done
+      "
+    deploy:
+      resources:
+        limits:
+          cpus: '0.05'
+          memory: 32M
   redis-worker-3:
     image: redis:7-alpine
     container_name: redis-worker-3
@@ -589,6 +636,11 @@ services:
     - scanner-network
     environment:
     - TZ=UTC
+    deploy:
+      resources:
+        limits:
+          cpus: '0.2'
+          memory: 128M
   monitoring-smoke-exporter:
     build:
       context: .
@@ -623,6 +675,11 @@ services:
       timeout: 5s
       retries: 5
       start_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: '0.2'
+          memory: 256M
   redis-exporter-main:
     image: oliver006/redis_exporter:v1.66.0
     container_name: redis-exporter-main
@@ -630,8 +687,7 @@ services:
     environment:
     - REDIS_ADDR=redis://redis:6379
     - REDIS_EXPORTER_LOG_FORMAT=txt
-    - REDIS_EXPORTER_CHECK_SINGLE_STREAMS=candles:data
-    - REDIS_EXPORTER_STREAMS_GROUPS_LIST=candles:data::candles-consumer-group
+    - REDIS_EXPORTER_CHECK_SINGLE_STREAMS=stream:liq_evt,stream:liq_evt_quarantine,stream:ticker-24h,stream:funding-rates,stream:volatility,stream:volatilityRange,stream:top-gainers,stream:top-losers,stream:bybit:ticker-24h,stream:bybit:funding-rate,stream:ws-new-pairs
     - TZ=UTC
     expose:
     - '9121'
@@ -643,6 +699,11 @@ services:
     healthcheck:
       test: ["NONE"]
       # NOTE: scratch image has no shell/wget — Prometheus scrapes /metrics directly
+    deploy:
+      resources:
+        limits:
+          cpus: '0.1'
+          memory: 64M
   redis-exporter-worker-1:
     image: oliver006/redis_exporter:v1.66.0
     container_name: redis-exporter-worker-1
@@ -650,8 +711,8 @@ services:
     environment:
     - REDIS_ADDR=redis://redis-worker-1:6379
     - REDIS_EXPORTER_LOG_FORMAT=txt
-    - REDIS_EXPORTER_CHECK_SINGLE_STREAMS=stream:signals:outbox,stream:signals:dlq,stream:trade:entry_audit,stream:trade:entry_candidate,stream:ab:suggestions,stream:smt:setup,stream:diag:edge_gate_events,events:decision_snapshot,stream:signals_news
-    - REDIS_EXPORTER_STREAMS_GROUPS_LIST=stream:signals:outbox::nestjs-consumer,stream:signals:outbox::python-dispatcher,stream:of:quarantine::quarantine-consumer,stream:trade:entry_candidate::execution-consumer
+    - REDIS_EXPORTER_CHECK_SINGLE_STREAMS=candles:data,stream:symbols,stream:signals:outbox,stream:signals:dlq,stream:trade:entry_audit,stream:trade:entry_candidate,stream:ab:suggestions,stream:smt:setup,stream:diag:edge_gate_events,events:decision_snapshot,stream:signals_news
+    - REDIS_EXPORTER_STREAMS_GROUPS_LIST=candles:data::candles-consumer-group,stream:signals:outbox::nestjs-consumer,stream:signals:outbox::python-dispatcher,stream:of:quarantine::quarantine-consumer,stream:trade:entry_candidate::execution-consumer
     - TZ=UTC
     expose:
     - '9121'
@@ -665,6 +726,11 @@ services:
       timeout: 5s
       retries: 3
       start_period: 15s
+    deploy:
+      resources:
+        limits:
+          cpus: '0.1'
+          memory: 64M
   redis-exporter-worker-2:
     image: oliver006/redis_exporter:v1.66.0
     container_name: redis-exporter-worker-2
@@ -688,6 +754,11 @@ services:
       timeout: 5s
       retries: 3
       start_period: 15s
+    deploy:
+      resources:
+        limits:
+          cpus: '0.1'
+          memory: 64M
   redis-exporter-worker-1b:
     image: oliver006/redis_exporter:v1.66.0
     container_name: redis-exporter-worker-1b
@@ -710,6 +781,11 @@ services:
       timeout: 5s
       retries: 3
       start_period: 15s
+    deploy:
+      resources:
+        limits:
+          cpus: '0.1'
+          memory: 64M
   redis-exporter-worker-2b:
     image: oliver006/redis_exporter:v1.66.0
     container_name: redis-exporter-worker-2b
@@ -733,6 +809,11 @@ services:
       timeout: 5s
       retries: 3
       start_period: 15s
+    deploy:
+      resources:
+        limits:
+          cpus: '0.1'
+          memory: 64M
   redis-exporter-worker-3:
     image: oliver006/redis_exporter:v1.66.0
     container_name: redis-exporter-worker-3
@@ -755,6 +836,11 @@ services:
       timeout: 5s
       retries: 3
       start_period: 15s
+    deploy:
+      resources:
+        limits:
+          cpus: '0.1'
+          memory: 64M
   redis-exporter-worker-3b:
     image: oliver006/redis_exporter:v1.66.0
     container_name: redis-exporter-worker-3b
@@ -777,6 +863,11 @@ services:
       timeout: 5s
       retries: 3
       start_period: 15s
+    deploy:
+      resources:
+        limits:
+          cpus: '0.1'
+          memory: 64M
   redis-exporter-ticks:
     image: oliver006/redis_exporter:v1.66.0
     container_name: redis-exporter-ticks
@@ -784,7 +875,6 @@ services:
     environment:
     - REDIS_ADDR=redis://redis-ticks:6379
     - REDIS_EXPORTER_LOG_FORMAT=txt
-    - REDIS_EXPORTER_CHECK_SINGLE_STREAMS=stream:liq_evt,stream:liq_evt_quarantine,stream:ticker-24h,stream:funding-rates,stream:symbols,stream:volatility,stream:volatilityRange,stream:top-gainers,stream:top-losers,stream:bybit:ticker-24h,stream:bybit:funding-rate,stream:ws-new-pairs
     - TZ=UTC
     expose:
     - 9121
@@ -798,6 +888,11 @@ services:
       timeout: 5s
       retries: 3
       start_period: 15s
+    deploy:
+      resources:
+        limits:
+          cpus: '0.1'
+          memory: 64M
   redis-exporter-ticks-b:
     image: oliver006/redis_exporter:v1.66.0
     container_name: redis-exporter-ticks-b
@@ -805,7 +900,6 @@ services:
     environment:
     - REDIS_ADDR=redis://redis-ticks-b:6379
     - REDIS_EXPORTER_LOG_FORMAT=txt
-    - REDIS_EXPORTER_CHECK_SINGLE_STREAMS=stream:liq_evt,stream:liq_evt_quarantine,stream:ticker-24h,stream:funding-rates,stream:symbols,stream:volatility,stream:volatilityRange,stream:top-gainers,stream:top-losers,stream:bybit:ticker-24h,stream:bybit:funding-rate,stream:ws-new-pairs
     - TZ=UTC
     expose:
     - 9121
@@ -819,6 +913,11 @@ services:
       timeout: 5s
       retries: 3
       start_period: 15s
+    deploy:
+      resources:
+        limits:
+          cpus: '0.1'
+          memory: 64M
 networks:
   scanner-infra:
     external: true

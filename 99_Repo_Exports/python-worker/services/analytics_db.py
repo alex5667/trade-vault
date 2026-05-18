@@ -185,7 +185,7 @@ def init_trade_batch_writer(dsn: str = "") -> None:
                 "trailing_started", "trailing_active", "trailing_moves", "trailing_profile",
                 "mfe_pnl", "mae_pnl", "giveback", "missed_profit",
                 "one_r_money", "r_multiple", "duration_ms",
-                "close_reason", "close_reason_raw",
+                "close_reason", "close_reason_raw", "close_reason_detail",
                 "entry_tag", "max_favorable_price", "max_favorable_ts",
                 "is_final_close", "remaining_qty", "status",
                 "sc_contract_ver", "sc_risk_horizon_bucket",
@@ -376,7 +376,7 @@ def save_trade_closed(closed: TradeClosed) -> None:  # type: ignore
             trailing_started, trailing_active, trailing_moves, trailing_profile,
             mfe_pnl, mae_pnl, giveback, missed_profit,
             one_r_money, r_multiple, duration_ms,
-            close_reason, close_reason_raw,
+            close_reason, close_reason_raw, close_reason_detail,
             entry_tag, max_favorable_price, max_favorable_ts,
             is_final_close, remaining_qty, status,
             sc_contract_ver,
@@ -418,7 +418,7 @@ def save_trade_closed(closed: TradeClosed) -> None:  # type: ignore
             %s, %s, %s, %s,
             %s, %s, %s, %s,
             %s, %s, %s,
-            %s, %s,
+            %s, %s, %s,
             %s, %s, %s,
             %s, %s, %s,
             %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
@@ -569,7 +569,7 @@ def save_trade_closed(closed: TradeClosed) -> None:  # type: ignore
         closed.trailing_started, closed.trailing_active, closed.trailing_moves, trailing_profile,
         closed.mfe_pnl, closed.mae_pnl, closed.giveback, closed.missed_profit,
         closed.one_r_money, closed.r_multiple, closed.duration_ms,
-        closed.close_reason, getattr(closed, 'close_reason_raw', ''),
+        closed.close_reason, getattr(closed, 'close_reason_raw', ''), getattr(closed, 'close_reason_detail', ''),
         entry_tag, max_favorable_price, max_favorable_ts,
         is_final_close, remaining_qty, status,
         # Phase 0.3: first-class scalar horizon/ATR columns (additive, stored as sc_* to avoid clash with jsonb atr_tf_ms)
@@ -601,7 +601,7 @@ def save_trade_closed(closed: TradeClosed) -> None:  # type: ignore
         getattr(closed, "selected_tp1_price", 0.0),
         getattr(closed, "is_virtual", False),
         getattr(closed, "meta_enforce_cov_bucket", ""),
-        getattr(closed, "meta_enforce_applied", -1),
+        bool(getattr(closed, "meta_enforce_applied", False)),
         getattr(closed, "atr_policy_ver", 0),
         getattr(closed, "atr_policy_tag", ""),
         getattr(closed, "atr_policy_source", ""),
@@ -680,7 +680,7 @@ def save_trade_closed(closed: TradeClosed) -> None:  # type: ignore
         Json(features),  # psycopg2.extras.Json → jsonb безопасно
         getattr(closed, "is_virtual", False),
         getattr(closed, "meta_enforce_cov_bucket", ""),
-        getattr(closed, "meta_enforce_applied", -1)
+        bool(getattr(closed, "meta_enforce_applied", False))
     )
 
     # Sanitize parameters: replace empty tuples `()` with `None`, and unbox 1-element tuples `(x,)`
@@ -811,6 +811,7 @@ def save_trade_closed_async(closed: TradeClosed) -> bool:  # type: ignore[name-d
             "duration_ms": closed.duration_ms,
             "close_reason": closed.close_reason,
             "close_reason_raw": getattr(closed, "close_reason_raw", ""),
+            "close_reason_detail": getattr(closed, "close_reason_detail", ""),
             "entry_tag": entry_tag,
             "max_favorable_price": max_favorable_price,
             "max_favorable_ts": max_favorable_ts,
@@ -839,7 +840,7 @@ def save_trade_closed_async(closed: TradeClosed) -> bool:  # type: ignore[name-d
             ),
             "is_virtual": getattr(closed, "is_virtual", False),
             "meta_enforce_cov_bucket": getattr(closed, "meta_enforce_cov_bucket", ""),
-            "meta_enforce_applied": getattr(closed, "meta_enforce_applied", -1),
+            "meta_enforce_applied": bool(getattr(closed, "meta_enforce_applied", False)),
             "atr_policy_ver": getattr(closed, "atr_policy_ver", 0),
             "atr_policy_tag": getattr(closed, "atr_policy_tag", ""),
             "atr_policy_source": getattr(closed, "atr_policy_source", ""),
@@ -922,7 +923,7 @@ def save_trade_closed_async(closed: TradeClosed) -> bool:  # type: ignore[name-d
                 "features_json": json.dumps(features, ensure_ascii=False),
                 "is_virtual": getattr(closed, "is_virtual", False),
                 "meta_enforce_cov_bucket": getattr(closed, "meta_enforce_cov_bucket", ""),
-                "meta_enforce_applied": getattr(closed, "meta_enforce_applied", -1),
+                "meta_enforce_applied": bool(getattr(closed, "meta_enforce_applied", False)),
                 "updated_at": dt,
             })
 

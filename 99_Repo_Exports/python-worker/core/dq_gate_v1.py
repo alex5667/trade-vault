@@ -3,7 +3,29 @@ import os
 from typing import Any
 
 from core.core_snapshot.dq_observe_only import apply_observe_only_book_veto
-from core.core_snapshot.runtime_clock import snapshot as runtime_snapshot
+from core.runtime_clock import snapshot as runtime_snapshot
+
+# Mode-specific threshold defaults (strict = tighter, safe = looser)
+_MODE_DEFAULTS: dict[str, dict[str, float]] = {
+    "strict": {
+        "tick_seq_soft": 0.05,
+        "tick_seq_hard": 0.15,
+        "book_seq_soft": 0.03,
+        "book_seq_hard": 0.10,
+        "gap_soft_ms": 3000.0,
+        "gap_hard_ms": 4000.0,
+        "gap_extreme_ms": 8000.0,
+    },
+    "safe": {
+        "tick_seq_soft": 0.125,
+        "tick_seq_hard": 0.25,
+        "book_seq_soft": 0.03,
+        "book_seq_hard": 0.10,
+        "gap_soft_ms": 5000.0,
+        "gap_hard_ms": 8000.0,
+        "gap_extreme_ms": 12000.0,
+    },
+}
 
 
 def _cfg_get(cfg2: dict[str, Any], key: str, default: Any, *, env: str | None = None, aliases: list[str] | None = None) -> Any:
@@ -125,18 +147,26 @@ def eval_dq_gate(indicators: dict[str, Any], cfg2: dict[str, Any]) -> dict[str, 
     skew_soft_ms = _cfg_float(cfg2, "dq_skew_ema_ms_max", 1000.0, env="DQ_SKEW_EMA_MS_MAX")
     skew_hard_ms = _cfg_float(cfg2, "dq_skew_ema_ms_hard", 5000.0, env="DQ_SKEW_EMA_MS_HARD")
 
-    # tick gap p95 thresholds
-    gap_soft_ms = _cfg_float(cfg2, "dq_tick_gap_p95_soft_ms", 3000.0, env="DQ_TICK_GAP_P95_SOFT_MS", aliases=["gap_soft_ms", "dq_gap_soft_ms"])
-    gap_hard_ms = _cfg_float(cfg2, "dq_tick_gap_p95_hard_ms", 10000.0, env="DQ_TICK_GAP_P95_HARD_MS", aliases=["gap_hard_ms", "dq_gap_hard_ms"])
-    gap_extreme_ms = _cfg_float(cfg2, "dq_tick_gap_p95_extreme_ms", 30000.0, env="DQ_TICK_GAP_P95_EXTREME_MS", aliases=["gap_extreme_ms", "dq_gap_extreme_ms"])
+    # dq_mode selects threshold preset (strict / safe); explicit cfg overrides
+    dq_mode = str(_cfg_get(cfg2, "dq_mode", "default", env="DQ_MODE")).lower()
+    _md = _MODE_DEFAULTS.get(dq_mode, {})
 
     # missing seq thresholds
-    tick_seq_soft = _cfg_float(cfg2, "dq_tick_missing_seq_soft", 2.0, env="DQ_TICK_MISSING_SEQ_SOFT", aliases=["tick_soft", "dq_tick_soft"])
-    tick_seq_hard = _cfg_float(cfg2, "dq_tick_missing_seq_hard", 10.0, env="DQ_TICK_MISSING_SEQ_HARD", aliases=["tick_hard", "dq_tick_hard"])
+    tick_seq_soft = _cfg_float(cfg2, "dq_tick_missing_seq_soft", _md.get("tick_seq_soft", 2.0), env="DQ_TICK_MISSING_SEQ_SOFT", aliases=["tick_soft", "dq_tick_soft"])
+    tick_seq_hard = _cfg_float(cfg2, "dq_tick_missing_seq_hard", _md.get("tick_seq_hard", 10.0), env="DQ_TICK_MISSING_SEQ_HARD", aliases=["tick_hard", "dq_tick_hard"])
 
-    book_seq_soft = _cfg_float(cfg2, "dq_book_missing_seq_soft", 10.0, env="DQ_BOOK_MISSING_SEQ_SOFT", aliases=["book_soft", "dq_book_soft"])
-    # Keep compatibility with older configs that used `book_hard`.
-    book_seq_hard = _cfg_float(cfg2, "book_hard", 30.0, env="DQ_BOOK_HARD", aliases=["dq_book_missing_seq_hard", "dq_book_hard_ema", "dq_book_hard"])
+    book_seq_soft = _cfg_float(cfg2, "dq_book_missing_seq_soft", _md.get("book_seq_soft", 10.0), env="DQ_BOOK_MISSING_SEQ_SOFT", aliases=["book_soft", "dq_book_soft"])
+    book_seq_hard = _cfg_float(cfg2, "book_hard", _md.get("book_seq_hard", 30.0), env="DQ_BOOK_HARD", aliases=["dq_book_missing_seq_hard", "dq_book_hard_ema", "dq_book_hard"])
+
+    # gap thresholds with mode-specific defaults
+    gap_soft_ms = _cfg_float(cfg2, "dq_tick_gap_p95_soft_ms", _md.get("gap_soft_ms", 3000.0), env="DQ_TICK_GAP_P95_SOFT_MS", aliases=["gap_soft_ms", "dq_gap_soft_ms"])
+    gap_hard_ms = _cfg_float(cfg2, "dq_tick_gap_p95_hard_ms", _md.get("gap_hard_ms", 10000.0), env="DQ_TICK_GAP_P95_HARD_MS", aliases=["gap_hard_ms", "dq_gap_hard_ms"])
+    gap_extreme_ms = _cfg_float(cfg2, "dq_tick_gap_p95_extreme_ms", _md.get("gap_extreme_ms", 30000.0), env="DQ_TICK_GAP_P95_EXTREME_MS", aliases=["gap_extreme_ms", "dq_gap_extreme_ms"])
+
+    # requires_seq: gap-hard alone stays soft unless tick_seq is also degraded
+    requires_seq = _cfg_int(cfg2, "dq_tick_gap_requires_seq", 0, env="DQ_TICK_GAP_REQUIRES_SEQ")
+    gap_min_samples = _cfg_int(cfg2, "dq_tick_gap_min_samples", 0, env="DQ_TICK_GAP_MIN_SAMPLES")
+    tick_gap_n = int(indicators.get("tick_gap_n", 0) or 0)
 
     # optional nan/stuck thresholds (data-health bucket)
     nan_soft = _cfg_float(cfg2, "dq_nan_rate_soft", 0.01, env="DQ_NAN_RATE_SOFT")
@@ -182,23 +212,30 @@ def eval_dq_gate(indicators: dict[str, Any], cfg2: dict[str, Any]) -> dict[str, 
     if tick_ts_source_stream_id_ema > skew_hard_ms:
         _bump(2, "stream_id_skew_hard")
 
-    # tick gap p95
-    if tick_gap_p95_ms >= gap_soft_ms:
-        _bump(1, "gap_p95_soft")
-    if tick_gap_p95_ms >= gap_hard_ms or tick_gap_p95_ms >= gap_extreme_ms:
-        _bump(2, "gap_p95_hard")
+    # tick gap p95 — unified reason "gap_p95"; requires_seq gates hard promotion
+    _gap_has_samples = (tick_gap_n >= gap_min_samples) if gap_min_samples > 0 else True
+    _tick_seq_degraded = tick_missing_seq_ema >= tick_seq_soft
+    if tick_gap_p95_ms >= gap_extreme_ms and _gap_has_samples:
+        _bump(2, "gap_p95")
+    elif tick_gap_p95_ms >= gap_hard_ms and _gap_has_samples:
+        if requires_seq and not _tick_seq_degraded:
+            _bump(1, "gap_p95")
+        else:
+            _bump(2, "gap_p95")
+    elif tick_gap_p95_ms >= gap_soft_ms and _gap_has_samples:
+        _bump(1, "gap_p95")
 
-    # tick missing seq EMA
+    # tick missing seq EMA — unified reason "tick_seq"
     if tick_missing_seq_ema >= tick_seq_soft:
-        _bump(1, "tick_seq_soft")
+        _bump(1, "tick_seq")
     if tick_missing_seq_ema >= tick_seq_hard:
-        _bump(2, "tick_seq_hard")
+        _bump(2, "tick_seq")
 
-    # book missing seq EMA (book-seq hard can be observe-only)
+    # book missing seq EMA — unified reason "book_seq"
     if book_missing_seq_ema >= book_seq_soft:
-        _bump(1, "book_seq_soft")
+        _bump(1, "book_seq")
     if book_missing_seq_ema >= book_seq_hard:
-        _bump(2, "book_seq_hard")
+        _bump(2, "book_seq")
 
     # Optional data-health signals
     if feature_nan_rate_ema >= nan_soft:
@@ -216,18 +253,15 @@ def eval_dq_gate(indicators: dict[str, Any], cfg2: dict[str, Any]) -> dict[str, 
         "nan_rate_hard",
         "feature_stuck_hard",
         "low_data_health_hard",
-        "gap_p95_hard",
-        "tick_seq_hard",
-        "book_seq_hard",
+        "gap_p95",
+        "tick_seq",
+        "book_seq",
         "latency_hard",
         "clock_skew_now_hard",
         "stream_id_skew_hard",
         "nan_rate_soft",
         "feature_stuck_soft",
         "low_data_health",
-        "gap_p95_soft",
-        "tick_seq_soft",
-        "book_seq_soft",
         "latency_spike",
         "clock_skew_now",
         "stream_id_skew",
@@ -314,50 +348,55 @@ def eval_dq_gate(indicators: dict[str, Any], cfg2: dict[str, Any]) -> dict[str, 
     # -----------------------------
     # 5) Veto logic + observe-only for book hard-veto
     # -----------------------------
+    # Stream integrity failures (tick_seq, gap_p95) always veto regardless of mode.
+    # Hard level-2 health reasons also always veto (incl. penalty mode).
+    # Composite health-score veto (soft signals aggregate) only in enforce/both mode.
     veto_mode = mode in ("enforce", "both", "veto")
 
-    # Veto candidates (hard-level reasons)
-    hard_reasons = {r for r in dq_reasons if ("_hard" in r) or (r.endswith("hard"))}
-    veto_other = 0
-    veto_book = 1 if "book_seq_hard" in hard_reasons else 0
+    _seq_gap_hard_reasons = {"gap_p95", "tick_seq"}
+    _health_hard_reasons = {
+        "low_data_health_hard", "nan_rate_hard", "feature_stuck_hard",
+        "latency_hard", "clock_skew_now_hard", "stream_id_skew_hard",
+    }
+    _has_seq_gap_hard = dq_level == 2 and bool(_seq_gap_hard_reasons & set(dq_reasons))
+    _has_health_hard = dq_level == 2 and bool(_health_hard_reasons & set(dq_reasons))
+    _has_book_hard = dq_level == 2 and "book_seq" in dq_reasons
 
-    # Non-book hard triggers => veto immediately in veto/enforce mode
-    if veto_mode:
-        if "gap_p95_hard" in hard_reasons:
-            veto_other = 1
-        if "tick_seq_hard" in hard_reasons:
-            veto_other = 1
-        if "low_data_health_hard" in hard_reasons:
-            veto_other = 1
-        if "nan_rate_hard" in hard_reasons or "feature_stuck_hard" in hard_reasons:
-            veto_other = 1
-        if "latency_hard" in hard_reasons or "clock_skew_now_hard" in hard_reasons or "stream_id_skew_hard" in hard_reasons:
-            veto_other = 1
+    # tick_seq / gap_p95 hard always veto (stream integrity, no mode gating)
+    veto_stream = 1 if _has_seq_gap_hard else 0
 
-        # Back-compat: if health_score itself is catastrophically low, also veto.
-        if health_score < data_health_hard_min:
-            veto_other = 1
+    # hard level-2 health reasons veto only in enforce/both mode (not penalty)
+    veto_health = 1 if (veto_mode and _has_health_hard) else 0
 
-    # Apply observe-only ONLY to book veto.
+    # Composite: soft signals push health below hard threshold — only enforce/both
+    _pure_book = _has_book_hard and not (_has_seq_gap_hard or _has_health_hard)
+    if veto_mode and not _pure_book and health_score < data_health_hard_min:
+        veto_health = 1
+
+    # Apply observe-only to isolated book hard-veto
     suppressed = False
     suppress_reason = ""
-    if veto_mode and veto_book == 1:
-        clock = runtime_snapshot(event_ts_ms=indicators.get("event_ts_ms") or indicators.get("tick_ts_source_now"))
-        out = apply_observe_only_book_veto(
-            dq_level=2,
-            dq_veto=1,
-            dq_reason_bucket="book_seq",
-            dq_reasons=dq_reasons,
-            uptime_sec=clock.uptime_sec,
-            cfg=cfg2,
-        )
-        veto_book = out.dq_veto
-        suppressed = out.suppressed
-        suppress_reason = out.suppress_reason
-    else:
-        clock = runtime_snapshot(event_ts_ms=indicators.get("event_ts_ms") or indicators.get("tick_ts_source_now"))
+    has_observe_cfg = "dq_book_veto_enabled" in cfg2 or "dq_observe_only_sec" in cfg2
+    clock = runtime_snapshot(event_ts_ms=indicators.get("event_ts_ms") or indicators.get("tick_ts_source_now"))
 
-    dq_veto = 1 if (veto_mode and (veto_other == 1 or veto_book == 1)) else 0
+    veto_book = 0
+    if _has_book_hard and not veto_stream and not veto_health:
+        if has_observe_cfg:
+            ob_out = apply_observe_only_book_veto(
+                dq_level=2,
+                dq_veto=1,
+                dq_reason_bucket="book_seq",
+                dq_reasons=dq_reasons,
+                uptime_sec=clock.uptime_sec,
+                cfg=cfg2,
+            )
+            veto_book = ob_out.dq_veto
+            suppressed = ob_out.suppressed
+            suppress_reason = ob_out.suppress_reason or ""
+        else:
+            veto_book = 1  # book hard vetoes directly when observe-only not configured
+
+    dq_veto = 1 if (veto_stream or veto_health or veto_book) else 0
 
     # -----------------------------
     # 6) Output

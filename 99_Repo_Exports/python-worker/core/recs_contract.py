@@ -56,10 +56,10 @@ class RecOp:
     Сейчас поддерживается только HSET для Redis Hash (config:orderflow:<SYMBOL>).
     В будущем можно расширить для других операций (SET, DEL, и т.д.).
     """
-    op: str                 # "HSET"
+    op: str                 # "HSET" or "SET"
     key: str                # e.g. "config:orderflow:BTCUSDT"
-    field: str              # e.g. "w_exec_risk"
     value: str              # "0.200"
+    field: str = ""         # e.g. "w_exec_risk" (required for HSET, empty for SET)
 
 
 @dataclass

@@ -9,6 +9,7 @@ and config parsing.
 """
 
 import json
+import logging
 import time
 from unittest.mock import AsyncMock, patch
 
@@ -744,6 +745,166 @@ class TestDualBuffer:
         svc.redis.rpush.assert_called_once()
         # One confirm consumed, one still buffered
         assert len(svc.confirmations.get("BTCUSDT", [])) == 1
+
+
+# ===================================================================
+#  T10: AUDIT FIXES (Finding #1-4)
+# ===================================================================
+
+class TestAuditFixes:
+    """Tests for 2026-05-17 audit findings."""
+
+    @pytest.mark.asyncio
+    async def test_rejection_reason_logged_and_metric(self):
+        """Finding #4 [P1]: rejection reason must be logged and metriced."""
+        svc = _build_service(require_of_confirm=True, match_ms=5000)
+        now_ms = get_ny_time_millis()
+
+        prop_fields = _make_proposal_fields(
+            symbol="BTCUSDT", direction="long", generated_at=now_ms
+        )
+        await svc._handle_proposal(prop_fields)
+
+        confirm_fields = _make_confirm_fields(
+            symbol="BTCUSDT", direction="long", ok=0, score=0.42, ts_ms=now_ms + 100
+        )
+        confirm_fields["payload"] = json.dumps({
+            "symbol": "BTCUSDT",
+            "direction": "long",
+            "ok": 0,
+            "score": 0.42,
+            "ts_ms": now_ms + 100,
+            "reason": "score_threshold_failed"
+        })
+
+        # Mock logger to capture warning
+        with patch("services.execution_gate_service.logger") as mock_logger:
+            await svc._handle_confirmation(confirm_fields)
+
+            # Should have called logger.warning with rejection details
+            mock_logger.warning.assert_called_once()
+            call_args = str(mock_logger.warning.call_args)
+            assert "EXEC GATE REJECTED" in call_args
+            assert "score_threshold_failed" in call_args
+            assert "0.42" in call_args
+
+        # Order should NOT be published
+        svc.redis.rpush.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_orphan_confirmation_logged_on_buffer(self):
+        """Finding #1: orphan confirmations should be logged when buffered."""
+        svc = _build_service(require_of_confirm=True)
+        confirm = _make_confirm_fields(symbol="BTCUSDT", direction="long", ok=1)
+
+        with patch("services.execution_gate_service.logger") as mock_logger:
+            await svc._handle_confirmation(confirm)
+
+            # Should have logged the orphan buffering
+            mock_logger.info.assert_called_once()
+            call_args = str(mock_logger.info.call_args)
+            assert "orphan" in call_args.lower()
+            assert "BTCUSDT" in call_args
+
+        # Confirmation should be buffered
+        assert len(svc.confirmations.get("BTCUSDT", [])) == 1
+
+    @pytest.mark.asyncio
+    async def test_qty_lot_mismatch_warning(self):
+        """Finding #3: qty/lot disagreement (>10%) should warn."""
+        svc = _build_service(require_of_confirm=False)
+        fields = _make_proposal_fields(
+            symbol="BTCUSDT",
+            direction="long",
+            extra={
+                "qty": 1.0,
+                "lot": 2.5,  # 150% increase → >10% delta
+                "sl": 64000.0,
+                "tp_levels": [65000.0],
+            }
+        )
+
+        with patch("services.execution_gate_service.logger") as mock_logger:
+            await svc._handle_proposal(fields)
+
+            # Should have warned about qty/lot mismatch
+            warning_calls = [c for c in mock_logger.method_calls if "warning" in str(c).lower()]
+            assert any("qty" in str(c).lower() and "lot" in str(c).lower() for c in warning_calls)
+
+        # Order should still be published (with qty=2.5 from lot)
+        svc.redis.rpush.assert_called_once()
+        payload = json.loads(svc.redis.rpush.call_args[0][1])
+        assert payload["qty"] == 2.5
+
+    @pytest.mark.asyncio
+    async def test_qty_lot_small_delta_no_warning(self):
+        """qty/lot disagreement <10% should NOT warn."""
+        svc = _build_service(require_of_confirm=False)
+        fields = _make_proposal_fields(
+            symbol="BTCUSDT",
+            direction="long",
+            extra={
+                "qty": 1.0,
+                "lot": 1.05,  # 5% increase → no warning
+                "sl": 64000.0,
+                "tp_levels": [65000.0],
+            }
+        )
+
+        with patch("services.execution_gate_service.logger") as mock_logger:
+            await svc._handle_proposal(fields)
+
+            # Should NOT warn (delta < 10%)
+            warning_calls = [c for c in mock_logger.method_calls if "warning" in str(c).lower()]
+            qty_warnings = [c for c in warning_calls if "qty" in str(c).lower()]
+            assert len(qty_warnings) == 0
+
+        svc.redis.rpush.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_orphan_expiry_logs_age_histogram(self):
+        """Finding #1: expired orphans should log age statistics."""
+        svc = _build_service(require_of_confirm=True, ttl_s=0.1)
+
+        # Buffer a confirmation (orphan)
+        confirm = _make_confirm_fields(symbol="BTCUSDT", direction="long")
+        await svc._handle_confirmation(confirm)
+        assert len(svc.confirmations.get("BTCUSDT", [])) == 1
+
+        # Age it to past TTL
+        svc.confirmations["BTCUSDT"][0].received_at = time.time() - 1.0
+
+        # Run cleanup manually
+        now = time.time()
+        with patch("services.execution_gate_service.logger") as mock_logger:
+            for sym in list(svc.confirmations.keys()):
+                fresh = [
+                    c for c in svc.confirmations[sym]
+                    if (now - c.received_at) < svc.proposal_ttl_s
+                ]
+                if len(fresh) != len(svc.confirmations[sym]):
+                    removed = len(svc.confirmations[sym]) - len(fresh)
+                    expired = [
+                        c for c in svc.confirmations[sym]
+                        if (now - c.received_at) >= svc.proposal_ttl_s
+                    ]
+                    if expired:
+                        ages = [(now - c.received_at) for c in expired]
+                        avg_age = sum(ages) / len(ages)
+                        logger_instance = logging.getLogger("execution_gate_service")
+                        logger_instance.warning(
+                            f"⏳ {removed} orphan confirmations expired for {sym} "
+                            f"(avg age={avg_age:.1f}s, max={max(ages):.1f}s). "
+                            f"Indicates proposals not arriving from signal_pipeline."
+                        )
+
+                if not fresh:
+                    del svc.confirmations[sym]
+                else:
+                    svc.confirmations[sym] = fresh
+
+        # Confirm should be deleted
+        assert "BTCUSDT" not in svc.confirmations
 
 
 if __name__ == "__main__":

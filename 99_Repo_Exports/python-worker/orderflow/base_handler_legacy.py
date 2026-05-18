@@ -187,6 +187,7 @@ from common.robust_stats import RobustZscoreMADRolling
 from common.time_norm import normalize_epoch_ms
 from config.gpu_config import GPU_MIN_N
 from core.dependency_policy import ensure_dependency_defaults
+from core.vol_z_thr_calibrator import VolZThrCalibrator
 from core.dual_redis_client import get_dual_signals_redis
 from core.htf_levels import HTFLevels, HTFLevelsProvider  # type: ignore
 from core.instrument_config import OrderFlowConfig, SymbolSpecs, get_config
@@ -1375,6 +1376,20 @@ class BaseOrderFlowHandler(ABC):
         self._geometry_service = geometry_service or HTFLevelsService(htf_provider=htf_provider)
         self._calibration_service = calibration_service or LocalCalibrationService(local_calibration or LCStoreV2())
 
+        # Adaptive vol_z threshold calibrator (shadow-mode, fail-open)
+        self._vol_z_cal = VolZThrCalibrator()
+
+        # Adaptive HTF proximity and liquidity wall calibrators (P2)
+        from core.htf_proximity_calibrator import HtfProximityCalibrator
+        from core.liquidity_wall_calibrator import LiquidityWallCalibrator
+        self._htf_prox_cal = HtfProximityCalibrator()
+        self._liq_wall_cal = LiquidityWallCalibrator()
+
+        # Autocal snapshot throttle: dump vol_z/htf_prox/liq_wall to Redis every N seconds.
+        self._autocal_snap_interval_ms = int(os.getenv("AUTOCAL_SNAP_INTERVAL_SEC", "60") or "60") * 1000
+        self._autocal_last_snap_ms: int = 0
+        self._autocal_loaded: bool = False
+
         # Legacy regime guard services (for compatibility)
         self.regime_runtime = RegimeRuntimeState(redis_url_main)
         self.black_zone_scheduler = BlackZoneScheduler(os.getenv("DATABASE_URL", "postgresql://user:password@localhost/db"))
@@ -2251,8 +2266,9 @@ class BaseOrderFlowHandler(ABC):
         symbol: str,
         bar: BarSample,
         atr_intraday: float,
-        k_atr: float = 0.25,     # 0.25 ATR сверху/снизу
-        vol_z_thr: float = 1.5,  # z-score по объёму
+        k_atr: float = 0.25,
+        vol_z_thr: float | None = None,  # None → use calibrated threshold
+        session: str = "na",             # e.g. "us" / "eu" / "asia" / "off"
     ) -> bool:
         hist = self._bar_history.get(symbol)
         if not hist or len(hist) < 20:
@@ -2270,14 +2286,91 @@ class BaseOrderFlowHandler(ABC):
         std_vol = math.sqrt(max(var_vol, 1e-9))
         vol_z = (bar.volume - mu_vol) / max(std_vol, 1e-6)
 
-        is_new_high = (
-            bar.high > prev_high + k_atr * atr_intraday and vol_z >= vol_z_thr
-        )
-        is_new_low = (
-            bar.low < prev_low - k_atr * atr_intraday and vol_z >= vol_z_thr
-        )
+        # Calibrated threshold (shadow-mode by default, fail-open)
+        regime = f"{symbol.lower()}:{session}"
+        if not self._autocal_loaded:
+            self._load_autocal_from_redis()
+        self._vol_z_cal.observe(regime=regime, vol_z=vol_z)
+        th = self._vol_z_cal.thresholds(regime=regime)
+        effective_thr = vol_z_thr if vol_z_thr is not None else th.soft
+        _now_snap = int(bar.close_time) if hasattr(bar, "close_time") else int(__import__("time").time() * 1000)
+        self._snap_autocal_to_redis(_now_snap)
+
+        is_new_high = bar.high > prev_high + k_atr * atr_intraday and vol_z >= effective_thr
+        is_new_low = bar.low < prev_low - k_atr * atr_intraday and vol_z >= effective_thr
 
         return is_new_high or is_new_low
+
+    # ── Autocal persistence: vol_z / htf_prox / liq_wall ─────────────────────
+
+    def _load_autocal_from_redis(self) -> None:
+        """Warm-start vol_z / htf_prox / liq_wall calibrators from Redis (once, best-effort)."""
+        import json as _json
+        from core.redis_keys import RK
+        redis = getattr(self, "redis", None)
+        if redis is None:
+            return
+        try:
+            raw_map = redis.hgetall(RK.AUTOCAL_VOL_Z_THR)
+            if raw_map:
+                for v in raw_map.values():
+                    s = v.decode("utf-8", "ignore") if isinstance(v, (bytes, bytearray)) else v
+                    self._vol_z_cal.load_regime_state(_json.loads(s))
+        except Exception:
+            pass
+        try:
+            raw_map = redis.hgetall(RK.AUTOCAL_HTF_PROXIMITY)
+            if raw_map:
+                for v in raw_map.values():
+                    s = v.decode("utf-8", "ignore") if isinstance(v, (bytes, bytearray)) else v
+                    self._htf_prox_cal.load_symbol_state(_json.loads(s))
+        except Exception:
+            pass
+        try:
+            raw_map = redis.hgetall(RK.AUTOCAL_LIQ_WALL)
+            if raw_map:
+                for v in raw_map.values():
+                    s = v.decode("utf-8", "ignore") if isinstance(v, (bytes, bytearray)) else v
+                    self._liq_wall_cal.load_symbol_state(_json.loads(s))
+        except Exception:
+            pass
+        self._autocal_loaded = True
+
+    def _snap_autocal_to_redis(self, now_ms: int) -> None:
+        """Throttled snapshot of vol_z / htf_prox / liq_wall calibrators to Redis (best-effort)."""
+        import json as _json
+        from core.redis_keys import RK
+        if (now_ms - self._autocal_last_snap_ms) < self._autocal_snap_interval_ms:
+            return
+        self._autocal_last_snap_ms = now_ms
+        redis = getattr(self, "redis", None)
+        if redis is None:
+            return
+        try:
+            for regime_key in list(self._vol_z_cal._n.keys()):
+                sym_part = regime_key.split(":")[0].upper()
+                state = self._vol_z_cal.dump_regime_state(
+                    symbol=sym_part, regime=regime_key, updated_ts_ms=now_ms,
+                )
+                redis.hset(RK.AUTOCAL_VOL_Z_THR, regime_key, _json.dumps(state))
+        except Exception:
+            pass
+        try:
+            for sym_key in list(self._htf_prox_cal._n.keys()):
+                state = self._htf_prox_cal.dump_symbol_state(
+                    symbol=sym_key, updated_ts_ms=now_ms,
+                )
+                redis.hset(RK.AUTOCAL_HTF_PROXIMITY, sym_key, _json.dumps(state))
+        except Exception:
+            pass
+        try:
+            for sym_key in list(self._liq_wall_cal._n.keys()):
+                state = self._liq_wall_cal.dump_symbol_state(
+                    symbol=sym_key, updated_ts_ms=now_ms,
+                )
+                redis.hset(RK.AUTOCAL_LIQ_WALL, sym_key, _json.dumps(state))
+        except Exception:
+            pass
 
     def _update_market_regime(self, ctx: OrderflowContext) -> None:
         """
@@ -2559,10 +2652,17 @@ class BaseOrderFlowHandler(ABC):
 
         base_scores: list[float] = []
 
+        sym = getattr(ctx, "symbol", None) or "na"
+        # Observe dist_rel_atr values to calibrate near/far mults.
+        # Pass dist_bps=dist_rel_atr, daily_atr_bps=1.0 so ratio=dist_rel_atr.
         for h in hits:
-            nr = 0.25  # near_mult
-            fr = 1.0   # far_mult
+            self._htf_prox_cal.observe(symbol=sym, dist_bps=h.dist_rel_atr, daily_atr_bps=1.0)
+        _htf_th = self._htf_prox_cal.thresholds(symbol=sym)
+
+        for h in hits:
             d = h.dist_rel_atr
+            nr = _htf_th.near_mult
+            fr = _htf_th.far_mult
 
             if d <= nr:
                 proximity = 1.0
@@ -2638,7 +2738,13 @@ class BaseOrderFlowHandler(ABC):
         cluster: ClusterVol,
     ) -> LiquidityContext:
         lc = LiquidityContext()
-        side, lvl, size_z = self._find_near_liquidity_wall(ctx, l2)
+        sym = getattr(ctx, "symbol", None) or "na"
+        _lw_th = self._liq_wall_cal.thresholds(symbol=sym)
+        side, lvl, size_z = self._find_near_liquidity_wall(
+            ctx, l2,
+            max_dist_bps=_lw_th.max_dist_bps,
+            size_z_thr=_lw_th.size_z_thr,
+        )
         if side is None or lvl is None or size_z is None:
             return lc
 
@@ -2646,6 +2752,11 @@ class BaseOrderFlowHandler(ABC):
         lc.near_wall_price = lvl.price
         lc.near_wall_size = lvl.size
         lc.near_wall_size_z = size_z
+
+        price = ctx.last_price
+        if price is not None and price > 0:
+            dist_bps = abs(lvl.price - price) / price * 10_000.0
+            self._liq_wall_cal.observe(symbol=sym, size_z=size_z, dist_bps=dist_bps)
 
         # глубина в 5 уровнях (можно хранить медианы по инструменту и считать z-score)
         depth_5 = sum(x.size for x in (l2.bids[:5] if side == "bid" else l2.asks[:5]))

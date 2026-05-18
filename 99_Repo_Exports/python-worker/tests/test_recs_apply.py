@@ -20,7 +20,7 @@ from services.recs_store import (
 )
 
 # Используем локальный FakeStrictRedis из tests/fakeredis.py
-from tests.fakeredis import FakeStrictRedis
+from tests.fakeredis_stub import FakeStrictRedis
 
 
 @pytest.fixture
@@ -52,6 +52,9 @@ def test_apply_bundle_hset_and_audit(redis_client):
 
     # Устанавливаем начальное значение в Redis Hash
     redis_client.hset("config:orderflow:BTCUSDT", "w_exec_risk", "0.180")
+
+    # Выставляем статус PREVIEWED (STRICT_CONFIRM_REQUIRES_PREVIEW=1)
+    set_status(redis_client, bundle_id, "PREVIEWED", 3600)
 
     # Применяем bundle
     who = {"timestamp": "", "chat_id": "123", "user_id": "456", "username": "test_user"}
@@ -98,6 +101,7 @@ def test_apply_bundle_multiple_ops(redis_client):
     store_bundle(redis_client, bundle)
     redis_client.hset("config:orderflow:BTCUSDT", "w_exec_risk", "0.180")
     redis_client.hset("config:orderflow:BTCUSDT", "exec_risk_ref_bps", "10.0")
+    set_status(redis_client, bundle_id, "PREVIEWED", 3600)
 
     who = {"timestamp": "", "chat_id": "123", "user_id": "456", "username": "test_user"}
     result = apply_bundle(redis_client, bundle_id, who)
@@ -132,6 +136,7 @@ def test_apply_bundle_idempotent(redis_client):
 
     store_bundle(redis_client, bundle)
     redis_client.hset("config:orderflow:BTCUSDT", "w_exec_risk", "0.180")
+    set_status(redis_client, bundle_id, "PREVIEWED", 3600)
 
     who = {"chat_id": "123", "user_id": "456", "username": "test_user"}
     # Первое применение
@@ -169,6 +174,7 @@ def test_rollback_bundle_restores_values(redis_client):
     # Устанавливаем начальное значение
     old_val = "0.180"
     redis_client.hset("config:orderflow:BTCUSDT", "w_exec_risk", old_val)
+    set_status(redis_client, bundle_id, "PREVIEWED", 3600)
 
     who = {"chat_id": "123", "user_id": "456", "username": "test_user"}
     # Применяем bundle

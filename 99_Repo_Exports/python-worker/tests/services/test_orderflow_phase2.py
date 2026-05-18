@@ -89,7 +89,7 @@ async def test_publish_signal_bookkeeping_happens_at_end():
          patch("services.orderflow.signal_pipeline.CryptoSignalFormatter"), \
          patch("services.orderflow.signal_pipeline.build_outbox_envelope", return_value={"meta":{}, "targets":{}}), \
          patch("services.orderflow.signal_pipeline.atomic_xadd_async"), \
-         patch.object(pipeline, "_calculate_levels", return_value=(90.0, [110, 120, 130], 1.0, 5.0)):
+         patch.object(pipeline, "_calculate_levels", return_value=(90.0, [110, 120, 130], 1.0, 5.0, {})):
 
         await pipeline.publish_signal(runtime, signal)
 

@@ -43,6 +43,9 @@ services:
       \ failed'; fi\n    fi\n    \n    sleep 60\n  done\n\"\n"
     deploy:
       resources:
+        limits:
+          cpus: '0.30'
+          memory: 256M
         reservations:
           memory: 24M
   ollama:
@@ -59,8 +62,11 @@ services:
     volumes:
     - ollama-data:/root/.ollama
     dns:
-    - 8.8.8.8
-    - 8.8.4.4
+    - 1.1.1.1
+    - 1.0.0.1
+    extra_hosts:
+    - "dd20bb891979d25aebc8bec07b2b3bbc.r2.cloudflarestorage.com:172.64.66.2"
+    - "registry.ollama.ai:104.21.75.227"
     deploy:
       resources:
         limits:

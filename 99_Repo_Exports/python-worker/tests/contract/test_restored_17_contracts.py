@@ -1,7 +1,12 @@
 import json
+import time
 from types import SimpleNamespace
+from unittest.mock import MagicMock
 
 from handlers.crypto_orderflow.pipeline.orchestrator import SignalOrchestrator
+
+_NOW_MS = int(time.time() * 1000)
+_OK_RESULT = SimpleNamespace(veto=False, decision="OK", reason_code="OK")
 
 
 def test_payload_json_safety_hypothesis():
@@ -11,7 +16,7 @@ def test_payload_json_safety_hypothesis():
         symbol = "BTCUSDT"
         def resolve_risk_cfg(self): return {}
 
-    ctx = SimpleNamespace(symbol="BTCUSDT", ts_ms=1700000000000, price=50000.0)
+    ctx = SimpleNamespace(symbol="BTCUSDT", ts_ms=_NOW_MS, price=50000.0)
     cand = SimpleNamespace(kind="breakout", side="LONG", reasons=["r1", "r2"], signal_id="sid123")
     res = SimpleNamespace(parts={"a": 1}, decision_code="OK", decision_u16=1, conf_factor01=0.8, confidence=0.9, final_score=0.98)
 
@@ -32,11 +37,11 @@ def test_replay_determinism_identical_inputs():
         symbol = "BTCUSDT"
         def resolve_risk_cfg(self): return {}
 
-    ctx1 = SimpleNamespace(symbol="BTCUSDT", ts_ms=1700000000000, price=50000.0, atr=100.0, sl_price=49900.0, tp1_price=50200.0, tp_mode_used="ATR", ingest_time_ms=1700000000100)
+    ctx1 = SimpleNamespace(symbol="BTCUSDT", ts_ms=_NOW_MS, price=50000.0, atr=100.0, sl_price=49900.0, tp1_price=50200.0, tp_mode_used="ATR", ingest_time_ms=_NOW_MS + 100)
     cand1 = SimpleNamespace(kind="breakout", side="LONG", reasons=["r1", "r2"], signal_id="sid123")
     res1 = SimpleNamespace(parts={"a": 1}, decision_code="OK", decision_u16=1, conf_factor01=0.8, confidence=0.9, final_score=0.98)
 
-    ctx2 = SimpleNamespace(symbol="BTCUSDT", ts_ms=1700000000000, price=50000.0, atr=100.0, tp1_price=50200.0, sl_price=49900.0, tp_mode_used="ATR", ingest_time_ms=1700000000100)
+    ctx2 = SimpleNamespace(symbol="BTCUSDT", ts_ms=_NOW_MS, price=50000.0, atr=100.0, tp1_price=50200.0, sl_price=49900.0, tp_mode_used="ATR", ingest_time_ms=_NOW_MS + 100)
     cand2 = SimpleNamespace(kind="breakout", side="LONG", reasons=["r1", "r2"], signal_id="sid123")
     res2 = SimpleNamespace(parts={"a": 1}, decision_code="OK", decision_u16=1, conf_factor01=0.8, confidence=0.9, final_score=0.98)
 
@@ -58,7 +63,7 @@ def test_orchestrator_meta_namespace_separation():
         symbol = "BTCUSDT"
         def resolve_risk_cfg(self): return {}
 
-    ctx = SimpleNamespace(symbol="BTCUSDT", ts_ms=1700000000000, price=50000.0, trace_id="tr123", dq_flags={"flag1"})
+    ctx = SimpleNamespace(symbol="BTCUSDT", ts_ms=_NOW_MS, price=50000.0, trace_id="tr123", dq_flags={"flag1"})
     cand = SimpleNamespace(kind="breakout", side="LONG", reasons=["r1", "r2"], signal_id="sid123")
     res = SimpleNamespace(parts={"full_data": [1,2,3]}, schema_version=2)
 
@@ -98,12 +103,14 @@ def test_confidence_gate_logic_via_confirmations():
         symbol = "BTCUSDT"
         def resolve_risk_cfg(self): return {}
 
-    class FakeGates:
-        def check_quality(self, ctx, kind, side): return SimpleNamespace(veto=False)
-        def check_regime_gate(self, ctx, kind): return True, "OK"
-        def check_smt(self, ctx, kind, side): return SimpleNamespace(veto=False)
-        def consistency_once(self, ctx, symbol, kind, side): return SimpleNamespace(veto=False)
-        def edge_cost_cached(self, ctx, kind, symbol, side, cfg): return SimpleNamespace(veto=False)
+    FakeGates = MagicMock()
+    FakeGates.check_quality.return_value = _OK_RESULT
+    FakeGates.check_regime_gate.return_value = (True, "OK")
+    FakeGates.check_smt.return_value = _OK_RESULT
+    FakeGates.consistency_once.return_value = _OK_RESULT
+    FakeGates.edge_cost_cached.return_value = _OK_RESULT
+    FakeGates.check_dq_integrity.return_value = _OK_RESULT
+    FakeGates.check_entry_policy.return_value = _OK_RESULT
 
     class FakeLiquidity:
         def ensure_trade_levels_once(self, ctx, symbol, side, kind, cfg, overwrite): pass
@@ -111,7 +118,7 @@ def test_confidence_gate_logic_via_confirmations():
     obs = FakeObservability()
     conf = FakeConfirmations()
 
-    ctx = SimpleNamespace(symbol="BTCUSDT", ts_ms=1700000000000, price=50000.0)
+    ctx = SimpleNamespace(symbol="BTCUSDT", ts_ms=_NOW_MS, price=50000.0)
     cand = SimpleNamespace(kind="breakout", side="LONG", reasons=["r1", "r2"], signal_id="sid123")
 
     orchestrator = SignalOrchestrator(

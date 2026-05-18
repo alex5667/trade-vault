@@ -1082,6 +1082,8 @@ services:
       context: .
       dockerfile: python-worker/Dockerfile.gpu
     container_name: scanner-atr-worker
+    env_file:
+    - config/generated/symbols.env
     environment:
     - REDIS_URL=${REDIS_URL}
     - CANDLES_STREAM=candles:data
@@ -1089,8 +1091,10 @@ services:
     - ATR_CONSUMER=atr-worker-1
     - ATR_PERIOD=14
     - ATR_TFS=1m,5m,15m
+    - ATR_SYMBOLS=${CRYPTO_SYMBOLS}
     - ADX_TFS=1m
     - ADX_PERIOD=14
+    - ADX_SYMBOLS=${CRYPTO_SYMBOLS}
     - ADX_KEY_TEMPLATE=adx:{symbol}
     - CONFIG_REFRESH_INTERVAL_SEC=5
     - ATR_SYMBOLS_KEY=atr:config:symbols
@@ -1224,6 +1228,9 @@ services:
     restart: unless-stopped
     deploy:
       resources:
+        limits:
+          cpus: '0.10'
+          memory: 128M
         reservations:
           memory: 24M
   atr-selector:

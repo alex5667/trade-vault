@@ -1,123 +1,173 @@
-# tick_flow_full/tests/services/test_tick_processor_liqmap_injection_v1.py
-"""Unit tests: LiqMap injection in TickProcessor.
+"""Unit tests: LiqMap feature injection via OrderFlowStrategy._maybe_add_liqmap_features.
 
-Goal
-----
-Guard against silent regressions where:
-  - Redis snapshot parsing fails and we stop emitting liqmap_* indicators
-  - cache/refresh logic breaks and starts hammering Redis
+The liqmap injection was refactored from TickProcessor._inject_liqmap_features into
+Strategy._maybe_add_liqmap_features (services/orderflow/strategy.py).
 
-These tests are intentionally *minimal* and only touch the LiqMap injection helper.
-They do NOT require a running Redis, WS, or the full TickProcessor runtime.
+These tests guard against:
+  - Feature extraction silently returning empty results from cached snapshots
+  - Cache TTL logic causing unnecessary Redis fetches
+  - None/missing payload triggering a crash (fail-open contract)
 """
 
 import asyncio
-import json
 from typing import Any
 
 
-class _FakeAsyncRedis:
-    def __init__(self, kv: dict[str, bytes | None]):
-        self._kv = dict(kv)
-        self.get_calls = []
-
-    async def get(self, key: str):
-        self.get_calls.append(key)
-        return self._kv.get(key)
-
-
-def _make_snapshot_json(*, ts_ms: int, symbol: str, window: str) -> bytes:
-    snap = {
-        "v": 1,
+def _make_pre_parsed_payload(*, ts_ms: int) -> dict:
+    """Build a payload already parsed by try_parse_liqmap_snapshot_json."""
+    levels = [
+        {"price": 99.0, "long_usd": 300_000.0, "short_usd": 0.0},
+        {"price": 101.0, "long_usd": 0.0, "short_usd": 200_000.0},
+    ]
+    return {
         "ts_ms": int(ts_ms),
-        "symbol": symbol,
-        "window": str(window),
-        "levels": [
-            # Above
-            {"side": "ask", "price": 101.0, "usd": 200_000.0, "cnt": 10},
-            {"side": "ask", "price": 102.0, "usd": 50_000.0, "cnt": 5},
-            # Below
-            {"side": "bid", "price": 99.0, "usd": 300_000.0, "cnt": 12},
-            {"side": "bid", "price": 98.0, "usd": 40_000.0, "cnt": 4},
-        ],
+        "levels": levels,
+        # Pre-computed by parser
+        "_num_levels": [(99.0, 300_000.0, 0.0), (101.0, 0.0, 200_000.0)],
+        "_tot_long_usd": 300_000.0,
+        "_tot_short_usd": 200_000.0,
     }
-    return json.dumps(snap).encode("utf-8")
 
 
-def test_tick_processor_injects_liqmap_features_from_redis_cache_and_failopen():
-    # Import from SoT (tick_flow_full/) so this test enforces the contract there.
-    from services.orderflow.components.tick_processor import TickProcessor
+class _FakeAsyncRedis:
+    def __init__(self):
+        self.mget_calls: list = []
 
-    # Construct a minimal TickProcessor instance without calling __init__ (too heavy).
-    tp = TickProcessor.__new__(TickProcessor)
-    tp._liqmap_cache = {}
-    # Newer SoT implementation uses a separate next-refresh cache.
-    tp._liqmap_next_refresh_ts_ms = {}
-    tp.redis = _FakeAsyncRedis(
-        {
-            "liqmap:snapshot:BTCUSDT:1h": _make_snapshot_json(
-                ts_ms=1_000_000 - 500, symbol="BTCUSDT", window="1h"
-            )
-        }
-    )
+    async def mget(self, *keys):
+        self.mget_calls.extend(keys)
+        return [None] * len(keys)
 
-    # Minimal config knobs used by _inject_liqmap_features.
-    tp.liqmap_features_enable = True
-    tp.liqmap_features_windows = ["1h"]
-    # Both knobs are set for backward compatibility across refactors.
-    tp.liqmap_features_refresh_ms = 1500
-    tp.liqmap_features_fetch_interval_ms = 1500
-    tp.liqmap_features_failopen_stale_ms = 120_000
-    tp.liqmap_snapshot_key_prefix = "liqmap:snapshot"
 
-    # Make near-band wide enough to include the 99/101 levels in near_*.
-    tp.liqmap_near_band_bps = 200.0
-    tp.liqmap_peak_min_share = 0.05
+def _make_strategy(fake_redis) -> Any:
+    from services.orderflow.strategy import OrderFlowStrategy
 
-    class _Runtime:
-        symbol = "BTCUSDT"
+    st = OrderFlowStrategy.__new__(OrderFlowStrategy)
+    st.redis = fake_redis
+    st.liqmap_features_enable = True
+    st.liqmap_feature_windows = ["1h"]
+    st.liqmap_feature_cache_ms = 1500
+    st.liqmap_feature_redis_timeout_s = 0.5
+    st.liqmap_feature_max_stale_ms = 120_000
+    st.liqmap_feature_peak_range_bps = 600.0
+    st.liqmap_feature_front_run_bps = 20.0
+    st.liqmap_feature_sl_buffer_bps = 15.0
+    st.liqmap_snapshot_key_prefix = "liqmap:snapshot"
+    return st
+
+
+class _Runtime:
+    symbol = "BTCUSDT"
+
+
+def test_liqmap_features_extracted_from_pre_seeded_cache():
+    """Features must be populated from a warm cache (no Redis fetch needed)."""
+    fake_redis = _FakeAsyncRedis()
+    st = _make_strategy(fake_redis)
+    runtime = _Runtime()
+    now_ms = 1_000_000
+
+    # Pre-seed cache so no fetch is triggered
+    runtime.liqmap_snapshot_cache = {
+        "1h": {"fetch_ms": now_ms, "payload": _make_pre_parsed_payload(ts_ms=now_ms - 500)},
+    }
 
     indicators: dict[str, Any] = {}
-
-    # 1) First call => hits Redis, parses snapshot, writes liqmap_* keys.
     asyncio.run(
-        tp._inject_liqmap_features(
-            runtime=_Runtime(),
-            now_ms=1_000_000,
-            price=100.0,
+        st._maybe_add_liqmap_features(
+            runtime=runtime,
             indicators=indicators,
+            mid_px=100.0,
+            now_ms=now_ms,
         )
     )
 
-    assert tp.redis.get_calls == ["liqmap:snapshot:BTCUSDT:1h"]
-    assert "liqmap_1h_total_usd" in indicators, "LiqMap totals must be present in indicators"
-    assert "liqmap_1h_age_ms" in indicators, "Snapshot age must be present in indicators"
-    assert indicators["liqmap_1h_total_usd"] > 0.0
+    assert "liqmap_1h_levels_n" in indicators, f"levels_n missing; got {list(indicators)}"
+    assert float(indicators["liqmap_1h_levels_n"]) == 2.0
+    assert "liqmap_1h_stale_ms" in indicators
+    assert "liqmap_1h_is_stale" in indicators
+    # No Redis fetch — cache was fresh
+    assert fake_redis.mget_calls == [], "Unexpected Redis mget in warm-cache test"
 
-    # 2) Second call (within fetch interval) => MUST NOT hit Redis again.
+
+def test_liqmap_cache_prevents_redis_refetch_within_ttl():
+    """Within cache_ms window, no extra Redis fetch must occur."""
+    fake_redis = _FakeAsyncRedis()
+    st = _make_strategy(fake_redis)
+    runtime = _Runtime()
+    now_ms = 2_000_000
+
+    payload = _make_pre_parsed_payload(ts_ms=now_ms - 100)
+    # Fetch timestamp is recent (within 1500ms TTL)
+    runtime.liqmap_snapshot_cache = {
+        "1h": {"fetch_ms": now_ms - 200, "payload": payload},
+    }
+
+    indicators1: dict[str, Any] = {}
+    asyncio.run(
+        st._maybe_add_liqmap_features(
+            runtime=runtime,
+            indicators=indicators1,
+            mid_px=100.0,
+            now_ms=now_ms,
+        )
+    )
+
     indicators2: dict[str, Any] = {}
     asyncio.run(
-        tp._inject_liqmap_features(
-            runtime=_Runtime(),
-            now_ms=1_000_000 + 200,  # < fetch_interval_ms
-            price=100.0,
+        st._maybe_add_liqmap_features(
+            runtime=runtime,
             indicators=indicators2,
+            mid_px=100.0,
+            now_ms=now_ms + 100,  # still within TTL
         )
     )
-    assert tp.redis.get_calls == ["liqmap:snapshot:BTCUSDT:1h"], "Cache/TTL broken: extra Redis get"
-    assert indicators2.get("liqmap_1h_total_usd") == indicators.get("liqmap_1h_total_usd")
 
-    # 3) Parse error => fail-open with zero defaults, no exception.
-    tp.redis._kv["liqmap:snapshot:BTCUSDT:1h"] = b"{not-json"
-    indicators3: dict[str, Any] = {}
+    assert fake_redis.mget_calls == [], "mget called despite cache being fresh"
+    assert indicators2.get("liqmap_1h_levels_n") == indicators1.get("liqmap_1h_levels_n")
+
+
+def test_liqmap_none_payload_does_not_crash():
+    """None payload in cache must not raise; should produce only staleness defaults."""
+    fake_redis = _FakeAsyncRedis()
+    st = _make_strategy(fake_redis)
+    runtime = _Runtime()
+    now_ms = 3_000_000
+
+    # Cache hit but payload is None (parse failure or empty Redis response)
+    runtime.liqmap_snapshot_cache = {
+        "1h": {"fetch_ms": now_ms, "payload": None},
+    }
+
+    indicators: dict[str, Any] = {}
     asyncio.run(
-        tp._inject_liqmap_features(
-            runtime=_Runtime(),
-            now_ms=1_000_000 + 2000,  # force refresh
-            price=100.0,
-            indicators=indicators3,
+        st._maybe_add_liqmap_features(
+            runtime=runtime,
+            indicators=indicators,
+            mid_px=100.0,
+            now_ms=now_ms,
         )
     )
-    assert "liqmap_1h_total_usd" in indicators3
-    assert float(indicators3["liqmap_1h_total_usd"]) == 0.0
-    assert "liqmap_1h_age_ms" not in indicators3 or float(indicators3.get("liqmap_1h_age_ms", 0.0)) >= 0.0
+    # Must not crash; liqmap_ok should be 0 (no valid levels)
+    assert indicators.get("liqmap_ok", 0) == 0
+
+
+def test_liqmap_disabled_flag_skips_all_processing():
+    """liqmap_features_enable=False must exit immediately with empty indicators."""
+    fake_redis = _FakeAsyncRedis()
+    st = _make_strategy(fake_redis)
+    st.liqmap_features_enable = False
+    runtime = _Runtime()
+    runtime.liqmap_snapshot_cache = {}
+
+    indicators: dict[str, Any] = {}
+    asyncio.run(
+        st._maybe_add_liqmap_features(
+            runtime=runtime,
+            indicators=indicators,
+            mid_px=100.0,
+            now_ms=1_000_000,
+        )
+    )
+
+    assert indicators == {}, f"Expected empty indicators when disabled; got {indicators}"
+    assert fake_redis.mget_calls == []

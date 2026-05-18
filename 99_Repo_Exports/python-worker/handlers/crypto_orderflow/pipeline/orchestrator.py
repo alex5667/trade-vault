@@ -33,6 +33,7 @@ from services.observability.metrics_registry import (
 from utils.time_utils import get_epoch_ms
 import contextlib
 from core.redis_keys import RedisStreams as RS
+from core.cooldown_calibrator import CooldownCalibrator
 
 # Layer A/B/C enforce (lazy import, no-op when disabled)
 from handlers.crypto_orderflow.components.layer_enforce_gate import (
@@ -305,6 +306,20 @@ class SignalOrchestrator:
         self._last_ts_ms: OrderedDict = OrderedDict()
         self._last_ts_ms_maxsize = 1024
 
+        # Adaptive cooldown calibrator (P2 autocalibrators roadmap).
+        # auto_enforce=True: per-symbol auto-apply once min_signals reached.
+        # Falls back to SYMBOL_ENTRY_COOLDOWN_MS (0 = disabled) while cold.
+        self._cooldown_calib = CooldownCalibrator(
+            min_signals=int(os.getenv("COOLDOWN_CAL_MIN_SIGNALS", "100") or "100"),
+            enforce=os.getenv("COOLDOWN_CAL_ENFORCE", "0") in ("1", "true"),
+            auto_enforce=os.getenv("COOLDOWN_CAL_AUTO_ENFORCE", "1") in ("1", "true"),
+        )
+        self._cooldown_default_ms = float(os.getenv("SYMBOL_ENTRY_COOLDOWN_MS", "0") or "0")
+        _snap_sec = int(os.getenv("AUTOCAL_SNAP_INTERVAL_SEC", "60") or "60")
+        self._cooldown_snap_interval_ms: int = _snap_sec * 1000
+        self._cooldown_last_snap_ms: int = 0
+        self._cooldown_loaded: bool = False
+
     def _emit_build_failed(self, kind: str, e: Exception, symbol: str = "unknown") -> None:
         logger.warning("orchestrator build failed kind=%s: %r", kind, e)
         with contextlib.suppress(Exception):
@@ -313,6 +328,37 @@ class SignalOrchestrator:
             m = getattr(self.observability, "_metrics", None)
             if m:
                 m.inc("signal_build_failed_total", 1, tags={"kind": str(kind)})
+        except Exception:
+            pass
+
+    # ── Cooldown calibrator persistence ──────────────────────────────────────
+
+    def _load_cooldown_from_redis(self, redis_client: Any) -> None:
+        """Warm-start _cooldown_calib from Redis HGETALL (best-effort, once)."""
+        import json as _json
+        from core.redis_keys import RK
+        self._cooldown_loaded = True
+        try:
+            raw_map = redis_client.hgetall(RK.AUTOCAL_COOLDOWN)
+            if not raw_map:
+                return
+            for v in raw_map.values():
+                s = v.decode("utf-8", "ignore") if isinstance(v, (bytes, bytearray)) else v
+                self._cooldown_calib.load_symbol_state(_json.loads(s))
+        except Exception:
+            pass
+
+    def _snap_cooldown_to_redis(self, redis_client: Any, now_ms: int) -> None:
+        """Throttled snapshot of _cooldown_calib to Redis HSET (best-effort)."""
+        import json as _json
+        from core.redis_keys import RK
+        self._cooldown_last_snap_ms = now_ms
+        try:
+            for sym_key in list(self._cooldown_calib._n.keys()):
+                state = self._cooldown_calib.dump_symbol_state(
+                    symbol=sym_key, updated_ts_ms=now_ms,
+                )
+                redis_client.hset(RK.AUTOCAL_COOLDOWN, sym_key, _json.dumps(state))
         except Exception:
             pass
 
@@ -794,6 +840,42 @@ class SignalOrchestrator:
             finally:
                 audit.record_stage("build_payload", _t_build)
 
+            # 7a. Per-symbol entry rate limit — adaptive calibrator (P2 roadmap).
+            # Static default: SYMBOL_ENTRY_COOLDOWN_MS (0 = disabled).
+            # auto_enforce: switches to calibrated q80 inter-signal interval once warm.
+            _rc_orch = getattr(ctx, "redis", None)
+            if _rc_orch is None:
+                try:
+                    from handlers.crypto_orderflow.config.handler_config import _get_sync_redis
+                    _rc_orch = _get_sync_redis()
+                except Exception:
+                    pass
+            if not self._cooldown_loaded and _rc_orch is not None:
+                self._load_cooldown_from_redis(_rc_orch)
+            _cal_cd = self._cooldown_calib.thresholds(
+                symbol=_sym_root, default_cooldown_ms=self._cooldown_default_ms
+            )
+            _cooldown_ms = int(_cal_cd.cooldown_ms)
+            if _cooldown_ms > 0:
+                _rc_cool = getattr(ctx, "redis", None)
+                if _rc_cool is None:
+                    try:
+                        from handlers.crypto_orderflow.config.handler_config import _get_sync_redis
+                        _rc_cool = _get_sync_redis()
+                    except Exception:
+                        _rc_cool = None
+                if _rc_cool is not None:
+                    _ck = f"entry_cooldown:{_sym_root}"
+                    try:
+                        _last_emit_raw = _rc_cool.get(_ck)
+                        if _last_emit_raw and (_now_ms - int(_last_emit_raw)) < _cooldown_ms:
+                            _emit_dq_flag(ctx, "veto_symbol_cooldown", symbol=_sym_root)
+                            self._handle_veto(ctx, cand, kind_key, VetoReason.VETO_COOLDOWN)
+                            continue
+                        _rc_cool.setex(_ck, max(1, _cooldown_ms // 1000), str(_now_ms))
+                    except Exception:
+                        pass  # fail-open: Redis unavailable → allow entry
+
             # 7. Emission
             _t_emit = time.monotonic()
             try:
@@ -817,6 +899,10 @@ class SignalOrchestrator:
                 if ok:
                     any_sent = True
                     PipelineAuditWriter.safe_inc(emit_ok_total, kind=kind_key, symbol=_sym_root) if hasattr(emit_ok_total, "labels") else None
+                    # Track inter-signal interval for cooldown calibration
+                    self._cooldown_calib.observe(symbol=_sym_root, emit_ts_ms=float(_now_ms))
+                    if _rc_orch is not None and (_now_ms - self._cooldown_last_snap_ms) >= self._cooldown_snap_interval_ms:
+                        self._snap_cooldown_to_redis(_rc_orch, _now_ms)
             except Exception:
                 sym = str(getattr(ctx, "symbol", getattr(self.cfg, "symbol", "unknown")))
                 logger.exception(

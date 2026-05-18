@@ -66,7 +66,7 @@ class _StrategyEnvCache:
         self.atr_tf_calib_persist_gap_ms = int(os.getenv("ATR_TF_CALIB_PERSIST_GAP_MS", "300000"))
         self.atr_bps_calib_persist_gap_ms = int(os.getenv("ATR_BPS_CALIB_PERSIST_GAP_MS", "120000"))
         self.atr_bps_calib_min_samples = int(os.getenv("ATR_BPS_CALIB_MIN_SAMPLES", "500"))
-        self.atr_tf_calib_min_samples = int(os.getenv("ATR_TF_CALIB_MIN_SAMPLES", "30"))
+        self.atr_tf_calib_min_samples = int(os.getenv("ATR_TF_CALIB_MIN_SAMPLES", "100"))
         self.atr_tf_calib_tfs = os.getenv("ATR_TF_CALIB_TFS", "1m,5m,15m,1h")
         self.debug_deltas = os.getenv("DEBUG_DELTAS", "0") == "1"
         self.cvd_snapshot_enable = os.getenv("CVD_SNAPSHOT_ENABLE", "0") == "1"

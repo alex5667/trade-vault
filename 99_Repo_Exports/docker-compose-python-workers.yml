@@ -25,6 +25,8 @@ services:
     runtime: nvidia
     profiles:
     - default
+    env_file:
+    - config/generated/symbols.env
     ports:
     - 8000:8000
     healthcheck:
@@ -136,6 +138,8 @@ services:
     - ATR_TF=${ATR_TF:-5m}
     - ATR_TF_SELECTOR_MODE=${ATR_TF_SELECTOR_MODE:-enforce}
     - ATR_TF_CALIB_ENABLE=${ATR_TF_CALIB_ENABLE:-1}
+    - Z_MAPPING_CALIB_PERSIST_GAP_MS=${Z_MAPPING_CALIB_PERSIST_GAP_MS:-120000}
+    - LIQ_SIGNAL_CALIB_PERSIST_GAP_MS=${LIQ_SIGNAL_CALIB_PERSIST_GAP_MS:-120000}
     - ATR_HORIZON_MODE=off
     - ATR_HORIZON_CONTRACT_VER=2
     - ATR_HORIZON_EMIT_PAYLOAD_META=1
@@ -409,19 +413,28 @@ services:
     - EDGE_TS_BAD_FLOOR_BPS=${EDGE_TS_BAD_FLOOR_BPS:-50}
     - EDGE_TS_BAD_VETO_BPS=1000000
     - GATE_PROFILE=hard
+    - SPREAD_STALENESS_CALIB_ENFORCE=true
+    - SPREAD_CALIB_MIN_SAMPLES=200
+    - FUNDING_BASIS_CALIB_ENFORCE=${FUNDING_BASIS_CALIB_ENFORCE:-0}
+    - FUNDING_BASIS_CALIB_MIN_SAMPLES=${FUNDING_BASIS_CALIB_MIN_SAMPLES:-500}
     - FEATURE_DRIFT_ENABLED=1
     - FEATURE_DRIFT_PROFILE=hard
     - FEATURE_DRIFT_MODE=enforce
     - ADVERSE_CHECK_ENABLE=1
+    - MANIP_ENABLED=${MANIP_ENABLED:-1}
     - MANIP_MODE=hard
     - MANIP_QUOTE_STUFF_SCORE_MAX=${MANIP_QUOTE_STUFF_SCORE_MAX:-0.6}
     - MANIP_LAYERING_SCORE_MAX=${MANIP_LAYERING_SCORE_MAX:-0.6}
     - MANIP_OTR_Z_MAX=${MANIP_OTR_Z_MAX:-3.5}
+    - MANIP_TIGHTEN_ADD_CAP_BPS=${MANIP_TIGHTEN_ADD_CAP_BPS:-6.0}
+    - MANIP_TIGHTEN_ADD_MULT=${MANIP_TIGHTEN_ADD_MULT:-1.0}
     - CRYPTO_BURST_ENABLE=${CRYPTO_BURST_ENABLE:-1}
     - BURST_FLUSH_MODE=${BURST_FLUSH_MODE:-wall}
     - BURST_FLUSH_INTERVAL_MS=${BURST_FLUSH_INTERVAL_MS:-200}
     - DQ_GATE_ENABLE=1
     - DQ_GATE_MODE=enforce
+    # v13_of feature-registry contract check (shadow→enforce after seed-pins confirmed)
+    - ENABLE_FEATURE_REGISTRY_CONTRACT_CHECK=${ENABLE_FEATURE_REGISTRY_CONTRACT_CHECK:-1}
     - FEATURE_DRIFT_BASE_ALPHA=0.01
     - FEATURE_DRIFT_FAST_ALPHA=0.10
     - FEATURE_DRIFT_MIN_SAMPLES=200
@@ -441,6 +454,10 @@ services:
     - BOOK_RESILIENCE_MAX_WINDOW_MS=15000
     - ENTRY_POLICY_ENABLED=1
     - ENTRY_POLICY_DIAG_STREAM=entry_policy_diag
+    - ADVERSE_CROSS_CAL_ENFORCE=1
+    - ADVERSE_CROSS_CAL_MIN_SAMPLES=500
+    - ADVERSE_CROSS_CAL_MIN_LOSSES=30
+    - ADVERSE_CROSS_CAL_SNAPSHOT_SEC=60
     - ATR_POLICY_EXEC_BUDGET_ADVISORY_ONLY=1
     - SMT_LEADER_MODE=veto
     - FEATURE_DRIFT_Z=6.0
@@ -449,6 +466,7 @@ services:
     - RELIABILITY_TARGETS=tp2
     - RELIABILITY_BUCKET_STEP=5
     - RELIABILITY_SMT_COH_THR=0.65
+    - SMT_COH_CAL_ENABLED=${SMT_COH_CAL_ENABLED:-1}
     - RELIABILITY_WRITE_LEGACY=1
     - RELIABILITY_ADJUST_ENABLED=1
     - RELIABILITY_ADJUST_TARGET=tp2
@@ -485,7 +503,7 @@ services:
     - LATENCY_BUDGET_REDIS_TO_FEATURE_MS=50
     - LATENCY_BUDGET_FEATURE_TO_EMIT_MS=100
     - LATENCY_BUDGET_END_TO_END_EVENT_MS=200
-    - LATENCY_CONTRACT_SYMBOL_ALLOWLIST=BTCUSDT,ETHUSDT,XAUUSDT
+    - LATENCY_CONTRACT_SYMBOL_ALLOWLIST=${LATENCY_SYMBOLS}
     - LATENCY_CONTRACT_EXPORTER_PORT=9830
     - LATENCY_CONTRACT_STATE_MIN_UPDATE_MS=3000
     - PGCONNECT_TIMEOUT=${PGCONNECT_TIMEOUT:-15}
@@ -498,6 +516,12 @@ services:
     - CRYPTO_OF_ADAPTIVE_LAG_HIGH_MS=30
     - CRYPTO_OF_DROP_ON_LAG=1
     - CRYPTO_OF_MAX_LAG_MS=1500
+    # p_edge cutoff autocalibrator: read calibrated τ from autocal:p_edge:state
+    # Safe by construction — reader fail-opens to per-kind ENV floor when
+    # snapshot missing/stale/cold-bin. Set 0 to fully revert to static cutoff.
+    - AUTOCAL_P_EDGE_READ_ENABLED=${AUTOCAL_P_EDGE_READ_ENABLED:-1}
+    - AUTOCAL_P_EDGE_REFRESH_MS=${AUTOCAL_P_EDGE_REFRESH_MS:-60000}
+    - AUTOCAL_P_EDGE_STALE_MS=${AUTOCAL_P_EDGE_STALE_MS:-1800000}
     - TZ=UTC
     depends_on:
       postgres:
@@ -547,6 +571,8 @@ services:
     runtime: nvidia
     profiles:
     - default
+    env_file:
+    - config/generated/symbols.env
     ports:
     - 8002:8002
     healthcheck:
@@ -624,6 +650,8 @@ services:
     - ATR_TF=${ATR_TF:-5m}
     - ATR_TF_SELECTOR_MODE=${ATR_TF_SELECTOR_MODE:-enforce}
     - ATR_TF_CALIB_ENABLE=${ATR_TF_CALIB_ENABLE:-1}
+    - Z_MAPPING_CALIB_PERSIST_GAP_MS=${Z_MAPPING_CALIB_PERSIST_GAP_MS:-120000}
+    - LIQ_SIGNAL_CALIB_PERSIST_GAP_MS=${LIQ_SIGNAL_CALIB_PERSIST_GAP_MS:-120000}
     - CRYPTO_SIGNAL_MIN_CONF=${CRYPTO_SIGNAL_MIN_CONF}
     - CRYPTO_NOTIFY_SIGNAL_EVERY_N=${CRYPTO_NOTIFY_SIGNAL_EVERY_N:-100}
     - ACCOUNT_DEPOSIT_USD=${ACCOUNT_DEPOSIT_USD:-1000}
@@ -661,9 +689,17 @@ services:
     - ML_CONFIRM_P_MIN=0.55
     - OF_CONFIRM_VERSION=3
     - GATE_PROFILE=hard
+    - SPREAD_STALENESS_CALIB_ENFORCE=true
+    - SPREAD_CALIB_MIN_SAMPLES=200
+    - FUNDING_BASIS_CALIB_ENFORCE=${FUNDING_BASIS_CALIB_ENFORCE:-0}
+    - FUNDING_BASIS_CALIB_MIN_SAMPLES=${FUNDING_BASIS_CALIB_MIN_SAMPLES:-500}
     - ML_CONFIRM_METRICS_ENABLE=${ML_CONFIRM_METRICS_ENABLE:-1}
     - PUBLISH_OF_CONFIRM=1
     - ENTRY_POLICY_ENABLED=1
+    - ADVERSE_CROSS_CAL_ENFORCE=1
+    - ADVERSE_CROSS_CAL_MIN_SAMPLES=500
+    - ADVERSE_CROSS_CAL_MIN_LOSSES=30
+    - ADVERSE_CROSS_CAL_SNAPSHOT_SEC=60
     - CRYPTO_OF_STRONG_GATE_SHADOW=${CRYPTO_OF_STRONG_GATE_SHADOW}
     - CRYPTO_OF_REQUIRE_STRONG_CONFIRMATION=${CRYPTO_OF_REQUIRE_STRONG_CONFIRMATION}
     - CRYPTO_OF_DROP_ON_LAG=${CRYPTO_OF_DROP_ON_LAG:-true}
@@ -672,10 +708,13 @@ services:
     - FEATURE_DRIFT_PROFILE=hard
     - FEATURE_DRIFT_MODE=enforce
     - ADVERSE_CHECK_ENABLE=1
+    - MANIP_ENABLED=${MANIP_ENABLED:-1}
     - MANIP_MODE=hard
     - MANIP_QUOTE_STUFF_SCORE_MAX=${MANIP_QUOTE_STUFF_SCORE_MAX:-0.6}
     - MANIP_LAYERING_SCORE_MAX=${MANIP_LAYERING_SCORE_MAX:-0.6}
     - MANIP_OTR_Z_MAX=${MANIP_OTR_Z_MAX:-3.5}
+    - MANIP_TIGHTEN_ADD_CAP_BPS=${MANIP_TIGHTEN_ADD_CAP_BPS:-6.0}
+    - MANIP_TIGHTEN_ADD_MULT=${MANIP_TIGHTEN_ADD_MULT:-1.0}
     - CRYPTO_BURST_ENABLE=${CRYPTO_BURST_ENABLE:-1}
     - BURST_FLUSH_MODE=${BURST_FLUSH_MODE:-wall}
     - BURST_FLUSH_INTERVAL_MS=${BURST_FLUSH_INTERVAL_MS:-200}
@@ -690,7 +729,7 @@ services:
     - LATENCY_BUDGET_REDIS_TO_FEATURE_MS=50
     - LATENCY_BUDGET_FEATURE_TO_EMIT_MS=100
     - LATENCY_BUDGET_END_TO_END_EVENT_MS=200
-    - LATENCY_CONTRACT_SYMBOL_ALLOWLIST=BTCUSDT,ETHUSDT
+    - LATENCY_CONTRACT_SYMBOL_ALLOWLIST=${CANARY_SYMBOLS}
     - LATENCY_CONTRACT_EXPORTER_PORT=9835
     - LATENCY_CONTRACT_STATE_MIN_UPDATE_MS=3000
     - TM_ORPHAN_TIMEOUT_ENABLED=${TM_ORPHAN_TIMEOUT_ENABLED}
@@ -821,9 +860,12 @@ services:
       context: .
       dockerfile: python-worker/Dockerfile
     container_name: scanner-crypto-htf-aggregator
+    env_file:
+    - config/generated/symbols.env
     environment:
     - REDIS_URL=${REDIS_URL}
     - CANDLES_STREAM=candles:data
+    - SYMBOLS=${CRYPTO_SYMBOLS}
     - HTF_GROUP=crypto-htf-aggregator-group
     - HTF_CONSUMER=crypto-htf-aggregator-docker
     - OUTBOX_CONTRACT_MODE=warn
@@ -1039,6 +1081,10 @@ services:
     - ENTRY_POLICY_MAX_CANDIDATE_AGE_MS=120000
     - ENTRY_POLICY_ALLOW_ZONE_CHANGE_IF_NEAR=0
     - GATE_PROFILE=hard
+    - SPREAD_STALENESS_CALIB_ENFORCE=true
+    - SPREAD_CALIB_MIN_SAMPLES=200
+    - FUNDING_BASIS_CALIB_ENFORCE=${FUNDING_BASIS_CALIB_ENFORCE:-0}
+    - FUNDING_BASIS_CALIB_MIN_SAMPLES=${FUNDING_BASIS_CALIB_MIN_SAMPLES:-500}
     - ENTRY_POLICY_PROFILE=default
     - EXEC_HEALTH_MODE=enforce
     - ENTRY_EXEC_HEALTH_MODE=enforce
@@ -1545,6 +1591,12 @@ services:
     - EDGE_COST_GATE_ENABLED=1
     - EDGE_EXPECTED_MOVE_MODE=ev
     - EDGE_TS_BAD_POLICY=correct_skip_ema
+    # p_edge cutoff autocalibrator (see scanner-p-edge-cal). Reader fail-opens
+    # to per-kind ENV floor when snapshot missing/stale/cold-bin — toggle to 0
+    # to fully revert to static EDGE_EV_P_MIN.
+    - AUTOCAL_P_EDGE_READ_ENABLED=${AUTOCAL_P_EDGE_READ_ENABLED:-1}
+    - AUTOCAL_P_EDGE_REFRESH_MS=${AUTOCAL_P_EDGE_REFRESH_MS:-60000}
+    - AUTOCAL_P_EDGE_STALE_MS=${AUTOCAL_P_EDGE_STALE_MS:-1800000}
     - EDGE_COST_K_BTCUSDT=3.0
     - EDGE_COST_K_ETHUSDT=3.0
     - EDGE_COST_K_SOLUSDT=3.5
@@ -1559,6 +1611,11 @@ services:
     - EDGE_COST_K_1000SHIBUSDT=5.0
     - EDGE_COST_K_FLOKIUSDT=5.5
     - EDGE_COST_K_BONKUSDT=5.5
+    # Cost-K auto-calibrator (cost_k_calibrator_v1). When enabled, gate reads
+    # calibrated K from Redis (cfg:cost_edge_gate:v1:calibration) with 3h staleness
+    # limit. Falls back to per-symbol ENV overrides above if store is absent/stale.
+    - EDGE_USE_CALIBRATED_K=${EDGE_USE_CALIBRATED_K:-1}
+    - EDGE_CALIBRATED_K_MAX_AGE_MS=${EDGE_CALIBRATED_K_MAX_AGE_MS:-10800000}
     - CRYPTO_COMMISSION_RATE=0.0005
     - INLINE_EXEC_HEALTH_ENABLE=${INLINE_EXEC_HEALTH_ENABLE:-0}
     - INLINE_EXEC_HEALTH_MODE=${INLINE_EXEC_HEALTH_MODE:-enforce}
@@ -2618,46 +2675,6 @@ services:
           cpus: '0.2'
         reservations:
           memory: 512M
-  scanner-autopilot-reporter:
-    build:
-      context: .
-      dockerfile: python-worker/Dockerfile.gpu
-    image: scanner-python-worker:latest
-    container_name: scanner-autopilot-reporter
-    networks:
-    - scanner-core
-    - scanner-infra
-    restart: unless-stopped
-    environment:
-    - REDIS_URL=${REDIS_URL:-${REDIS_URL}}
-    - TRADE_EVENTS_STREAM=${TRADE_EVENTS_STREAM:-events:trades}
-    - NOTIFY_TELEGRAM_STREAM=${NOTIFY_TELEGRAM_STREAM:-notify:telegram}
-    - PYWORKER_ROOT=/app/python-worker
-    - AUTOPILOT_DAILY_UTC=09:10
-    - AUTOPILOT_WEEKLY_DOW=0
-    - AUTOPILOT_WEEKLY_UTC=09:20
-    - AUTOPILOT_SINCE_HOURS_DAILY=168
-    - AUTOPILOT_SINCE_HOURS_WEEKLY=720
-    - AUTOPILOT_MIN_SAMPLES=30
-    - AUTOPILOT_LCB_ALPHA=0.05
-    - AUTOPILOT_LOCK_TTL_MS=3000000
-    - OUTBOX_CONTRACT_MODE=warn
-    - OUTBOX_CONTRACT_SAMPLE_RATE=0.1
-    - USE_SIGNAL_OUTBOX=true
-    - SCANNER_CONSUMER_NAME=scanner-autopilot-reporter
-    - TZ=UTC
-    volumes:
-    - ./python-worker:/app
-    command:
-    - bash
-    - -lc
-    - PYTHONPATH='.:..' /opt/venv/bin/python -m services.autopilot_reporter_service
-    deploy:
-      resources:
-        limits:
-          memory: 2G
-        reservations:
-          memory: 512M
   trade-monitor:
     build:
       context: .
@@ -3081,6 +3098,8 @@ services:
     container_name: latency-contract-slo-gate
     restart: unless-stopped
     working_dir: /app
+    env_file:
+    - config/generated/symbols.env
     command:
     - sh
     - -c
@@ -3094,7 +3113,7 @@ services:
     - LATENCY_CONTRACT_SLO_SUMMARY_KEY=metrics:latency_contract:slo:last
     - LATENCY_CONTRACT_SLO_GATE_INTERVAL_S=10
     - LATENCY_CONTRACT_SLO_STAGE_STALE_S=180
-    - LATENCY_CONTRACT_SYMBOL_ALLOWLIST=BTCUSDT,ETHUSDT,XAUUSDT
+    - LATENCY_CONTRACT_SYMBOL_ALLOWLIST=${LATENCY_SYMBOLS}
     - LATENCY_BUDGET_INGEST_TO_REDIS_MS=30
     - LATENCY_BUDGET_REDIS_TO_FEATURE_MS=50
     - LATENCY_BUDGET_FEATURE_TO_EMIT_MS=100
@@ -4328,6 +4347,8 @@ services:
     image: scanner-python-worker:latest
     container_name: scanner-of-layers-shadow-calibrator
     restart: unless-stopped
+    env_file:
+    - config/generated/symbols.env
     environment:
       - PYTHONUNBUFFERED=1
       - LAYERS_CAL_ENABLE=${LAYERS_CAL_ENABLE:-0}
@@ -4355,7 +4376,7 @@ services:
       # Auto-promotion (DEFAULT DISABLED — opt-in only)
       - LAYERS_CAL_AUTO_PROMOTE_ENABLE=${LAYERS_CAL_AUTO_PROMOTE_ENABLE:-0}
       - LAYERS_CAL_AUTO_PROMOTE_LAYERS=${LAYERS_CAL_AUTO_PROMOTE_LAYERS:-A,B,C}
-      - LAYERS_CAL_CANARY_SYMBOLS=${LAYERS_CAL_CANARY_SYMBOLS:-BTCUSDT,ETHUSDT,SOLUSDT}
+      - LAYERS_CAL_CANARY_SYMBOLS=${LAYERS_CAL_CANARY_SYMBOLS:-${CRYPTO_SYMBOLS}}
       - LAYERS_CAL_GATES_REDIS_URL=redis://redis-worker-1:6379/0
       - LAYERS_CAL_GATES_KEY_PREFIX=${LAYERS_CAL_GATES_KEY_PREFIX:-of_gate}
       - LAYERS_CAL_PROMOTE_COOLDOWN_SEC=${LAYERS_CAL_PROMOTE_COOLDOWN_SEC:-86400}
@@ -4559,6 +4580,51 @@ services:
           memory: 64M
     command: python -u orderflow_services/ml_outcome_calibration_tracker_v1.py
 
+  # ────────────────────────────────────────────────────────────────────────
+  # Autocalibrator: adaptive EDGE_EV_P_MIN cutoff (P0.2 roadmap, W2)
+  # ────────────────────────────────────────────────────────────────────────
+  scanner-p-edge-cal:
+    build: *id001
+    container_name: scanner-p-edge-cal
+    environment:
+    - REDIS_URL=${REDIS_URL:-redis://redis-worker-1:6379/0}
+    - P_EDGE_CAL_PORT=9145
+    - P_EDGE_CAL_GROUP=p-edge-cal
+    - P_EDGE_CAL_CONSUMER=p-edge-cal-1
+    - P_EDGE_CAL_BATCH=200
+    # ENFORCE=1: сервис коммитит τ в snapshot. Reader на воркерах честит τ
+    # только если AUTOCAL_P_EDGE_READ_ENABLED=1 (default 1 в python-worker +
+    # multi-symbol-orderflow). Safe by construction: пока bin < min_kept_trades
+    # калибратор не выдаёт значения, reader fail-opens на per-kind ENV floor.
+    - P_EDGE_CAL_ENFORCE=${P_EDGE_CAL_ENFORCE:-1}
+    - P_EDGE_CAL_TARGET_EV_R=0.10
+    - P_EDGE_CAL_WINDOW_DAYS=7
+    - P_EDGE_CAL_MIN_KEPT=200
+    - P_EDGE_CAL_MIN_TOTAL=100
+    - P_EDGE_CAL_SNAPSHOT_SEC=30
+    - P_EDGE_CAL_REPORT_SEC=600
+    - P_EDGE_CAL_REPORTS_DIR=/var/lib/trade/of_reports
+    - P_EDGE_CAL_DEFAULT_P_MIN=0.55
+    - PYTHONPATH=.:/app
+    - PYTHONUNBUFFERED=1
+    - TZ=UTC
+    working_dir: /app
+    volumes:
+    - ./python-worker:/app
+    - ./var:/var/lib/trade
+    networks:
+    - scanner-core
+    - scanner-infra
+    restart: on-failure:5
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.2'
+        reservations:
+          memory: 64M
+    command: python -u orderflow_services/p_edge_threshold_calibrator_v1.py
+
   scanner-fills-tca-enricher:
     build: *id001
     container_name: scanner-fills-tca-enricher
@@ -4626,13 +4692,15 @@ services:
   scanner-cross-context-aggregator:
     build: *id001
     container_name: scanner-cross-context-aggregator
+    env_file:
+    - config/generated/symbols.env
     environment:
     - REDIS_URL=${REDIS_URL:-redis://redis-worker-1:6379/0}
     - CROSS_CTX_PORT=9145
     - CROSS_CTX_GROUP=cross-context-aggregator
     - CROSS_CTX_CONSUMER=cross-context-aggregator-1
     - CROSS_CTX_BATCH=500
-    - CROSS_CTX_ANCHORS=BTCUSDT,ETHUSDT
+    - CROSS_CTX_ANCHORS=${CANARY_SYMBOLS}
     - CROSS_CTX_TTL_SEC=60
     - CROSS_CTX_MAX_LAG_MS=2000
     - PYTHONPATH=.:/app
@@ -4657,9 +4725,11 @@ services:
   scanner-hawkes-vpin:
     build: *id001
     container_name: scanner-hawkes-vpin
+    env_file:
+    - config/generated/symbols.env
     environment:
     - REDIS_URL=${REDIS_URL:-redis://redis-worker-1:6379/0}
-    - HAWKES_SYMBOLS=${HAWKES_SYMBOLS:-BTCUSDT,ETHUSDT,SOLUSDT}
+    - HAWKES_SYMBOLS=${HAWKES_SYMBOLS:-${CRYPTO_SYMBOLS}}
     - HAWKES_BETA=${HAWKES_BETA:-0.0333}
     - HAWKES_ALPHA=${HAWKES_ALPHA:-0.5}
     - HAWKES_VPIN_ALPHA=${HAWKES_VPIN_ALPHA:-0.05}
@@ -4690,12 +4760,14 @@ services:
   scanner-pit-priors-exporter:
     build: *id001
     container_name: scanner-pit-priors-exporter
+    env_file:
+    - config/generated/symbols.env
     environment:
     - REDIS_URL=${REDIS_URL:-redis://redis-worker-1:6379/0}
     - PIT_PRIORS_EXPORTER_PORT=9146
     - PIT_PRIORS_EXPORTER_INTERVAL=60
     - PIT_PRIOR_STALE_MS=86400000
-    - PIT_PRIORS_SYMBOLS=BTCUSDT,ETHUSDT,SOLUSDT
+    - PIT_PRIORS_SYMBOLS=${CRYPTO_SYMBOLS}
     - PIT_PRIORS_KINDS=default,reclaim,sweep,absorption
     - PYTHONPATH=.:/app
     - PYTHONUNBUFFERED=1

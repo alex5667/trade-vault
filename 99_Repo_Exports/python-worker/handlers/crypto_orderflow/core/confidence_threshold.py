@@ -1,33 +1,33 @@
 from __future__ import annotations
 
 """
-Улучшенный фильтр порога уверенности - специфичные для символа гейты уверенности.
+Confidence threshold filter — per-symbol and per-cluster gates.
 
-Этот модуль реализует более строгие пороги уверенности для высокочастотных пар,
-таких как BTC/ETH, которые склонны генерировать больше ложных сигналов.
+Design:
+    - Static layer: per-symbol ENV overrides (MIN_CONF_BTCUSDT etc.)
+    - Dynamic layer (opt-in): ConfidenceThresholdCalibrator reads reliability_calibrator
+      Redis curves and inverts them to dynamic per-cluster min_conf thresholds.
+    - Both checks (confidence_pct AND conf_factor) must pass.
+    - Fail-closed on missing data (0.0 is rejected).
 
-Философия дизайна:
-    - Более высокие пороги для мажорных пар (BTC, ETH) снижают шум (churn) сигналов
-    - Двойная фильтрация: абсолютная уверенность (0-100) и фактор уверенности (0-1)
-    - Специфичные для символа переопределения для гранулярного контроля
-    - Fail-open при отсутствии данных (пропускаем сигнал)
+ENV Configuration:
+    MIN_CONF_DEFAULT:         default min confidence score (e.g. 50)
+    MIN_CONF_BTCUSDT:         BTC-specific threshold (e.g. 75)
+    MIN_CONF_FACTOR_DEFAULT:  default min confidence factor 0-1 (e.g. 0.45)
+    MIN_CONF_FACTOR_BTCUSDT:  BTC-specific factor (e.g. 0.55)
+    CONF_CAL_ENFORCE:         1 → enable calibrated thresholds (default 0 = shadow)
 
-ENV Конфигурация:
-    MIN_CONF_DEFAULT: Дефолтный минимальный скор уверенности (напр. 70)
-    MIN_CONF_BTCUSDT: Специфичный порог для BTC (напр. 75)
-    MIN_CONF_ETHUSDT: Специфичный порог для ETH (напр. 72)
-    MIN_CONF_FACTOR_DEFAULT: Дефолтный минимальный фактор уверенности (напр. 0.45)
-    MIN_CONF_FACTOR_BTCUSDT: Специфичный фактор для BTC (напр. 0.55)
-    MIN_CONF_FACTOR_ETHUSDT: Специфичный фактор для ETH (напр. 0.52)
+Usage (static only):
+    f = ConfidenceThresholdFilter.from_env()
+    r = f.evaluate(confidence_pct=72.0, conf_factor=0.48, symbol="BTCUSDT")
 
-Использование:
-    filter = ConfidenceThresholdFilter.from_env()
-    result = filter.evaluate(confidence_pct=72.0, conf_factor=0.48, symbol="BTCUSDT")
-    if not result.passed:
-        # Отклоняем сигнал
-        logger.info(f"Confidence veto: {result.veto_reason}")
+Usage (with calibrator):
+    from core.confidence_threshold_calibrator import ConfidenceThresholdCalibrator
+    cal = ConfidenceThresholdCalibrator(redis_client=sync_redis, enforce=False)
+    f = ConfidenceThresholdFilter.from_env(calibrator=cal)
+    r = f.evaluate(confidence_pct=72.0, conf_factor=0.48, symbol="BTCUSDT",
+                   kind="breakout", regime="trend", session="us", venue="binance", tf="5m")
 """
-
 
 import math
 import os
@@ -38,17 +38,15 @@ import contextlib
 
 @dataclass
 class ConfidenceThresholdConfig:
-    """Конфигурация для фильтра порога уверенности."""
+    """Static (ENV-driven) configuration for the filter."""
 
-    # Дефолтные пороги
-    min_conf_default: float = 70.0  # Абсолютная уверенность (0-100)
-    min_conf_factor_default: float = 0.45  # Фактор уверенности (0-1)
+    min_conf_default: float = 70.0          # Absolute confidence (0-100)
+    min_conf_factor_default: float = 0.45   # Confidence factor (0-1)
 
-    # Специфичные для символа пороги
-    min_conf_by_symbol: dict[str, float] = None  # Переопределения абсолютной уверенности  # type: ignore
-    min_conf_factor_by_symbol: dict[str, float] = None  # Переопределения фактора  # type: ignore
+    min_conf_by_symbol: dict[str, float] = None     # type: ignore
+    min_conf_factor_by_symbol: dict[str, float] = None  # type: ignore
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if self.min_conf_by_symbol is None:
             self.min_conf_by_symbol = {}
         if self.min_conf_factor_by_symbol is None:
@@ -56,22 +54,17 @@ class ConfidenceThresholdConfig:
 
     @classmethod
     def from_env(cls) -> ConfidenceThresholdConfig:
-        """Создает конфигурацию из переменных окружения."""
-
-        # Парсим дефолтные пороги
         min_conf_default = float(os.getenv("MIN_CONF_DEFAULT", "50.0"))
         min_conf_factor_default = float(os.getenv("MIN_CONF_FACTOR_DEFAULT", "0.45"))
 
-        # Парсим специфичные для символа пороги уверенности
-        min_conf_by_symbol = {}
+        min_conf_by_symbol: dict[str, float] = {}
         for key, value in os.environ.items():
             if key.startswith("MIN_CONF_") and not key.startswith("MIN_CONF_FACTOR_") and key != "MIN_CONF_DEFAULT":
                 symbol = key.replace("MIN_CONF_", "")
                 with contextlib.suppress(ValueError, TypeError):
                     min_conf_by_symbol[symbol] = float(value)
 
-        # Парсим специфичные для символа пороги фактора уверенности
-        min_conf_factor_by_symbol = {}
+        min_conf_factor_by_symbol: dict[str, float] = {}
         for key, value in os.environ.items():
             if key.startswith("MIN_CONF_FACTOR_") and key != "MIN_CONF_FACTOR_DEFAULT":
                 symbol = key.replace("MIN_CONF_FACTOR_", "")
@@ -88,113 +81,130 @@ class ConfidenceThresholdConfig:
 
 @dataclass
 class ConfidenceThresholdResult:
-    """Результат оценки порога уверенности."""
+    """Evaluation result from ConfidenceThresholdFilter."""
 
-    passed: bool  # True если сигнал проходит оба фильтра
+    passed: bool
 
-    # Значения уверенности
-    confidence_pct: float  # Фактическая уверенность (0-100)
-    conf_factor: float  # Фактический фактор уверенности (0-1)
+    confidence_pct: float       # actual confidence (0-100)
+    conf_factor: float          # actual factor (0-1)
 
-    # Примененные пороги
-    min_conf_threshold: float  # Требуемая уверенность (0-100)
-    min_conf_factor_threshold: float  # Требуемый фактор (0-1)
+    min_conf_threshold: float   # threshold applied (0-100)
+    min_conf_factor_threshold: float  # factor threshold applied (0-1)
 
-    # Pass/fail per filter
     conf_pct_passed: bool
     conf_factor_passed: bool
 
-    # Metadata
     symbol: str
+    calibrated: bool = False    # True if min_conf_threshold came from calibrator
     veto_reason: str | None = None
 
 
 class ConfidenceThresholdFilter:
     """
-    Фильтр, отклоняющий сигналы с недостаточной уверенностью.
-    
-    Применяет двойную фильтрацию:
-        1. Абсолютный скор уверенности (шкала 0-100)
-        2. Фактор уверенности (нормализованная шкала 0-1)
-    
-    Оба фильтра должны пройти, чтобы сигнал был принят.
-    Специфичные для символа пороги позволяют более строгую фильтрацию для высокочастотных пар.
-    
-    Использование:
-        filter = ConfidenceThresholdFilter.from_env()
-        result = filter.evaluate(
-            confidence_pct=72.0,
-            conf_factor=0.48,
-            symbol="BTCUSDT"
-        )
-        if not result.passed:
-            logger.info(f"Confidence veto: {result.veto_reason}")
+    Confidence threshold gate supporting both static (ENV) and dynamic
+    (calibrator-driven) thresholds.
+
+    Static layer: per-symbol ENV overrides (always active).
+    Dynamic layer: ConfidenceThresholdCalibrator reads reliability_calibrator
+      Redis curves → inverts → per-cluster min_conf (active when calibrator.enforce=True).
+
+    Priority: calibrated > symbol-override > default.
     """
 
-    def __init__(self, config: ConfidenceThresholdConfig):
+    def __init__(
+        self,
+        config: ConfidenceThresholdConfig,
+        calibrator: Any = None,
+    ) -> None:
         self.config = config
+        self._calibrator = calibrator  # optional ConfidenceThresholdCalibrator
 
     @classmethod
-    def from_env(cls) -> ConfidenceThresholdFilter:
-        """Создает фильтр из переменных окружения."""
-        return cls(ConfidenceThresholdConfig.from_env())
+    def from_env(cls, calibrator: Any = None) -> ConfidenceThresholdFilter:
+        return cls(ConfidenceThresholdConfig.from_env(), calibrator=calibrator)
 
-    def _get_min_conf_pct(self, symbol: str) -> float:
-        """Возвращает минимальный порог уверенности для символа."""
-        return self.config.min_conf_by_symbol.get(symbol, self.config.min_conf_default)
+    # ── threshold resolution ───────────────────────────────────────────────────
+
+    def _get_min_conf_pct(
+        self,
+        symbol: str,
+        *,
+        kind: str = "na",
+        venue: str = "na",
+        session: str = "na",
+        tf: str = "na",
+        regime: str = "na",
+    ) -> tuple[float, bool]:
+        """
+        Returns (threshold, calibrated_flag).
+        calibrated_flag=True when the calibrator provided a committed value.
+        """
+        if self._calibrator is not None and getattr(self._calibrator, "enforce", False):
+            try:
+                dyn = self._calibrator.min_conf_for(
+                    symbol=symbol, kind=kind, venue=venue,
+                    session=session, tf=tf, regime=regime,
+                )
+                if dyn > 0.0:
+                    return dyn, True
+            except Exception:
+                pass
+
+        # Static fallback: per-symbol ENV override → default
+        return self.config.min_conf_by_symbol.get(symbol, self.config.min_conf_default), False
 
     def _get_min_conf_factor(self, symbol: str) -> float:
-        """Возвращает минимальный порог фактора уверенности для символа."""
         return self.config.min_conf_factor_by_symbol.get(
-            symbol,
-            self.config.min_conf_factor_default
+            symbol, self.config.min_conf_factor_default,
         )
+
+    # ── public evaluate ────────────────────────────────────────────────────────
 
     def evaluate(
         self,
         confidence_pct: float | None,
         conf_factor: float | None,
         symbol: str,
+        *,
+        kind: str = "na",
+        venue: str = "na",
+        session: str = "na",
+        tf: str = "na",
+        regime: str = "na",
     ) -> ConfidenceThresholdResult:
         """
-        Оценивает, соответствует ли сигнал порогам уверенности.
-        
-        Args:
-            confidence_pct: Абсолютный скор уверенности (0-100), может быть None
-            conf_factor: Фактор уверенности (0-1), может быть None
-            symbol: Торговый символ (напр., "BTCUSDT")
-            
-        Returns:
-            ConfidenceThresholdResult с решением pass/fail и детализацией
-        """
+        Evaluate signal against confidence thresholds.
 
-        # Получаем пороги для этого символа
-        min_conf_pct = self._get_min_conf_pct(symbol)
+        Args:
+            confidence_pct: Signal confidence (0-100), None → fail-closed.
+            conf_factor:    Confidence factor (0-1), None → fail-closed.
+            symbol:         Trading symbol (e.g. "BTCUSDT").
+            kind:           Signal kind for cluster-aware calibration.
+            venue/session/tf/regime: Additional cluster dims for calibration.
+
+        Returns:
+            ConfidenceThresholdResult — passed=True only when BOTH checks pass.
+        """
+        min_conf_pct, calibrated = self._get_min_conf_pct(
+            symbol, kind=kind, venue=venue, session=session, tf=tf, regime=regime,
+        )
         min_conf_factor = self._get_min_conf_factor(symbol)
 
-        # Санитизируем входы (fail-closed при отсутствии данных: сигналы без валидного скора отклоняются)
-        conf_pct = safe_float(confidence_pct, 0.0)  # Будет отклонено (0.0 < min_conf)
-        conf_fac = safe_float(conf_factor, 0.0)  # Будет отклонено (0.0 < min_factor)
+        conf_pct = _safe_float(confidence_pct, 0.0)
+        conf_fac = _safe_float(conf_factor, 0.0)
 
-        # Оцениваем каждый фильтр
         conf_pct_passed = conf_pct >= min_conf_pct
         conf_factor_passed = conf_fac >= min_conf_factor
-
-        # Оба должны пройти
         passed = conf_pct_passed and conf_factor_passed
 
-        # Генерируем причину вето при неудаче
-        veto_reason = None
+        veto_reason: str | None = None
         if not passed:
             failures = []
             if not conf_pct_passed:
-                failures.append(
-                    f"confidence={conf_pct:.1f} < min={min_conf_pct:.1f}"
-                )
+                src = "cal" if calibrated else "env"
+                failures.append(f"confidence={conf_pct:.1f} < min={min_conf_pct:.1f}[{src}]")
             if not conf_factor_passed:
-                failures.append(
-                    f"conf_factor={conf_fac:.3f} < min={min_conf_factor:.3f}"
-                )
+                failures.append(f"conf_factor={conf_fac:.3f} < min={min_conf_factor:.3f}")
             veto_reason = "; ".join(failures)
 
         return ConfidenceThresholdResult(
@@ -206,15 +216,18 @@ class ConfidenceThresholdFilter:
             conf_pct_passed=conf_pct_passed,
             conf_factor_passed=conf_factor_passed,
             symbol=symbol,
+            calibrated=calibrated,
             veto_reason=veto_reason,
         )
 
 
-def safe_float(val: Any, default: float = 0.0) -> float:
-    """Безопасно конвертирует значение в float."""
+def _safe_float(val: Any, default: float = 0.0) -> float:
     try:
         f = float(val) if val is not None else default
         return f if math.isfinite(f) else default
     except (TypeError, ValueError):
         return default
 
+
+# Backward-compat alias for callers that imported safe_float from this module
+safe_float = _safe_float

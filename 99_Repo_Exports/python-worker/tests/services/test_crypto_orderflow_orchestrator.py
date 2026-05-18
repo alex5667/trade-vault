@@ -13,14 +13,13 @@ def mock_service():
         mock_redis = MagicMock()
         mock_redis_from_url.return_value = mock_redis
 
-        # Mock other dependencies that might be initialized
         with patch("services.async_signal_publisher.AsyncSignalPublisher"), \
              patch("core.of_confirm_engine.OFConfirmEngine"):
             service = CryptoOrderflowService(redis_dsn="redis://localhost")
-            # Clear automatically created tasks or mocks if needed
             service.main = mock_redis
             service.ticks = mock_redis
             return service
+
 
 @pytest.mark.asyncio
 async def test_load_dynamic_symbols_applies_config(mock_service):
@@ -28,41 +27,33 @@ async def test_load_dynamic_symbols_applies_config(mock_service):
     service = mock_service
     service.main.smembers = AsyncMock(return_value=["BTCUSDT"])
 
-    # Mock config loader
     service.config_loader = MagicMock()
     mock_config = {"some_key": "some_val"}
     service.config_loader.build_symbol_config = AsyncMock(return_value=mock_config)
 
-    # Mock _resolve_streams
     service._resolve_streams = AsyncMock(return_value=("stream:tick_BTCUSDT", "stream:book_BTCUSDT"))
 
-    # 1. First load (new symbol)
     with patch("services.crypto_orderflow_service.SymbolRuntime") as MockRuntime:
         mock_runtime_inst = MockRuntime.return_value
         await service.load_dynamic_symbols()
 
-        # Should create new runtime
         MockRuntime.assert_called()
-        # Should apply config
         mock_runtime_inst.apply_config.assert_called_with(mock_config)
 
-    # 2. Second load (existing symbol)
     new_config = {"new_key": "new_val"}
     service.config_loader.build_symbol_config.return_value = new_config
 
-    # Manually add the symbol to bypass re-creation in the second call
     service.symbol_contexts["BTCUSDT"] = mock_runtime_inst
 
     await service.load_dynamic_symbols()
 
-    # Should stay in contexts
     assert "BTCUSDT" in service.symbol_contexts
-    # Should apply NEW config
     mock_runtime_inst.apply_config.assert_called_with(new_config)
+
 
 @pytest.mark.asyncio
 async def test_consume_ticks_acks_on_success(mock_service):
-    """Verify that messages are ACKED even if no signal is generated."""
+    """Verify that messages are ACKed via _xack_pipeline after successful tick processing."""
     service = mock_service
 
     symbol = "BTCUSDT"
@@ -70,33 +61,45 @@ async def test_consume_ticks_acks_on_success(mock_service):
     runtime.tick_stream = "stream:tick_BTCUSDT"
     runtime.tick_group = "group"
     runtime.config = {"read_count": 10, "read_block_ms": 100}
+    runtime.loop_log_sampler = MagicMock()
+    runtime.loop_log_sampler.should_log.return_value = False
+    runtime.throttle_log_sampler = MagicMock()
+    runtime.throttle_log_sampler.should_log.return_value = False
+    runtime.ensure_specs_fresh = AsyncMock()
     service.symbol_contexts[symbol] = runtime
 
-    # Mock AsyncRedisStreamHelper
+    # Stub calib_svc so the coroutine doesn't block
+    service.calib_svc = MagicMock()
+    service.calib_svc.ensure_loaded = AsyncMock()
+
     with patch("services.crypto_orderflow_service.AsyncRedisStreamHelper") as MockHelper:
         helper_inst = MockHelper.return_value
         helper_inst.ensure_group = AsyncMock()
-        helper_inst.read = AsyncMock()
-        helper_inst.ack = AsyncMock()
-
-        helper_inst.read.side_effect = [
+        helper_inst.read = AsyncMock(side_effect=[
             [("stream:tick_BTCUSDT", [("msg_id_1", {"data": '{"price":100, "side":"BUY"}'})])],
-            asyncio.CancelledError() # Stop the loop
-        ]
+            asyncio.CancelledError(),
+        ])
 
-        # Mock strategy to return NO signal
-        service.strategy = AsyncMock()
-        service.strategy.process_tick = AsyncMock(return_value=None)
+        # _tick_proc.process_tick returns True → msg_id goes into ack_ids
+        service._tick_proc = MagicMock()
+        service._tick_proc.process_tick = AsyncMock(return_value=True)
+
+        # Capture _xack_pipeline calls (replaces helper.ack in the refactored code)
+        service._xack_pipeline = AsyncMock()
 
         with contextlib.suppress(asyncio.CancelledError):
             await service.consume_ticks(symbol)
 
-        # Verify ACK was called
-        helper_inst.ack.assert_called_with("stream:tick_BTCUSDT", "msg_id_1")
+        # XACK pipeline must have been called for the processed message
+        service._xack_pipeline.assert_called_once()
+        call_kw = service._xack_pipeline.call_args.kwargs
+        assert call_kw["stream"] == "stream:tick_BTCUSDT"
+        assert "msg_id_1" in call_kw["ids"]
+
 
 @pytest.mark.asyncio
 async def test_consume_books_parses_correctly(mock_service):
-    """Verify that consume_books uses _fields_to_dict before parsing."""
+    """Verify that consume_books delegates to strategy.process_book and ACKs via _xack_pipeline."""
     service = mock_service
 
     symbol = "BTCUSDT"
@@ -109,25 +112,30 @@ async def test_consume_books_parses_correctly(mock_service):
     with patch("services.crypto_orderflow_service.AsyncRedisStreamHelper") as MockHelper:
         helper_inst = MockHelper.return_value
         helper_inst.ensure_group = AsyncMock()
-        helper_inst.read = AsyncMock()
-        helper_inst.ack = AsyncMock()
 
-        # Mock book payload as a list of tuples (Redis style)
         book_fields = [("bids", "[[100,1]]"), ("asks", "[[101,1]]")]
-        helper_inst.read.side_effect = [
+        helper_inst.read = AsyncMock(side_effect=[
             [("stream:book_BTCUSDT", [("msg_id_b1", book_fields)])],
-            asyncio.CancelledError()
-        ]
+            asyncio.CancelledError(),
+        ])
 
-        with patch("services.crypto_orderflow_service._fields_to_dict") as mock_f2d, \
-             patch("services.crypto_orderflow_service._parse_book_payload") as mock_parse:
-            mock_f2d.return_value = {"bids": "[[100,1]]", "asks": "[[101,1]]"}
+        # Stub book processing
+        service.strategy = MagicMock()
+        service.strategy.process_book = AsyncMock()
 
-            with contextlib.suppress(asyncio.CancelledError):
-                 await service.consume_books(symbol)
+        # Capture _xack_pipeline calls
+        service._xack_pipeline = AsyncMock()
 
-            # Verify _fields_to_dict was called with raw payload
-            mock_f2d.assert_called_with(book_fields)
-            # Verify ACK was called
-            helper_inst.ack.assert_called_with("stream:book_BTCUSDT", "msg_id_b1")
+        with contextlib.suppress(asyncio.CancelledError):
+            await service.consume_books(symbol)
 
+        # process_book must have been called once
+        service.strategy.process_book.assert_called_once()
+        call_args = service.strategy.process_book.call_args
+        assert call_args.args[0] is runtime  # first positional: runtime
+
+        # ACK must have happened via _xack_pipeline (not helper.ack)
+        service._xack_pipeline.assert_called_once()
+        call_kw = service._xack_pipeline.call_args.kwargs
+        assert call_kw["stream"] == "stream:book_BTCUSDT"
+        assert "msg_id_b1" in call_kw["ids"]

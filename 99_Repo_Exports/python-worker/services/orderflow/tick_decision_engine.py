@@ -675,8 +675,9 @@ class TickDecisionEngine:
 
                 if min_usd > 1.0 and delta_usd < min_usd:
                     # Vetoed by USD threshold — always drop, no virtual bypass
-                    logger.warning(
-                        "🛑 [MIN-USD] (%s) VETO: delta_usd=$%.2f < min=$%.2f - Signal blocked",
+                    of_g1_veto_min_usd_total.labels(runtime.symbol).inc()
+                    logger.info(
+                        "🛑 [G1-MIN-USD] (%s) VETO: delta_usd=$%.2f < min=$%.2f",
                         runtime.symbol, delta_usd, min_usd
                     )
                     return None
@@ -813,11 +814,6 @@ class TickDecisionEngine:
             # Determine current tick's tier
             delta_usd = abs(delta_event.get("delta", 0.0)) * price
 
-            # P2: Feed the calibrator with this event (autocalib)
-            # Only feed significant events (>0) to avoid pollution if we trigger on noise
-            if delta_usd > 0:
-                 runtime.tick_dn_calib.update(regime=rg, dn_usd=delta_usd, ts_ms=tick_ts)
-
             tier = 0
             if delta_usd > dn_tiers_decision.tier2_usd:
                  tier = 2
@@ -861,7 +857,7 @@ class TickDecisionEngine:
             runtime.dn_passrate.update(tier=tier, session=sess, passed=passed)
 
             # Metrics
-            res = "pass" if passed else "veto_tier"
+            res = "pass" if passed else "veto"
             dn_gate_events_total.labels(symbol=runtime.symbol, tier=str(tier), session=sess, result=res).inc()
 
             # Enforce Veto
@@ -875,6 +871,10 @@ class TickDecisionEngine:
                           tier, min_tier, dn_tiers_decision.src, sess
                       )
                  return None
+
+            # Feed calibrator only with events that passed the gate (not noise)
+            if delta_usd > 0:
+                runtime.tick_dn_calib.update(regime=rg, dn_usd=delta_usd, ts_ms=tick_ts)
 
             # Add indicators
             indicators["dn_tier"] = tier
@@ -1583,7 +1583,6 @@ class TickDecisionEngine:
                             tier_key,
                         )
                         return None
-                dn_gate_events_total.labels(symbol=runtime.symbol, tier=str(tier_idx), session=sess, result="pass").inc()
                 # --- PRESSURE PROXY LAYER END ---
 
                 # Merge static cfg + dynamic calibrated thresholds

@@ -31,7 +31,7 @@ def test_apply_observe_only_warmup_then_enable():
     )
     assert out1.dq_veto == 0
     assert out1.suppressed is True
-    assert out1.suppress_reason == "warmup"
+    assert out1.suppress_reason == "observe_only"
 
     out2 = apply_observe_only_book_veto(
         dq_level=2,
@@ -91,10 +91,10 @@ def test_eval_dq_gate_book_seq_observe_only(monkeypatch):
     out = eval_dq_gate(indicators=indicators, cfg2=cfg2)
     assert out["dq_level"] == 2
     assert out["dq_reason_bucket"] == "book_seq"
-    assert out["dq_reason"] == "book_seq_hard"
+    assert out["dq_reason"] == "book_seq"
     assert out["dq_veto"] == 0
     assert out.get("dq_veto_suppressed") == 1
-    assert out.get("dq_veto_suppressed_reason") == "warmup"
+    assert out.get("dq_veto_suppressed_reason") == "observe_only"
 
 
 def test_eval_dq_gate_book_seq_after_warmup(monkeypatch):
@@ -149,4 +149,4 @@ def test_eval_dq_gate_book_seq_enabled_false(monkeypatch):
     assert out["dq_reason_bucket"] == "book_seq"
     assert out["dq_veto"] == 0
     assert out.get("dq_veto_suppressed") == 1
-    assert out.get("dq_veto_suppressed_reason") == "disabled"
+    assert out.get("dq_veto_suppressed_reason") == "book_veto_disabled"

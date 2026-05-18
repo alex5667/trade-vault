@@ -35,10 +35,15 @@ try:
         ["symbol"],
         buckets=[-0.1, -0.05, 0.0, 0.05, 0.1, 0.2, 0.5]
     )
+    try:
+        from services.orderflow.metrics import ml_feature_schema_version_total as _ML_SCHEMA_VER_TOTAL
+    except Exception:
+        _ML_SCHEMA_VER_TOTAL = None
 except ImportError:
     _GATE_LATENCY_US = None
     _ML_CONFIRM_STATUS_TOTAL = None
     _ML_CONFIRM_P_MARGIN = None
+    _ML_SCHEMA_VER_TOTAL = None
 def _now_ms() -> int: return get_ny_time_millis()
 def _make_sid(symbol: str, ts_ms: int) -> str:
     sym = (symbol or "").upper()
@@ -123,6 +128,13 @@ class MLConfirmGate:
             kind = cfg_dict.get("kind", "")
             if model_path:
                 self._model = _load_model_cached(model_path, kind, logger)
+                if self._model is not None and _ML_SCHEMA_VER_TOTAL is not None:
+                    try:
+                        schema_hash = str(cfg_dict.get("feature_cols_hash") or cfg_dict.get("schema_hash") or "unknown")
+                        model_ver = str(cfg_dict.get("run_id") or cfg_dict.get("model_ver") or "unknown")
+                        _ML_SCHEMA_VER_TOTAL.labels(schema_hash=schema_hash, model_ver=model_ver).inc()
+                    except Exception:
+                        pass
             self._cache_loaded_ms = now
 
     def _get_effective_mode(self, symbol: str, kind: str) -> str:

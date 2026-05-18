@@ -103,9 +103,8 @@ class L2ConfirmBreakout:
             rc, u16 = normalize_and_u16(OK)
             return ConfirmResult(passed=True, veto=False, score01=1.0, reason_code=rc, reason_u16=u16, parts=parts, flags=flags, reasons=reasons)
 
-        px = _f(getattr(ctx, "price", None) or getattr(ctx, "last_price", None))
         lvl = _f(level_price)
-        if px is None or lvl is None or lvl <= 0:
+        if lvl is None or lvl <= 0:
             flags["bad_inputs"] = True
             parts["bad_inputs"] = 1
             rc, u16 = normalize_and_u16(OK)

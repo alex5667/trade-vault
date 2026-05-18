@@ -183,7 +183,7 @@ def _report_atr(r: redis.Redis, top_n: int) -> tuple[str, int]:
 
 
 def _report_cvd(r: redis.Redis, top_n: int) -> tuple[str, int]:
-    cvd_top_n = int(os.getenv("CVD_REPORT_TOP_N", "15"))
+    cvd_top_n = top_n if top_n > 0 else int(os.getenv("CVD_REPORT_TOP_N", "15"))
     cvd_syms = _sscan_all(r, "cfg:cvd_quarantine:symbols", limit=500)
     cvd_items: list[tuple[str, int, str, str]] = []  # (sym, ttl_sec, reason, mode)
     if cvd_syms:
@@ -223,7 +223,7 @@ def _report_cvd(r: redis.Redis, top_n: int) -> tuple[str, int]:
 
 
 def _report_streams(r: redis.Redis, top_n: int) -> tuple[str, int]:
-    streams_top_n = int(os.getenv("STREAMS_REPORT_TOP_N", "15"))
+    streams_top_n = top_n if top_n > 0 else int(os.getenv("STREAMS_REPORT_TOP_N", "15"))
     legacy_key = os.getenv("MICROBAR_LEGACY_STREAM", RS.EVENTS_MICROBAR_CLOSED)
     majors_key = os.getenv("MICROBAR_MAJORS_STREAM", RS.EVENTS_MICROBAR_MAJORS)
     tpl = os.getenv("MICROBAR_PER_SYMBOL_STREAM_TEMPLATE", "events:microbar_closed:{sym}")

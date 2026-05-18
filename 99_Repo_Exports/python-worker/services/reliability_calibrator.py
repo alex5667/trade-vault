@@ -407,3 +407,112 @@ def update_reliability_curves(
             return
     except Exception:
         return
+
+
+# ── SMT coherence outcome curves (Phase 2 calibrator feed) ───────────────────
+#
+# Parallel writer to update_reliability_curves, but:
+#   - bucketed by smt_coh (not conf_pct)
+#   - recorded ONLY for countertrend signals (smt_align=0, leader_confirm=1)
+#   - outcome: tp2_hit (1 = signal succeeded)
+#
+# Redis key: smtcoh:cal:v1:{SYMBOL}:{regime}
+# HASH fields: b{bucket_pct}:n, b{bucket_pct}:h, last_ts_ms
+# bucket_pct = int(smt_coh * 100) rounded to nearest 5 (matching BUCKET_STEP_PCT=5)
+#
+# Enabled by env: SMT_COH_CAL_ENABLED=1 (default: 1)
+
+_SMT_COH_KEY_PREFIX = "smtcoh:cal:v1"
+_SMT_COH_BUCKET_STEP = 5   # must match smt_coh_isotonic_calibrator.BUCKET_STEP_PCT
+
+
+def _extract_smt_coh(pos: dict[str, Any], closed: dict[str, Any]) -> float | None:
+    """Extract smt_coh from indicators dict or signal payload."""
+    for src in (pos, closed):
+        inds = src.get("indicators")
+        if isinstance(inds, dict):
+            v = _safe_float(inds.get("smt_coh", float("nan")), float("nan"))
+            if math.isfinite(v):
+                return v
+        sp = src.get("signal_payload")
+        if isinstance(sp, dict):
+            v = _safe_float(sp.get("smt_coh", float("nan")), float("nan"))
+            if math.isfinite(v):
+                return v
+        v = _safe_float(src.get("smt_coh", float("nan")), float("nan"))
+        if math.isfinite(v):
+            return v
+    return None
+
+
+def _extract_smt_is_countertrend(pos: dict[str, Any], closed: dict[str, Any]) -> bool:
+    """Return True if the signal was countertrend (smt_align=0, leader_confirm=1)."""
+    for src in (pos, closed):
+        inds = src.get("indicators") or {}
+        if not isinstance(inds, dict):
+            inds = {}
+        sp = src.get("signal_payload") or {}
+        if not isinstance(sp, dict):
+            sp = {}
+        for d in (inds, sp, src):
+            align = d.get("smt_align")
+            confirm = d.get("smt_leader_confirm")
+            if align is not None and confirm is not None:
+                try:
+                    return float(align) == 0 and float(confirm) == 1
+                except Exception:
+                    pass
+    return False
+
+
+def update_smt_coh_curves(
+    redis_client: Any,
+    *,
+    pos: dict[str, Any],
+    trade_closed: dict[str, Any],
+    ttl_sec: int | None = None,
+    now_ms: int | None = None,
+) -> None:
+    """Fail-open writer: record (smt_coh, tp2_hit) for countertrend signals.
+
+    Called from stats_aggregator on trade close alongside update_reliability_curves.
+    Never raises.
+    """
+    try:
+        if not _env_bool("SMT_COH_CAL_ENABLED", True):
+            return
+        if redis_client is None:
+            return
+
+        # Only record countertrend signals
+        if not _extract_smt_is_countertrend(pos, trade_closed):
+            return
+
+        coh = _extract_smt_coh(pos, trade_closed)
+        if coh is None or not math.isfinite(coh):
+            return
+        if not (0.30 <= coh <= 0.98):
+            return
+
+        _, symbol, _, _, _, regime, _ = _extract_dims(pos, trade_closed)
+
+        bucket = (int(coh * 100) // _SMT_COH_BUCKET_STEP) * _SMT_COH_BUCKET_STEP
+        hit = _compute_hit("tp2", pos, trade_closed)
+        now = now_ms or get_ny_time_millis()
+        _ttl = ttl_sec if ttl_sec else 60 * 60 * 24 * 30  # 30d default
+
+        key = f"{_SMT_COH_KEY_PREFIX}:{symbol.upper()}:{regime.lower()}"
+        pipe = redis_client.pipeline(transaction=False)
+        pipe.hincrby(key, f"b{bucket}:n", 1)
+        if hit:
+            pipe.hincrby(key, f"b{bucket}:h", 1)
+        with contextlib.suppress(Exception):
+            pipe.hset(key, "last_ts_ms", str(now))
+        with contextlib.suppress(Exception):
+            pipe.expire(key, _ttl)
+        try:
+            pipe.execute()
+        except Exception:
+            return
+    except Exception:
+        return

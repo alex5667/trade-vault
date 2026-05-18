@@ -21,12 +21,14 @@ def _lockdown_path() -> None:
     sys.path.insert(0, s_root)
 
     # 2. Strict prune sys.path
-    allowed_substrings = [s_root, "/usr/lib", "/usr/local/lib", ".local/lib", "site-packages", "dist-packages"]
+    # Exempt the venv directory: it lives inside scanner_infra/ but is not a shadow
+    s_venv = str(root.parent / ".venv")
+    allowed_substrings = [s_root, s_venv, "/usr/lib", "/usr/local/lib", ".local/lib", "site-packages", "dist-packages"]
     new_path = []
     for p in sys.path:
-        # Keep if it matches allowed substrings AND does not contain scanner_infra (unless it's in our root)
+        # Keep if it matches allowed substrings AND does not contain scanner_infra (unless it's in our root or venv)
         is_allowed = any(a in p for a in allowed_substrings)
-        is_shadow = ("scanner_infra" in p) and (s_root not in p)
+        is_shadow = ("scanner_infra" in p) and (s_root not in p) and (s_venv not in p)
         if is_allowed and not is_shadow or not p:
             new_path.append(p)
 
@@ -35,15 +37,19 @@ def _lockdown_path() -> None:
     # 3. Filter out redundant sub-directories that were added by hacks
     subdirs = ["services", "tools", "ml_analysis", "tick_flow_full", "infra", "core", "orderflow_services"]
     # 4. Clean up sys.modules to force re-import if shadowed
+    # Never evict pytest/pluggy infrastructure — they live in .venv which is inside scanner_infra/
+    _EXEMPT_BASE_PKGS = {"pytest", "_pytest", "pluggy", "py", "attr", "attrs", "fakeredis"}
     to_cleanup = ["ml_analysis", "infra", "tools", "services", "core", "orderflow_services", "tick_flow_full", "utils"]
     shadowed_keys = []
     for k, m in list(sys.modules.items()):
-        # Remove if it's from scanner_infra but not from our root
-        if hasattr(m, "__file__") and m.__file__ and "scanner_infra" in m.__file__ and s_root not in m.__file__:
+        base_pkg = k.split(".")[0]
+        if base_pkg in _EXEMPT_BASE_PKGS:
+            continue
+        # Remove if it's from scanner_infra but not from our root or venv
+        if hasattr(m, "__file__") and m.__file__ and "scanner_infra" in m.__file__ and s_root not in m.__file__ and s_venv not in m.__file__:
             shadowed_keys.append(k)
         else:
             # Also check by base package name
-            base_pkg = k.split(".")[0]
             if base_pkg in to_cleanup:
                 if hasattr(m, "__file__") and m.__file__ and s_root not in m.__file__:
                     shadowed_keys.append(k)

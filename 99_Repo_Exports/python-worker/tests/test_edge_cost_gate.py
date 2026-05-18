@@ -2,7 +2,7 @@ import time
 from types import SimpleNamespace
 
 import pytest
-from fake_redis import FakeRedis
+import fakeredis; FakeRedis = fakeredis.FakeRedis
 
 from handlers.crypto_orderflow.utils.edge_cost_gate import EdgeCostGate
 from utils.time_utils import get_ny_time_millis

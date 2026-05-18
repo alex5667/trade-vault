@@ -57,7 +57,9 @@ def _env_float(name: str, default: float) -> float:
 
 def outbox_contract_mode() -> str:
     # off | warn | raise
-    return _env_str("OUTBOX_CONTRACT_MODE", "raise").strip().lower()
+    # Default is "warn" so a single misbehaving payload cannot kill emit in prod.
+    # CI should set OUTBOX_CONTRACT_MODE=raise explicitly to catch regressions.
+    return _env_str("OUTBOX_CONTRACT_MODE", "warn").strip().lower()
 
 
 def outbox_contract_sample_rate() -> float:
@@ -210,12 +212,23 @@ def contract_check_best_effort(
     """
     Enforcement wrapper:
       - mode=off  -> no-op
-      - mode=warn -> log structured violation, return False
+      - mode=warn -> log structured violation at OUTBOX_CONTRACT_SAMPLE_RATE
       - mode=raise-> raise ContractViolation (CI)
+
+    Sampling applies only to warn mode (to bound log volume in prod).
+    raise mode is for CI and always fires.
     """
     mode = outbox_contract_mode()
     if mode not in ("warn", "raise"):
         return True
+    if mode == "warn":
+        rate = outbox_contract_sample_rate()
+        if rate <= 0.0:
+            return True
+        if rate < 1.0:
+            import random
+            if random.random() >= rate:
+                return True
     try:
         if kind == "payload":
             validate_tradeable_payload(obj)

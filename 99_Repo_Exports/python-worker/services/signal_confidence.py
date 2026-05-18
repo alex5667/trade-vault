@@ -440,6 +440,21 @@ class ConfidenceScorer:
         z_abs = abs(z)
         impulse_sign = _sign(z)
 
+        # Adaptive z-mapping bounds from ZMappingCalibrator (injected by strategy.py).
+        # lo>0 and hi>lo means calibrator is warm+enforcing; otherwise use scorer defaults.
+        _cal_z_lo = _get_f("z_core_lo", 0.0)
+        _cal_z_hi = _get_f("z_core_hi", 0.0)
+        _z_calib_ok = _cal_z_lo > 0.0 and _cal_z_hi > _cal_z_lo
+
+        def _z_score_calib(z_a: float, fixed_thr: float) -> float:
+            if _z_calib_ok:
+                return _ramp(z_a, _cal_z_lo, _cal_z_hi)
+            return self._z_score(z_a, fixed_thr)
+
+        if _z_calib_ok:
+            parts["z_calib_lo"] = _cal_z_lo
+            parts["z_calib_hi"] = _cal_z_hi
+
         # Phase 3: Regime-Awareness
         # Normalize market mode to trend/range/mixed
         raw_mode = _get_s("market_mode", "mixed").lower()
@@ -464,7 +479,7 @@ class ConfidenceScorer:
 
         if kind == "breakout":
             thr = self.breakout_z_thr
-            s_z = self._z_score(z_abs, thr)
+            s_z = _z_score_calib(z_abs, thr)
             obi20 = _f_any(ctx, "obi_avg_20", "obi_avg", "obi", default=0.0)
             obi_sustained_20 = _b_any(ctx, "obi_sustained_20", "obi_sustained", default=False)
             s_obi20 = self._obi_score(obi20, obi_sustained_20, dir_sign, self.obi20_thr)
@@ -502,7 +517,7 @@ class ConfidenceScorer:
 
         elif kind == "absorption":
             thr = self.absorption_z_thr
-            s_z = self._z_score(z_abs, thr)
+            s_z = _z_score_calib(z_abs, thr)
 
             support_dir = impulse_sign if impulse_sign != 0 else (-dir_sign or 1)
             s_support = self._absorption_support_score(ctx, support_dir)
@@ -563,7 +578,7 @@ class ConfidenceScorer:
 
         elif kind == "extreme":
             thr = self.extreme_z_thr
-            s_z = self._z_score(z_abs, thr)
+            s_z = _z_score_calib(z_abs, thr)
             obi_avg = _f_any(ctx, "obi_avg", "obi", default=0.0)
             obi_sustained = _b(ctx, "obi_sustained", False)
             s_obi = self._obi_score(obi_avg, obi_sustained, dir_sign, self.obi_thr)
@@ -589,7 +604,7 @@ class ConfidenceScorer:
 
         else:
             thr = self.main_z_thr
-            s_z = self._z_score(z_abs, thr)
+            s_z = _z_score_calib(z_abs, thr)
             obi_avg = _f_any(ctx, "obi_avg", "obi", default=0.0)
             obi_sustained = _b(ctx, "obi_sustained", False)
             s_obi = self._obi_score(obi_avg, obi_sustained, dir_sign, self.obi_thr)

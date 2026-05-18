@@ -123,32 +123,44 @@ class TestDispatcherSchemaVersionChecks(unittest.TestCase):
         return ("0-1", fields)
 
     def test_valid_schema_version_passes(self):
-        """Envelope с schema_version=1 принимается диспетчером."""
+        """Envelope с schema_version=2 (current SCHEMA_VERSION) принимается dispatcher."""
         try:
-            from services.signal_outbox_dispatcher import SignalDispatcher
+            from services.signal_outbox_dispatcher import (
+                ACCEPTED_SCHEMA_VERSIONS,
+                _normalize_schema_version,
+            )
         except ImportError:
             self.skipTest("SignalDispatcher не найдён")
 
-        msg_id, fields = self._make_stream_msg(schema_version=1)
-        # Тестируем _parse_envelope или аналог
-        dispatcher = MagicMock(spec=SignalDispatcher)
-        # Проверяем что контракт schema_version == 1 present
-        self.assertEqual(int(fields.get("schema_version", 0)), 1)
+        from core.outbox_envelope import SCHEMA_VERSION
+        msg_id, fields = self._make_stream_msg(schema_version=SCHEMA_VERSION)
+        self.assertIn(_normalize_schema_version(fields["schema_version"]), ACCEPTED_SCHEMA_VERSIONS)
 
-    def test_invalid_schema_version_2_detected(self):
-        """Envelope с schema_version=2 должен детектироваться как несовместимый."""
-        msg_id, fields = self._make_stream_msg(schema_version=2)
-        schema_v = int(fields.get("schema_version", 0))
-        # Контракт: dispatcher проверяет schema_version == 1
-        self.assertNotEqual(schema_v, 1, "schema_version=2 должен быть rejected")
+    def test_legacy_v1_still_accepted_during_migration(self):
+        """Legacy v1 envelopes остаются accepted пока v1 в LEGACY_SCHEMA_VERSIONS (dual-read)."""
+        try:
+            from services.signal_outbox_dispatcher import (
+                ACCEPTED_SCHEMA_VERSIONS,
+                _normalize_schema_version,
+            )
+        except ImportError:
+            self.skipTest("SignalDispatcher не найдён")
+        msg_id, fields = self._make_stream_msg(schema_version=1)
+        self.assertIn(_normalize_schema_version(fields["schema_version"]), ACCEPTED_SCHEMA_VERSIONS)
 
     def test_missing_schema_version_fails_contract(self):
-        """Envelope без schema_version — нарушение контракта."""
+        """Envelope без schema_version — нарушение контракта (DLQ)."""
+        try:
+            from services.signal_outbox_dispatcher import (
+                ACCEPTED_SCHEMA_VERSIONS,
+                _normalize_schema_version,
+            )
+        except ImportError:
+            self.skipTest("SignalDispatcher не найдён")
         fields = _make_envelope()
         del fields["schema_version"]
-        schema_v = int(fields.get("schema_version", 0))
-        # При отсутствии поля, safe default = 0, что != 1
-        self.assertNotEqual(schema_v, 1)
+        sv = _normalize_schema_version(fields.get("schema_version"))
+        self.assertTrue(sv is None or sv not in ACCEPTED_SCHEMA_VERSIONS)
 
     def test_contract_envelope_to_dispatcher_fields_shape(self):
         """Форма envelope совпадает с тем что ожидает dispatcher (union of required keys)."""

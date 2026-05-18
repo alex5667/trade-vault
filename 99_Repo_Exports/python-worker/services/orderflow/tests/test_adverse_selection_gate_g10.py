@@ -138,3 +138,126 @@ async def test_continuation_discarded_by_bar_closed(service, runtime):
     service._emit_payload.assert_not_called()
     assert runtime.pending_adverse_payload is None, "Buffer should be cleared"
 
+@pytest.mark.asyncio
+async def test_continuation_timeout(service, runtime):
+    """Continuation signal should timeout if buffered > 5 seconds."""
+    # 1. Buffer signal
+    payload = {
+        "direction": "LONG",
+        "indicators": {
+            "strong_gate_scn": "continuation"
+        }
+    }
+    runtime.pending_adverse_payload = payload
+    runtime.pending_adverse_ts_ms = 1000
+
+    # 2. Close bar with age > 5000 ms
+    bar = MagicMock()
+    bar.open = 100.0
+    bar.high = 105.0
+    bar.low = 100.0
+    bar.close = 105.0
+    bar.vol = 10.0
+    bar.cvd_close = 0.0
+    bar.end_ts_ms = 7000  # age = 7000 - 1000 = 6000 ms > 5000
+    bar.fp_evictions = 0
+
+    await service._on_microbar_closed(runtime, bar)
+
+    # 3. Verify it was NOT emitted (timeout veto)
+    service._emit_payload.assert_not_called()
+    assert runtime.pending_adverse_payload is None, "Buffer should be cleared"
+
+@pytest.mark.asyncio
+async def test_continuation_verified_short_direction(service, runtime):
+    """SHORT continuation verified when bar closes down (c < o)."""
+    # 1. Buffer SHORT signal
+    payload = {
+        "direction": "SHORT",
+        "indicators": {
+            "strong_gate_scn": "continuation"
+        }
+    }
+    runtime.pending_adverse_payload = payload
+    runtime.pending_adverse_ts_ms = 1000
+
+    # 2. Close bar with c < o (favorable for SHORT)
+    bar = MagicMock()
+    bar.open = 105.0
+    bar.high = 105.0
+    bar.low = 100.0
+    bar.close = 100.0  # c < o -> SHORT favorable
+    bar.vol = 10.0
+    bar.cvd_close = 0.0
+    bar.end_ts_ms = 1500
+    bar.fp_evictions = 0
+
+    await service._on_microbar_closed(runtime, bar)
+
+    # 3. Verify it was emitted
+    service._emit_payload.assert_called_once()
+    assert runtime.pending_adverse_payload is None, "Buffer should be cleared"
+
+@pytest.mark.asyncio
+async def test_continuation_discarded_short_direction(service, runtime):
+    """SHORT continuation discarded when bar closes up (c > o)."""
+    # 1. Buffer SHORT signal
+    payload = {
+        "direction": "SHORT",
+        "indicators": {
+            "strong_gate_scn": "continuation"
+        }
+    }
+    runtime.pending_adverse_payload = payload
+    runtime.pending_adverse_ts_ms = 1000
+
+    # 2. Close bar with c > o (unfavorable for SHORT)
+    bar = MagicMock()
+    bar.open = 100.0
+    bar.high = 105.0
+    bar.low = 100.0
+    bar.close = 105.0  # c > o -> SHORT unfavorable
+    bar.vol = 10.0
+    bar.cvd_close = 0.0
+    bar.end_ts_ms = 1500
+    bar.fp_evictions = 0
+
+    await service._on_microbar_closed(runtime, bar)
+
+    # 3. Verify it was NOT emitted
+    service._emit_payload.assert_not_called()
+    assert runtime.pending_adverse_payload is None, "Buffer should be cleared"
+
+@pytest.mark.asyncio
+async def test_scn_fallback_sweep_treated_as_reversal(service, runtime):
+    """Reversal fallback: sweep=1 without strong_gate_scn should be treated as reversal."""
+    payload = {
+        "direction": "LONG",
+        "indicators": {
+            # No strong_gate_scn provided
+            "sweep": 1,  # Fallback: sweep=1 -> reversal
+            "cvd_reclaim_ok": 0,
+            "absorption_volume": 0,
+            "obi_stable": 0,
+            "ofi_stable": 0
+        }
+    }
+    res = service._eval_g10_adverse_gate(runtime, payload, 1000)
+    assert res == "veto_reversal", "sweep=1 without strong_gate_scn should trigger reversal logic, then veto without evidence"
+
+@pytest.mark.asyncio
+async def test_reversal_pass_with_obi_stable(service, runtime):
+    """Reversal should pass if obi_stable evidence is present."""
+    payload = {
+        "direction": "LONG",
+        "indicators": {
+            "strong_gate_scn": "reversal",
+            "cvd_reclaim_ok": 0,
+            "absorption_volume": 0,
+            "obi_stable": 1,  # OBI stable is sufficient evidence
+            "ofi_stable": 0
+        }
+    }
+    res = service._eval_g10_adverse_gate(runtime, payload, 1000)
+    assert res == "pass", "obi_stable=1 should be sufficient evidence for reversal to pass"
+

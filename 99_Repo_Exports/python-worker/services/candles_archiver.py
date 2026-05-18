@@ -23,7 +23,7 @@ from typing import Any
 
 import psycopg2
 import redis
-from psycopg2.extras import execute_batch
+from psycopg2.extras import execute_values
 from core.redis_keys import RedisStreams as RS
 
 # Configuration
@@ -245,13 +245,13 @@ def main():
 
                 try:
                     with pg_conn, pg_conn.cursor() as cur:
-                        execute_batch(cur, """
+                        execute_values(cur, """
                                 INSERT INTO candles_archive (
                                     symbol, timeframe, open_time, close_time,
                                     open, high, low, close,
                                     volume, quote_volume, trades,
                                     taker_buy_base, taker_buy_quote
-                                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                                ) VALUES %s
                                 ON CONFLICT (symbol, timeframe, open_time) DO NOTHING
                             """, batch_data, page_size=1000)
 

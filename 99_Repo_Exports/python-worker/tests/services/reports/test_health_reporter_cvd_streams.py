@@ -23,7 +23,7 @@ from core.redis_keys import RedisStreams as RS
 @pytest.fixture
 def mock_redis():
     """Create a mock Redis client for testing."""
-    r = Mock(spec=redis.Redis)
+    r = Mock()
     r.pipeline.return_value = r
     r.execute.return_value = []
     return r

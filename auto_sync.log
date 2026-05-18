@@ -437,3 +437,39 @@ fatal: Could not read from remote repository.
 Please make sure you have the correct access rights
 and the repository exists.
 2026-05-16 05:45:02 - Синхронизация завершена успешно.
+[main 18af24c9] Auto-sync vault notes 2026-05-17 05:45:01
+ 124 files changed, 13537 insertions(+), 814 deletions(-)
+ create mode 100644 60_Rollouts/v14_of OE Canary.md
+ create mode 100644 99_Automation/logs/update_2026-05-17_03-37-46.log
+ create mode 100644 99_Repo_Exports/python-worker/core/book_replay_helper.py
+ create mode 100644 99_Repo_Exports/python-worker/core/external_features_payload_v1.py
+ create mode 100644 99_Repo_Exports/python-worker/migrations/20260516_01_liquidation_events_raw.sql
+ create mode 100644 99_Repo_Exports/python-worker/orderflow_services/fills_tca_enricher_v1.py
+ create mode 100644 99_Repo_Exports/python-worker/orderflow_services/liq_evt_archiver_v1.py
+ create mode 100644 99_Repo_Exports/python-worker/orderflow_services/of_hawkes_vpin_v1.py
+ create mode 100644 99_Repo_Exports/python-worker/orderflow_services/pit_priors_rolling_v1.py
+ create mode 100644 99_Repo_Exports/python-worker/services/macro_calendar_scheduler.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/core/test_external_features_payload_v1.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/core/test_meta_schema_registry_v10_and_builder.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/core/test_ml_feature_schema_v13_of.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/core/test_no_leakage_pit_priors_v1.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/core/test_of_confirm_engine_manifest_active_schema.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/core/test_train_serve_builder_parity.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/services/orderflow/test_tick_processor_g0_ownership.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/services/test_macro_calendar_scheduler.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_layer_d_consumer.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_nightly_research_guard_bundle_redis.py
+ create mode 100644 99_Repo_Exports/python-worker/tools/aiops_metric_coverage.py
+ create mode 100644 99_Repo_Exports/python-worker/tools/feature_importance_report_v1.py
+ create mode 100644 99_Repo_Exports/python-worker/tools/feature_psi_report.py
+ create mode 100644 99_Repo_Exports/python-worker/tools/feature_shap_report.py
+ create mode 100644 99_Repo_Exports/python-worker/tools/nightly_v5_of_train_bundle.py
+ create mode 100644 99_Repo_Exports/python-worker/tools/nightly_v_meta_train_bundle.py
+ create mode 100644 99_Repo_Exports/python-worker/tools/schema_arbiter_v1.py
+ create mode 100644 99_Repo_Exports/python-worker/tools/seed_feature_registry_pins.py
+git@github.com: Permission denied (publickey).
+fatal: Could not read from remote repository.
+
+Please make sure you have the correct access rights
+and the repository exists.
+2026-05-17 05:45:02 - Синхронизация завершена успешно.

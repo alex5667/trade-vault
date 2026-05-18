@@ -53,7 +53,7 @@ _SCHEMA_VERSIONS: list[str] = [
     # v13_of — v12_of (214) + GroupNA-NX (28) = 242 numeric keys
     "v13",
     "v13_of",
-    # v14_of — v13_of (242) + Group OG (16) rule-gate + Group OE (20) external = 278
+    # v14_of — v13_of (242) + Group OG (16) rule-gate + Group OE (81) external/execution = 339
     "v14",
     "v14_of",
 ]

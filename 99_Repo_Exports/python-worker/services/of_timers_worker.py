@@ -1584,7 +1584,7 @@ def run_feature_denylist_proposal_exporter() -> bool:
     module = os.getenv(
         "FEATURE_DENYLIST_EXPORTER_MODULE",
         "ml_analysis.tools.feature_denylist_proposal_exporter_v1",
-    ),
+    )
     timeout_s = int(os.getenv("FEATURE_DENYLIST_EXPORTER_TIMEOUT_S", "30"))
 
     # Pass required env vars to subprocess (inherited from os.environ, but add defaults)
@@ -2812,7 +2812,7 @@ def run_of_gate_dlq_db_archive_nightly() -> bool:
     streams = os.getenv(
         "OF_GATE_DLQ_DB_ARCHIVE_STREAMS",
         os.getenv("OF_GATE_DLQ_STREAMS", f"{RS.DLQ_OF_GATE_METRICS},{RS.DLQ_OF_GATE_QUARANTINE}"),
-    ),
+    )
     batch = os.getenv("OF_GATE_DLQ_DB_ARCHIVE_BATCH", "5000")
     args = ["--streams", streams, "--batch", batch, "--once"]
 

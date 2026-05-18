@@ -36,11 +36,11 @@ def _mk_ctx(confirmations):
     )
 
 
-def test_micro_bonus_increases_confidence():
+async def test_micro_bonus_increases_confidence():
     s = ConfidenceScorer(cfg=ConfidenceConfig())
     base_ctx = _mk_ctx(confirmations=[])
-    c0, _ = s.score(kind="custom", side="LONG", ctx=base_ctx)
+    c0, _ = await s.score(kind="custom", side="LONG", ctx=base_ctx)
 
     bonus_ctx = _mk_ctx(confirmations=["obi_stable=2.00", "obi_q=0.90"])
-    c1, _ = s.score(kind="custom", side="LONG", ctx=bonus_ctx)
+    c1, _ = await s.score(kind="custom", side="LONG", ctx=bonus_ctx)
     assert c1 >= c0

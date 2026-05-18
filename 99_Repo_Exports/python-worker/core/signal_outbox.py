@@ -2,10 +2,12 @@
 # core/signal_outbox.py
 import json
 import logging
-from dataclasses import dataclass
+import os
+from dataclasses import dataclass, field
 from typing import Any
 
 from common.time_utils import normalize_epoch_ms_best_effort
+from core.outbox_envelope import SCHEMA_VERSION
 from core.performance_optimizer import get_optimized_redis_client
 from core.redis_keys import RedisStreams as RS
 from utils.time_utils import get_ny_time_millis
@@ -16,7 +18,9 @@ logger = logging.getLogger(__name__)
 @dataclass
 class OutboxSettings:
     outbox_stream: str = RS.SIGNAL_OUTBOX
-    outbox_maxlen: int = 20000
+    outbox_maxlen: int = field(
+        default_factory=lambda: int(os.getenv("SIGNAL_OUTBOX_MAXLEN", "50000"))
+    )
     dedup_ttl_ms: int = 60000
     dedup_bucket_ms: int = 60000
 
@@ -174,8 +178,10 @@ class SignalOutboxPublisher:
         )
 
         # Ensure schema_version is present — dispatcher rejects envelopes without it.
+        # Use the canonical SCHEMA_VERSION constant so producer and dispatcher
+        # stay in lock-step when the protocol is bumped.
         if "schema_version" not in envelope:
-            envelope = {**envelope, "schema_version": 1}
+            envelope = {**envelope, "schema_version": int(SCHEMA_VERSION)}
 
         envelope_json = json.dumps(envelope, ensure_ascii=False, separators=(",", ":"))
 

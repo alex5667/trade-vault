@@ -149,3 +149,51 @@ async def test_g11_pressure_hit_rate_metrics(runtime):
     # EMA follows rate
     assert ps.cd_rate_ema > 0.0
 
+
+@pytest.mark.asyncio
+async def test_g11_direction_validation(runtime):
+    """Test that invalid direction values are handled gracefully (P0 fix)."""
+    redis_mock = AsyncMock()
+    strategy = OrderFlowStrategy(redis_mock, AsyncMock(), AsyncMock(), MagicMock())
+
+    runtime.last_signal_ts = 100000
+    runtime.last_emit_dir = "LONG"
+
+    # Test with invalid direction (e.g., BUY instead of LONG)
+    payload_invalid = {
+        "direction": "BUY",  # Invalid: should be LONG/SHORT
+        "confidence": 0.8,
+        "indicators": {"strong_gate_scn": "continuation", "of_confirm_score": 0.8}
+    }
+    now_ms = 100000 + 5000
+
+    res = await strategy._emit_payload(runtime, payload_invalid, now_ms=now_ms)
+
+    # Signal should be buffered in cooldown (treated with empty direction)
+    assert res is None, "Invalid direction should not prevent cooldown enforcement"
+    assert runtime.pending_payload is not None
+    assert runtime.pending_payload["direction"] == "BUY"  # Original payload preserved
+
+
+@pytest.mark.asyncio
+async def test_g11_direction_normalization(runtime):
+    """Test that direction is normalized to uppercase."""
+    redis_mock = AsyncMock()
+    strategy = OrderFlowStrategy(redis_mock, AsyncMock(), AsyncMock(), MagicMock())
+
+    runtime.last_signal_ts = 100000
+    runtime.last_emit_dir = "LONG"
+
+    # Test with lowercase valid direction
+    payload_lower = {
+        "direction": "short",  # lowercase but valid
+        "confidence": 0.8,
+        "indicators": {"strong_gate_scn": "continuation", "of_confirm_score": 0.8}
+    }
+    now_ms = 100000 + 5000
+
+    res = await strategy._emit_payload(runtime, payload_lower, now_ms=now_ms)
+
+    # Should be buffered (different direction triggers longer cooldown)
+    assert res is None
+    assert runtime.pending_payload is not None

@@ -31,9 +31,11 @@ SCHEMA_HASH = "cb1562b12fef"
 # ---------------------------------------------------------------------------
 # Import from SoT (reference/tick_flow_full)
 # ---------------------------------------------------------------------------
-_SOT_PATHS = [_SOT_ROOT, _REPO_ROOT]
-for _p in reversed(_SOT_PATHS):
-    sys.path.insert(0, _p)
+# Append SOT root (not prepend) to avoid shadowing python-worker packages.
+# _REPO_ROOT is intentionally NOT added — it contains scanner_infra/tools/ etc.
+# which would shadow python-worker/tools/ and break other tests in the suite.
+if _SOT_ROOT not in sys.path:
+    sys.path.append(_SOT_ROOT)
 
 try:
     import importlib

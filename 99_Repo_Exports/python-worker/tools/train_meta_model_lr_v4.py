@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import math
 import os
@@ -11,6 +12,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import brier_score_loss, log_loss, roc_auc_score
 
 # P9: Future behavior opt-in
 pd.set_option('future.no_silent_downcasting', True)
@@ -33,20 +35,19 @@ from core.meta_model_lr import MetaModelLR
 # Train==Serve: derive schema metadata from the central registry so v7..v10
 # (and any future schemas) are trainable without re-listing them here.
 from core.meta_schema_registry import (
-    META_SCHEMA_BUILDERS,
     META_SCHEMA_REGISTRY,
     META_SCHEMA_TRANSFORMS,
 )
 
 SCHEMAS = {
     name: {
-        "version": ver,
-        "cols": cols,
-        "hash": h,
+        "version": spec.version,
+        "cols": list(spec.cols),
+        "hash": spec.hash,
         "transforms": META_SCHEMA_TRANSFORMS[name],
-        "builder": META_SCHEMA_BUILDERS[name],
+        "builder": spec.builder,
     }
-    for name, (ver, cols, h) in META_SCHEMA_REGISTRY.items()
+    for name, spec in META_SCHEMA_REGISTRY.items()
 }
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -170,6 +171,7 @@ def build_row_features(
         "build_meta_features_v8",
         "build_meta_features_v9",
         "build_meta_features_v10",
+        "build_meta_features_v13_of",
     ):
         # v7..v10 are pass-through builders: (evidence, indicators, **kwargs).
         # They consume `indicators_with_v4`/`runtime_snap` etc. when available
@@ -207,17 +209,39 @@ def build_row_features(
 
     return feat
 
+def _ece(y: np.ndarray, p: np.ndarray, n_bins: int = 10) -> float:
+    bins = np.linspace(0.0, 1.0, n_bins + 1)
+    ece = 0.0
+    for i in range(n_bins):
+        lo, hi = bins[i], bins[i + 1]
+        mask = (p >= lo) & (p < hi) if i < n_bins - 1 else (p >= lo) & (p <= hi)
+        if not np.any(mask):
+            continue
+        ece += float(np.mean(mask)) * abs(float(np.mean(y[mask])) - float(np.mean(p[mask])))
+    return float(ece)
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="Train MetaModelLR with Schema Versioning")
     # P9b: Tolerant args (hyphens or underscores)
     ap.add_argument("--in-parquet", "--in_parquet", dest="in_parquet", required=True, help="Input parquet file")
     ap.add_argument("--out-json", "--out_json", dest="out_json", required=True, help="Output JSON model file")
+    ap.add_argument("--out-cv-report", "--out_cv_report", dest="out_cv_report", default="", help="Optional path to save purged-CV JSON report")
     ap.add_argument("--schema", default=META_FEAT_V1_NAME, choices=SCHEMAS.keys(), help="Feature schema to use")
-    ap.add_argument("--label-col", "--label_col", dest="label_col", default="y", help="Binary label column name")
+    # y_edge_cost_aware is the canonical TB label (net edge after estimated cost);
+    # fallback to "y" for older datasets that have not been re-labeled yet.
+    ap.add_argument("--label-col", "--label_col", dest="label_col", default="y_edge_cost_aware", help="Binary label column name")
     ap.add_argument("--C", type=float, default=1.0, help="Inverse of regularization strength")
     ap.add_argument("--max-iter", "--max_iter", dest="max_iter", type=int, default=2000)
     ap.add_argument("--self-check", "--self_check", dest="self_check", type=int, default=1, help="1=enable train==serve check")
     ap.add_argument("--self-check-n", type=int, default=2000)
+    # Purged walk-forward CV (Lopez de Prado style)
+    ap.add_argument("--purge-cv", "--purge_cv", dest="purge_cv", type=int, default=1, help="1=run purged CV before final fit")
+    ap.add_argument("--time-col", "--time_col", dest="time_col", default="ts_ms", help="Timestamp column (epoch ms)")
+    ap.add_argument("--t1-col", "--t1_col", dest="t1_col", default="tb_t_hit_ms", help="Label-end timestamp column (epoch ms)")
+    ap.add_argument("--purge-ms", "--purge_ms", dest="purge_ms", type=int, default=180_000, help="TB horizon for purge (ms)")
+    ap.add_argument("--embargo-ms", "--embargo_ms", dest="embargo_ms", type=int, default=60_000, help="Embargo gap (ms)")
+    ap.add_argument("--splits", type=int, default=5, help="Number of purged CV folds")
     args = ap.parse_args()
 
     # Load configuration based on schema
@@ -237,8 +261,13 @@ def main() -> int:
         return 1
 
     if args.label_col not in df.columns:
-        print(f"Error: label_col '{args.label_col}' not found in dataframe")
-        return 1
+        # Graceful fallback: y_edge_cost_aware may not exist in older datasets
+        if args.label_col == "y_edge_cost_aware" and "y" in df.columns:
+            logger.warning("label_col 'y_edge_cost_aware' missing — falling back to 'y'")
+            args.label_col = "y"
+        else:
+            print(f"Error: label_col '{args.label_col}' not found in dataframe")
+            return 1
 
     if df.empty:
          print("Error: Input dataframe is empty")
@@ -466,6 +495,57 @@ def main() -> int:
     # Normalize X
     X = (X_tf - centers) / scales
 
+    # ------------------------------------------------------------------
+    # Purged walk-forward CV (Lopez de Prado style)
+    # ------------------------------------------------------------------
+    cv_folds_report: list[dict] = []
+    if int(args.purge_cv) == 1:
+        try:
+            from ml_core.purged_cv import purged_kfold_time_series
+
+            ts_col = args.time_col
+            t1_col = args.t1_col
+            ts_ms = df[ts_col].astype(int).to_numpy() if ts_col in df.columns else np.arange(n, dtype=np.int64) * 1000
+            t1_ms = (
+                df[t1_col].astype(int).to_numpy()
+                if t1_col in df.columns
+                else ts_ms + int(args.purge_ms)
+            )
+
+            folds = purged_kfold_time_series(
+                ts_ms=ts_ms, t1_ms=t1_ms,
+                n_splits=int(args.splits),
+                embargo_ms=int(args.embargo_ms),
+            )
+            print(f"Purged CV: {len(folds)} folds, purge_ms={args.purge_ms}, embargo_ms={args.embargo_ms}")
+
+            for i, fold in enumerate(folds):
+                if len(fold.train_idx) < 50 or len(fold.test_idx) < 10:
+                    continue
+                lr_cv = LogisticRegression(
+                    C=float(args.C), max_iter=int(args.max_iter),
+                    class_weight="balanced", solver="lbfgs",
+                )
+                lr_cv.fit(X[fold.train_idx], y[fold.train_idx])
+                p_cv = lr_cv.predict_proba(X[fold.test_idx])[:, 1]
+                y_cv = y[fold.test_idx]
+                n_unique = len(np.unique(y_cv))
+                fold_report: dict = {
+                    "fold": i + 1,
+                    "n_train": int(len(fold.train_idx)),
+                    "n_test": int(len(fold.test_idx)),
+                    "pos_rate": float(np.mean(y_cv)),
+                    "logloss": float(log_loss(y_cv, p_cv, labels=[0, 1])),
+                    "auc": float(roc_auc_score(y_cv, p_cv)) if n_unique > 1 else 0.5,
+                    "brier": float(brier_score_loss(y_cv, p_cv)),
+                    "ece10": float(_ece(y_cv, p_cv)),
+                }
+                cv_folds_report.append(fold_report)
+                print(f"  fold={i+1} n={fold_report['n_test']} auc={fold_report['auc']:.3f} "
+                      f"brier={fold_report['brier']:.4f} ece={fold_report['ece10']:.4f}")
+        except Exception as e:
+            logger.warning(f"Purged CV skipped: {e}")
+
     # Train Model
     print("Fitting Logistic Regression...")
     lr = LogisticRegression(
@@ -534,6 +614,27 @@ def main() -> int:
             return 1
         else:
             print(f"Self-check PASSED: max_abs_err={err:.3e}")
+
+    # Save purged CV report
+    if cv_folds_report and args.out_cv_report:
+        cv_summary = {
+            "schema": args.schema,
+            "label_col": args.label_col,
+            "purge_ms": args.purge_ms,
+            "embargo_ms": args.embargo_ms,
+            "n_folds": len(cv_folds_report),
+            "mean_auc": float(np.mean([f["auc"] for f in cv_folds_report])),
+            "mean_brier": float(np.mean([f["brier"] for f in cv_folds_report])),
+            "mean_ece10": float(np.mean([f["ece10"] for f in cv_folds_report])),
+            "mean_logloss": float(np.mean([f["logloss"] for f in cv_folds_report])),
+            "folds": cv_folds_report,
+        }
+        os.makedirs(os.path.dirname(os.path.abspath(args.out_cv_report)), exist_ok=True)
+        with open(args.out_cv_report, "w", encoding="utf-8") as fh:
+            json.dump(cv_summary, fh, indent=2)
+        print(f"CV report saved to {args.out_cv_report}")
+        print(f"CV summary: auc={cv_summary['mean_auc']:.3f} brier={cv_summary['mean_brier']:.4f} "
+              f"ece={cv_summary['mean_ece10']:.4f}")
 
     return 0
 

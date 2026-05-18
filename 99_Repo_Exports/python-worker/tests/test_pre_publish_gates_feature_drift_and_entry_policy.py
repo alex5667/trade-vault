@@ -134,3 +134,70 @@ def test_feature_drift_alarm_sets_active_key(monkeypatch):
     dd = r.hgetall(active_key)
     assert dd, f"active drift key must be set. Keys in redis: {list(r.hash.keys())}"
     assert float(dd.get("factor") or 1.0) > 1.0
+
+
+def test_entry_policy_gate_reads_drift_active_key_from_feature_drift_alarm(monkeypatch):
+    """
+    Integration test:
+      FeatureDriftAlarm.update() writes drift:active:v1:*
+      EntryPolicyGate.evaluate() reads it via load_drift_active_factor()
+      When drift is active, ctx.feature_drift_tighten_k > 1.0.
+    """
+    monkeypatch.setenv("FEATURE_DRIFT_ENABLED", "1")
+    monkeypatch.setenv("FEATURE_DRIFT_INCLUDE_KIND", "0")
+    monkeypatch.setenv("FEATURE_DRIFT_MIN_SAMPLES", "2")
+    monkeypatch.setenv("FEATURE_DRIFT_Z_THRESHOLD", "0.1")
+    monkeypatch.setenv("FEATURE_DRIFT_TIGHTEN_MULT", "0.5")
+    monkeypatch.setenv("ENTRY_POLICY_ENABLED", "1")
+    monkeypatch.setenv("GATE_PROFILE", "default")  # No veto, just annotate
+
+    from handlers.crypto_orderflow.utils.entry_policy_gate import EntryPolicyGate
+
+    r = FakeRedis()
+    cfg = DriftConfig.from_env()
+    alarm = FeatureDriftAlarm(cfg=cfg)
+
+    base_ctx = SimpleNamespace(
+        ts_ms=1700000000000,
+        venue="binance_futures",
+        tf="1m",
+        session="us_main",
+        spread_bps=5.0,
+        obi=0.1,
+        z_delta=0.2,
+        depth_bid_5=100.0,
+        depth_ask_5=110.0,
+        depth_bid_20=500.0,
+        depth_ask_20=520.0,
+        redis=r,
+    )
+
+    # Warm up baseline
+    for i in range(2):
+        c = SimpleNamespace(**{**base_ctx.__dict__, "ts_ms": 1700000000000 + i * 1000})
+        alarm.update(redis_client=r, ctx=c, symbol="BTCUSDT", kind="breakout")
+
+    # Shock drift
+    shock_ctx = SimpleNamespace(**{**base_ctx.__dict__, "ts_ms": 1700000003000,
+                                   "spread_bps": 500.0, "z_delta": 50.0})
+    alarm.update(redis_client=r, ctx=shock_ctx, symbol="BTCUSDT", kind="breakout")
+
+    # Verify FeatureDriftAlarm wrote the active key
+    active_key = "drift:active:v1:BTCUSDT:binance_futures:us_main:1m"
+    dd = r.hgetall(active_key)
+    assert dd and float(dd.get("factor", 1.0)) > 1.0, "FeatureDriftAlarm must set factor > 1.0"
+
+    # Now EntryPolicyGate should read it
+    gate = EntryPolicyGate.from_env()
+    eval_ctx = SimpleNamespace(
+        spread_bps=5.0,     # Normal spread — drift comes from Redis key
+        ts_ms=1700000003000,
+        venue="binance_futures",
+        tf="1m",
+        session="us_main",
+        redis=r,
+    )
+    gate.evaluate(ctx=eval_ctx, symbol="BTCUSDT", kind="breakout")
+
+    assert getattr(eval_ctx, "feature_drift_alarm", 0) == 1
+    assert getattr(eval_ctx, "feature_drift_tighten_k", 1.0) > 1.0

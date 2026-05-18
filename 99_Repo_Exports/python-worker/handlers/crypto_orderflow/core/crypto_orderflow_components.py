@@ -16,6 +16,7 @@ from contexts import MarketRegime  # type: ignore
 from handlers.tick_parser import Tick  # type: ignore
 
 from ..types.crypto_orderflow_handler_types import RegimeFeatures, RegimeSample
+from core.htf_proximity_calibrator import HtfProximityCalibrator  # type: ignore[import]
 import contextlib
 
 
@@ -391,6 +392,13 @@ class RegimeDetectorCfg:
     weak_progress_weight: float = 0.0
     session_weight: float = 0.0
 
+    # HTF proximity: адаптивные мультипликаторы (DEFAULT = data_models.py:43-44)
+    # Переопределяются HtfProximityCalibrator после прогрева (>=500 наблюдений).
+    htf_near_mult: float = 0.20       # dist <= near_mult * ATR → рядом с уровнем
+    htf_far_mult: float = 0.80        # dist >= far_mult  * ATR → далеко от уровня
+    htf_near_bps_fallback: float = 10.0   # если ATR недоступен
+    htf_far_bps_fallback: float = 40.0
+
 
 class RegimeDetector:
     """
@@ -413,6 +421,7 @@ class RegimeDetector:
         self._htf_levels_provider = htf_levels_provider
         self._now = now_provider or time.time
         self._history: dict[str, deque[RegimeSample]] = {}
+        self._htf_prox_calib = HtfProximityCalibrator(auto_enforce=True)  # type: ignore[misc]
 
     def _hist(self, symbol: str) -> deque[RegimeSample]:
         h = self._history.get(symbol)
@@ -624,10 +633,26 @@ class RegimeDetector:
         if daily_open_cross_freq is not None and math.isfinite(daily_open_cross_freq):
             daily_open_cross_bias = _clamp(1.0 - 2.0 * daily_open_cross_freq, -1.0, 1.0)
 
-        # HTF proximity bias: близко к уровням -> тренд (+1), далеко -> рендж (-1)
+        # HTF proximity bias: близко к уровням -> +1, далеко -> -1
+        # Адаптивная формула через HtfProximityCalibrator (q20/q80 per-symbol).
         htf_prox_bias: float | None = None
         if htf_level_dist_bps is not None and math.isfinite(htf_level_dist_bps):
-            htf_prox_bias = _clamp(1.0 - (htf_level_dist_bps / 50.0), -1.0, 1.0)
+            atr_val = _safe_float(atr_14_bps, default=0.0)
+            if atr_val > 0.0:
+                self._htf_prox_calib.observe(
+                    symbol=sym, dist_bps=htf_level_dist_bps, daily_atr_bps=atr_val)
+                th = self._htf_prox_calib.thresholds(symbol=sym)
+                near_bps = th.near_mult * atr_val
+                far_bps = th.far_mult * atr_val
+            else:
+                near_bps = self.cfg.htf_near_bps_fallback
+                far_bps = self.cfg.htf_far_bps_fallback
+            span = far_bps - near_bps
+            if span > 0.0:
+                htf_prox_bias = _clamp(
+                    1.0 - 2.0 * (htf_level_dist_bps - near_bps) / span, -1.0, 1.0)
+            else:
+                htf_prox_bias = _clamp(1.0 - (htf_level_dist_bps / 50.0), -1.0, 1.0)
 
         # Weak progress bias: слабый прогресс -> рендж (-1), сильный -> тренд (+1)
         weak_progress_bias: float | None = None

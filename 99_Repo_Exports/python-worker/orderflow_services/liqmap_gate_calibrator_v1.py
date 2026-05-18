@@ -658,9 +658,11 @@ def main() -> None:
     state = _load_state(cfg.state_path)
     log.info(f"loaded state: {state.get('state', 'WARMUP')} runs={state.get('total_runs', 0)}")
 
-    state = run_once(r, r_main, cfg, state)
-    _save_state(cfg.state_path, state)
-    log.info("run complete")
+    while True:
+        state = run_once(r, r_main, cfg, state)
+        _save_state(cfg.state_path, state)
+        log.info(f"run complete — sleeping {cfg.interval_sec}s")
+        time.sleep(cfg.interval_sec)
 
 
 if __name__ == "__main__":

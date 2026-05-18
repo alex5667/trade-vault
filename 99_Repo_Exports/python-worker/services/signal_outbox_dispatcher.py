@@ -16,7 +16,7 @@ from common.transient_errors import is_transient_error
 from core.delivery_atomic import DeliveryAtomic, DeliveryAtomicSettings
 from core.dual_redis_client import get_dual_signals_redis
 from core.notify_gate import NotifyGate, NotifyGateSettings
-from core.outbox_envelope import SCHEMA_VERSION
+from core.outbox_envelope import LEGACY_SCHEMA_VERSIONS, SCHEMA_VERSION
 from core.outbox_retry_queue import OutboxRetryQueue, RetryQueueSettings
 from core.redis_client import get_redis
 from core.redis_keys import STREAM_RETENTION as _STREAM_RETENTION
@@ -28,18 +28,19 @@ from services.dispatcher.target_registry import TargetRegistry
 import contextlib
 
 
-# ── Dual-read schema_version skeleton (Phase 3) ────────────────────────────────
-# The dispatcher accepts any schema_version in this set; everything else is
-# DLQ'd as "unsupported_schema_version". To stage a v2 rollout:
-#   1. Bump core.outbox_envelope.SCHEMA_VERSION to 2.
-#   2. Set env OUTBOX_ACCEPT_SCHEMA_VERSIONS="1,2" for dual-read in canary.
-#   3. After all producers emit v2, drop "1" from the env (single-read).
+# ── Dual-read schema_version (Phase 3 → active for v1→v2 migration) ───────────
+# Default accepted set = {SCHEMA_VERSION} ∪ LEGACY_SCHEMA_VERSIONS. This lets
+# the v2-bumped dispatcher keep draining in-flight v1 messages without an env
+# override during the rollout window.
+#
+# To force single-read once the legacy version has fully drained:
+#   OUTBOX_ACCEPT_SCHEMA_VERSIONS="2"
 # Wire types: the field may arrive as int ("1") or as a stringified int;
 # `_normalize_schema_version` canonicalises both to int before comparison.
-def _parse_accepted_versions(default: int) -> frozenset:
+def _parse_accepted_versions(default: int, *, legacy: tuple[int, ...] = LEGACY_SCHEMA_VERSIONS) -> frozenset:
     raw = os.getenv("OUTBOX_ACCEPT_SCHEMA_VERSIONS", "").strip()
     if not raw:
-        return frozenset({int(default)})
+        return frozenset({int(default), *(int(v) for v in legacy)})
     out = set()
     for tok in raw.split(","):
         tok = tok.strip()
@@ -50,7 +51,7 @@ def _parse_accepted_versions(default: int) -> frozenset:
         except (TypeError, ValueError):
             logger.warning("OUTBOX_ACCEPT_SCHEMA_VERSIONS: cannot parse %r, skipped", tok)
     if not out:
-        return frozenset({int(default)})
+        return frozenset({int(default), *(int(v) for v in legacy)})
     return frozenset(out)
 
 
@@ -488,14 +489,62 @@ class SignalDispatcher:
                 time.sleep(1)
 
     def _parse_envelope(self, fields: dict[str, Any]) -> dict[str, Any] | None:
-        """Parse signal envelope from stream fields"""
+        """Parse signal envelope from stream fields.
+
+        Accepts three shapes for backward-compat:
+          1) {"data": json}        — canonical (SignalOutboxPublisher)
+          2) {"payload": json}     — legacy
+          3) {"payload_json": ...} — legacy (OutboxWriter flat shape)
+
+        For (3) the envelope is auto-repaired: flat fields (sid/audit_payload/
+        notify_payload/signal_stream_payload/audit_stream/signal_stream) are
+        lifted into {targets, meta} so the dispatcher pipeline can proceed.
+        Ported from services/dispatch/envelope_parser.py so both dispatchers
+        behave symmetrically.
+        """
         try:
             data = fields.get("data") or fields.get("payload") or fields.get("payload_json")
             if not data:
                 return None
+            if isinstance(data, (bytes, bytearray)):
+                data = data.decode("utf-8", "ignore")
             if isinstance(data, str):
-                return json.loads(data)
-            return data
+                env = json.loads(data)
+            elif isinstance(data, dict):
+                env = data
+            else:
+                return None
+            if not isinstance(env, dict):
+                return None
+
+            # Auto-repair flat envelope (legacy OutboxWriter).
+            if "targets" not in env:
+                has_known_payload = (
+                    "audit_payload" in env
+                    or "notify_payload" in env
+                    or "notify" in env
+                    or "signal_stream_payload" in env
+                )
+                if has_known_payload:
+                    targets: dict[str, Any] = {}
+                    if "audit_payload" in env:
+                        targets["audit_payload"] = env.pop("audit_payload")
+                    if "notify_payload" in env:
+                        targets["notify"] = env.pop("notify_payload")
+                    elif "notify" in env:
+                        targets["notify"] = env.pop("notify")
+                    if "signal_stream_payload" in env:
+                        targets["signal_stream_payload"] = env.pop("signal_stream_payload")
+                    env["targets"] = targets
+                    if "meta" not in env or not isinstance(env.get("meta"), dict):
+                        env["meta"] = {}
+                    for key in ("audit_stream", "signal_stream", "manual_stream"):
+                        if key in env and key not in env["meta"]:
+                            env["meta"][key] = env.pop(key)
+                    # Lift signal_id → sid for flat-shape envelopes (legacy).
+                    if "sid" not in env and "signal_id" in env:
+                        env["sid"] = env.get("signal_id")
+            return env
         except Exception:
             return None
 

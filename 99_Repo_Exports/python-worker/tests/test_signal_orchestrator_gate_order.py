@@ -11,10 +11,14 @@ Gate sequence contract test for SignalOrchestrator.
 пересмотрен и тест обновлён осознанно.
 """
 
+import time
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 from handlers.crypto_orderflow.pipeline.orchestrator import SignalOrchestrator
+
+# Use a fresh timestamp so _normalize_ts_ms does not reject it as "too_old".
+_NOW_MS = int(time.time() * 1000)
 
 
 def _gate_pass(*, veto: bool = False, reason_code: str = "OK") -> SimpleNamespace:
@@ -123,8 +127,8 @@ class TestGateSequenceOrder:
         ctx = SimpleNamespace(
             symbol="BTCUSDT",
             price=50000.0,
-            ts=1_700_000_000_000,
-            ts_ms=1_700_000_000_000,
+            ts=_NOW_MS,
+            ts_ms=_NOW_MS,
             sizing_ok=True,
             qty=0.01,
             of=SimpleNamespace(spread_bps=3.0),
@@ -218,8 +222,8 @@ class TestGateSequenceOrder:
         )
 
         ctx = SimpleNamespace(
-            symbol="BTCUSDT", price=50000.0, ts=1_700_000_000_000,
-            ts_ms=1_700_000_000_000, sizing_ok=True, qty=0.01,
+            symbol="BTCUSDT", price=50000.0, ts=_NOW_MS,
+            ts_ms=_NOW_MS, sizing_ok=True, qty=0.01,
             of=SimpleNamespace(spread_bps=3.0), redis=None,
         )
         orch.process(ctx, lambda c: [SimpleNamespace(kind="b", side="long", raw_score=1.0, signal_id="x", reasons=[])])

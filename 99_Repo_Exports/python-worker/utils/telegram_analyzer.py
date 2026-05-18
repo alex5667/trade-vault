@@ -93,7 +93,7 @@ class TelegramMessageAnalyzer:
             logger.warning(f"Failed to post LLM reply: {e}")
 
     @staticmethod
-    def analyze(text: str, payload: dict = None, timeout_sec: float = None) -> str:
+    def analyze(text: str, payload: dict | None = None, timeout_sec: float | None = None) -> str:
         """
         Takes original message text, gets analysis from LLM, 
         and returns text with analysis appended.
@@ -200,7 +200,7 @@ class TelegramMessageAnalyzer:
 
 
     @staticmethod
-    def _get_llm_analysis(text: str, payload: dict = None, timeout_sec: float = None) -> str | None:
+    def _get_llm_analysis(text: str, payload: dict | None = None, timeout_sec: float | None = None) -> str | None:
         """Calls local Ollama instance using the notification LLM registry."""
 
         try:
@@ -274,6 +274,16 @@ class TelegramMessageAnalyzer:
                     if response_text:
                         break # Success
 
+                except urllib.error.HTTPError as e:
+                    if e.code == 404:
+                        logger.warning(f"Telegram LLM analysis: model '{MODEL}' not found on Ollama (404) — check TELEGRAM_LLM_MODEL env")
+                        return None
+                    is_last = attempt == max_retries - 1
+                    if is_last:
+                        logger.warning(f"Telegram LLM analysis: failed to connect to Ollama after {max_retries} attempts: {e}")
+                        return None
+                    logger.warning(f"Telegram LLM analysis: Ollama not ready ({e}). Retrying in {retry_delay}s (attempt {attempt+1}/{max_retries})...")
+                    time.sleep(retry_delay)
                 except (urllib.error.URLError, ConnectionError) as e:
                     is_last = attempt == max_retries - 1
                     if is_last:

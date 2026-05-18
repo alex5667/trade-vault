@@ -11,7 +11,7 @@ Tests that verify:
 import time
 from types import SimpleNamespace
 
-from fake_redis import FakeRedis
+import fakeredis; FakeRedis = fakeredis.FakeRedis
 
 from handlers.crypto_orderflow.utils.edge_cost_gate import estimate_slippage_bps
 from utils.time_utils import get_ny_time_millis

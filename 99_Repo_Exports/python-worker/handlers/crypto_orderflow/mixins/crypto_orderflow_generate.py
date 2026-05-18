@@ -293,6 +293,39 @@ class CryptoOrderFlowGenerateMixin:
             self._metrics_observe("final_score_hist", float(final_score), tags={"kind": str(cand.kind or ""), "symbol": sym})  # type: ignore
             self._metrics_observe("confidence_pct_hist", float(confidence_pct), tags={"kind": str(cand.kind or ""), "symbol": sym})  # type: ignore
 
+            # ── Confidence threshold gate ──────────────────────────────────────
+            # Wire: reliability_calibrator curves → ConfidenceThresholdCalibrator
+            # → dynamic per-cluster min_conf. Static (ENV) thresholds always apply.
+            try:
+                _ct_filter = getattr(self, "_confidence_threshold_filter", None)
+                if _ct_filter is not None:
+                    from domain.time_utils import session_from_ts_ms as _sess_fn
+                    _ts_ms = int(ctx_ts) if ctx_ts is not None else 0
+                    _ct_result = _ct_filter.evaluate(
+                        confidence_pct=confidence_pct,
+                        conf_factor=conf_factor01,
+                        symbol=sym,
+                        kind=str(getattr(cand, "kind", "") or "na"),
+                        venue=str(getattr(ctx, "venue", "") or getattr(ctx, "exchange", "") or "na"),
+                        session=str(getattr(ctx, "session", None) or (_sess_fn(_ts_ms) if _ts_ms > 0 else "na") or "na"),
+                        tf=str(getattr(ctx, "tf", "") or getattr(ctx, "timeframe", "") or "na"),
+                        regime=str(getattr(ctx, "market_regime", "") or getattr(ctx, "regime", "") or "na"),
+                    )
+                    if not _ct_result.passed:
+                        try:
+                            if sigm is not None:
+                                sigm.veto(ctx=ctx, kind=cand.kind, reason="conf_threshold")
+                        except Exception:
+                            pass
+                        logger.debug(
+                            "Confidence gate veto: %s | %s",
+                            sym, _ct_result.veto_reason,
+                        )
+                        continue
+            except Exception:
+                pass  # fail-open: never block signals on calibrator errors
+            # ──────────────────────────────────────────────────────────────────
+
             # parts может содержать breakdown conf_factor / L2/L3/geo/regime компонентов.
             # В лог (5.3) мы кладём parts как "parts-lite": только числа/флаги. Большие структуры запрещены.
             parts = dict(getattr(res, "parts", None) or {})

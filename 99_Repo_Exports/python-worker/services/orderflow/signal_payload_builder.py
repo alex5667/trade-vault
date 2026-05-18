@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from typing import Any
 
@@ -36,6 +37,8 @@ class SignalPayloadBuilder:
         of_score = float(indicators.get("of_confirm_score", 0.0) or 0.0)
         confidence = float(payload.get("confidence", 0.0) or 0.0)
         score = of_score if of_score > 0.0 else confidence
+        # P1: Clamp score [0, 1] to prevent burst selection of outliers (score may be composite > 1.0)
+        score = min(1.0, max(0.0, score))
 
         is_adverse_continue = bool(indicators.get("adverse_continuation_used", False))
         burst_disable = int(cfg.get("burst_adverse_continue_disable", 1) or 1)
@@ -54,13 +57,15 @@ class SignalPayloadBuilder:
         age = (now_ms - last_sig) if last_sig > 0 else 10**9
 
         if (not force_adverse_bypass) and age < cd_ms:
-            # In cooldown: keep best pending candidate.
-            prev_score = float(getattr(runtime, "pending_score", 0.0) or 0.0)
-            if getattr(runtime, "pending_payload", None) is None or score > prev_score:
-                runtime.pending_payload = payload
-                runtime.pending_score = score
-                runtime.pending_ts_ms = now_ms
-                runtime.pending_replaced = int(getattr(runtime, "pending_replaced", 0) or 0) + 1
+            # P3: In cooldown: keep best pending candidate (protected by pending_mu).
+            pending_mu = getattr(runtime, "pending_mu", None) or asyncio.Lock()
+            async with pending_mu:
+                prev_score = float(getattr(runtime, "pending_score", 0.0) or 0.0)
+                if getattr(runtime, "pending_payload", None) is None or score > prev_score:
+                    runtime.pending_payload = payload
+                    runtime.pending_score = score
+                    runtime.pending_ts_ms = now_ms
+                    runtime.pending_replaced = int(getattr(runtime, "pending_replaced", 0) or 0) + 1
 
             # Optional burst aggregation: feed candidate; flush owned by BurstFlusher loop.
             use_burst = bool(int(os.getenv("CRYPTO_BURST_ENABLE", "0"))) or bool(indicators.get("pressure_extreme_flag", 0))
@@ -79,15 +84,17 @@ class SignalPayloadBuilder:
                     pass
             return None
 
-        # Cooldown elapsed (or adverse bypass): promote pending if better.
-        pending = getattr(runtime, "pending_payload", None)
-        if pending is not None:
-            pending_score = float(getattr(runtime, "pending_score", 0.0) or 0.0)
-            if pending_score >= score:
-                payload = pending
-                score = pending_score
-            runtime.pending_payload = None
-            runtime.pending_score = 0.0
+        # P3: Cooldown elapsed (or adverse bypass): promote pending if better (protected by pending_mu).
+        pending_mu = getattr(runtime, "pending_mu", None) or asyncio.Lock()
+        async with pending_mu:
+            pending = getattr(runtime, "pending_payload", None)
+            if pending is not None:
+                pending_score = float(getattr(runtime, "pending_score", 0.0) or 0.0)
+                if pending_score >= score:
+                    payload = pending
+                    score = pending_score
+                runtime.pending_payload = None
+                runtime.pending_score = 0.0
 
         runtime.signal_count = int(getattr(runtime, "signal_count", 0) or 0) + 1
         runtime.last_signal_ts_ms = now_ms

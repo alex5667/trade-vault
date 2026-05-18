@@ -103,9 +103,14 @@ def l2_confirm_breakout(
     res = v.confirm(ctx=ctx, side=side, level_price=_lvl, l2=l2)
     parts.update(res.parts or {})
     parts.update(res.flags or {})
-    # Если валидатор кидает veto (stale), пробрасываем его со структурированным кодом.
-    if res.veto:
+    # Унификация Variant B: VETO_WALL_NEAR из class-валидатора НЕ пробрасывается как veto.
+    # Вместо этого эмитируем near_wall=1 и wall_dist_bps для downstream scoring/analytics.
+    if res.veto and res.reason_code != VETO_WALL_NEAR:
         return L2ConfirmResult(True, 0.0, res.reason_code or "veto", parts, res.reason_code, res.reason_u16)
+    # После wall_near: добавляем аналитические фичи в parts
+    if "near_wall_bps" in parts:
+        parts["near_wall"] = 1
+        parts.setdefault("wall_dist_bps", parts["near_wall_bps"])
     # soft fail => понижаем скор, но не вето
     score01 = float(getattr(res, "score01", 1.0))
     score01 = max(0.0, min(1.0, score01))

@@ -252,6 +252,34 @@ _NUM_KEYS: tuple[str, ...] = (
     "bybit_taker_buy_sell_ratio",
     "binance_bybit_price_diff_bps",
     "binance_bybit_oi_divergence",
+    # ── Phase v5: LOB velocity (Phase 7.6)
+    "obi_slope_1s", "obi_slope_3s", "obi_stability_decay",
+    "qimb_slope_1s", "qimb_slope_3s",
+    "depth_imbalance_5_delta_1s", "depth_imbalance_5_delta_3s",
+    "spread_widen_velocity_bps_s", "fill_prob_decay_slope",
+    "book_churn_delta_1s", "book_churn_z",
+    "spread_mean_revert_score",
+    "micro_mid_shift_vel_bps_s", "micro_mid_shift_accel_bps_s2",
+    # ── Phase v5: Signal age / ATR / vol regime
+    "signal_age_ms", "signal_age_to_half_life",
+    "vol_expansion_score", "vol_compression_score",
+    "atr_tf_ms", "atr_stop_pct", "atr_regime_pct",
+    "hold_target_ms_norm", "alpha_half_life_ms_norm",
+    "max_signal_age_ratio", "vol_ratio_fast_slow",
+    # ── Phase v5: Data quality / tick quality
+    "dq_score", "dq_flag_count",
+    "tick_lag_ms", "tick_lag_p95_1m",
+    "tick_reorder_rate_1m", "tick_dedupe_rate_1m",
+    "tick_gap_count_1m", "bad_time_streak",
+    "book_age_ms", "book_gap_ms",
+    "book_update_rate_hz", "book_staleness_z",
+    # ── Phase v5: Exec cost ratios
+    "exec_cost_to_tp1_ratio", "exec_cost_to_sl_ratio", "exec_cost_to_atr_ratio",
+    # ── Phase v5: Fill-queue derived
+    "eta_fill_sec_norm", "queue_ahead_qty_l1", "queue_ahead_qty_l5",
+    "depth_to_taker_rate_ratio", "maker_fill_vs_taker_cost_edge",
+    # ── Phase v5: Gate trace extra
+    "rule_have_need_gap", "missing_legs_count", "gate_pressure_score",
 )
 
 # Bool-like keys — encoded as 0/1 float (v13/v14 schemas have no bool block).

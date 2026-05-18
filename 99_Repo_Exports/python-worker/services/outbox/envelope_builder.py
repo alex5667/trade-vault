@@ -61,6 +61,7 @@ def build_outbox_envelope(
     audit_stream: str | None = None,
     audit_payload: dict[str, Any] | None = None,
     mt5_payload: dict[str, Any] | None = None,
+    trade_back_payload: dict[str, Any] | None = None,
     meta: dict[str, Any] | None = None,
     trace: DecisionTrace | None = None,
 ) -> dict[str, Any]:
@@ -121,6 +122,18 @@ def build_outbox_envelope(
             targets["mt5_plan"] = strip_forbidden_keys(to_json_safe(mt5_payload), FORBIDDEN_TARGET_KEYS)
         except Exception:
             targets["mt5_plan"] = {}
+
+    # trade_back HTTP POST payload — version it independently so NestJS can
+    # gate on schema drift. We import here to avoid widening import surface.
+    if isinstance(trade_back_payload, dict):
+        try:
+            from core.outbox_envelope import SCHEMA_VERSION as _PROTO_SV
+            tb_safe = strip_forbidden_keys(to_json_safe(trade_back_payload), FORBIDDEN_TARGET_KEYS)
+            if isinstance(tb_safe, dict) and "schema_version" not in tb_safe:
+                tb_safe["schema_version"] = int(_PROTO_SV)
+            targets["trade_back"] = tb_safe
+        except Exception:
+            targets["trade_back"] = {}
 
     env["targets"] = targets
 

@@ -120,6 +120,22 @@ def _calc_pressure_sps(ts_list: list[int], now_ms: int, window_ms: int = 60_000)
         n += 1
     return float(n) / float(max(1, window_ms // 1000))
 
+def _safe_float(v, default=0.0):
+    """Safe float conversion with bounds checking."""
+    try:
+        f = float(v) if v is not None else default
+        return f if f >= 0 else default  # reject negative multipliers
+    except (TypeError, ValueError):
+        return default
+
+def _safe_int(v, default=0):
+    """Safe int conversion with bounds checking."""
+    try:
+        i = int(float(v)) if v is not None else default
+        return max(0, i)  # reject negative values
+    except (TypeError, ValueError):
+        return default
+
 def _cooldown_ms_for(runtime, *, scenario: str, now_ms: int, new_dir: str = "") -> int:
     """
     Scenario-aware cooldown with directional reversal penalty:
@@ -131,59 +147,49 @@ def _cooldown_ms_for(runtime, *, scenario: str, now_ms: int, new_dir: str = "") 
     """
     cfg = getattr(runtime, "config", {}) or {}
     scn = (scenario or "").strip().lower()
-    # base cooldowns
-    cd_rev = int(cfg.get("cooldown_reversal_sec", cfg.get("signal_cooldown_sec", 30)) or 30) * 1000
-    cd_con = int(cfg.get("cooldown_continuation_sec", cfg.get("signal_cooldown_sec", 30)) or 30) * 1000
+    # base cooldowns (with validation)
+    cd_rev_sec = _safe_int(cfg.get("cooldown_reversal_sec", cfg.get("signal_cooldown_sec", 30)), 30)
+    cd_con_sec = _safe_int(cfg.get("cooldown_continuation_sec", cfg.get("signal_cooldown_sec", 30)), 30)
+    cd_rev = int(cd_rev_sec) * 1000
+    cd_con = int(cd_con_sec) * 1000
     cd = cd_rev if scn == "reversal" else cd_con
 
     # ── Directional reversal penalty (anti-whipsaw) ──
     # If new signal direction is opposite to last emitted direction → multiply cooldown
     # This prevents LONG→SHORT→LONG churn within minutes
-    try:
-        last_dir = str(getattr(runtime, "last_emit_dir", "NONE") or "NONE").upper()
-        cur_dir = (new_dir or "").strip().upper()
-        if cur_dir and last_dir not in ("NONE", "") and cur_dir != last_dir:
-            dir_mul = float(cfg.get("cooldown_reversal_dir_mul", 3.0) or 3.0)
-            cd = int(cd * dir_mul)
-    except Exception:
-        pass
+    last_dir = str(getattr(runtime, "last_emit_dir", "NONE") or "NONE").upper()
+    cur_dir = (new_dir or "").strip().upper()
+    if cur_dir and last_dir not in ("NONE", "") and cur_dir != last_dir:
+        dir_mul = _safe_float(cfg.get("cooldown_reversal_dir_mul", 3.0), 3.0)
+        cd = int(cd * dir_mul)
 
-    # regime multiplier
+    # regime multiplier (thin/news/illiquid)
     rg = str(getattr(runtime, "last_regime", "na") or "na").lower()
     if rg in ("thin", "news", "illiquid"):
-        mul = float(cfg.get("cooldown_mul_thin", 1.6) or 1.6)
+        mul = _safe_float(cfg.get("cooldown_mul_thin", 1.6), 1.6)
         cd = int(cd * mul)
 
     # stressed liquidity multiplier (liq_score < 0.35 typically)
-    try:
-        liq_regime = str(getattr(runtime, "liq_regime", "normal") or "normal").lower()
-        if liq_regime == "stressed":
-            mul = float(cfg.get("cooldown_mul_stressed", 1.8) or 1.8)
-            cd = int(cd * mul)
-    except Exception:
-        pass
+    liq_regime = str(getattr(runtime, "liq_regime", "normal") or "normal").lower()
+    if liq_regime == "stressed":
+        mul = _safe_float(cfg.get("cooldown_mul_stressed", 1.8), 1.8)
+        cd = int(cd * mul)
 
     # spread multiplier (if spread wide => slow down)
-    try:
-        sp = float(getattr(runtime, "last_spread_bps", 0.0) or 0.0)
-        sp_hi = float(cfg.get("cooldown_spread_hi_bp", 18.0) or 18.0)
-        if sp > 0 and sp >= sp_hi:
-            mul = float(cfg.get("cooldown_mul_wide_spread", 1.4) or 1.4)
-            cd = int(cd * mul)
-    except Exception:
-        pass
+    sp = _safe_float(getattr(runtime, "last_spread_bps", 0.0), 0.0)
+    sp_hi = _safe_float(cfg.get("cooldown_spread_hi_bp", 18.0), 18.0)
+    if sp > 0 and sp >= sp_hi:
+        mul = _safe_float(cfg.get("cooldown_mul_wide_spread", 1.4), 1.4)
+        cd = int(cd * mul)
 
     # pressure multiplier (only when pressure_hi)
-    try:
-        if int(getattr(runtime, "pressure_hi", 0) or 0) == 1:
-            mul = float(cfg.get("cooldown_mul_pressure_hi", 1.25) or 1.25)
-            cd = int(cd * mul)
-    except Exception:
-        pass
+    if int(getattr(runtime, "pressure_hi", 0) or 0) == 1:
+        mul = _safe_float(cfg.get("cooldown_mul_pressure_hi", 1.25), 1.25)
+        cd = int(cd * mul)
 
-    # clamp
-    cd_min = int(cfg.get("cooldown_min_ms", 1000) or 1000)
-    cd_max = int(cfg.get("cooldown_max_ms", 300000) or 300000)
+    # clamp to safe range
+    cd_min = _safe_int(cfg.get("cooldown_min_ms", 1000), 1000)
+    cd_max = _safe_int(cfg.get("cooldown_max_ms", 300000), 300000)
     if cd < cd_min: cd = cd_min
     if cd > cd_max: cd = cd_max
     return int(cd)

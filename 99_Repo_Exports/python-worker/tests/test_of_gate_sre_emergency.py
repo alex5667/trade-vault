@@ -11,7 +11,7 @@ import json
 
 import pytest
 
-from tests.fakeredis import FakeStrictRedis
+from tests.fakeredis_stub import FakeStrictRedis
 from tools.of_gate_sre_emergency import apply_bundle_auto, compute_stats, merge_entry_policy_override, pctl
 
 

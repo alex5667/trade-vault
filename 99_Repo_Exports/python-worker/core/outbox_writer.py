@@ -27,6 +27,16 @@ OUTBOX_XADD_FAILED_FROZEN_TOTAL = Counter(
     "XADD failures where dedup key was frozen (fail-closed). Signal lost until dedup TTL expires.",
 )
 
+# F1 mitigation: legacy flat-shape writer to canonical SIGNAL_OUTBOX stream is
+# incompatible with SignalDispatcher (which expects nested JSON via 'data' field).
+# These writes are silently DLQ'd. Counter lets ops detect drift before bumping
+# OUTBOX_LEGACY_WRITER_BLOCK=1 to hard-refuse.
+OUTBOX_LEGACY_FLAT_WRITE_TOTAL = Counter(
+    "outbox_legacy_flat_write_total",
+    "Writes via legacy flat-shape OutboxWriter to the canonical SIGNAL_OUTBOX stream",
+    ["stream", "blocked"],
+)
+
 
 @dataclass(frozen=True)
 class EmitResult:
@@ -107,6 +117,25 @@ class OutboxWriter:
         if not self.redis:
             self._m_inc("outbox.redis_missing")
             return EmitResult(ok=False, written=False, duplicate=False, entry_id=None)
+
+        # F1 guard: legacy flat-shape writes to canonical SIGNAL_OUTBOX are
+        # silently DLQ'd by SignalDispatcher (expects {"data": JSON} shape).
+        # Track usage; optionally hard-refuse when OUTBOX_LEGACY_WRITER_BLOCK=1.
+        if self.cfg.stream_name == RS.SIGNAL_OUTBOX:
+            import os as _os
+            blocked = (_os.getenv("OUTBOX_LEGACY_WRITER_BLOCK", "0").strip() == "1")
+            with contextlib.suppress(Exception):
+                OUTBOX_LEGACY_FLAT_WRITE_TOTAL.labels(
+                    stream=self.cfg.stream_name,
+                    blocked=("1" if blocked else "0"),
+                ).inc()
+            if blocked:
+                self.logger.error(
+                    "Outbox legacy flat-shape write to %s refused "
+                    "(use SignalOutboxPublisher via build_outbox_envelope).",
+                    self.cfg.stream_name,
+                )
+                return EmitResult(ok=False, written=False, duplicate=False, entry_id=None)
 
         dedup_key = f"outbox:dedup:{env.signal_id}"
         placeholder = "PENDING"

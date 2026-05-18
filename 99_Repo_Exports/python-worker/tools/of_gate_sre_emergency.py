@@ -41,13 +41,16 @@ def now_ms() -> int:
 
 
 def pctl(xs: list[float], q: float) -> float:
-    """Computes percentile q (0.0-1.0) from sorted list xs."""
+    """Computes percentile q (0.0-1.0) from list xs using linear interpolation."""
     if not xs:
         return 0.0
     xs = sorted(xs)
-    i = int(round((len(xs) - 1) * q))
-    i = max(0, min(len(xs) - 1, i))
-    return float(xs[i])
+    n = len(xs)
+    idx = q * (n - 1)
+    lo = int(idx)
+    hi = min(lo + 1, n - 1)
+    frac = idx - lo
+    return float(xs[lo] * (1.0 - frac) + xs[hi] * frac)
 
 
 def _f(x: Any, d: float = 0.0) -> float:
@@ -160,7 +163,7 @@ def compute_stats(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "exec_p90": pctl(ex, 0.90),
         "meta_veto_rate": (meta_veto / meta_n) if meta_n else 0.0,
         "scenario_top": scen.most_common(6),
-    },
+    }
 
 
 def merge_entry_policy_override(old: str, shadow_field: str) -> str:

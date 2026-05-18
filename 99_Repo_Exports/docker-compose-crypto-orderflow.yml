@@ -5,6 +5,7 @@ services:
       dockerfile: python-worker/Dockerfile.gpu
     env_file:
     - config/crypto-of-common.env
+    - config/generated/symbols.env
     environment:
     - LIQMAP_FEATURES_ENABLE=1
     - LIQMAP_SNAPSHOT_KEY_PREFIX=liqmap:snapshot
@@ -210,7 +211,7 @@ services:
     - TICK_SIDE_QUARANTINE_STREAM=stream:tick_side:quarantine
     - TICK_SIDE_QUARANTINE_MAXLEN=20000
     - TICK_SIDE_QUARANTINE_SAMPLE=0.01
-    - TICK_QUALITY_SYMBOL_ALLOWLIST=BTCUSDT,ETHUSDT,SOLUSDT
+    - TICK_QUALITY_SYMBOL_ALLOWLIST=${CRYPTO_SYMBOLS}
     - TICK_QUALITY_SYMBOL_LABEL_MODE=collapse
     - TICK_QUALITY_EMA_UPDATE_MIN_MS=250
     - TICK_INGEST_LATENCY_SAMPLE=0.1
@@ -597,7 +598,7 @@ services:
     - MICROBAR_SYMBOLS_SET_TTL_SEC=86400
     - MICROBAR_PER_SYMBOL_MAXLEN=50000
     - MICROBAR_LEGACY_MAXLEN=200000
-    - MICROBAR_MAJORS=BTCUSDT,ETHUSDT
+    - MICROBAR_MAJORS=${CANARY_SYMBOLS}
     - ML_SCORER_V2_ENABLED=${ML_SCORER_V2_ENABLED:-1}
     - ML_SCORER_MODE=${ML_SCORER_MODE:-shadow}
     - ML_SCORER_V2_MODEL_PATH=${ML_SCORER_V3_MODEL_PATH:-/var/lib/trade/ml_models/scorer_v3/scorer_v3.joblib}
@@ -670,6 +671,7 @@ services:
     build: *id001
     env_file:
     - config/crypto-of-common.env
+    - config/generated/symbols.env
     environment:
     - METRICS_PORT=8003
     - PROMETHEUS_PORT=8003
@@ -958,7 +960,7 @@ services:
     - MICROBAR_SYMBOLS_SET_TTL_SEC=86400
     - MICROBAR_PER_SYMBOL_MAXLEN=50000
     - MICROBAR_LEGACY_MAXLEN=200000
-    - MICROBAR_MAJORS=BTCUSDT,ETHUSDT
+    - MICROBAR_MAJORS=${CANARY_SYMBOLS}
     - STRONG_DYNAMIC_NEED_ENABLE=1
     - STRONG_GATE_SHADOW=1
     - STRONG_NEED_REVERSAL=2
@@ -1094,6 +1096,7 @@ services:
     build: *id001
     env_file:
     - config/crypto-of-common.env
+    - config/generated/symbols.env
     environment:
     - LIQMAP_FEATURES_ENABLE=1
     - LIQMAP_SNAPSHOT_KEY_PREFIX=liqmap:snapshot
@@ -1483,7 +1486,7 @@ services:
     - MICROBAR_SYMBOLS_SET_TTL_SEC=86400
     - MICROBAR_PER_SYMBOL_MAXLEN=50000
     - MICROBAR_LEGACY_MAXLEN=200000
-    - MICROBAR_MAJORS=BTCUSDT,ETHUSDT
+    - MICROBAR_MAJORS=${CANARY_SYMBOLS}
     - XAU_REQUIRE_STRONG_CONFIRMATION=0
     - XAU_STRONG_GATE_SHADOW=1
     - TRADE_PROFILE_ROUTER_ENABLED=1
@@ -1511,6 +1514,7 @@ services:
     build: *id001
     env_file:
     - config/crypto-of-common.env
+    - config/generated/symbols.env
     environment:
     - REDIS_URL=redis://redis-worker-1:6379/0
     - ATR_REDIS_URL=redis://redis-worker-1:6379/0
@@ -1619,7 +1623,7 @@ services:
     - MICROBAR_SYMBOLS_SET_TTL_SEC=86400
     - MICROBAR_PER_SYMBOL_MAXLEN=50000
     - MICROBAR_LEGACY_MAXLEN=200000
-    - MICROBAR_MAJORS=BTCUSDT,ETHUSDT
+    - MICROBAR_MAJORS=${CANARY_SYMBOLS}
     - CRYPTO_OF_SUPERVISOR=true
     - CRYPTO_OF_SUPERVISOR_INTERVAL_SEC=5
     - CRYPTO_OF_SUPERVISOR_MAX_RESTARTS=10
@@ -1666,6 +1670,7 @@ services:
     build: *id001
     env_file:
     - config/crypto-of-common.env
+    - config/generated/symbols.env
     environment:
     - REDIS_URL=redis://redis-worker-1:6379/0
     - ATR_REDIS_URL=redis://redis-worker-1:6379/0
@@ -1774,7 +1779,7 @@ services:
     - MICROBAR_SYMBOLS_SET_TTL_SEC=86400
     - MICROBAR_PER_SYMBOL_MAXLEN=50000
     - MICROBAR_LEGACY_MAXLEN=200000
-    - MICROBAR_MAJORS=BTCUSDT,ETHUSDT
+    - MICROBAR_MAJORS=${CANARY_SYMBOLS}
     - XAU_REQUIRE_STRONG_CONFIRMATION=0
     - XAU_STRONG_GATE_SHADOW=1
     - CRYPTO_OF_SUPERVISOR=true
@@ -1823,6 +1828,7 @@ services:
     build: *id001
     env_file:
     - config/crypto-of-common.env
+    - config/generated/symbols.env
     environment:
     - CRYPTO_OF_REQUIRE_STRONG_CONFIRMATION=1
     - CRYPTO_OF_STRONG_GATE_SHADOW=0
@@ -1890,6 +1896,7 @@ services:
     build: *id001
     env_file:
     - config/crypto-of-common.env
+    - config/generated/symbols.env
     environment:
     - CRYPTO_OF_REQUIRE_STRONG_CONFIRMATION=1
     - CRYPTO_OF_STRONG_GATE_SHADOW=0
@@ -1957,6 +1964,7 @@ services:
     build: *id001
     env_file:
     - config/crypto-of-common.env
+    - config/generated/symbols.env
     environment:
     - CRYPTO_OF_REQUIRE_STRONG_CONFIRMATION=1
     - CRYPTO_OF_STRONG_GATE_SHADOW=0
@@ -2027,6 +2035,7 @@ services:
     build: *id001
     env_file:
     - config/crypto-of-common.env
+    - config/generated/symbols.env
     environment:
     # - CRYPTO_OF_REQUIRE_STRONG_CONFIRMATION=0
     - CRYPTO_OF_STRONG_GATE_SHADOW=0
@@ -2099,6 +2108,7 @@ services:
     build: *id001
     env_file:
     - config/crypto-of-common.env
+    - config/generated/symbols.env
     environment:
     # - CRYPTO_OF_REQUIRE_STRONG_CONFIRMATION=0
     - CRYPTO_OF_STRONG_GATE_SHADOW=0
@@ -3909,12 +3919,49 @@ services:
     - TELEGRAM_BOT_POLL_INTERVAL_S=${TELEGRAM_TASK_BOT_POLL_INTERVAL_S:-2.0}
     - TELEGRAM_BOT_LONGPOLL_TIMEOUT_S=${TELEGRAM_TASK_BOT_LONGPOLL_TIMEOUT_S:-25}
     - SCANNER_CONSUMER_NAME=chatops-telegram-task-bot
+    - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://ollama:11434}
+    - PROMETHEUS_URL=${PROMETHEUS_URL:-http://scanner-prometheus:9090/api/v1/query}
+    - TELEGRAM_LLM_MODEL=${TELEGRAM_LLM_MODEL:-deepseek-r1:14b}
+    - WHISPER_MODEL_SIZE=${WHISPER_MODEL_SIZE:-base}
+    - WHISPER_LANGUAGE=${WHISPER_LANGUAGE:-ru}
+    - WHISPER_ENABLED=${WHISPER_ENABLED:-true}
     - TZ=UTC
     depends_on:
       redis-worker-1:
         condition: service_healthy
     networks:
     - trade-network
+    - scanner-infra
+    deploy:
+      resources:
+        reservations:
+          memory: 512M
+  chatops-antigravity-watcher:
+    build:
+      context: .
+      dockerfile: monitoring/chatops/antigravity_watcher/Dockerfile
+    container_name: chatops-antigravity-watcher
+    restart: unless-stopped
+    environment:
+    - REDIS_URL=redis://redis-worker-1:6379/0
+    - ANTIGRAVITY_INBOX_KEY=${ANTIGRAVITY_INBOX_KEY:-antigravity:inbox}
+    - ANTIGRAVITY_WATCHER_POLL_INTERVAL=${ANTIGRAVITY_WATCHER_POLL_INTERVAL:-30}
+    - TZ=UTC
+    volumes:
+    - ./tasks:/app/tasks
+    command:
+    - python
+    - /app/watcher.py
+    - --output
+    - /app/tasks/inbox.md
+    - --poll-interval
+    - "${ANTIGRAVITY_WATCHER_POLL_INTERVAL:-30}"
+    - --no-notify
+    - --no-auto-open
+    depends_on:
+      redis-worker-1:
+        condition: service_healthy
+    networks:
     - scanner-infra
     deploy:
       resources:

@@ -63,8 +63,8 @@ def apply_observe_only_book_veto(
 ) -> ObserveOnlyResult:
     """Suppress hard veto for book_seq until enabled + warmup passed."""
 
-    # Only book_seq bucket is guarded (per spec).
-    if int(dq_level) != 2 or str(dq_reason_bucket) != "book_seq":
+    # Only book_seq bucket with active veto is guarded (per spec).
+    if int(dq_level) != 2 or str(dq_reason_bucket) != "book_seq" or int(dq_veto) != 1:
         return ObserveOnlyResult(dq_veto=int(dq_veto), suppressed=False, suppress_reason=None)
 
     # Enabled flag: cfg wins, env is fallback.
@@ -81,12 +81,12 @@ def apply_observe_only_book_veto(
     if observe_only_s < 0:
         observe_only_s = 0
 
-    # Desired veto for book_seq per B1:
     # veto becomes active only after enable + warmup.
     if not enabled_b:
-        return ObserveOnlyResult(dq_veto=0, suppressed=True, suppress_reason="disabled")
+        reason = "book_veto_disabled" if "dq_book_veto_enabled" in cfg else "disabled"
+        return ObserveOnlyResult(dq_veto=0, suppressed=True, suppress_reason=reason)
 
     if int(uptime_sec) < int(observe_only_s):
-        return ObserveOnlyResult(dq_veto=0, suppressed=True, suppress_reason="warmup")
+        return ObserveOnlyResult(dq_veto=0, suppressed=True, suppress_reason="observe_only")
 
     return ObserveOnlyResult(dq_veto=1, suppressed=False, suppress_reason=None)

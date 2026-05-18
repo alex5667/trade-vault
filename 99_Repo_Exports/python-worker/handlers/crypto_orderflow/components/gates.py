@@ -34,6 +34,7 @@ from services.orderflow.flow_toxicity import evaluate_flow_toxicity
 from services.orderflow.liquidation_context_worker import aread_liq_context
 from services.orderflow.breadth_context import aread_breadth_context
 from services.orderflow.exec_health_freeze_hook import aread_exec_health_auto_freeze, build_exec_health_auto_freeze_decision
+from core.funding_basis_calibrator import FundingBasisCalibrator
 
 log = logging.getLogger(__name__)
 
@@ -74,6 +75,11 @@ try:
         "Total gate evaluations per gate",
         ["gate"],
     )
+    _FUNDING_BASIS_REGIME_TOTAL = Counter(
+        "funding_basis_calib_regime_total",
+        "Funding/basis calibrator regime tag observations per symbol",
+        ["symbol", "regime_tag"],
+    )
     _GATES_METRICS = True
 except Exception:  # pragma: no cover
     _GATES_METRICS = False
@@ -82,6 +88,7 @@ except Exception:  # pragma: no cover
     _GATE_TIGHTEN_TOTAL = None
     _GATE_LATENCY_US = None
     _GATES_EVAL_TOTAL = None
+    _FUNDING_BASIS_REGIME_TOTAL = None
 
 def _record_gate_error(gate: str, reason: str) -> None:
     """Increment gates_error_total counter, fail-open if metrics unavailable."""
@@ -162,6 +169,19 @@ class GateOrchestrator:
         self._atr_floor_gate = atr_floor_gate
         self._breadth_gate = breadth_gate
 
+        # Adaptive funding/basis calibrator: ENV-controlled, shadow by default.
+        _fb_enforce = (os.getenv("FUNDING_BASIS_CALIB_ENFORCE", "0") or "0").strip().lower() in {"1", "true", "yes", "on"}
+        _fb_min = int(os.getenv("FUNDING_BASIS_CALIB_MIN_SAMPLES", "500") or "500")
+        self._funding_basis_cal = FundingBasisCalibrator(
+            min_samples=_fb_min,
+            enforce=_fb_enforce,
+            auto_enforce=True,
+        )
+        self._fb_loaded: bool = False
+        self._fb_last_snapshot_ms: int = 0
+        _snap_sec = int(os.getenv("FUNDING_BASIS_CALIB_SNAPSHOT_SEC", "120") or "120")
+        self._fb_snapshot_interval_ms: int = _snap_sec * 1000
+
         self._regime_strict = (os.getenv("REGIME_GATE_STRICT", "0") or "0").strip().lower() in {"1", "true", "yes", "on"}
         def _csv(name: str) -> set[str]:
             v = (os.getenv(name, "") or "").strip().lower()
@@ -169,6 +189,43 @@ class GateOrchestrator:
 
         self._regime_breakout_block = _csv("REGIME_GATE_BREAKOUT_BLOCK")
         self._regime_extreme_block = _csv("REGIME_GATE_EXTREME_BLOCK")
+
+    # ── FundingBasisCalibrator persistence ───────────────────────────────────
+
+    async def _snapshot_funding_basis_to_redis(self, redis: Any, now_ms: int) -> None:
+        if now_ms - self._fb_last_snapshot_ms < self._fb_snapshot_interval_ms:
+            return
+        from core.redis_keys import RK
+        try:
+            import json as _json
+            for regime_key in list(self._funding_basis_cal._n.keys()):
+                state = self._funding_basis_cal.dump_regime_state(
+                    symbol=regime_key.upper(),
+                    regime=regime_key,
+                    updated_ts_ms=now_ms,
+                )
+                await redis.hset(RK.AUTOCAL_FUNDING_BASIS, regime_key, _json.dumps(state))
+            self._fb_last_snapshot_ms = now_ms
+        except Exception:
+            pass
+
+    async def _load_funding_basis_from_redis(self, redis: Any) -> None:
+        from core.redis_keys import RK
+        try:
+            import json as _json
+            raw_map = await redis.hgetall(RK.AUTOCAL_FUNDING_BASIS)
+            if not raw_map:
+                return
+            for raw_val in raw_map.values():
+                if isinstance(raw_val, (bytes, bytearray)):
+                    raw_val = raw_val.decode("utf-8", "ignore")
+                try:
+                    state = _json.loads(raw_val)
+                    self._funding_basis_cal.load_regime_state(state)
+                except Exception:
+                    pass
+        except Exception:
+            pass
 
     def _mark_dq(self, ctx: Any, flag: str, exc: Exception | None = None) -> None:
         if exc is not None:
@@ -786,6 +843,34 @@ class GateOrchestrator:
                     liq_imbalance_z=liq_ctx.get("liq_imbalance_z", 0.0)
                 )
 
+            # Lazy-load calibrator state from Redis on first call per symbol.
+            if not self._fb_loaded and redis is not None:
+                await self._load_funding_basis_from_redis(redis)
+                self._fb_loaded = True
+
+            # Adaptive thresholds: detect regime tag, observe, get calibrated thresholds.
+            _abs_fz = abs(snap.funding_rate_z or 0.0)
+            _abs_bb = abs(snap.basis_bps or 0.0)
+            _regime_tag = self._funding_basis_cal.observe(
+                regime=sym.lower(),
+                abs_funding_z=_abs_fz,
+                abs_basis_bps=_abs_bb,
+            )
+            if _GATES_METRICS and _FUNDING_BASIS_REGIME_TOTAL is not None:
+                with contextlib.suppress(Exception):
+                    _FUNDING_BASIS_REGIME_TOTAL.labels(symbol=sym, regime_tag=_regime_tag).inc()
+
+            _fb_th = self._funding_basis_cal.thresholds(
+                regime=sym.lower(),
+                current_regime_tag=_regime_tag,
+                default_funding_z=thr_funding_z,
+                default_basis_bps=thr_basis_bps,
+            )
+
+            # Periodic Redis snapshot.
+            if redis is not None:
+                await self._snapshot_funding_basis_to_redis(redis, ts_dec_ms)
+
             res = evaluate_derivatives_context_v2(
                 profile=profile,
                 side=side,
@@ -797,8 +882,8 @@ class GateOrchestrator:
                 liq_imbalance_z=snap.liq_imbalance_z,
                 market_breadth_ret_24h=snap.market_breadth_ret_24h,
                 leader_btc_eth_confirm=snap.leader_btc_eth_confirm,
-                thr_funding_z=thr_funding_z,
-                thr_basis_bps=thr_basis_bps,
+                thr_funding_z=_fb_th.funding_z,
+                thr_basis_bps=_fb_th.basis_bps,
                 require_oi_for_veto=require_oi_for_veto,
                 tighten_mult=tighten_mult,
                 tighten_cap_bps=tighten_cap_bps,
@@ -1241,12 +1326,29 @@ class GateOrchestrator:
         gate_name = "ManipulationGate"
 
         try:
+            import math
+
             ind = getattr(ctx, "indicators", {})
-            qs_score = ind.get("quote_stuffing_score", 0.0) or 0.0
-            lay_score = ind.get("layering_score", 0.0) or 0.0
-            otr_z = ind.get("otr_z", 0.0) or 0.0
-            
-            # Simple policy (matching signal_pipeline inline logic)
+            qs_score = float(ind.get("quote_stuffing_score", 0.0) or 0.0)
+            lay_score = float(ind.get("layering_score", 0.0) or 0.0)
+            otr_z = float(ind.get("otr_z", 0.0) or 0.0)
+
+            # P1 FIX: Validate bounded scores [0,1]; NaN → 0; negative → 0; > 1.0 → 1.0
+            if math.isnan(qs_score) or qs_score < 0.0:
+                qs_score = 0.0
+            elif qs_score > 1.0:
+                qs_score = 1.0
+
+            if math.isnan(lay_score) or lay_score < 0.0:
+                lay_score = 0.0
+            elif lay_score > 1.0:
+                lay_score = 1.0
+
+            # otr_z is unbounded (z-score); just sanitize NaN
+            if math.isnan(otr_z):
+                otr_z = 0.0
+
+            # Threshold comparisons
             hit_qs = thr_qs > 0.0 and qs_score >= thr_qs
             hit_lay = thr_lay > 0.0 and lay_score >= thr_lay
             hit_otr = thr_otr_z > 0.0 and otr_z >= thr_otr_z
@@ -1262,13 +1364,21 @@ class GateOrchestrator:
 
             if hit_any:
                 if profile in {"strict", "tighten", "hard", "veto"}:
-                    manip_score = max(qs_score, lay_score)
-                    if manip_score <= 0.0 and hit_otr:
-                        manip_score = min(1.0, max(0.1, (otr_z - thr_otr_z) / max(thr_otr_z, 1.0)))
-                    tighten_add = min(tighten_cap_bps, manip_score * tighten_mult * 3.0)
-                    if tighten_add > 0:
+                    # P2 FIX: Balanced scoring - equal weight to all three patterns
+                    qs_lay_score = max(qs_score, lay_score)
+
+                    if hit_otr:
+                        # Normalize OTR z-score to [0,1] range
+                        otr_score = min(1.0, max(0.0, (otr_z - thr_otr_z) / max(thr_otr_z, 1.0)))
+                        # Weighted combination: 70% QS/LAY, 30% OTR
+                        manip_score = 0.7 * qs_lay_score + 0.3 * otr_score
+                    else:
+                        manip_score = qs_lay_score
+
+                    if manip_score > 0.0:
+                        tighten_add = min(tighten_cap_bps, manip_score * tighten_mult * 3.0)
                         decision = "TIGHTEN"
-                
+
                 if profile in {"hard", "veto"}:
                     decision = "DENY"
                     reason_code = "VETO_QUOTE_STUFFING" if hit_qs else ("VETO_LAYERING" if hit_lay else "VETO_OTR_SPIKE")

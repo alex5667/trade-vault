@@ -52,9 +52,13 @@ def compute_queue_imbalance_topn(snap: Any, levels: int = 5) -> dict[str, float]
     qimb_lk = (bid_qty_k - ask_qty_k)/(bid_qty_k + ask_qty_k), 0 if denom==0
     qimb_wmean: weights 1/k
     """
+    if snap is None:
+        return {}
     bids = _get_levels(snap, "bids")[: max(0, int(levels))]
     asks = _get_levels(snap, "asks")[: max(0, int(levels))]
-    L = max(len(bids), len(asks), int(levels))
+    if not bids and not asks:
+        return {}
+    L = max(len(bids), len(asks))
     if L <= 0:
         return {}
     out: dict[str, float] = {}

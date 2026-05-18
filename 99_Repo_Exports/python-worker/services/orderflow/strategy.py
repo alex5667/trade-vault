@@ -99,6 +99,9 @@ from services.orderflow.metrics import (
     bars_closed_total,
     book_health_state_gauge,
     book_stale_ms_gauge,
+    spread_bps_gauge,
+    data_health_score_gauge,
+    data_health_shadow_only_gauge,
     book_ts_gap_ms_hist,
     burst_active_gauge,
     burst_window_ms_gauge,
@@ -112,6 +115,7 @@ from services.orderflow.metrics import (
     dn_gate_events_total,
     fp_buckets_evicted_total,
     g10_adverse_veto_total,
+    g10_adverse_buffer_wait_ms,
     log_silent_error,
     of_session_outcome_total,
     ok_metrics_emitted_total,
@@ -125,6 +129,13 @@ from services.orderflow.metrics import (
     ptier_tier0_usd,
     ptier_tier1_usd,
     ptier_tier2_usd,
+    z_mapping_lo_gauge,
+    z_mapping_hi_gauge,
+    z_mapping_shadow_lo_gauge,
+    z_mapping_shadow_hi_gauge,
+    liq_signal_notional_thr_gauge,
+    liq_signal_cluster_bps_gauge,
+    liq_signal_calib_n_gauge,
     strong_gate_veto_total,
     sweep_detected_total,
     tick_gap_p50_ms_gauge,
@@ -684,6 +695,13 @@ class OrderFlowStrategy:
 
         if not self._validate_tick_time(runtime, tick_ts, cfg, indicators):
             return None
+
+        # P2: Periodically recalibrate burst window based on market pressure
+        if hasattr(runtime, "maybe_recalibrate_burst"):
+            try:
+                runtime.maybe_recalibrate_burst(now_ms=tick_ts)
+            except Exception:
+                pass  # Fail-open: burst recalibration errors don't block ticks
 
         # Latency audit: record validate_time sub-stage
         try:
@@ -1480,27 +1498,6 @@ class OrderFlowStrategy:
                     indicators["quote_stuffing_score"] = float(getattr(runtime, "quote_stuffing_score", 0.0) or 0.0)
                     indicators["layering_score"] = float(getattr(runtime, "layering_score", 0.0) or 0.0)
                     indicators["manip_flags"] = str(getattr(runtime, "manip_flags", "") or "")
-
-                    # strict/hard tighten: increase expected_slippage_bps when manipulation detected
-                    # (MANIP_MODE=auto + GATE_PROFILE: strict→tighten, hard→veto)
-                    # This is the "tighten" arm; veto is done in signal_pipeline.
-                    try:
-                        should_tighten = (
-                            (self._manip_mode == "tighten") or
-                            (self._manip_mode == "auto" and self._gate_profile in ("strict", "hard"))
-                        )
-                        if should_tighten and indicators["manip_flags"]:
-                            manip_score = max(
-                                float(indicators.get("quote_stuffing_score", 0.0) or 0.0),
-                                float(indicators.get("layering_score", 0.0) or 0.0),
-                            )
-                            if manip_score > 0.0:
-                                add_bps = float(min(self._manip_tighten_cap, manip_score * self._manip_tighten_mult * 3.0))  # 3 bps/score unit
-                                exp0 = float(indicators.get("expected_slippage_bps", 0.0) or 0.0)
-                                indicators["expected_slippage_bps"] = exp0 + add_bps
-                                indicators["manip_tighten_add_bps"] = add_bps
-                    except Exception:
-                        pass
                 except Exception:
                     pass
 
@@ -1519,6 +1516,14 @@ class OrderFlowStrategy:
             indicators[IK.DATA_HEALTH] = float(dh.score)
             indicators[IK.DATA_HEALTH_REASONS] = ",".join(list(dh.reasons or [])[:5])
             indicators[IK.BOOK_HEALTH_OK] = int(dh.book_health_ok)
+
+            # Export G4 metrics to Prometheus
+            if data_health_score_gauge:
+                data_health_score_gauge.labels(symbol=runtime.symbol).set(float(dh.score))
+            if spread_bps_gauge:
+                spread_bps = float(indicators.get("spread_bps", 0.0) or 0.0)
+                spread_bps_gauge.labels(symbol=runtime.symbol).set(spread_bps)
+
             apply_book_evidence_policy(indicators=indicators, dh=dh, cfg=cfg)
             if DATA_HEALTH_SHADOW_ONLY_ENABLE:
                 _shadow_cfg = cfg if "data_health_shadow_only_below" in cfg else {**cfg, "data_health_shadow_only_below": DATA_HEALTH_SHADOW_ONLY_TH}
@@ -1526,11 +1531,25 @@ class OrderFlowStrategy:
                 if indicators.get("data_health_shadow_only") == 1:
                     indicators["data_health_veto_active"] = 1
                     indicators.setdefault("data_health_veto_reason", indicators.get("data_health_shadow_reason", ""))
+                    if data_health_shadow_only_gauge:
+                        data_health_shadow_only_gauge.labels(symbol=runtime.symbol).set(1)
+                else:
+                    if data_health_shadow_only_gauge:
+                        data_health_shadow_only_gauge.labels(symbol=runtime.symbol).set(0)
             else:
                 indicators["data_health_shadow_only"] = 0
                 indicators["data_health_shadow_reason"] = ""
-        except Exception:
-            pass
+                if data_health_shadow_only_gauge:
+                    data_health_shadow_only_gauge.labels(symbol=runtime.symbol).set(0)
+        except Exception as exc:
+            self.logger.error(
+                "⚠️ [G4-EXCEPTION] (%s) compute_data_health failed: %s (using fallback: score=1.0)",
+                runtime.symbol,
+                str(exc)[:200],
+                exc_info=False,
+            )
+            indicators.setdefault(IK.DATA_HEALTH, 1.0)
+            indicators.setdefault(IK.DATA_HEALTH_REASONS, "compute_failed")
 
         # G4 enforce gate — drop signal if shadow-only fired (score < DATA_HEALTH_SHADOW_ONLY_TH)
         if indicators.get("data_health_veto_active", 0) == 1:
@@ -1635,6 +1654,9 @@ class OrderFlowStrategy:
                     atr0 = float(getattr(runtime, "last_atr", 0.0) or 0.0)
                 age0 = int(indicators.get("atr_age_ms", 0) or 0)
                 now_ms = int(indicators.get("now_ts_ms", 0) or tick_ts)  # только Event Time
+                _tf0 = str(indicators.get("atr_tf") or "1m")
+                if _tf0 in ("na", "none", ""):
+                    _tf0 = "1m"
 
                 res = self._atr_sanity.update(
                     symbol=str(runtime.symbol),
@@ -1642,6 +1664,7 @@ class OrderFlowStrategy:
                     px=float(px0),
                     age_ms=int(age0),
                     now_ms=int(now_ms),
+                    tf=_tf0,
                 )
 
                 # Use sanitized ATR for downstream gates/tiers/levels
@@ -3214,6 +3237,14 @@ class OrderFlowStrategy:
 
             indicators[IK.LIQ_DEPTH_USD_5] = float(depth_usd_min_5)
             indicators[IK.LIQ_SPREAD_BPS] = float(spread_bps)
+            try:
+                liq_th = runtime.liq_signal_calib.thresholds(symbol=runtime.symbol)
+                indicators["liq_notional_thr"] = liq_th.notional_thr
+                indicators["liq_cluster_bps"] = liq_th.cluster_bps
+                indicators["liq_calib_src"] = liq_th.src
+                indicators["liq_calib_n"] = liq_th.n
+            except Exception:
+                pass
             indicators["liq_book_rate_hz"] = float(getattr(runtime, "book_rate_ema", 0.0) or 0.0)
             indicators["liq_book_stale_ms"] = int(book_stale_ms)
             if liq.why:
@@ -3559,6 +3590,18 @@ class OrderFlowStrategy:
             has_ofi = bool(indicators.get("ofi_stable", 0))
 
             if not (has_reclaim or has_absorb or has_obi or has_ofi):
+                sampled_warning(
+                    logger,
+                    "G10_REVERSAL_VETO",
+                    "🛑 [G10] (%s) Reversal vetoed: no supporting evidence | "
+                    "cvd_reclaim_ok=%s absorption=%s obi_stable=%s ofi_stable=%s scn=%s",
+                    runtime.symbol,
+                    indicators.get("cvd_reclaim_ok", "UNSET"),
+                    indicators.get("absorption_volume", "UNSET"),
+                    indicators.get("obi_stable", "UNSET"),
+                    indicators.get("ofi_stable", "UNSET"),
+                    scn,
+                )
                 g10_adverse_veto_total.labels(gate="G10_ADVERSE_REVERSAL").inc()
                 return "veto_reversal"
 
@@ -3604,8 +3647,15 @@ class OrderFlowStrategy:
         if not scenario:
             scenario = "reversal" if int(indicators.get("sweep", 0) or 0) == 1 else "continuation"
 
+        # Validate direction (P0 fix: prevent BUY/SELL confusion in cooldown calculations)
+        direction = (payload.get("direction", "") or "").strip().upper()
+        if direction not in ("LONG", "SHORT"):
+            if direction:
+                logger.warning("⚠️ [G11] (%s) Invalid direction=%s detected, treating as continuation", runtime.symbol, direction)
+            direction = ""
+
         cooldown_ms = _cooldown_ms_for(runtime, scenario=scenario, now_ms=now_ms,
-                                        new_dir=(payload.get("direction", "") or ""))
+                                        new_dir=direction)
         last_emit_ts = int(getattr(runtime, "last_signal_ts", 0) or 0)
         age = int(now_ms) - last_emit_ts if last_emit_ts > 0 else 10**9
 
@@ -3616,8 +3666,10 @@ class OrderFlowStrategy:
 
         if age < cooldown_ms:
             # --- Pressure Proxy: record deterministic cooldown hit ---
-            with contextlib.suppress(Exception):
+            try:
                 runtime.pressure.on_cooldown_hit(ts_ms=int(now_ms))
+            except Exception as e:
+                logger.debug("⚠️ [G11] (%s) pressure.on_cooldown_hit() failed: %s (metrics best-effort)", runtime.symbol, e)
 
             # Buffer into pending_payload for post-cooldown emission
             cand_score = float(score)
@@ -3627,12 +3679,11 @@ class OrderFlowStrategy:
                 runtime.pending_ts_ms = int(now_ms)
                 runtime.pending_replaced += 1
 
-            cur_dir = (payload.get("direction", "") or "")
             last_dir = str(getattr(runtime, "last_emit_dir", "NONE") or "NONE")
-            is_reversal = cur_dir and last_dir not in ("NONE", "") and cur_dir.upper() != last_dir.upper()
+            is_reversal = direction and last_dir not in ("NONE", "") and direction != last_dir.upper()
             logger.warning(
                 "🛑 [COOLDOWN] (%s) Signal buffered (age=%dms < %dms, dir=%s→%s%s). Pending updated=%s",
-                runtime.symbol, age, cooldown_ms, last_dir, cur_dir,
+                runtime.symbol, age, cooldown_ms, last_dir, direction,
                 " REVERSAL" if is_reversal else "", "YES"
             )
             return None
@@ -3641,12 +3692,21 @@ class OrderFlowStrategy:
         if runtime.pending_payload is not None:
             pending_score = float(getattr(runtime, "pending_score", 0.0) or 0.0)
             cur_score = float(score)
+            # Use pending if score is better (or equal) — prefer buffered best
             if pending_score >= cur_score:
                 payload = runtime.pending_payload
                 # upgrade score if pending was better
                 score = pending_score
+                # Debug log for audit trail
+                pending_ts = int(getattr(runtime, "pending_ts_ms", now_ms) or now_ms)
+                pending_age = now_ms - pending_ts
+                logger.debug(
+                    "✅ [G11] (%s) Emitting buffered pending (age=%dms, pending_score=%.3f >= cur_score=%.3f)",
+                    runtime.symbol, pending_age, pending_score, cur_score
+                )
             runtime.pending_payload = None
             runtime.pending_score = 0.0
+            runtime.pending_ts_ms = 0
 
         # Burst Mode Check (Consolidated)
         force_burst = bool(indicators.get("pressure_extreme_flag", 0))
@@ -3761,6 +3821,24 @@ class OrderFlowStrategy:
             lag_ms=float(worker_lag_ms),
         )
 
+        # Inject adaptive z-mapping bounds so signal_confidence._score_rule_based can
+        # use calibrated (lo, hi) instead of fixed thresholds. Fail-open: on any error
+        # ctx retains no z_core_* attrs → scorer falls back to hardcoded defaults.
+        # obi_z_lo/hi are NOT injected here — old scorer uses obi_avg, not obi_z;
+        # obi_z calibration applies only in handlers/crypto_orderflow/scoring/confidence_scorer.py.
+        _score_now_ms = int(time.time() * 1000)
+        try:
+            _rg = str(getattr(runtime, "last_regime", "na") or "na").lower()
+            _ses = session_utc(_score_now_ms)
+            _zm = getattr(runtime, "z_mapping_calib", None)
+            if _zm is not None:
+                _zc_lo, _zc_hi = _zm.bounds(
+                    "main_z", symbol=runtime.symbol, regime=_rg, session=_ses)
+                ctx.z_core_lo = _zc_lo
+                ctx.z_core_hi = _zc_hi
+        except Exception as _e:
+            log_silent_error(_e, 'z_mapping_inject_failure', runtime.symbol, '_score_confidence')
+
         try:
             conf, parts = await self.conf_scorer.score(kind=kind or "custom", side=side, ctx=ctx)
             indicators["confidence_breakdown"] = {
@@ -3770,6 +3848,30 @@ class OrderFlowStrategy:
             }
             if "ml_shadow_conf01" in parts:
                 indicators["confidence_breakdown"]["ml_shadow_conf01"] = round(float(parts["ml_shadow_conf01"]), 4)
+
+            # Z-mapping calibrator: expose shadow bounds in breakdown + counterfactual log
+            try:
+                rg = str(getattr(runtime, "last_regime", "na") or "na").lower()
+                ses = session_utc(_score_now_ms)
+                sz_lo, sz_hi = runtime.z_mapping_calib.shadow_bounds(
+                    "main_z", symbol=runtime.symbol, regime=rg, session=ses)
+                so_lo, so_hi = runtime.z_mapping_calib.shadow_bounds(
+                    "obi_z", symbol=runtime.symbol, regime=rg, session=ses)
+                if sz_lo > 0.0 or so_lo > 0.0:
+                    indicators["confidence_breakdown"]["z_shadow_main_lo"] = round(sz_lo, 4)
+                    indicators["confidence_breakdown"]["z_shadow_main_hi"] = round(sz_hi, 4)
+                    indicators["confidence_breakdown"]["z_shadow_obi_lo"] = round(so_lo, 4)
+                    indicators["confidence_breakdown"]["z_shadow_obi_hi"] = round(so_hi, 4)
+                    # Sampled counterfactual log (1% of calls)
+                    call_cnt = getattr(runtime, "_metrics_call_count", 0)
+                    if call_cnt % 100 == 0 and (sz_lo > 0.0 or so_lo > 0.0):
+                        self.logger.info(
+                            "[Z-MAP-SHADOW] (%s) main_z shadow=(%.2f,%.2f) default=(1.0,4.0) "
+                            "obi_z shadow=(%.2f,%.2f) default=(0.5,2.5) conf=%.3f",
+                            runtime.symbol, sz_lo, sz_hi, so_lo, so_hi, conf,
+                        )
+            except Exception:
+                pass
 
             # Apply RollingPercentileCalibrator if configured
             if getattr(self, "score_calibrator", None) is not None:
@@ -3983,6 +4085,8 @@ class OrderFlowStrategy:
         """
         try:
             await runtime.ensure_dn_loaded(self.redis)
+            await runtime.ensure_z_mapping_loaded(self.redis)
+            await runtime.ensure_liq_signal_loaded(self.redis)
             if bool(int(os.getenv("ATR_TF_CALIB_ENABLE", "1"))):
                 await runtime.ensure_atr_tf_loaded(self.redis)
             # ATR sanity selector state (source preference)
@@ -4033,6 +4137,8 @@ class OrderFlowStrategy:
                                 logger.info("✅ [ADVERSE] Continuation Verified! Emitting buffered signal. (x%d)", cnt)
                             # inject late metrics
                             sig["adverse_wait_ms"] = age_adv
+                            with contextlib.suppress(Exception):
+                                g10_adverse_buffer_wait_ms.labels(symbol=runtime.symbol).observe(float(age_adv))
                             # EMIT
                             final_sig = await self._emit_payload(runtime, sig, ts)
                             if final_sig:
@@ -4436,129 +4542,7 @@ class OrderFlowStrategy:
              pass
 
 
-        # ATR TF Selector (UNIFIED - single source of truth: atr_tf_selected)
-        # Shadow mode: compute candidate, no apply. Enforce mode: apply candidate to selected.
-        # ------------------------------------------------------------------
-        try:
-            if bool(int(os.getenv("ATR_TF_CALIB_ENABLE", "1"))):
-                now_ts = int(getattr(bar, "end_ts_ms", 0) or 0)
-                close_px = float(getattr(bar, "close", 0.0) or 0.0)
-                rg = str(getattr(runtime, "last_regime", "na") or "na").lower()
-
-                # Throttle: do not recompute too often (Redis reads for multiple TF)
-                refresh_ms = int(runtime.config.get("atr_tf_calib_refresh_ms", 60_000))
-                last = int(runtime.dynamic_cfg.get(DK.ATR_TF_CALIB_LAST_MS, 0) or 0)
-                if refresh_ms < 10_000:
-                    refresh_ms = 10_000
-                if now_ts > 0 and (now_ts - last) >= refresh_ms and close_px > 0:
-                    runtime.dynamic_cfg[DK.ATR_TF_CALIB_LAST_MS] = int(now_ts)
-
-                    # Candidate TFs list (env-tunable)
-                    tfs_raw = os.getenv("ATR_TF_CALIB_TFS", "1m,5m,15m,1h")
-                    tfs = [x.strip() for x in tfs_raw.split(",") if x.strip()]
-                    if not tfs:
-                        tfs = ["1m", "5m", "15m", "1h"]
-
-                    # Compute target from fees-aware gate (rocket_v1) to avoid permanent veto
-                    # NOTE: this is *sanity* target; unified gate still uses max(floor,fees).
-                    target_bps = 0.0
-                    try:
-                        tp_ratios = parse_tp_ratio(runtime.config.get("tp_ratio") or runtime.config.get("tp_rr") or "")
-                        tp1_share = float(tp_ratios[0] if tp_ratios else 0.5)
-                        # Use signal_pipeline for rocket logic
-                        rocket_mult = float(self.signal_pipeline._get_rocket_multiplier(runtime.symbol) or 0.0)
-                        denom = float(tp1_share * rocket_mult)
-                        if denom > 0:
-                            target_bps = float((float(self.signal_pipeline.FEES_BPS_RT) + float(self.signal_pipeline.TP_BPS_BUFFER)) / denom)
-                    except Exception:
-                        target_bps = 0.0
-
-                    # Collect atr_bps for each TF (best-effort; if tf missing -> skip)
-                    atr_bps_by_tf: dict[str, float] = {}
-                    for tf in tfs:
-                        try:
-                            # Use raw cache lookup to bypass calibration logic itself
-                            atr_tf = float(self.atr_cache.get(runtime.symbol, tf) or 0.0)
-                            if atr_tf > 0:
-                                atr_bps_by_tf[tf] = 10000.0 * (atr_tf / close_px)
-                        except Exception as exc:
-                            log_silent_error(exc, 'calib_update_failure', runtime.symbol, '_handle_tick:atr_tf_update')
-                            continue
-
-                    if atr_bps_by_tf:
-                        runtime.atr_tf_calib.update_many(regime=rg, atr_bps_by_tf=atr_bps_by_tf)
-
-                        # Recommend TF (switching controlled by hold-down + hysteresis)
-                        fallback_tf = str(runtime.config.get("atr_tf", os.getenv("ATR_TF", "5m")) or "5m")
-                        current_tf = runtime.get_atr_tf_selected()  # Use canonical resolver
-                        # ATR_TF_SELECTOR_MODE takes priority; ATR_TF_CALIB_MODE is alias for back-compat
-                        mode = str(
-                            os.getenv("ATR_TF_SELECTOR_MODE")
-                            or os.getenv("ATR_TF_CALIB_MODE")
-                            or "enforce"
-                        ).lower()  # "shadow"|"enforce"
-                        allow_switch = (mode == "enforce")
-                        runtime.dynamic_cfg[DK.ATR_TF_MODE] = mode
-
-                        choice = runtime.atr_tf_calib.recommend_tf(
-                            regime=rg,
-                            target_bps=target_bps,
-                            fallback_tf=fallback_tf,
-                            now_ts_ms=now_ts,
-                            current_tf=current_tf,
-                            allow_switch=allow_switch,
-                        )
-
-                        runtime.dynamic_cfg[DK.ATR_TF_TARGET_BPS] = float(choice.target_bps)
-                        runtime.dynamic_cfg[DK.ATR_TF_READY] = int(1 if choice.src != "static" and choice.n >= int(os.getenv("ATR_TF_CALIB_MIN_SAMPLES", "30")) else 0)
-                        runtime.dynamic_cfg[DK.ATR_TF_SRC] = str(choice.src)
-                        runtime.dynamic_cfg[DK.ATR_TF_N] = int(choice.n)
-                        # Telemetry: always write candidate (for observability)
-                        runtime.dynamic_cfg[DK.ATR_TF_CANDIDATE] = str(choice.tf)
-                        runtime.dynamic_cfg[DK.ATR_TF_CANDIDATE_SRC] = str(choice.src)
-                        runtime.dynamic_cfg[DK.ATR_TF_CANDIDATE_N] = int(choice.n)
-                        runtime.dynamic_cfg[DK.ATR_TF_CANDIDATE_SCORE] = float(getattr(choice, "score", 0.0) or 0.0)
-                        runtime.dynamic_cfg[DK.ATR_TF_CANDIDATES_BPS] = dict(atr_bps_by_tf)
-
-                        # Update metrics
-                        atr_tf_target_bps.labels(symbol=runtime.symbol).set(float(target_bps))
-                        atr_tf_candidate_score.labels(symbol=runtime.symbol).set(float(getattr(choice, "score", 0.0) or 0.0))
-                        candidate_diff = 1 if str(choice.tf) != current_tf else 0
-                        atr_tf_candidate_diff.labels(symbol=runtime.symbol).set(candidate_diff)
-
-                        # Apply: ONLY in enforce mode
-                        if allow_switch and str(choice.tf) != current_tf:
-                            prev_tf = current_tf
-                            new_tf = str(choice.tf)
-                            runtime.dynamic_cfg[DK.ATR_TF_SELECTED] = new_tf
-                            runtime.dynamic_cfg[DK.ATR_TF_LAST_SWITCH_TS_MS] = int(now_ts)
-                            # Log switch (rate-limited)
-                            logger.info(
-                                "🔄 (%s) ATR-TF switch: %s → %s (target_bps=%.1f, src=%s, n=%d)",
-                                runtime.symbol, prev_tf, new_tf, target_bps, choice.src, choice.n
-                            )
-                            # Increment switch counter
-                            atr_tf_switch_total.labels(symbol=runtime.symbol).inc()
-                        elif not allow_switch:
-                            # Shadow mode: ensure selected is initialized but don't change it
-                            runtime.dynamic_cfg.setdefault("atr_tf_selected", current_tf)
-
-                        # Persist selected TF (throttled; always — shadow persists P² history too)
-                        persist_gap = int(runtime.config.get("atr_tf_calib_persist_gap_ms", 300_000))
-                        if persist_gap < 60_000:
-                            persist_gap = 60_000
-                        last_p = int(getattr(runtime, "_atr_tf_choice_last_persist_ts_ms", 0) or 0)
-                        if now_ts > 0 and (now_ts - last_p) >= persist_gap:
-                            runtime._atr_tf_choice_last_persist_ts_ms = int(now_ts)
-                            choice_state = {
-                                "tf": runtime.get_atr_tf_selected(),
-                                "src": str(choice.src),
-                                "updated_ts_ms": int(now_ts)
-                            }
-                            if self.calib_svc:
-                                await self.calib_svc.persist_atr_tf_choice(runtime, choice_state=choice_state, ts_ms=now_ts)
-        except Exception:
-            pass
+        # ATR TF Selector runs in tick_decision_engine (lower-level, single source of truth)
 
 
         # --- ADX quantile snapshot (deterministic by bar end ts) ---
@@ -4602,29 +4586,10 @@ class OrderFlowStrategy:
 
             if (now_ts - int(getattr(runtime, "last_atr_ts_ms", 0) or 0)) >= refresh_ms:
                 close_px = float(getattr(bar, "close", 0.0) or 0.0)
-                # 1) Use canonical TF resolver (single source of truth)
+                # Use canonical TF resolver (single source of truth)
                 tf_sel = runtime.get_atr_tf_selected()
-                try:
-                    if bool(int(os.getenv("ATR_TF_CALIB_ENABLE", "1"))) and close_px > 0:
-                        choice = self.atr_tf_sel.choose(
-                            symbol=str(runtime.symbol),
-                            price=float(close_px),
-                            now_ms=int(now_ts),
-                            atr_cache=self.atr_cache,
-                        )
-                        if choice is not None:
-                            # TELEMETRY ONLY: do NOT write to atr_tf_selected (legacy path)
-                            # Single source of truth is the unified selector in _on_microbar_closed
-                            runtime.dynamic_cfg[DK.ATR_TF_ALT_CANDIDATE] = str(choice.tf)
-                            runtime.dynamic_cfg[DK.ATR_TF_ALT_SRC] = str(choice.src)
-                            runtime.dynamic_cfg[DK.ATR_TF_ALT_SCORE] = float(choice.score)
-                            runtime.dynamic_cfg[DK.ATR_TF_ALT_AGE_MS] = int(choice.age_ms)
-                            runtime.dynamic_cfg[DK.ATR_TF_ALT_ATR_BPS] = float(choice.atr_bps)
-                            # NO persistence for legacy path
-                except Exception:
-                    pass
 
-                # 2) fetch ATR using selected TF (best-effort)
+                # Fetch ATR using selected TF (best-effort)
                 atr_tmp = 0.0
                 try:
                     atr_tmp, atr_meta = self.atr_cache.get_with_meta(symbol=runtime.symbol, timeframe=tf_sel, now_ms=int(now_ts))
@@ -4642,14 +4607,21 @@ class OrderFlowStrategy:
                     try:
                         px0 = float(getattr(runtime, "last_px", 0.0) or 0.0)
                         age0 = 0
+                        _tf_live = str(tf_sel or "1m")
+                        if _tf_live in ("na", "none", ""):
+                            _tf_live = "1m"
                         if isinstance(atr_meta, dict):
                             age0 = int(atr_meta.get("age_ms", 0) or 0)
+                            _tf_from_meta = atr_meta.get("tf")
+                            if _tf_from_meta and str(_tf_from_meta) not in ("na", "none", ""):
+                                _tf_live = str(_tf_from_meta)
                         res = self._atr_sanity.update(
                             symbol=str(runtime.symbol),
                             atr=float(atr_tmp),
                             px=float(px0),
                             age_ms=int(age0),
                             now_ms=int(now_ts),
+                            tf=_tf_live,
                         )
                         runtime.last_atr = float(res.atr_used)
                         runtime.last_atr_ts_ms = int(now_ts)
@@ -5081,6 +5053,90 @@ class OrderFlowStrategy:
 
         except Exception as exc:
             log_silent_error(exc, 'ptier_calib_failure', runtime.symbol, '_on_microbar_closed:ptier_calib')
+
+        # ------------------------------------------------------------
+        # Z-Mapping Calibrator — observe |z| samples, publish telemetry
+        # ------------------------------------------------------------
+        try:
+            rg = str(getattr(runtime, "last_regime", "na") or "na").lower()
+            ses = session_utc(now_ms)
+            delta_z_abs = abs(float(getattr(runtime, "last_delta_z", 0.0) or 0.0))
+            obi_z_abs = abs(float(getattr(runtime, "dw_obi_z", 0.0) or 0.0))
+
+            if delta_z_abs > 0.0:
+                runtime.z_mapping_calib.observe(
+                    "main_z", symbol=runtime.symbol, regime=rg, session=ses,
+                    z_abs=delta_z_abs, now_ms=now_ms,
+                )
+            if obi_z_abs > 0.0:
+                runtime.z_mapping_calib.observe(
+                    "obi_z", symbol=runtime.symbol, regime=rg, session=ses,
+                    z_abs=obi_z_abs, now_ms=now_ms,
+                )
+
+            # Prometheus telemetry (committed + shadow bounds)
+            sym = runtime.symbol
+            for metric in ("main_z", "obi_z"):
+                lo, hi = runtime.z_mapping_calib.bounds(
+                    metric, symbol=sym, regime=rg, session=ses)
+                slo, shi = runtime.z_mapping_calib.shadow_bounds(
+                    metric, symbol=sym, regime=rg, session=ses)
+                z_mapping_lo_gauge.labels(symbol=sym, metric=metric).set(lo)
+                z_mapping_hi_gauge.labels(symbol=sym, metric=metric).set(hi)
+                if slo > 0.0:
+                    z_mapping_shadow_lo_gauge.labels(symbol=sym, metric=metric).set(slo)
+                if shi > 0.0:
+                    z_mapping_shadow_hi_gauge.labels(symbol=sym, metric=metric).set(shi)
+
+            # Persist snapshot (throttled, every 2 min)
+            persist_gap_ms = int(os.getenv("Z_MAPPING_CALIB_PERSIST_GAP_MS", "120000"))
+            last_p = runtime._z_mapping_last_persist_ts_ms
+            if persist_gap_ms > 0 and (now_ms - last_p) >= persist_gap_ms:
+                try:
+                    import json as _json
+                    snap = _json.dumps(runtime.z_mapping_calib.snapshot(), separators=(",", ":"))
+                    await self.redis.set(
+                        f"calib:z_mapping:{sym.upper()}", snap, ex=86400)
+                    runtime._z_mapping_last_persist_ts_ms = now_ms
+                except Exception as _pe:
+                    log_silent_error(_pe, 'z_mapping_persist_failure', runtime.symbol,
+                                     '_on_microbar_closed:z_mapping_persist')
+        except Exception as exc:
+            log_silent_error(exc, 'z_mapping_calib_failure', runtime.symbol,
+                             '_on_microbar_closed:z_mapping_calib')
+
+        # ------------------------------------------------------------
+        # Liquidity Signal Calibrator — observe depth + spread per bar
+        # ------------------------------------------------------------
+        try:
+            depth_usd = float(getattr(runtime, "last_depth_min_5_usd", 0.0) or 0.0)
+            spread_bps_v = float(getattr(runtime, "last_spread_bps", 0.0) or 0.0)
+            if depth_usd > 0.0 and spread_bps_v > 0.0:
+                runtime.liq_signal_calib.observe(
+                    symbol=runtime.symbol, depth_usd=depth_usd, spread_bps=spread_bps_v)
+            liq_th = runtime.liq_signal_calib.thresholds(symbol=runtime.symbol)
+            liq_signal_notional_thr_gauge.labels(symbol=runtime.symbol).set(liq_th.notional_thr)
+            liq_signal_cluster_bps_gauge.labels(symbol=runtime.symbol).set(liq_th.cluster_bps)
+            liq_signal_calib_n_gauge.labels(symbol=runtime.symbol).set(liq_th.n)
+            # Persist snapshot (throttled)
+            persist_gap_ms = int(os.getenv("LIQ_SIGNAL_CALIB_PERSIST_GAP_MS", "120000"))
+            last_p = runtime._liq_signal_last_persist_ts_ms
+            if persist_gap_ms > 0 and (now_ms - last_p) >= persist_gap_ms:
+                try:
+                    import json as _json
+                    snap = _json.dumps(
+                        runtime.liq_signal_calib.dump_symbol_state(
+                            symbol=runtime.symbol, updated_ts_ms=now_ms),
+                        separators=(",", ":"))
+                    await self.redis.set(
+                        f"calib:liq_signal:{runtime.symbol.upper()}", snap, ex=86400)
+                    runtime._liq_signal_last_persist_ts_ms = now_ms
+                except Exception as _pe:
+                    log_silent_error(_pe, 'liq_signal_persist_failure', runtime.symbol,
+                                     '_on_microbar_closed:liq_signal_persist')
+        except Exception as exc:
+            log_silent_error(exc, 'liq_signal_calib_failure', runtime.symbol,
+                             '_on_microbar_closed:liq_signal_calib')
 
         # ------------------------------------------------------------
         # SMT V2: Publish compact snapshot (BOS proxy, swings, OF state)
@@ -5592,6 +5648,14 @@ class OrderFlowStrategy:
                 "liq_book_rate_hz": float(liq.book_rate_hz),
                 "liq_book_stale_ms": int(stale)
             })
+            try:
+                liq_th = runtime.liq_signal_calib.thresholds(symbol=runtime.symbol)
+                indicators["liq_notional_thr"] = liq_th.notional_thr
+                indicators["liq_cluster_bps"] = liq_th.cluster_bps
+                indicators["liq_calib_src"] = liq_th.src
+                indicators["liq_calib_n"] = liq_th.n
+            except Exception:
+                pass
             if liq.score < 0.60:
                 indicators["liq_why"] = f"score<={liq.score:.2f}"
         except Exception as exc:

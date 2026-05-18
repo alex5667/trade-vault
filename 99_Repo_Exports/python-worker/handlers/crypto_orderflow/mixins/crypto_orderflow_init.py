@@ -154,6 +154,18 @@ class CryptoOrderFlowInitMixin:
         self._cost_edge_gate = EdgeCostGate.from_env()
         self._cost_edge_enabled = bool(self._cost_edge_gate.enabled)
 
+        # Wire calibrated-K store when EDGE_USE_CALIBRATED_K=1.
+        # CostKReader auto-refreshes from Redis every 60 s — no restart needed.
+        # Fail-open: Redis unavailable → gate falls back to ENV-configured K.
+        if self._cost_edge_gate.use_calibrated_k:
+            try:
+                from core.cost_k_store import CostKReader
+                _redis = getattr(self, "redis", None)
+                if _redis is not None:
+                    self._cost_edge_gate.set_k_store(CostKReader(_redis))
+            except Exception:
+                pass  # fail-open: calibrated store is optional
+
         # Логирование veto (так как у utils.EdgeCostGate нет config.log_veto).
         # Поддерживаем два имени ENV:
         #   EDGE_COST_LOG_VETO=1/0 (предпочтительно)
@@ -198,8 +210,30 @@ class CryptoOrderFlowInitMixin:
         self._veto_consistency_total = 0
         self._veto_smt_total = 0
 
-        # Initialize confidence threshold filter (symbol-specific confidence gates)
-        self._confidence_threshold_filter = ConfidenceThresholdFilter.from_env()
+        # Initialize confidence threshold filter with optional adaptive calibrator.
+        # Calibrator reads reliability_calibrator Redis curves → inverts per-cluster
+        # empirical hit-rate to dynamic min_conf. enforce=False → shadow only until promoted.
+        _conf_cal = None
+        try:
+            from core.confidence_threshold_calibrator import ConfidenceThresholdCalibrator
+            from handlers.crypto_orderflow.config.handler_config import _get_sync_redis
+            _conf_cal = ConfidenceThresholdCalibrator(
+                redis_client=_get_sync_redis(),
+                enforce=os.getenv("CONF_CAL_ENFORCE", "0").lower() in {"1", "true", "yes"},
+                target_wr=float(os.getenv("CONF_CAL_TARGET_WR", "0.55")),
+                outcome=os.getenv("CONF_CAL_OUTCOME", "tp2"),
+                min_samples_above=int(os.getenv("CONF_CAL_MIN_SAMPLES", "50")),
+                cache_ttl_sec=float(os.getenv("CONF_CAL_CACHE_TTL_SEC", "60")),
+                conf_floor=float(os.getenv("CONF_CAL_FLOOR", "40.0")),
+                conf_ceil=float(os.getenv("CONF_CAL_CEIL", "90.0")),
+                abs_thresh=float(os.getenv("CONF_CAL_ABS_THRESH", "2.0")),
+                max_jump_abs=float(os.getenv("CONF_CAL_MAX_JUMP", "5.0")),
+                hold_sec=float(os.getenv("CONF_CAL_HOLD_SEC", "3600")),
+            )
+        except Exception:
+            pass
+        self._confidence_threshold_filter = ConfidenceThresholdFilter.from_env(calibrator=_conf_cal)
+        self._conf_cal = _conf_cal
 
         # --------------------------------------------------------------------
         # NEW: conditional trailing evaluator (publisher side).

@@ -6,7 +6,7 @@ import os
 import pytest
 
 _THIS_DIR = os.path.dirname(__file__)
-_DASHBOARD_JSON = os.path.abspath(os.path.join(_THIS_DIR, "..", "grafana", "derivatives_context_v1.json"))
+_DASHBOARD_JSON = os.path.abspath(os.path.join(_THIS_DIR, "../../..", "orderflow_services", "grafana", "derivatives_context_v1.json"))
 
 
 @pytest.mark.parametrize("tick_flow_full", [False, True])

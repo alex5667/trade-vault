@@ -869,20 +869,35 @@ class OrderFlowConfig:
     def from_env(cls, symbol: str, base: OrderFlowConfig | None = None) -> OrderFlowConfig:
         """
         Загружает конфигурацию из переменных окружения.
-        
-        Накладывает значения из env поверх `base` (если base не передан - 
+
+        Накладывает значения из env поверх `base` (если base не передан -
         поверх дефолтов dataclass).
-        
-        Использует префикс из символа (XAU, BTC, ETH и т.д.) для поиска env переменных.
-        Например, для XAUUSD будет искать XAU_DELTA_WINDOW, XAU_DELTA_Z_THRESHOLD и т.д.
-        
+
+        Префикс = symbol_env_prefix(symbol): BTC, ETH, SOL, XRP, BNB, XAU …
+        Для 1000* символов: 1000PEPEUSDT → PEPE, 1000SHIBUSDT → SHIB и т.д.
+
+        Параметры G1 Delta Trigger (ENV на уровне символа):
+          {PREFIX}_DELTA_WINDOW            int    окно тиков (default: per-symbol preset)
+          {PREFIX}_DELTA_Z_THRESHOLD       float  z-score порог (BTC=2.7, ETH=2.5 …)
+          {PREFIX}_DELTA_ABS_MIN           float  мин. абс. delta в монетах
+          {PREFIX}_DELTA_ABS_MIN_USD       float  мин. delta в USD (USD veto, G1)
+          {PREFIX}_DELTA_ABS_MIN_CONFIRM   float  мин. delta для confirmation
+
+        Примеры:
+          BTC_DELTA_Z_THRESHOLD=2.5   # понизить порог для BTC
+          ETH_DELTA_ABS_MIN_USD=3000  # USD veto для ETH
+          SOL_DELTA_WINDOW=60         # меньшее окно для SOL
+
+        ВНИМАНИЕ: переменная CRYPTO_OF_DELTA_Z_THRESHOLD не существует и
+        игнорируется — всегда используйте {PREFIX}_DELTA_Z_THRESHOLD.
+
         Для risk-параметров сначала ищет per-instrument переменные (BTC_STOP_MODE),
         затем глобальные (STOP_MODE), затем использует base.
-        
+
         Args:
             symbol: Символ инструмента (XAUUSD, BTCUSD, etc)
             base: Базовая конфигурация для overlay (опционально)
-            
+
         Returns:
             Экземпляр OrderFlowConfig с параметрами из env или defaults
         """

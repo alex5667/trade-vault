@@ -26,7 +26,6 @@ from typing import Any, Dict, List, Literal, Tuple, Union, Callable
 from utils.time_utils import get_ny_time_millis
 
 
-@functools.lru_cache(maxsize=1024)
 def _cached_getenv(k, d=None): return os.getenv(k, d)
 
 from common.decision_trace import Span, trace_gate
@@ -101,7 +100,6 @@ session_from_ts_ms = session_from_ts_ms  # re-export canonical implementation
 _EPOCH_MS_MIN = 1_000_000_000_000  # 10^12, ~2001-09-09 in ms. Anything below is suspicious.
 
 
-@functools.lru_cache(maxsize=1024)
 def _env_str(name: str, default: str) -> str:
     try:
         v = _cached_getenv(name, default)
@@ -149,7 +147,6 @@ import contextlib
 ExpectedMoveMode = Literal["tp1", "rr", "atr", "ev"]
 
 
-@functools.lru_cache(maxsize=1024)
 def _env_float(name: str, default: float) -> float:
     """Безопасное извлечение float из ENV."""
     try:
@@ -235,7 +232,6 @@ def _first_float(x: Any) -> float | None:
 
 
 
-@functools.lru_cache(maxsize=1024)
 def _env_bool(name: str, default: bool) -> bool:
     v = (_cached_getenv(name, "1" if default else "0") or "").strip().lower()
     return v in {"1", "true", "yes", "on"}
@@ -634,10 +630,12 @@ def _hget_ema(redis_client: Any, key: str, *, min_n: int) -> float | None:
         dd: Dict[str, str] = {}
         for k, v in dict(d).items():
             dd[_b2s(k)] = _b2s(v)
-        n = dd.get("samples") or dd.get("n" or 0)
+        n_raw = dd.get("samples") or dd.get("n") or 0
+        n = int(n_raw) if n_raw else 0
         if n < min_n:
             return None
-        ema = dd.get("ema_bps") or dd.get("ema_slippage_bps" or dd.get("ema") or 0.0)
+        ema_raw = dd.get("ema_bps") or dd.get("ema_slippage_bps") or dd.get("ema") or 0.0
+        ema = float(ema_raw) if ema_raw else 0.0
         if ema > 0 and math.isfinite(ema):
             return ema
     except Exception:
@@ -1100,6 +1098,19 @@ class EdgeCostGate:
     buffer_spread_mult: float = 0.0
     buffer_max_bps: float = 25.0
 
+    # Calibrated-K store (CostKStore) — wired via set_k_store() after construction
+    use_calibrated_k: bool = False
+    calibrated_k_max_age_ms: int = 3 * 3600 * 1000  # stale after 3h
+    _k_store: Any = None  # type: ignore[misc]  # CostKStore | None
+
+    def set_k_store(self, store: Any) -> None:
+        """Wire in a CostKStore for calibrated-K lookup.
+
+        Should be called once at startup after from_env(), e.g.:
+            gate.set_k_store(CostKStore.load(redis))
+        """
+        object.__setattr__(self, "_k_store", store)
+
     @classmethod
     def from_env(cls) -> EdgeCostGate:
         """Создание gate из переменных окружения."""
@@ -1185,6 +1196,10 @@ class EdgeCostGate:
         buffer_spread_mult = _env_float("EDGE_BUFFER_SPREAD_MULT", 0.1)
         buffer_max_bps = _env_float("EDGE_BUFFER_MAX_BPS", 25.0)
 
+        # Calibrated-K from CostKStore (auto-calibrator)
+        use_calibrated_k = _env_bool("EDGE_USE_CALIBRATED_K", False)
+        calibrated_k_max_age_ms = int(_env_float("EDGE_CALIBRATED_K_MAX_AGE_MS", 3 * 3600 * 1000))
+
         return cls(
             enabled=enabled,
             mode=mode,  # type: ignore[arg-type]
@@ -1207,23 +1222,75 @@ class EdgeCostGate:
             buffer_atr_mult=buffer_atr_mult,
             buffer_spread_mult=buffer_spread_mult,
             buffer_max_bps=buffer_max_bps,
+            use_calibrated_k=use_calibrated_k,
+            calibrated_k_max_age_ms=calibrated_k_max_age_ms,
         )
 
-    def _k_for(self, symbol: str) -> float:
-        """Получение K коэффициента для символа (с fallback на default)."""
+    def _k_for(self, symbol: str, regime: str | None = None) -> float:
+        """Получение K коэффициента для символа.
+
+        Priority: CostKStore calibrated (if fresh) → symbol ENV override → default.
+        """
         s = _norm_symbol(symbol)
+        if self.use_calibrated_k and self._k_store is not None:
+            try:
+                store_age = getattr(self._k_store, "age_ms", self.calibrated_k_max_age_ms + 1)
+                if store_age <= self.calibrated_k_max_age_ms:
+                    cal_k = self._k_store.get_k(s, regime, default=-1.0)
+                    if cal_k > 0:
+                        return cal_k
+            except Exception:
+                pass
         return self.k_by_symbol.get(s, self.k_default)
 
-    def _p_min_for_kind(self, kind: str) -> float:
+    def _p_min_for_kind(
+        self,
+        kind: str,
+        *,
+        symbol: str = "",
+        regime: str = "",
+    ) -> float:
         """
         Получение минимального порога вероятности для kind.
-        
-        Позволяет настраивать разные пороги для разных типов сигналов:
-        - breakout может требовать выше p (0.58)
-        - absorption может быть мягче (0.52)
+
+        Permission hierarchy (highest priority first):
+          1. PEdgeThresholdReader (per-symbol×regime×kind, when enabled and
+             AUTOCAL_P_EDGE_READ_ENABLED=1 and the snapshot is fresh).
+          2. EDGE_EV_P_MIN_<KIND> env override (`ev_p_min_by_kind`).
+          3. EDGE_EV_P_MIN default (`ev_p_min`).
+
+        The reader's `p_min_for` uses `static_floor` as a safety floor — the
+        gate's per-kind ENV value remains the *minimum* required cutoff even
+        when the calibrator has dropped τ lower in shadow.
         """
         k = (kind or "").strip().lower()
-        return self.ev_p_min_by_kind.get(k, self.ev_p_min)
+        static_floor = self.ev_p_min_by_kind.get(k, self.ev_p_min)
+
+        # Read-side adapter (None when disabled / Redis unavailable).
+        try:
+            from core.p_edge_threshold_reader import get_reader  # type: ignore[import-untyped]
+            reader = get_reader()
+        except Exception:  # boundary fail-open
+            reader = None
+
+        if reader is None:
+            return static_floor
+
+        try:
+            cal = reader.p_min_for(
+                symbol=symbol or "",
+                regime=regime or "",
+                kind=k,
+                default=static_floor,
+            )
+        except Exception:  # boundary fail-open
+            return static_floor
+
+        # Calibrator-tuned cutoff is honoured even when it sits *below* the
+        # static floor — operators can lower the floor in ENV to enable
+        # mining lower-p_edge regions, and the reader's `default` already
+        # encodes this floor (reader returns at minimum `static_floor`).
+        return float(cal)
 
     def _get_buffer_bps(self, ctx: Any, symbol: str) -> float:
         """
@@ -1875,9 +1942,38 @@ class EdgeCostGate:
         except Exception:
             pass
 
+        # P2 FIX (2026-05-17 audit): Cap K_eff to prevent runaway inflation during stress
+        # Three independent factors (drift, entry_policy, exec_health) can multiply to >2×
+        # This cap ensures threshold doesn't inflate beyond 2.5× baseline
+        _k_eff_cap_mult = _env_float("EDGE_EV_K_EFF_MAX_MULT", 2.5)
+        if k_eff > k * _k_eff_cap_mult:
+            k_eff = k * _k_eff_cap_mult
+
         # V2 threshold: include buffer_bps (default 0.0)
         buffer_bps = self._get_buffer_bps(ctx, symbol)
         thr = k_eff * (fees_bps + slip_bps + buffer_bps)
+
+        # P3 FIX (2026-05-17 audit): Enhanced observability for threshold components
+        # Track K multiplier inflation for dashboards & alerts
+        try:
+            _k_ratio = k_eff / k if k > 0 else 1.0
+            # Store for downstream trace/metrics collection
+            ctx._edge_cost_k_ratio = _k_ratio
+            ctx._edge_cost_threshold_bps = thr
+            # Alert if K inflation exceeds 1.8× (indicates systemic stress)
+            if _k_ratio > 1.8:
+                try:
+                    from prometheus_client import Counter
+                    _edge_cost_k_inflation_alert = Counter(
+                        "edge_cost_k_inflation_alert_total",
+                        "K multiplier inflation exceeds 1.8x during signal evaluation",
+                        ["symbol"]
+                    )
+                    _edge_cost_k_inflation_alert.labels(symbol=(symbol or "")).inc()
+                except Exception:
+                    pass
+        except Exception:
+            pass  # Observability errors don't block signal processing
 
         # ------------------------------------------------------------------
         # NEW RULE: TP1 Filter (Edge-Cost Gate Micro-R Reject)
@@ -1903,13 +1999,64 @@ class EdgeCostGate:
                 return d
 
         # -------------------------
+        # P1 FIX: SL Sanity Check (2026-05-17 audit)
+        # Validate SL is on correct side of entry to catch data corruption
+        # -------------------------
+        try:
+            _entry = _safe_float(
+                getattr(ctx, "entry_price", None)
+                or getattr(ctx, "entry", None)
+                or getattr(ctx, "price", None)
+                or (getattr(getattr(ctx, "of", None), "price", None) if getattr(ctx, "of", None) is not None else None)
+            )
+            _sl = _safe_float(getattr(ctx, "sl_price", None) or getattr(ctx, "sl", None))
+            _side_raw = getattr(ctx, "side", None) or getattr(ctx, "direction", None) or getattr(ctx, "dir", None) or ""
+
+            if _entry > 0 and math.isfinite(_sl) and _side_raw:
+                _side_u = str(_side_raw).strip().upper()
+                if _side_u in ("LONG", "BUY", "1") and _sl >= _entry:
+                    d = EdgeCostGateDecision(
+                        apply=True, veto=True, reason_code="VETO_INVALID_SL_LONG",
+                        expected_move_bps=float("nan"), threshold_bps=thr,
+                        fees_bps=fees_bps, slippage_bps=slip_bps,
+                        k=k_eff, mode=self.mode,
+                        notes=f"SL {_sl:.2f} must be < entry {_entry:.2f} for LONG",
+                        drift_factor=drift_factor,
+                        drift_score=drift_score,
+                        drift_feature=(drift_feat or ""),
+                    )
+                    trace_gate(ctx, stage="gates", name="edge_cost_gate", passed=False, veto=True,
+                               reason_code="VETO_INVALID_SL_LONG",
+                               metrics={"entry": _entry, "sl": _sl})
+                    return d
+                elif _side_u in ("SHORT", "SELL", "-1") and _sl <= _entry:
+                    d = EdgeCostGateDecision(
+                        apply=True, veto=True, reason_code="VETO_INVALID_SL_SHORT",
+                        expected_move_bps=float("nan"), threshold_bps=thr,
+                        fees_bps=fees_bps, slippage_bps=slip_bps,
+                        k=k_eff, mode=self.mode,
+                        notes=f"SL {_sl:.2f} must be > entry {_entry:.2f} for SHORT",
+                        drift_factor=drift_factor,
+                        drift_score=drift_score,
+                        drift_feature=(drift_feat or ""),
+                    )
+                    trace_gate(ctx, stage="gates", name="edge_cost_gate", passed=False, veto=True,
+                               reason_code="VETO_INVALID_SL_SHORT",
+                               metrics={"entry": _entry, "sl": _sl})
+                    return d
+        except Exception:
+            pass  # SL check is defensive; don't block signal on validation error
+
+        # -------------------------
         # EV gate (probability-aware)
         # -------------------------
         if self.mode == "ev":
             ev_bps, tp1_bps, stop_bps, p, n, src = self._ev_bps(ctx)
 
-            # Get per-kind p_min (allows different thresholds for different signal types)
-            p_min = self._p_min_for_kind(kind)
+            # Get per-(symbol × regime × kind) p_min — calibrator-tuned when
+            # AUTOCAL_P_EDGE_READ_ENABLED=1 and snapshot fresh, else static ENV.
+            _regime = str(getattr(ctx, "market_regime", "") or getattr(ctx, "regime", "") or "")
+            p_min = self._p_min_for_kind(kind, symbol=symbol or "", regime=_regime)
 
             # 1) stats missing/invalid
             if not math.isfinite(ev_bps) or not math.isfinite(p) or not math.isfinite(tp1_bps) or not math.isfinite(stop_bps):

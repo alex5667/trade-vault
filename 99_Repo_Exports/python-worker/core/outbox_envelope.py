@@ -8,7 +8,17 @@ from typing import Any
 
 from domain.evidence_keys import MetaKeys
 
-SCHEMA_VERSION = 1
+# Protocol version of the outbox envelope.
+# Bumped to 2 to match meta.payload_schema="outbox_envelope:v2" emitted by
+# services/outbox/envelope_builder.py. The on-wire shape did not change;
+# the bump activates dual-read defaults so v1 producers (still in-flight at
+# rollout time) remain accepted by SignalDispatcher without an env override.
+SCHEMA_VERSION = 2
+
+# Older protocol versions the dispatcher still accepts by default during the
+# v1→v2 migration window. Drop entries here once `dispatcher_schema_version_total
+# {schema_version="1"}` is stable at zero for ≥48h.
+LEGACY_SCHEMA_VERSIONS: tuple[int, ...] = (1,)
 
 @dataclass(frozen=True)
 class OutboxEnvelope:
@@ -22,6 +32,14 @@ class OutboxEnvelope:
     Обязательные поля: signal_id, ts_ms, kind, symbol.
     Опциональные с дефолтами: trace_id, source, ingest_time_ms, quality_flags.
     event_id генерируется автоматически через make_envelope() если не задан.
+
+    schema_version vs feature_schema_version:
+      schema_version          — envelope/protocol version (gated by dispatcher
+                                via ACCEPTED_SCHEMA_VERSIONS). NEVER set this
+                                from ML feature-set version.
+      feature_schema_version  — ML feature-set version (e.g. v13_of=13, v14_of=14).
+                                Propagated from confirmations_engine.build() for
+                                replay/audit, NOT for dispatcher gating.
     """
     signal_id: str
     ts_ms: int
@@ -40,9 +58,10 @@ class OutboxEnvelope:
     final_score: float | None = None
     confidence_pct: float | None = None
     payload: dict[str, Any] | None = None
-    # schema_version = meta_schema_version propagated from confirmations_engine.build().
-    # Default SCHEMA_VERSION keeps backward-compat when caller does not pass it.
+    # Protocol version — gated by dispatcher ACCEPTED_SCHEMA_VERSIONS.
     schema_version: int = SCHEMA_VERSION
+    # ML feature-set version (propagated, not gated). Default 0 means "unset".
+    feature_schema_version: int = 0
 
     @classmethod
     def make_envelope(cls, **kwargs) -> OutboxEnvelope:
@@ -56,13 +75,16 @@ class OutboxEnvelope:
             else:
                 kwargs["ingest_time_ms"] = int(time.time() * 1000)
 
-        # Accept meta_schema_version as an alias for schema_version so that
-        # confirmations_engine.build() can propagate the feature-set version
-        # without changing the field name on the envelope dataclass.
-        if "meta_schema_version" in kwargs and "schema_version" not in kwargs:
-            kwargs["schema_version"] = int(kwargs.pop(MetaKeys.SCHEMA_VERSION) or 1)
-        elif "meta_schema_version" in kwargs:
-            kwargs.pop(MetaKeys.SCHEMA_VERSION)  # discard duplicate
+        # Backward-compat: `meta_schema_version` is an ML feature-set version.
+        # Historically it was misrouted into protocol `schema_version`, which
+        # silently DLQ'd envelopes once ML schema diverged from 1 (e.g. v13_of=13).
+        # Now route it into `feature_schema_version` only; protocol stays at SCHEMA_VERSION.
+        if "meta_schema_version" in kwargs:
+            try:
+                fsv = int(kwargs.pop(MetaKeys.SCHEMA_VERSION) or 0)
+            except (TypeError, ValueError):
+                fsv = 0
+            kwargs.setdefault("feature_schema_version", fsv)
 
         return cls(**kwargs)
 
@@ -94,6 +116,8 @@ class OutboxEnvelope:
             "trace_id": trace_id,
             "quality_flags": json.dumps(self.quality_flags or [], separators=(",", ":")),
         }
+        if self.feature_schema_version:
+            d["feature_schema_version"] = int(self.feature_schema_version)
         if self.side is not None:
             d["side"] = self.side
         if self.raw_score is not None:

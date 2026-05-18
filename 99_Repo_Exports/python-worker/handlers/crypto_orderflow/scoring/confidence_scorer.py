@@ -136,16 +136,25 @@ def _crypto_conf_factor(
         )
     )
 
-    if main_z <= 1.0:
+    # Bounds for linear z→confidence mapping. Defaults preserve legacy [1.0, 4.0];
+    # ZMappingCalibrator may inject per-(symbol × regime × session) q60/q95 via ctx.
+    z_core_lo = _cfgf("z_core_lo", 1.0)
+    z_core_hi = _cfgf("z_core_hi", 4.0)
+    if z_core_hi <= z_core_lo:
+        z_core_lo, z_core_hi = 1.0, 4.0
+
+    if main_z <= z_core_lo:
         z_core = 0.0
-    elif main_z >= 4.0:
+    elif main_z >= z_core_hi:
         z_core = 1.0
     else:
-        z_core = (main_z - 1.0) / (4.0 - 1.0)
+        z_core = (main_z - z_core_lo) / (z_core_hi - z_core_lo)
     z_core = _clamp01(z_core)
 
     parts["main_z"] = main_z
     parts["z_core"] = z_core
+    parts["z_core_lo"] = z_core_lo
+    parts["z_core_hi"] = z_core_hi
 
     # -----------------------------
     # 3) OBI persistence
@@ -164,13 +173,21 @@ def _crypto_conf_factor(
         obi_persist_score = _clamp01((frac - 0.2) / (0.7 - 0.2))
     else:
         obi_z = float(abs(getattr(ctx, "obi_z", getattr(ctx, "obi_window_imbalance_z", 0.0)) or 0.0))
-        if obi_z <= 0.5:
+        # Bounds for OBI z→persistence mapping. Defaults preserve legacy [0.5, 2.5];
+        # ZMappingCalibrator may inject per-(symbol × regime × session) q60/q95 via ctx.
+        obi_z_lo = _cfgf("obi_z_lo", 0.5)
+        obi_z_hi = _cfgf("obi_z_hi", 2.5)
+        if obi_z_hi <= obi_z_lo:
+            obi_z_lo, obi_z_hi = 0.5, 2.5
+        if obi_z <= obi_z_lo:
             obi_persist_score = 0.0
-        elif obi_z >= 2.5:
+        elif obi_z >= obi_z_hi:
             obi_persist_score = 1.0
         else:
-            obi_persist_score = (obi_z - 0.5) / (2.5 - 0.5)
+            obi_persist_score = (obi_z - obi_z_lo) / (obi_z_hi - obi_z_lo)
         obi_persist_score = _clamp01(obi_persist_score)
+        parts["obi_z_lo"] = obi_z_lo
+        parts["obi_z_hi"] = obi_z_hi
 
     parts["obi_persist"] = obi_persist_score
 

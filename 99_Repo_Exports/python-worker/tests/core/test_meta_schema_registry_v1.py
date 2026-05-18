@@ -10,10 +10,10 @@ def test_registry_contains_known_schemas():
     assert META_FEAT_V3_NAME in META_SCHEMA_REGISTRY
 
     v1_info = META_SCHEMA_REGISTRY[META_FEAT_V1_NAME]
-    assert v1_info[1] == META_FEAT_V1_COLS
+    assert v1_info.cols == tuple(META_FEAT_V1_COLS)
 
     v3_info = META_SCHEMA_REGISTRY[META_FEAT_V3_NAME]
-    assert v3_info[1] == META_FEAT_V3_COLS
+    assert v3_info.cols == tuple(META_FEAT_V3_COLS)
 
 def test_get_schema_info():
     v1_ver, v1_cols, v1_hash = get_schema_info(META_FEAT_V1_NAME)

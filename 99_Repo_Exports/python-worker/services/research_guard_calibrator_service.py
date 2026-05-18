@@ -149,11 +149,25 @@ def _update_prometheus(result: ResearchGuardCalibResult) -> None:
 # ---------------------------------------------------------------------------
 
 def _hgetall(redis_client: Any, key: str) -> dict[str, str]:
+    """Load Redis key as HASH. Falls back to parsing as JSON STRING if HASH doesn't exist."""
     try:
         data = redis_client.hgetall(key)
-        return data if isinstance(data, dict) else {}
+        if isinstance(data, dict) and data:
+            return data
     except Exception:
-        return {}
+        pass
+
+    # Fallback: try to read as JSON string (for backward compatibility)
+    try:
+        raw = redis_client.get(key)
+        if raw:
+            parsed = json.loads(raw)
+            if isinstance(parsed, dict):
+                return {str(k): str(v) for k, v in parsed.items()}
+    except Exception:
+        pass
+
+    return {}
 
 
 def _load_nightly_report(redis_client: Any) -> NightlyReport:
@@ -166,30 +180,45 @@ def _load_nightly_report(redis_client: Any) -> NightlyReport:
     try:
         summary = _hgetall(redis_client, summary_key)
         if summary:
-            report.psr = float(summary.get("psr", 0.0) or 0.0)
-            report.dsr = float(summary.get("dsr", 0.0) or 0.0)
-            report.pbo = float(summary.get("pbo", 0.0) or 0.0)
-            report.ece = float(summary.get("ece", 0.0) or 0.0)
-            report.brier = float(summary.get("brier", 0.0) or 0.0)
-            ts_ms_raw = summary.get("updated_ts_ms") or summary.get("ts_ms") or "0"
-            ts_ms = int(float(ts_ms_raw) or 0)
-            report.report_ts = ts_ms // 1000 if ts_ms > 0 else 0
-            report.has_data = True
+            try:
+                report.psr = float(summary.get("psr", 0.0) or 0.0)
+                report.dsr = float(summary.get("dsr", 0.0) or 0.0)
+                report.pbo = float(summary.get("pbo", 0.0) or 0.0)
+                report.ece = float(summary.get("ece", 0.0) or 0.0)
+                report.brier = float(summary.get("brier", 0.0) or 0.0)
+                ts_ms_raw = summary.get("updated_ts_ms") or summary.get("ts_ms") or "0"
+                ts_ms = int(float(ts_ms_raw) or 0)
+                report.report_ts = ts_ms // 1000 if ts_ms > 0 else 0
+                report.has_data = True
+                logger.info("✓ Loaded summary metrics: PSR=%.3f DSR=%.3f PBO=%.3f ts_ms=%d",
+                           report.psr, report.dsr, report.pbo, ts_ms)
+            except Exception as e:
+                logger.warning("Failed to parse summary fields: %s", e)
 
         blocker = _hgetall(redis_client, blocker_key)
         if blocker:
-            report.blocker_active = int(float(blocker.get("blocker_active", "0") or "0")) > 0
-            if not report.has_data:
-                report.has_data = True
-            if report.report_ts == 0:
-                ts_ms_raw = blocker.get("updated_ts_ms", "0") or "0"
-                ts_ms = int(float(ts_ms_raw) or 0)
-                report.report_ts = ts_ms // 1000 if ts_ms > 0 else 0
+            try:
+                report.blocker_active = int(float(blocker.get("blocker_active", "0") or "0")) > 0
+                if not report.has_data:
+                    report.has_data = True
+                if report.report_ts == 0:
+                    ts_ms_raw = blocker.get("updated_ts_ms", "0") or "0"
+                    ts_ms = int(float(ts_ms_raw) or 0)
+                    report.report_ts = ts_ms // 1000 if ts_ms > 0 else 0
+                logger.info("✓ Loaded blocker state: active=%s ts_ms=%s",
+                           report.blocker_active, blocker.get("updated_ts_ms", "?"))
+            except Exception as e:
+                logger.warning("Failed to parse blocker fields: %s", e)
+        else:
+            logger.warning("⚠️ Blocker hash not found at %s", blocker_key)
 
         if report.report_ts > 0:
             report.report_age_sec = max(0.0, time.time() - report.report_ts)
         elif report.has_data:
             report.report_age_sec = 0.0
+
+        if not report.has_data:
+            logger.warning("⚠️ No nightly report data found in Redis")
 
     except Exception as e:
         logger.warning("Failed to load nightly report: %s", e)
@@ -484,6 +513,11 @@ def run_research_guard_calibration(
     # Load latest nightly report
     report = _load_nightly_report(r)
 
+    logger.info(
+        "Loaded nightly report: has_data=%s, age_sec=%.0f, PSR=%.3f, DSR=%.3f, PBO=%.3f",
+        report.has_data, report.report_age_sec, report.psr, report.dsr, report.pbo
+    )
+
     # Evaluate
     result = evaluate_research_guard(
         report,
@@ -503,13 +537,16 @@ def run_research_guard_calibration(
     run_id = _generate_run_id()
 
     logger.info(
-        "RG Calibrator: mode=%s→%s, recommend=%s, PSR=%.3f, DSR=%.3f, PBO=%.3f, ECE=%.3f, Brier=%.3f, "
-        "streak=%d/%d, age=%.0fs",
+        "RG Calibrator EVAL: mode=%s→%s, recommend=%s, PSR=%.3f/%.3f, DSR=%.3f/%.3f, PBO=%.3f/%.3f, ECE=%.3f/%.3f, "
+        "proof=%d/%d, rollback=%d/%d, age=%.0fs, data_sufficient=%s, failing=%s",
         prev_mode, result.effective_mode, result.recommend,
-        result.latest_psr, result.latest_dsr, result.latest_pbo,
-        result.latest_ece, result.latest_brier,
+        result.latest_psr, psr_min, result.latest_dsr, dsr_min,
+        result.latest_pbo, pbo_max, result.latest_ece, ece_max,
         result.proof_streak, proof_streak_required,
+        result.rollback_streak, rollback_streak_required,
         result.latest_report_age_sec,
+        result.data_sufficient,
+        ", ".join(result.failing_metrics) if result.failing_metrics else "none",
     )
 
     # Apply mode changes

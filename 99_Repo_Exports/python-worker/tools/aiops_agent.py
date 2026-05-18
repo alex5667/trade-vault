@@ -52,8 +52,8 @@ QUERIES: dict[str, str] = {
     "decision_n_24h":    'sum(signal_quality_n_24h) or vector(0)',
 
     # 2. Observability Health ────────────────────────────────────────────────
-    "prom_bundle_ok":    'of_prom_rules_bundle_last_ok',
-    "prom_bundle_errs":  'of_prom_rules_bundle_last_error_n',
+    "prom_bundle_ok":    'max(of_prom_rules_bundle_last_ok)',
+    "prom_bundle_errs":  'max(of_prom_rules_bundle_last_error_n)',
     "prom_rules_miss":   'max(rules_files_missing)',
     "exec_slo_stale":    'max(exec_health_slo_stale_instances_total)',
 

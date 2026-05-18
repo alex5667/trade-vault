@@ -488,14 +488,18 @@ class CryptoOrderflowService:
             orders_queue_binance=self.orders_queue_binance,
         )
 
-        # Start metrics server — respects PROMETHEUS_PORT env var (fallback: METRICS_PORT, then 8000)
-        port = None
-        try:
-            port = int(os.getenv("PROMETHEUS_PORT") or os.getenv("METRICS_PORT") or "8000")
-            start_http_server(port)
-            logger.info("✅ Metrics server started on port %d", port)
-        except Exception as e:
-            logger.error("❌ Failed to start metrics server on port %s: %s", port, e)
+        # Start metrics server only when not already started by the parent process (main.py).
+        # When run standalone (docker-compose-crypto-orderflow), there is no parent, so we start it.
+        if not os.getenv("PROMETHEUS_HTTP_SERVER_STARTED"):
+            port = None
+            try:
+                port = int(os.getenv("PROMETHEUS_PORT") or os.getenv("METRICS_PORT") or "8000")
+                start_http_server(port)
+                logger.info("✅ Metrics server started on port %d", port)
+            except Exception as e:
+                logger.error("❌ Failed to start metrics server on port %s: %s", port, e)
+        else:
+            logger.info("ℹ️ Metrics server already started by parent process, skipping")
 
         # Initial ML config/model load (async) before blocking fast-path
         # Must run BEFORE load_dynamic_symbols so that backlog ticks don't hit ERR_NO_CFG

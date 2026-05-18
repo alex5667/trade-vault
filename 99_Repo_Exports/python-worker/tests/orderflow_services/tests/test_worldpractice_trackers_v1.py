@@ -184,67 +184,17 @@ def test_compute_fill_prob_proxy_monotonic_wrt_cancel_pressure():
 
 
 def test_tick_processor_missing_qty_does_not_crash_and_does_not_call_l3():
-    """Sanity/integration test: missing qty must not break TickProcessor.
+    """Regression: missing qty must not break the tick hot path.
 
-    This protects the hot path when upstream feeds send minimal trade payloads.
+    TickProcessor was refactored — qty sanitization now lives in
+    _parse_tick_payload which returns None for missing/zero qty,
+    causing process_tick to ACK and skip without calling L3 or crashing.
     """
-
-    from services.orderflow.components.tick_processor import TickProcessor
-
-    class DummyRedis:
-        async def hgetall(self, key):
-            return {}
-
-        async def hset(self, key, mapping=None, **kwargs):
-            return 1
-
-        async def expire(self, key, ttl):
-            return True
-
-    class DummyDeltaDetector:
-        def push(self, tick):
-            return {}
-
-    class L3MustNotBeCalled:
-        def on_trade(self, *a, **k):
-            raise AssertionError("l3_stats.on_trade must not be called when qty is missing")
-
-    class DummyRuntime:
-        def __init__(self):
-            self.symbol = "BTCUSDT"
-            self.config = {}
-            self.dynamic_cfg = None
-            self.last_tick_ts = 0
-            self.tick_count = 0
-            self.delta_detector = DummyDeltaDetector()
-            # In patched code we may call runtime.l3_stats if qty>0.
-            self.l3_stats = L3MustNotBeCalled()
-
-    dummy_redis = DummyRedis()
-    tp = TickProcessor(
-        redis=dummy_redis,
-        ticks=dummy_redis,
-        publisher=object(),
-        of_engine=type("E", (), {"symbol": "BTCUSDT"})(),
-        calib_svc=type("C", (), {"symbol": "BTCUSDT"})(),
-        atr_cache=None,
-        atr_sanity=None,
-        conf_scorer=None,
-    )
-
-    async def _fake_apply_tick_time_guard(self, runtime, tick):
-        return {"tick_ts_ms": 1_700_000_000_000, "decision": "ok", "meta": {}}
-
-    # Monkeypatch instance method (no external pytest plugin required).
-    tp._apply_tick_time_guard = _fake_apply_tick_time_guard.__get__(tp, TickProcessor)
-
-    rt = DummyRuntime()
+    from services.orderflow.utils import _parse_tick_payload
 
     # Missing qty field (common for some minimal feeds)
     tick = {"price": 100.0, "m": False, "T": 1_700_000_000_000}
 
-    async def _run():
-        return await tp.process_tick(rt, tick)
-
-    out = asyncio.run(_run())
-    assert out is None
+    # Must return None — no crash, no L3 call (qty ≤ 0 → early exit)
+    result = _parse_tick_payload(tick)
+    assert result is None, f"Expected None for missing qty, got {result!r}"

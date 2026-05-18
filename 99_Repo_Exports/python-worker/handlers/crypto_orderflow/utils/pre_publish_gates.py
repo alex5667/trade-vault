@@ -21,6 +21,8 @@ from domain.time_utils import normalize_ts_ms, session_from_ts_ms
 from handlers.crypto_orderflow.utils.drift_reader import load_drift_active_factor
 from services.atr_horizon_canary import should_enforce_horizon_gate
 from services.atr_horizon_shadow_gate import compute_horizon_dq_shadow
+from core.smt_coherence_calibrator import SmtCoherenceCalibrator
+from core.smt_coh_isotonic_calibrator import SmtCohIsotonicCalibrator
 
 
 @functools.lru_cache(maxsize=1024)
@@ -313,7 +315,22 @@ class RegimeSessionGate:
         drift_feat = ""
         if rs_drift_tighten:
             try:
+                # drift_reader does sync hgetall(); use sync client (ctx.redis may be async aioredis).
                 redis_client = getattr(ctx, "redis", None) or getattr(ctx, "_redis", None)
+                if redis_client is not None:
+                    import inspect as _insp
+                    if _insp.iscoroutinefunction(getattr(redis_client, "get", None)):
+                        try:
+                            from handlers.crypto_orderflow.config.handler_config import _get_sync_redis
+                            redis_client = _get_sync_redis()
+                        except Exception:
+                            redis_client = None
+                else:
+                    try:
+                        from handlers.crypto_orderflow.config.handler_config import _get_sync_redis
+                        redis_client = _get_sync_redis()
+                    except Exception:
+                        redis_client = None
                 tsm = normalize_ts_ms(getattr(ctx, "ts_ms", None) or getattr(ctx, "ts", None) or 0)
                 if tsm > 0:
                     sess = str(getattr(ctx, "session", None) or session_from_ts_ms(tsm) or "na")
@@ -527,6 +544,16 @@ class SmtCoherenceGate:
         self.diag_enabled = diag_enabled
         self.diag_maxlen = max(1000, diag_maxlen)
 
+        # Phase 1: P²-streaming q80 calibrator (no outcome data required)
+        self._coh_cal = SmtCoherenceCalibrator()
+        # Phase 2: isotonic calibration on realized outcomes (requires Redis + outcome data)
+        self._coh_iso: SmtCohIsotonicCalibrator | None = None
+        # Persistence throttle for _coh_cal state.
+        _snap_sec = int(os.getenv("AUTOCAL_SNAP_INTERVAL_SEC", "60") or "60")
+        self._coh_cal_snap_interval_ms: int = _snap_sec * 1000
+        self._coh_cal_last_snap_ms: int = 0
+        self._coh_cal_loaded: bool = False
+
     @classmethod
     def from_env(cls) -> SmtCoherenceGate:
         def _i(name: str, d: int) -> int:
@@ -585,6 +612,58 @@ class SmtCoherenceGate:
         if not dd:
             return None
         return dd
+
+    def _sync_redis_for_cal(self, redis_client: Any) -> Any:
+        """Return a sync Redis client for calibrator persist/restore.
+
+        Prefers redis_client if sync (tests); falls back to _get_sync_redis() when
+        redis_client is async aioredis (prod) or None.
+        """
+        if redis_client is not None:
+            import inspect
+            if not inspect.iscoroutinefunction(getattr(redis_client, "get", None)):
+                return redis_client
+        try:
+            from handlers.crypto_orderflow.config.handler_config import _get_sync_redis
+            return _get_sync_redis()
+        except Exception:
+            return None
+
+    def _load_coh_cal_from_redis(self, redis_client: Any) -> None:
+        """Warm-start _coh_cal from Redis HGETALL (best-effort, once)."""
+        import json as _json
+        from core.redis_keys import RK
+        self._coh_cal_loaded = True
+        rc = self._sync_redis_for_cal(redis_client)
+        if rc is None:
+            return
+        try:
+            raw_map = rc.hgetall(RK.AUTOCAL_SMT_COHERENCE)
+            if not raw_map:
+                return
+            for v in raw_map.values():
+                s = v.decode("utf-8", "ignore") if isinstance(v, (bytes, bytearray)) else v
+                self._coh_cal.load_regime_state(_json.loads(s))
+        except Exception:
+            pass
+
+    def _snap_coh_cal_to_redis(self, redis_client: Any, now_ms: int) -> None:
+        """Throttled snapshot of _coh_cal to Redis HSET (best-effort)."""
+        import json as _json
+        from core.redis_keys import RK
+        self._coh_cal_last_snap_ms = now_ms
+        rc = self._sync_redis_for_cal(redis_client)
+        if rc is None:
+            return
+        try:
+            for regime_key in list(self._coh_cal._n.keys()):
+                sym_part = regime_key.split(":")[0].upper()
+                state = self._coh_cal.dump_regime_state(
+                    symbol=sym_part, regime=regime_key, updated_ts_ms=now_ms,
+                )
+                rc.hset(RK.AUTOCAL_SMT_COHERENCE, regime_key, _json.dumps(state))
+        except Exception:
+            pass
 
     def _diag(self, redis_client: Any, *, fields: dict[str, str]) -> None:
         if not self.diag_enabled or not self.diag_stream:
@@ -646,8 +725,30 @@ class SmtCoherenceGate:
         if self.mode == "observe":
             return _make_res("ALLOW", "OK", {"msg": "observe_only", "countertrend": countertrend})
 
-        if countertrend and leader_confirm == 1 and coh >= self.coh_min:
-            return _make_res("DENY", "VETO_SMT_COUNTERTREND", {"leader_dir": leader_dir, "coh": coh})
+        # Phase 1: P²-streaming q80 calibrator (no outcome data required)
+        regime_key = f"{symbol.lower()}:smt"
+        if not self._coh_cal_loaded and redis_client is not None:
+            self._load_coh_cal_from_redis(redis_client)
+        if countertrend and leader_confirm == 1:
+            self._coh_cal.observe(regime=regime_key, coh=coh)
+        _coh_th_p1 = self._coh_cal.thresholds(
+            regime=regime_key, default_coh_min=self.coh_min
+        )
+        if redis_client is not None and ts_dec_ms > 0:
+            if (ts_dec_ms - self._coh_cal_last_snap_ms) >= self._coh_cal_snap_interval_ms:
+                self._snap_coh_cal_to_redis(redis_client, ts_dec_ms)
+
+        # Phase 2: isotonic calibration on realized outcomes (Redis-backed, lazy init)
+        if self._coh_iso is None:
+            self._coh_iso = SmtCohIsotonicCalibrator(redis_client=redis_client)
+        _coh_th_p2 = self._coh_iso.thresholds(
+            symbol=symbol, regime=regime_key, default_coh_min=_coh_th_p1.coh_min
+        )
+        # Use Phase 2 when warm+enforce, otherwise fall back to Phase 1
+        _coh_th = _coh_th_p2 if _coh_th_p2.src == "isotonic_calib" else _coh_th_p1
+
+        if countertrend and leader_confirm == 1 and coh >= _coh_th.coh_min:
+            return _make_res("DENY", "VETO_SMT_COUNTERTREND", {"leader_dir": leader_dir, "coh": coh, "coh_min_src": _coh_th.src})
 
         return _make_res("ALLOW", "OK")
 

@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from typing import Any
 
 import redis.asyncio as aioredis  # type: ignore
+from prometheus_client import Counter, Gauge, Histogram
 
 from common.log import setup_logger
 from core.entry_policy_freeze import EntryPolicyFreezeV1
@@ -15,6 +16,29 @@ from core.redis_keys import RedisStreams as RS
 from utils.time_utils import get_ny_time_millis
 
 log = setup_logger("EntryPolicyLcbGuard")
+
+# P2: Prometheus metrics for unfreeze monitoring
+_UNFREEZE_ATTEMPTS = Counter(
+    "lcb_guard_unfreeze_attempts_total",
+    "Total unfreeze attempt evaluations",
+    ["symbol", "scenario", "result"]  # result: good_lcb, streak_advanced, unfrozen
+)
+_ACTIVE_FREEZES = Gauge(
+    "lcb_guard_active_freezes",
+    "Current number of active entry policy freezes being monitored",
+    ["symbol", "scenario"]
+)
+_TIME_TO_UNFREEZE_SECONDS = Histogram(
+    "lcb_guard_time_to_unfreeze_seconds",
+    "Time from freeze creation to unfreeze in seconds",
+    ["symbol", "scenario"],
+    buckets=(60, 300, 900, 1800, 3600, 7200, 14400, 28800)  # 1m, 5m, 15m, 30m, 1h, 2h, 4h, 8h
+)
+_STREAK_PROGRESS = Gauge(
+    "lcb_guard_streak_current",
+    "Current streak count (consecutive good trades toward unfreeze)",
+    ["symbol", "scenario", "regime"]
+)
 
 def _now_ms() -> int:
     return get_ny_time_millis()
@@ -136,6 +160,9 @@ class EntryPolicyLcbGuardService:
         if not fz or not fz.is_active():
             return
 
+        # P2: Track active freeze for observability
+        _ACTIVE_FREEZES.labels(symbol=sym, scenario=scenario).inc()
+
         # Unfreeze ONLY for shadow-frozen regimes (where Arm A was allowed to provide evidence)
         if fz.mode != "shadow":
             return
@@ -155,9 +182,13 @@ class EntryPolicyLcbGuardService:
             streak += 1
             await self.r.hset(f"{self.stats_prefix}:{stats_key}", "streak", streak)
             log.info(f"📈 [{sym}:{scenario}] Streak: {streak}/{self.cfg.streak_required} (LCB={lcb:.3f})")
+            # P2: Metric: good LCB
+            _UNFREEZE_ATTEMPTS.labels(symbol=sym, scenario=scenario, result="good_lcb").inc()
+            _STREAK_PROGRESS.labels(symbol=sym, scenario=scenario, regime=regime).set(streak)
         else:
             streak = 0
             await self.r.hset(f"{self.stats_prefix}:{stats_key}", "streak", 0)
+            _STREAK_PROGRESS.labels(symbol=sym, scenario=scenario, regime=regime).set(0)
 
         # 5) UNFREEZE if proof reached
         if streak >= self.cfg.streak_required:
@@ -165,6 +196,13 @@ class EntryPolicyLcbGuardService:
             await self.r.delete(freeze_key)
             # Reset streak after unfreeze
             await self.r.hset(f"{self.stats_prefix}:{stats_key}", "streak", 0)
+
+            # P2: Metric: successful unfreeze + time-to-unfreeze
+            _UNFREEZE_ATTEMPTS.labels(symbol=sym, scenario=scenario, result="unfrozen").inc()
+            _ACTIVE_FREEZES.labels(symbol=sym, scenario=scenario).dec()
+            time_to_unfreeze = (now - fz.created_ts_ms) / 1000.0  # convert to seconds
+            _TIME_TO_UNFREEZE_SECONDS.labels(symbol=sym, scenario=scenario).observe(time_to_unfreeze)
+            _STREAK_PROGRESS.labels(symbol=sym, scenario=scenario, regime=regime).set(0)
 
             # Emit audit event for unfreeze?
             audit_payload = {
@@ -177,7 +215,7 @@ class EntryPolicyLcbGuardService:
                 "n": n,
                 "mean": mean,
                 "std": std,
-                "notes": f"Automatic unfreeze by LCB Guard. Mean R: {mean:.2f}"
+                "notes": f"Automatic unfreeze by LCB Guard. Mean R: {mean:.2f} Time-to-unfreeze: {time_to_unfreeze:.0f}s"
             }
             await self.r.xadd(RS.ENTRY_AUDIT, {"data": json.dumps(audit_payload)}, maxlen=10000, approximate=True)
 
@@ -227,7 +265,8 @@ class EntryPolicyLcbGuardService:
                                         payload[k] = json.loads(v)
                                     else:
                                         payload[k] = v
-                                except Exception:
+                                except Exception as e:
+                                    log.warning(f"JSON parse failed for field {k}: {type(e).__name__} | fallback to string | value_start={str(v)[:80]}")
                                     payload[k] = v
 
                             await self._process_event(event_type, payload)

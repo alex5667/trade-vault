@@ -143,6 +143,22 @@ deriv_ctx_market_breadth_ret = _get_or_create(
     buckets=(-0.1, -0.05, -0.02, -0.01, 0, 0.01, 0.02, 0.05, 0.1),
 )
 
+# G6: SMT leader confirmation context
+deriv_ctx_leader_btc_eth_confirm = _get_or_create(
+    "deriv_ctx_leader_btc_eth_confirm",
+    Histogram,
+    "BTC/ETH leader confirmation signal (avg of 24h returns)",
+    labelnames=("symbol",),
+    buckets=(-0.15, -0.10, -0.05, -0.02, 0, 0.02, 0.05, 0.10, 0.15),
+)
+
+deriv_ctx_leader_confirm_missing_total = _get_or_create(
+    "deriv_ctx_leader_confirm_missing_total",
+    Counter,
+    "G6 leader confirmation missing from runtime:breadth (stale or collector down)",
+    labelnames=("symbol",),
+)
+
 liq_ctx_worker_up = _get_or_create(
     "liq_ctx_worker_up",
     Gauge,

@@ -17,6 +17,7 @@ import asyncio
 import json
 import logging
 import os
+import random
 from collections import deque
 from dataclasses import dataclass, field
 from typing import Any, Literal
@@ -24,6 +25,8 @@ from typing import Any, Literal
 from core.thresh_stability import ThresholdStabilityTracker
 from core.atr_sanity_guard import RangeTfAggregator
 from core.pressure_tier_calibrator import PressureTierCalibrator
+from core.z_mapping_calibrator import ZMappingCalibrator
+from core.liquidity_signal_calibrator import LiquiditySignalCalibrator
 
 from utils.time_utils import get_ny_time_millis
 from handlers.crypto_orderflow.components.liquidity import CryptoLiquidity
@@ -478,6 +481,8 @@ class SymbolRuntime:
     _atr_bps_last_persist_ts_ms: int = 0
     _calib_last_persist_ts_ms: int = 0
     _dn_last_persist_ts_ms: int = 0
+    _z_mapping_last_persist_ts_ms: int = 0
+    _liq_signal_last_persist_ts_ms: int = 0
 
     # Phase D: Calibration loading status
     _calib_loaded: bool = False
@@ -486,6 +491,7 @@ class SymbolRuntime:
     _atr_bps_loaded: bool = False
     _atr_sanity_loaded: bool = False
     _atr_tf_loaded: bool = False
+    _z_mapping_loaded: bool = False
 
     # Microstructure V4 internal state
     _ms_v4_prev_book_ts_ms: int = 0
@@ -521,6 +527,12 @@ class SymbolRuntime:
     # Pressure Tier Calibrator (Expert Recommendation - Production Ready)
     # Adaptive DN threshold calibration with regime-awareness and hysteresis
     ptier_calib: PressureTierCalibrator = field(init=False)  # PressureTierCalibrator instance
+
+    # Z-Mapping Calibrator — adaptive (lo, hi) bounds for z→confidence linear mapping
+    z_mapping_calib: ZMappingCalibrator = field(init=False)
+
+    # Liquidity Signal Calibrator — per-symbol q50 of depth_usd → notional_thr, spread_bps → cluster_bps
+    liq_signal_calib: LiquiditySignalCalibrator = field(init=False)
 
     tick_buffer: deque[dict[str, Any]] = field(init=False)
     # Raw (full) book dict from Redis stream (fail-open compatibility for detectors)
@@ -600,6 +612,8 @@ class SymbolRuntime:
     book_integrity: StreamIntegrityTracker = field(init=False)
     # NEW: lock for burst/flush race protection
     burst_mu: asyncio.Lock = field(default_factory=asyncio.Lock)
+    # P3: lock for pending_payload (protected across main task + flusher task)
+    pending_mu: asyncio.Lock = field(default_factory=asyncio.Lock)
     # Monotonic tick time tracking (canonical for tick_processor)
     last_tick_ts_ms: int = 0
     last_tick_ts: int = 0
@@ -624,6 +638,9 @@ class SymbolRuntime:
     tick_uid_ring: deque[str] = field(default_factory=lambda: deque(maxlen=4096), repr=False)
     tick_uid_set: set[str] = field(default_factory=set, repr=False)
     burst_cal: BurstCalibrator = field(init=False)
+    # P2: Burst calibrator state (adaptive window/max_age tuning every minute)
+    last_burst_calib_ts_ms: int = 0
+    burst_calib_interval_ms: int = 60_000  # Recalibrate every 60s
     # простая телеметрия
     tick_count: int = 0
     heartbeat_counter: int = 0
@@ -940,6 +957,36 @@ class SymbolRuntime:
     async def ensure_atr_bps_loaded(self, r) -> None:
         pass
 
+    async def ensure_z_mapping_loaded(self, r) -> None:
+        """Warm-start z_mapping_calib from Redis snapshot (one-shot)."""
+        if self._z_mapping_loaded:
+            return
+        self._z_mapping_loaded = True
+        import json
+        try:
+            raw = await r.get(f"calib:z_mapping:{self.symbol.upper()}")
+            if raw:
+                state = json.loads(raw)
+                self.z_mapping_calib.load_state(state)
+        except Exception:
+            pass
+
+    async def ensure_liq_signal_loaded(self, r) -> None:
+        """Warm-start liq_signal_calib from Redis snapshot (one-shot)."""
+        if self._liq_signal_loaded:
+            return
+        self._liq_signal_loaded = True
+        import json
+        try:
+            for sym_key in (self.symbol.upper(), self.symbol.lower()):
+                raw = await r.get(f"calib:liq_signal:{sym_key}")
+                if raw:
+                    state = json.loads(raw)
+                    self.liq_signal_calib.load_symbol_state(state)
+                    break
+        except Exception:
+            pass
+
     async def ensure_atr_sanity_loaded(self, r) -> None:
         pass
 
@@ -1124,8 +1171,9 @@ class SymbolRuntime:
         # ATR TF calibration (per regime)
         # ATR TF Calibrator (per regime)
         # ATR TF selector (service-level; deterministic inputs come from bar_close)
+        # min_samples: need ~100+ for stable P² median (not <30 which is too noisy)
         self.atr_tf_calib = AtrTfSanityCalibrator(
-            min_samples=int(os.getenv("ATR_TF_CALIB_MIN_SAMPLES", "300")),
+            min_samples=int(os.getenv("ATR_TF_CALIB_MIN_SAMPLES", "100")),
             switch_margin=float(os.getenv("ATR_TF_CALIB_SWITCH_MARGIN", "0.08")),
             hold_ms=int(os.getenv("ATR_TF_CALIB_HOLD_MS", "600000")),
         )
@@ -1159,6 +1207,29 @@ class SymbolRuntime:
             hold_ms=int(self.config.get("ptier_hold_ms", 60_000)),
             max_jump_mult=float(self.config.get("ptier_max_jump_mult", 2.0)),
         )
+
+        # Z-Mapping Calibrator — adaptive q60/q95 bounds for z→confidence mapping
+        self.z_mapping_calib = ZMappingCalibrator(
+            q_lo=float(self.config.get("z_mapping_q_lo", 0.60)),
+            q_hi=float(self.config.get("z_mapping_q_hi", 0.95)),
+            window=int(self.config.get("z_mapping_window", 2000)),
+            min_samples=int(self.config.get("z_mapping_min_samples", 300)),
+            recompute_gap_ms=int(self.config.get("z_mapping_recompute_gap_ms", 10_000)),
+            hold_ms=int(self.config.get("z_mapping_hold_ms", 60_000)),
+            max_jump_mult=float(self.config.get("z_mapping_max_jump_mult", 2.0)),
+            enforce=bool(int(self.config.get("z_mapping_enforce", 1))),
+        )
+        self._z_mapping_loaded = False
+        self._z_mapping_last_persist_ts_ms = 0
+
+        # Liquidity Signal Calibrator — adaptive notional_thr + cluster_bps from live depth/spread
+        self.liq_signal_calib = LiquiditySignalCalibrator(
+            min_samples=int(self.config.get("liq_calib_min_samples", 500)),
+            enforce=False,
+            auto_enforce=True,
+        )
+        self._liq_signal_loaded = False
+        self._liq_signal_last_persist_ts_ms = 0
 
         # Delta Notional Calibrator (Classic/Legacy) - required for ensure_calibration_loaded
         self.dn_calib = DeltaNotionalCalibrator(
@@ -1923,6 +1994,61 @@ class SymbolRuntime:
         except Exception:
             if not hasattr(self, "fp_edge"):
                 self.fp_edge = FPEdgeAbsorbDetector()
+
+    def maybe_recalibrate_burst(self, now_ms: int) -> None:
+        """P2: Periodically recalibrate burst window/max_age based on pressure metrics.
+
+        Adapts burst aggregation window to market conditions:
+        - High pressure (100+ candidates/min) → shrink window (faster emission)
+        - Sparse ticks (infrequent arrivals) → adapt window to tick frequency
+        - Updates every 60 seconds (configurable via burst_calib_interval_ms)
+        """
+        if not hasattr(self, "burst_cal") or not hasattr(self, "burst"):
+            return
+
+        # Check if calibration interval has elapsed
+        if now_ms - self.last_burst_calib_ts_ms < self.burst_calib_interval_ms:
+            return
+
+        self.last_burst_calib_ts_ms = now_ms
+
+        # Get pressure metrics
+        if hasattr(self, "pressure"):
+            snap = self.pressure.snapshot(now_ms=now_ms)
+            cand_per_min = snap.per_min_ema
+        else:
+            cand_per_min = 0.0
+
+        # Get tick gap metrics
+        gap_p50_ms = float(self.tick_gap_p50_ms or 0.0)
+
+        # Compute recommended window and max_age
+        try:
+            new_window_ms, new_max_age_ms = self.burst_cal.compute(
+                gap_p50_ms=gap_p50_ms,
+                cand_per_min=cand_per_min,
+            )
+
+            # Update burst selector with new parameters (only if burst is inactive to avoid mid-burst changes)
+            if not getattr(self.burst.st, "active", False):
+                self.burst.window_ms = new_window_ms
+                self.burst.max_age_ms = new_max_age_ms
+
+                # Log recalibration (sampled to avoid spam)
+                if random.random() < 0.01:  # ~1% of calls
+                    import logging
+                    logger = logging.getLogger("burst_calibrator")
+                    logger.info(
+                        "📊 (%s) Burst recalibrated: window=%dms max_age=%dms "
+                        "(cand_per_min=%.1f gap_p50=%.0fms)",
+                        self.symbol, new_window_ms, new_max_age_ms, cand_per_min, gap_p50_ms,
+                    )
+        except Exception as e:
+            # Fail-open: keep existing window
+            if random.random() < 0.001:
+                import logging
+                logger = logging.getLogger("burst_calibrator")
+                logger.debug("Burst calibration error (%s): %s", self.symbol, e)
 
 
 # ──────────────────────────────────────────────────────────────────────────────

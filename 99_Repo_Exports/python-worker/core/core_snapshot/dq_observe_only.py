@@ -134,7 +134,9 @@ def apply_observe_only_book_veto(
         observe_only_sec = 0
 
     if not enabled:
-        return ObserveOnlyDecision(dq_veto=0, suppressed=True, suppress_reason="book_veto_disabled")
+        has_key = cfg is not None and isinstance(cfg, Mapping) and "dq_book_veto_enabled" in cfg
+        reason = "book_veto_disabled" if has_key else "disabled"
+        return ObserveOnlyDecision(dq_veto=0, suppressed=True, suppress_reason=reason)
 
     # uptime_sec must be monotonic-proc-time (caller responsibility).
     if float(uptime_sec) < float(observe_only_sec):

@@ -571,6 +571,11 @@ book_rate_ema_gauge = _get_or_create_prom_gauge("book_rate_ema_hz", "Per-symbol 
 book_rate_z_gauge = _get_or_create_prom_gauge("book_rate_z", "Per-symbol book update rate robust z", ["symbol"])
 book_stale_ms_gauge = _get_or_create_prom_gauge("book_stale_ms", "Per-symbol book staleness vs tick ts (ms)", ["symbol"])
 
+# G4 Data Health metrics
+spread_bps_gauge = _get_or_create_prom_gauge("spread_bps_current", "Per-symbol current bid-ask spread (bps)", ["symbol"])
+data_health_score_gauge = _get_or_create_prom_gauge("data_health_score", "Per-symbol G4 data health score (0..1)", ["symbol"])
+data_health_shadow_only_gauge = _get_or_create_prom_gauge("data_health_shadow_only", "Per-symbol shadow-only mode active (0/1)", ["symbol"])
+
 # ATR Sanity & Floors metrics
 atr_sanity_stale_total = _get_or_create_prom_counter("atr_sanity_stale_total", "Count of stale ATR reads", ["symbol"])
 atr_sanity_missing_total = _get_or_create_prom_counter("atr_sanity_missing_total", "Count of missing ATR reads", ["symbol"])
@@ -757,6 +762,23 @@ ptier_tier0_usd = _get_or_create_prom_gauge('ptier_tier0_usd', 'Telemetry DN tie
 ptier_tier1_usd = _get_or_create_prom_gauge('ptier_tier1_usd', 'Telemetry DN tier1 threshold (USD) from ptier_calib', ['symbol'])
 ptier_tier2_usd = _get_or_create_prom_gauge('ptier_tier2_usd', 'Telemetry DN tier2 threshold (USD) from ptier_calib', ['symbol'])
 
+# --- Z-Mapping Calibrator (adaptive z→confidence bounds) ---
+z_mapping_lo_gauge = _get_or_create_prom_gauge(
+    'z_mapping_calib_lo', 'Committed lower bound for z→confidence linear mapping', ['symbol', 'metric'])
+z_mapping_hi_gauge = _get_or_create_prom_gauge(
+    'z_mapping_calib_hi', 'Committed upper bound for z→confidence linear mapping', ['symbol', 'metric'])
+z_mapping_shadow_lo_gauge = _get_or_create_prom_gauge(
+    'z_mapping_calib_shadow_lo', 'Shadow (proposed) lower bound for z→confidence mapping', ['symbol', 'metric'])
+z_mapping_shadow_hi_gauge = _get_or_create_prom_gauge(
+    'z_mapping_calib_shadow_hi', 'Shadow (proposed) upper bound for z→confidence mapping', ['symbol', 'metric'])
+
+liq_signal_notional_thr_gauge = _get_or_create_prom_gauge(
+    'liq_signal_calib_notional_thr', 'Calibrated notional_thr for thin-book detection (USD)', ['symbol'])
+liq_signal_cluster_bps_gauge = _get_or_create_prom_gauge(
+    'liq_signal_calib_cluster_bps', 'Calibrated cluster_bps width threshold', ['symbol'])
+liq_signal_calib_n_gauge = _get_or_create_prom_gauge(
+    'liq_signal_calib_n', 'Number of samples in liq_signal calibrator', ['symbol'])
+
 dn_calib_n = _get_or_create_prom_gauge('dn_calib_n', 'Number of samples in DN calibrator', ['symbol', 'regime'])
 
 calib_persist_total = _get_or_create_prom_counter('calib_persist_total', 'Calibration persistence events', ['kind', 'symbol', 'regime'])
@@ -839,6 +861,13 @@ signals_emitted_total = _get_or_create_prom_counter('signals_emitted_total', 'To
 burst_window_ms_gauge = _get_or_create_prom_gauge('burst_window_ms', 'Current burst window (ms)', ['symbol'])
 pending_flush_total = _get_or_create_prom_counter('pending_flush_total', 'Timer-triggered pending buffer flushes (no new tick required)', ['symbol'])
 burst_error_total = _get_or_create_prom_counter('burst_error_total', 'burst.consider() exceptions that caused burst-bypass direct emit', ['symbol'])
+# P4: Burst wait-time histogram (for validating window_ms calibration)
+burst_wait_ms = _get_or_create_prom_histogram(
+    'burst_wait_ms',
+    'Time signal waited in burst buffer (deadline - start_ts_ms)',
+    ['symbol'],
+    buckets=[100, 300, 500, 1000, 1500, 2000, 2500, 3000, 5000, 8000, 10000, 15000],
+)
 tick_gap_p50_ms_gauge = _get_or_create_prom_gauge('tick_gap_p50_ms', 'Tick gap p50 (ms)', ['symbol'])
 tick_gap_p95_ms_gauge = _get_or_create_prom_gauge(
     "tick_gap_p95_ms", "Tick gap p95 (ms)", ["symbol"]
@@ -1096,6 +1125,12 @@ of_session_outcome_total = _get_or_create_prom_counter(
     "of_session_outcome_total",
     "Orderflow outcomes by session (trigger, veto, buffer, emit)",
     ["symbol", "session", "outcome"],
+)
+
+of_g1_veto_min_usd_total = _get_or_create_prom_counter(
+    "of_g1_veto_min_usd_total",
+    "G1 delta events vetoed by delta_abs_min_usd threshold before DN-GATE",
+    ["symbol"],
 )
 
 # --- Diagnostic Metrics (Signal Generation Tracking) ---
@@ -2294,6 +2329,13 @@ g10_adverse_veto_total = _get_or_create_prom_counter(
     "g10_adverse_veto_total",
     "Total signals vetoed by G10 Adverse-Selection Gate",
     ["gate"]
+)
+
+g10_adverse_buffer_wait_ms = _get_or_create_prom_histogram(
+    "g10_adverse_buffer_wait_ms",
+    "Time (ms) between continuation signal buffer and bar-close verification in G10 gate",
+    labelnames=["symbol"],
+    buckets=[50, 100, 250, 500, 1000, 2000, 3000, 5000, 10000],
 )
 
 # ---------------------------------------------------------------------------

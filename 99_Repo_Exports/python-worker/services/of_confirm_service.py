@@ -44,6 +44,21 @@ signals_processed_total = Counter("of_confirm_signals_processed_total", "Total s
 confirm_signals_total = Counter("of_confirm_signals_out_total", "Total confirmed signals published", ["symbol"])
 events_received_total = Counter("of_confirm_events_received_total", "Total events received", ["type", "symbol"])
 
+# Input validation metrics (Phase 1)
+input_invalid_total = Counter("of_confirm_input_invalid_total", "Invalid input spike", ["symbol", "reason"])
+
+# Result distribution metrics (Phase 1)
+result_total = Counter("of_confirm_result_total", "Result distribution", ["symbol", "ok", "scenario", "reason"])
+
+# Per-gate veto metrics (Phase 2)
+data_health_veto_total = Counter("of_confirm_data_health_veto_total", "Data health gate veto", ["symbol"])
+book_health_veto_total = Counter("of_confirm_book_health_veto_total", "Book health gate veto", ["symbol"])
+score_threshold_veto_total = Counter("of_confirm_score_threshold_veto_total", "Score threshold veto", ["symbol", "threshold_bucket"])
+soft_fail_total = Counter("of_confirm_soft_fail_total", "Soft-fail near-miss", ["symbol", "scenario"])
+cancel_spike_veto_total = Counter("of_confirm_cancel_spike_veto_total", "Cancellation spike gate veto", ["symbol", "reason"])
+ml_veto_total = Counter("of_confirm_ml_veto_total", "ML gate veto", ["symbol", "gate_kind"])
+meta_veto_total = Counter("of_confirm_meta_veto_total", "Meta labeling veto", ["symbol"])
+
 # Logging
 logging.basicConfig(
     level=os.getenv("LOG_LEVEL", "INFO"),
@@ -68,6 +83,48 @@ def _i(val: Any, default: int = 0) -> int:
         return int(float(val))
     except (ValueError, TypeError):
         return default
+
+
+def _validate_spike_contract(spike: dict[str, Any], symbol: str) -> tuple[bool, str]:
+    """
+    Validate spike payload contract.
+
+    Returns: (is_valid, reason_if_invalid)
+    """
+    # direction must be LONG or SHORT
+    direction = spike.get("direction", "").upper()
+    if direction not in ("LONG", "SHORT"):
+        return False, f"invalid_direction:{direction}"
+
+    # price must be > 0
+    try:
+        price = float(spike.get("price", 0.0))
+        if price <= 0:
+            return False, "price_zero_or_negative"
+    except (ValueError, TypeError):
+        return False, "price_not_number"
+
+    # delta_z must be finite
+    try:
+        delta_z = float(spike.get("delta_z", 0.0))
+        import math
+        if not math.isfinite(delta_z):
+            return False, "delta_z_not_finite"
+    except (ValueError, TypeError):
+        return False, "delta_z_not_number"
+
+    # ts_ms must be reasonable (not 0, not in future)
+    try:
+        ts_ms = int(spike.get("ts_ms", 0))
+        now_ms = get_ny_time_millis()
+        if ts_ms <= 0:
+            return False, "ts_ms_zero"
+        if ts_ms > now_ms + 60000:  # 1 min future skew tolerance
+            return False, "ts_ms_future_skew"
+    except (ValueError, TypeError):
+        return False, "ts_ms_not_int"
+
+    return True, ""
 
 
 @dataclass
@@ -124,8 +181,11 @@ class OFConfirmService:
         self.microbar_split = os.getenv("MICROBAR_SPLIT_STREAMS_ENABLE", "0") == "1"
         # Backward compatible alias
         self.stream_bars = self.stream_bars_legacy
-        # Output stream
+        # Output streams
         self.stream_out = os.getenv("OF_CONFIRM_STREAM", RS.OF_CONFIRM)
+        # Phase 2: New stream for ALL results (ok=0 and ok=1) for observability
+        self.stream_out_all = os.getenv("OF_CONFIRM_STREAM_ALL", "signals:of:confirm:all")
+        self.stream_export_all = os.getenv("OF_CONFIRM_EXPORT_ALL_ENABLE", "1") == "1"
 
         # Optional: enable actual microbar consumption (was previously unused)
         self.bars_enable = os.getenv("OF_CONFIRM_BARS_ENABLE", "0") == "1"
@@ -478,9 +538,18 @@ class OFConfirmService:
     async def _check_spike(self, symbol: str, state: SymbolState, spike: dict[str, Any]):
         """
         Runs OFConfirmEngine when a local spike is detected.
+
+        Phase 1: Input validation contract enforcement.
         """
         try:
             events_received_total.labels(type="local_spike", symbol=symbol).inc()
+
+            # PHASE 1: Input contract validation (fail-closed)
+            is_valid, invalid_reason = _validate_spike_contract(spike, symbol)
+            if not is_valid:
+                input_invalid_total.labels(symbol=symbol, reason=invalid_reason).inc()
+                logger.warning(f"Invalid spike for {symbol}: {invalid_reason}")
+                return  # Skip processing
 
             ts_ms = spike.get("ts_ms", get_ny_time_millis())
             state.pressure.on_raw_trigger(ts_ms=ts_ms)
@@ -519,6 +588,51 @@ class OFConfirmService:
                 absorption=absorption if isinstance(absorption, dict) else None,
             )
 
+            # PHASE 1: Track all results + per-gate vetos
+            if of_confirm:
+                scenario = str(getattr(of_confirm, "scenario", "unknown"))
+                reason = str(getattr(of_confirm, "reason", "unknown"))
+                ok = int(getattr(of_confirm, "ok", 0))
+                evidence = getattr(of_confirm, "evidence", {}) or {}
+
+                # Count all results with scenario + reason breakdown
+                result_total.labels(symbol=symbol, ok=ok, scenario=scenario, reason=reason).inc()
+
+                # Track specific gate vetos (evidence-based detection)
+                if ok == 0:
+                    # Data health veto
+                    if evidence.get("meta_schema_reason") == "data_health_veto":
+                        data_health_veto_total.labels(symbol=symbol).inc()
+
+                    # Book health veto
+                    if evidence.get("book_health_veto_book_evidence") == 1:
+                        book_health_veto_total.labels(symbol=symbol).inc()
+
+                    # Score threshold veto
+                    if "score_threshold" in reason or "score_veto" in reason:
+                        score_bucket = "low" if float(getattr(of_confirm, "score", 0.0)) < 0.50 else "medium"
+                        score_threshold_veto_total.labels(symbol=symbol, threshold_bucket=score_bucket).inc()
+
+                    # Soft-fail tracking
+                    if evidence.get("ok_soft") == 1:
+                        soft_fail_total.labels(symbol=symbol, scenario=scenario).inc()
+
+                    # Cancellation spike gate veto
+                    if evidence.get("cancel_spike_veto") == 1:
+                        cancel_reason = evidence.get("cancel_spike_reason", "unknown")
+                        cancel_spike_veto_total.labels(symbol=symbol, reason=cancel_reason).inc()
+
+                    # ML gate veto
+                    ml_evidence = evidence.get("ml", {})
+                    if isinstance(ml_evidence, dict):
+                        if ml_evidence.get("allow") == 0 and ml_evidence.get("mode") == "ENFORCE":
+                            gate_kind = ml_evidence.get("kind", "unknown")
+                            ml_veto_total.labels(symbol=symbol, gate_kind=gate_kind).inc()
+
+                    # Meta veto
+                    if evidence.get("meta_veto") == 1:
+                        meta_veto_total.labels(symbol=symbol).inc()
+
             status = "skipped"
             if of_confirm and of_confirm.ok:
                 status = "confirmed"
@@ -531,6 +645,20 @@ class OFConfirmService:
                     approximate=True
                 )
                 confirm_signals_total.labels(symbol=symbol).inc()
+
+            # PHASE 2: Export ALL results (ok=0 and ok=1) to separate stream for observability
+            if of_confirm and self.stream_export_all:
+                try:
+                    all_payload = of_confirm.to_dict()
+                    all_payload["generated_at"] = get_ny_time_millis()
+                    await self.redis.xadd(  # type: ignore
+                        self.stream_out_all,
+                        {"payload": json.dumps(all_payload)},
+                        maxlen=50000,
+                        approximate=True
+                    )
+                except Exception as e:
+                    logger.error(f"Failed to export to {self.stream_out_all}: {e}")
 
             signals_processed_total.labels(symbol=symbol, status=status).inc()
 

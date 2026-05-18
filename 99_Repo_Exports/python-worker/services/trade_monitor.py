@@ -754,6 +754,10 @@ class TradeMonitorService:
             os.getenv("TM_ORPHAN_MAX_LAST_PRICE_AGE_MS", str(5 * 60 * 1000))  # 5m
         )
 
+        # Orphan-close mode: "finalize" (old behavior) or "quarantine" (new, safe)
+        self._orphan_close_mode = os.getenv("TM_ORPHAN_CLOSE_MODE", "quarantine").strip().lower()
+        self._orphan_finalize_virtual_only = os.getenv("TM_ORPHAN_FINALIZE_VIRTUAL_ONLY", "1") == "1"
+
         self._last_housekeep_ms: int = 0
 
         # Последняя цена по символу (ts_ms, price) — чтобы forced-close был "по рынку"
@@ -1073,7 +1077,12 @@ class TradeMonitorService:
              return False
 
         last_ms = self._pos_last_ts_ms(pos)
-        ttl = int(getattr(self, "_orphan_ttl_ms", 120000))
+        try:
+            ttl = int(self._resolve_orphan_ttl_ms(pos))
+        except Exception:
+            ttl = int(getattr(self, "_orphan_max_lifetime_ms_default", 6 * 3600 * 1000))
+        if ttl <= 0:
+            return False
         return (last_ms > 0) and ((now_ms - last_ms) >= ttl)
 
     def _get_health_snapshot(self, symbol: str) -> dict[str, Any]:
@@ -3898,6 +3907,36 @@ class TradeMonitorService:
                                 _spec,
                             )
                             pos_raw = "ORPHAN_TIMEOUT_NO_PRICE"
+
+                        is_virtual = bool(getattr(pos, "is_virtual", False))
+
+                        # Orphan-close mode: quarantine (reconcile) vs finalize (force-close)
+                        if self._orphan_close_mode != "finalize":
+                            # Quarantine mode: mark for manual broker reconciliation, don't force-close
+                            if is_virtual or not self._orphan_finalize_virtual_only:
+                                # Queue for reconciliation
+                                try:
+                                    r = self.redis
+                                    r.xadd(
+                                        "stream:trade_monitor:orphan_quarantine",
+                                        {
+                                            "ts_ms": str(now_ms),
+                                            "symbol": str(pos.symbol),
+                                            "sid": str(getattr(pos, "sid", "")),
+                                            "order_id": str(pos.id),
+                                            "reason": "ORPHAN_RECONCILE_REQUIRED",
+                                            "last_tick_ts_ms": str(getattr(pos, "last_tick_ts_ms", 0)),
+                                            "last_update_ts_ms": str(getattr(pos, "last_update_ts_ms", 0)),
+                                            "entry_ts_ms": str(getattr(pos, "entry_ts_ms", 0)),
+                                            "entry_price": str(getattr(pos, "entry_price", 0.0)),
+                                            "is_virtual": str(int(is_virtual)),
+                                        },
+                                        maxlen=50000,
+                                        approximate=True,
+                                    )
+                                except Exception as e:
+                                    logger.error(f"Failed to quarantine orphan {pos.id}: {e}")
+                                continue  # Skip finalize for this position
 
                         # mark closed in-memory
                         pos.closed = True

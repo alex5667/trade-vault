@@ -1042,6 +1042,134 @@ class StatsAggregator:
                 pass
 
             # ------------------------------------------------------------------
+            # SMT coherence outcome writer (Phase 2 calibrator feed).
+            # Records (smt_coh, tp2_hit) for countertrend signals.
+            # Fail-open: never affects main aggregation.
+            # ------------------------------------------------------------------
+            try:
+                from services.reliability_calibrator import update_smt_coh_curves
+                update_smt_coh_curves(
+                    redis_client,
+                    pos=pos if isinstance(pos, dict) else {},
+                    trade_closed=trade_closed if isinstance(trade_closed, dict) else {},
+                    now_ms=None,
+                )
+            except Exception:
+                pass
+
+            # ------------------------------------------------------------------
+            # CUSUM / Page-Hinkley drift detector — observe (p_hat, outcome)
+            # on every closed trade.
+            #
+            # Detects sustained calibration drift (Brier / ECE) per
+            # (schema × regime). Fail-open: never affects main aggregation.
+            # ------------------------------------------------------------------
+            try:
+                from core.cusum_drift_detector import CuSumDriftDetector as _CUSUMCls
+
+                # Module-level singleton preserves per-(schema×regime) state.
+                _det = getattr(StatsAggregator, "_cusum_det", None)
+                if _det is None:
+                    _det = _CUSUMCls()
+                    StatsAggregator._cusum_det = _det
+
+                # p_hat: confidence expressed as 0-1 probability.
+                # Confidence is emitted as 0-100 in signal_payload; divide by 100.
+                _sp = pos.get("signal_payload") if isinstance(pos, dict) else None
+                _conf_raw: float | None = None
+                if isinstance(_sp, dict):
+                    for _ck in ("confidence", "confidence_pct"):
+                        _v = _sp.get(_ck)
+                        if _v is not None:
+                            try:
+                                _conf_raw = float(_v)
+                                break
+                            except (TypeError, ValueError):
+                                pass
+                if _conf_raw is None:
+                    for _ck in ("confidence", "confidence_pct"):
+                        _v = (trade_closed.get(_ck) if isinstance(trade_closed, dict) else None)
+                        if _v is not None:
+                            try:
+                                _conf_raw = float(_v)
+                                break
+                            except (TypeError, ValueError):
+                                pass
+
+                if _conf_raw is not None:
+                    # Normalise 0-100 → 0-1; values already in 0-1 kept as-is.
+                    _p_hat = _conf_raw / 100.0 if _conf_raw > 1.0 else _conf_raw
+
+                    # outcome: 1 = profitable close, 0 = loss / break-even.
+                    _outcome = 1 if pnl_net > STATS_EPS else 0
+
+                    # schema key: prefer ENV override, else "of".
+                    _cusum_schema = os.getenv("CUSUM_SCHEMA", "of")
+
+                    # regime: canonical form.
+                    _cusum_regime = canon_regime(
+                        trade_closed.get("entry_regime") if isinstance(trade_closed, dict) else None
+                        or trade_closed.get("regime") if isinstance(trade_closed, dict) else None
+                        or (pos.get("entry_regime") if isinstance(pos, dict) else None)
+                        or (pos.get("regime") if isinstance(pos, dict) else None)
+                    )
+
+                    _alarmed = _det.observe(
+                        schema=_cusum_schema,
+                        regime=_cusum_regime,
+                        p_hat=_p_hat,
+                        outcome=_outcome,
+                    )
+
+                    # Prometheus metrics (best-effort).
+                    try:
+                        import prometheus_client as _pc  # type: ignore[import]
+
+                        # Gauge: current PH score.
+                        _ph_gauge = getattr(StatsAggregator, "_cusum_ph_gauge", None)
+                        if _ph_gauge is None:
+                            _ph_gauge = _pc.Gauge(
+                                "cusum_ph_score",
+                                "Page-Hinkley score (calibration drift)",
+                                ["schema", "regime"],
+                            )
+                            StatsAggregator._cusum_ph_gauge = _ph_gauge
+                        _ph_gauge.labels(
+                            schema=_cusum_schema, regime=_cusum_regime
+                        ).set(_det.current_ph(_cusum_schema, _cusum_regime))
+
+                        # Gauge: current ECE.
+                        _ece_gauge = getattr(StatsAggregator, "_cusum_ece_gauge", None)
+                        if _ece_gauge is None:
+                            _ece_gauge = _pc.Gauge(
+                                "cusum_ece",
+                                "Expected calibration error (rolling)",
+                                ["schema", "regime"],
+                            )
+                            StatsAggregator._cusum_ece_gauge = _ece_gauge
+                        _ece_gauge.labels(
+                            schema=_cusum_schema, regime=_cusum_regime
+                        ).set(_det.current_ece(_cusum_schema, _cusum_regime))
+
+                        # Counter: drift alarms fired.
+                        if _alarmed:
+                            _alarm_ctr = getattr(StatsAggregator, "_cusum_alarm_ctr", None)
+                            if _alarm_ctr is None:
+                                _alarm_ctr = _pc.Counter(
+                                    "cusum_drift_alarm_total",
+                                    "CUSUM calibration drift alarms",
+                                    ["schema", "regime"],
+                                )
+                                StatsAggregator._cusum_alarm_ctr = _alarm_ctr
+                            _alarm_ctr.labels(
+                                schema=_cusum_schema, regime=_cusum_regime
+                            ).inc()
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+
+            # ------------------------------------------------------------------
             # NEW: Minimal correct TP1 hit-rate writer for EV / cost gates.
             #
             # Requirements (single writer point, executed only after applied=1):

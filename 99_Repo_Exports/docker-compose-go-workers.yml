@@ -41,9 +41,9 @@ services:
     - REDIS_TICKS_HOST=redis-ticks
     - REDIS_TICKS_PORT=6379
     - PROMETHEUS_PORT=2112
-    - BINANCE_MAX_PAIRS_TO_FETCH=300
+    - BINANCE_MAX_PAIRS_TO_FETCH=120
     - BINANCE_MIN_SYMBOLS_REQUIRED=3
-    - BINANCE_MAX_PAIRS_TO_ADD=300
+    - BINANCE_MAX_PAIRS_TO_ADD=120
     - BINANCE_MIN_TRADES_24H=1000
     - USE_UNIFIED_PIPELINE=safe
     - REDIS_WORKER_HOST=redis-worker-1
@@ -59,8 +59,8 @@ services:
     - HYPERLIQUID_WS_PING_PERIOD=20s
     - HYPERLIQUID_WS_WRITE_WAIT=5s
     - HYPERLIQUID_WS_MSG_CHAN_CAP=5000
-    - ENABLE_DATA_COLLECTION=false
-    - BYBIT_DATA_COLLECTION_ENABLED=false
+    - ENABLE_DATA_COLLECTION=true
+    - BYBIT_DATA_COLLECTION_ENABLED=true
     - BYBIT_FUTURES_WS_ENABLED=false
     - BYBIT_WS_PING_PERIOD=20s
     - BYBIT_WS_READ_TIMEOUT=90s
@@ -91,7 +91,7 @@ services:
     - LIQ_BYBIT_ENABLED=true
     - LIQ_BYBIT_WS_URL=wss://stream.bybit.com/v5/public/linear
     - LIQ_BYBIT_PING_MS=20000
-    - LIQ_SYMBOLS=BTCUSDT,ETHUSDT,SOLUSDT,BNBUSDT,XRPUSDT,DOGEUSDT,1000PEPEUSDT
+    - LIQ_SYMBOLS=${LIQ_SYMBOLS}
     - LIQ_STREAM=stream:liq_evt
     - LIQ_QUARANTINE_STREAM=stream:liq_evt_quarantine
     - BINANCE_FAPI_KEY=${BINANCE_API_KEY:-}
@@ -159,6 +159,156 @@ services:
       - --tries=1
       - --spider
       - http://localhost:2112/monitoring/websocket/health
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+  go-worker-1m-b:
+    build:
+      context: ./go-worker
+      dockerfile: Dockerfile
+    container_name: scanner-go-worker-1m-b
+    stop_grace_period: 30s
+    env_file:
+    - .env
+    - config/generated/symbols.env
+    environment:
+    - DRAIN_TIMEOUT_SEC=${DRAIN_TIMEOUT_SEC:-10}
+    - BATCH_PUBLISHER_BACKPRESSURE_MS=${BATCH_PUBLISHER_BACKPRESSURE_MS:-10}
+    - REDIS_HOST=redis
+    - CROSSASSET_ENABLED=false
+    - REDIS_PASSWORD=
+    - REDIS_USERNAME=
+    - REDIS_WORKER_PASSWORD=${GO_WORKER_REDIS_PASS}
+    - REDIS_CANDLES_USERNAME=${GO_WORKER_REDIS_USER}
+    - REDIS_CANDLES_USERNAME_2=${GO_WORKER_REDIS_USER}
+    - REDIS_CANDLES_PASSWORD=${GO_WORKER_REDIS_PASS}
+    - REDIS_CANDLES_PASSWORD_2=${GO_WORKER_REDIS_PASS}
+    - REDIS_PORT=6379
+    - REDIS_DB=0
+    - REDIS_POOL_SIZE=15
+    - REDIS_MIN_IDLE_CONNS=10
+    - REDIS_MAX_RETRIES=5
+    - REDIS_RETRY_MIN_BACKOFF=100ms
+    - REDIS_RETRY_MAX_BACKOFF=3s
+    - REDIS_DIAL_TIMEOUT=10s
+    - REDIS_READ_TIMEOUT=5s
+    - REDIS_WRITE_TIMEOUT=2s
+    - REDIS_POOL_TIMEOUT=1s
+    - GO_REDIS_WRITER_QUEUE_MAX=50000
+    - GO_REDIS_ON_BACKPRESSURE=drop_telemetry_quarantine_critical
+    - BINANCE_WS_TIMEFRAME=kline_1m
+    - REDIS_CANDLES_HOST=redis-worker-1
+    - REDIS_CANDLES_PORT=6379
+    - REDIS_CANDLES_HOST_2=redis-worker-1
+    - REDIS_CANDLES_PORT_2=6379
+    - REDIS_TICKS_HOST=redis-ticks
+    - REDIS_TICKS_PORT=6379
+    - PROMETHEUS_PORT=2122
+    - BINANCE_MAX_PAIRS_TO_FETCH=120
+    - BINANCE_MIN_SYMBOLS_REQUIRED=3
+    - BINANCE_MAX_PAIRS_TO_ADD=120
+    - BINANCE_MIN_TRADES_24H=1000
+    - USE_UNIFIED_PIPELINE=safe
+    - REDIS_WORKER_HOST=redis-worker-1
+    - REDIS_WORKER_PORT=6379
+    - REDIS_WORKER_HOST_2=redis-worker-1
+    - REDIS_WORKER_PORT_2=6379
+    - REDIS_WORKER_HOST_3=redis-worker-3
+    - REDIS_WORKER_PORT_3=6379
+    - FUTURES_WS_ENABLED=true
+    - HYPERLIQUID_WS_ENABLED=${HYPERLIQUID_WS_ENABLED:-false}
+    - HYPERLIQUID_COINS=${HYPERLIQUID_COINS:-BTC,ETH}
+    - HYPERLIQUID_WS_READ_TIMEOUT=90s
+    - HYPERLIQUID_WS_PING_PERIOD=20s
+    - HYPERLIQUID_WS_WRITE_WAIT=5s
+    - HYPERLIQUID_WS_MSG_CHAN_CAP=5000
+    - ENABLE_DATA_COLLECTION=false
+    - BYBIT_DATA_COLLECTION_ENABLED=false
+    - BYBIT_FUTURES_WS_ENABLED=false
+    - BYBIT_WS_PING_PERIOD=20s
+    - BYBIT_WS_READ_TIMEOUT=90s
+    - BYBIT_WS_HANDSHAKE_TIMEOUT=45s
+    - BYBIT_WS_DIAL_TIMEOUT=30s
+    - BYBIT_WS_TCP_KEEPALIVE=60s
+    - BYBIT_WS_WRITE_WAIT=5s
+    - REST_CANDLE_TIMEOUT=60s
+    - API_CLIENT_TIMEOUT=30s
+    - WS_HANDSHAKE_TIMEOUT=45s
+    - WS_DIAL_TIMEOUT=30s
+    - WS_TCP_KEEPALIVE=15s
+    - FUTURES_WS_READ_TIMEOUT=900s
+    - FUTURES_WS_PING_PERIOD=10s
+    - FUTURES_WS_WRITE_WAIT=10s
+    - LIQ_WS_ENABLED=true
+    - LIQ_SOURCES=bybit
+    - LIQ_BINANCE_ENABLED=false
+    - LIQ_BINANCE_WS_URL=wss://fstream.binance.com/market/stream?streams=!forceOrder@arr
+    - LIQ_BYBIT_ENABLED=true
+    - LIQ_BYBIT_WS_URL=wss://stream.bybit.com/v5/public/linear
+    - LIQ_BYBIT_PING_MS=20000
+    - LIQ_SYMBOLS=${LIQ_SYMBOLS}
+    - LIQ_STREAM=stream:liq_evt
+    - LIQ_QUARANTINE_STREAM=stream:liq_evt_quarantine
+    - BINANCE_FAPI_KEY=${BINANCE_API_KEY:-}
+    - BINANCE_FAPI_SECRET=${BINANCE_API_SECRET:-}
+    - V13_CROSSASSET_POLL_SEC=30
+    - BREADTH_WS_ENABLED=0
+    - DERIBIT_CTX_ENABLED=0
+    - SENTIMENT_CTX_ENABLED=0
+    - DEFILLAMA_CTX_ENABLED=0
+    - PROVIDER_FALLBACK_ENABLED=0
+    - COINPAPRIKA_ENABLED=0
+    - CMC_ENABLED=0
+    - CROSSVENUE_ENABLED=0
+    - TZ=UTC
+    depends_on:
+      redis:
+        condition: service_healthy
+      redis-worker-1:
+        condition: service_healthy
+      redis-worker-2:
+        condition: service_healthy
+      redis-worker-3:
+        condition: service_healthy
+      redis-ticks:
+        condition: service_healthy
+    networks:
+    - scanner-network
+    ports:
+    - 2122:2122
+    restart: unless-stopped
+    command:
+    - sh
+    - -c
+    - "echo \"⏳ Ожидание Redis (у\
+      величенное вре\
+      мя)...\"\nsleep 5\necho \"\U0001F680 Запус\
+      к go-worker-1m-b...\"\n./main\n"
+    deploy:
+      resources:
+        limits:
+          memory: 1.5G
+          cpus: '1.5'
+        reservations:
+          memory: 24M
+    dns:
+    - 8.8.8.8
+    - 8.8.4.4
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    volumes:
+    - ./logs:/app/logs
+    healthcheck:
+      test:
+      - CMD
+      - wget
+      - --no-verbose
+      - --tries=1
+      - --spider
+      - http://localhost:2122/monitoring/websocket/health
       interval: 30s
       timeout: 10s
       retries: 5

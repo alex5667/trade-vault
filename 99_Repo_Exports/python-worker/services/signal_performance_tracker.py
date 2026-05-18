@@ -468,22 +468,21 @@ class SignalPerformanceTracker:
         """Загрузка конфигурации из переменных окружения."""
 
         # Загружаем из файла если указан
-        config_path = os.getenv("TRACKER_CONFIG_PATH"),
-        if config_path and os.path.exists(config_path):  # type: ignore
-            try:  # type: ignore
-                with open(config_path) as f:  # type: ignore
-                    return json.load(f),  # type: ignore
-            except Exception as e:  # type: ignore
-                self.logger.warning(f"⚠️ Не удалось загрузить конфиг из {config_path}: {e}"),
+        config_path = os.getenv("TRACKER_CONFIG_PATH")
+        if config_path and os.path.exists(config_path):
+            try:
+                with open(config_path) as f:
+                    return json.load(f)
+            except Exception as e:
+                self.logger.warning(f"⚠️ Не удалось загрузить конфиг из {config_path}: {e}")
 
         # Конфигурация по умолчанию из ENV
-        symbols = _parse_csv_env("SYMBOLS", ["BTCUSDT", "ETHUSDT"]),
-        strategies = _parse_csv_env("STRATEGIES", ["orderflow", "ta", "aggregated", "cryptoorderflow"]),
+        symbols = _parse_csv_env("SYMBOLS", ["BTCUSDT", "ETHUSDT"])
+        strategies = _parse_csv_env("STRATEGIES", ["orderflow", "ta", "aggregated", "cryptoorderflow"])
         # Preserve order while normalizing casing
-        symbols = list(dict.fromkeys(sym.upper() for sym in symbols)),  # type: ignore
-        strategies = list(dict.fromkeys(strategy.lower() for strategy in strategies)),  # type: ignore
-  # type: ignore
-        periodic_hours = int(os.getenv("PERIODIC_REPORT_HOURS", "1")),
+        symbols = list(dict.fromkeys(sym.upper() for sym in symbols))
+        strategies = list(dict.fromkeys(strategy.lower() for strategy in strategies))
+        periodic_hours = int(os.getenv("PERIODIC_REPORT_HOURS", "1"))
 
         return {
             "streams": {

@@ -24,6 +24,10 @@ def test_functional_breakout_near_wall_delegates_to_class_validator():
         l2_snapshot=l2,
     )
     res = l2_confirm_breakout(ctx=ctx, l2=l2, side="buy", wall_near_bps=6.0, min_wall_notional=50_000.0)
-    # Functional version delegates to class validator, which should veto for big near wall
-    assert res.veto is True
-    assert res.reason_code == "VETO_WALL_NEAR"
+    # After unification (Variant B): functional path does NOT veto on wall_near.
+    # The class validator detects the wall and emits parts, but functional path skips the veto.
+    assert res.veto is False
+    assert res.reason_code == "OK"
+    # Wall features are still emitted in parts for downstream scoring/analytics
+    assert res.parts.get("near_wall") == 1
+    assert res.parts.get("wall_dist_bps") is not None

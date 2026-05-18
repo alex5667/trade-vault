@@ -367,6 +367,28 @@ def run_once(*, dry_run: bool | None = None) -> dict[str, Any]:
     if dry_run is None:
         dry_run = not auto_enabled
 
+    # OE-readiness gate: block any apply until signals:of:inputs has ≥7d span
+    # and ≥70% coverage of Group OE required fields. Without this, the
+    # challenger model is trained on 0.0-padded Group OE keys (silent skew).
+    # Override only for incident response: V14_SKIP_OE_READINESS_GATE=1.
+    skip_oe_gate = _env_bool("V14_SKIP_OE_READINESS_GATE", False)
+    oe_status: dict[str, Any] = {"skipped": True} if skip_oe_gate else {}
+    if not skip_oe_gate:
+        try:
+            from tools.check_v14_oe_readiness import evaluate_readiness
+            oe_status = evaluate_readiness(redis_client=redis.Redis.from_url(
+                redis_url, decode_responses=True
+            ))
+        except Exception as e:
+            log.error("OE readiness check crashed: %s — blocking apply", e)
+            oe_status = {"ready": False, "reasons": [f"check_crashed: {e}"]}
+        if not oe_status.get("ready"):
+            log.warning(
+                "OE readiness gate not met: %s — forcing dry_run",
+                "; ".join(oe_status.get("reasons", ["unknown"])),
+            )
+            dry_run = True
+
     brier_max = _env_float("V14_PROMOTE_BRIER_MAX", 0.20)
     ece_max = _env_float("V14_PROMOTE_ECE_MAX", 0.10)
     pr_auc_eps = _env_float("V14_PROMOTE_PR_AUC_EPSILON", 0.02)
@@ -438,6 +460,13 @@ def run_once(*, dry_run: bool | None = None) -> dict[str, Any]:
         "status": "ok",
         "dry_run": dry_run,
         "applied": applied,
+        "oe_readiness": {
+            "ready": bool(oe_status.get("ready")),
+            "skipped": bool(oe_status.get("skipped")),
+            "coverage": oe_status.get("coverage"),
+            "span_days": oe_status.get("span_days"),
+            "reasons": oe_status.get("reasons", []),
+        },
         "decisions": [
             {"role": d.role, "kind": d.kind, "apply": d.apply, "reasons": d.reasons}
             for d in decisions

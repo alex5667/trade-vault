@@ -480,18 +480,28 @@ def _get_v13_of_keys() -> tuple:
 
 
 # ---------------------------------------------------------------------------
-# v14_of schema — v13_of + Group OG + Group OE (Phase 0+1: schema + population)
-# Created 2026-05-13 (OG, 16 keys); extended 2026-05-16 (OE, +20 keys) → ~278 total
+# v14_of schema — v13_of + Group OG + Group OE (Phase 7.8-7.9 expansion)
+# Created 2026-05-13 (OG, 16 keys); extended 2026-05-16 (OE, initial +20 keys);
+# Expanded 2026-05-17 (OE, +61 more keys: LOB velocity, signal age, DQ, exec cost, etc.) → 339 total
 # ---------------------------------------------------------------------------
 
 def _get_v14_of_keys() -> tuple:
     """Returns (num_keys, bool_keys) for v14_of.
 
-    v14_of = v13_of (~242) + 36 additional keys across two groups:
+    v14_of = v13_of (242) + Group OG (16) + Group OE (81) = 339 numeric keys
+
       Group OG (16): OrderFlow Rule-Gate Consensus
                      (have/need legs, contributions, reason codes, gate bits)
-      Group OE (20): External Data
-                     (5 composites, 5 breadth, 7 Deribit IV/funding, 3 Fear&Greed)
+      Group OE (81): External + Execution Features (Phases 7.8-7.9)
+                     - TCA priors + p95 spreads/slippage (13)
+                     - LOB velocity (obi_slope, qimb_slope, book_churn, etc., 14)
+                     - Signal age / ATR / vol regime (12)
+                     - Data quality / tick quality (12)
+                     - Exec cost ratios (3)
+                     - Fill-queue derived (5)
+                     - Cross-asset returns (12)
+                     - Fill prob horizons (3)
+                     - Gate trace (extra, 6)
 
     All keys are numeric (float/int); no separate bool block.
     Population path: of_confirm_engine writes keys into indicators via

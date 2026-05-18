@@ -76,6 +76,10 @@ class CostEdgeConfig:
     # Логирование
     log_veto: bool = True
 
+    # Калиброванный K из CostKStore (автокалибратор)
+    use_calibrated_k: bool = False  # читать K из CostKStore если доступен
+    calibrated_k_max_age_ms: int = 3 * 3600 * 1000  # 3h staleness limit
+
     def __post_init__(self):
         if self.symbol_cost_k is None:
             self.symbol_cost_k = {}
@@ -119,6 +123,11 @@ class CostEdgeConfig:
         # Парсим флаг логирования
         log_veto = bool(int(os.getenv("LOG_EDGE_VETO", "1")))
 
+        # Калиброванный K
+        use_calibrated_k = bool(int(os.getenv("EDGE_USE_CALIBRATED_K", "0")))
+        calibrated_k_max_age_ms = int(os.getenv("EDGE_CALIBRATED_K_MAX_AGE_MS",
+                                                  str(3 * 3600 * 1000)))
+
         return cls(
             enabled=enabled,
             default_cost_k=default_k,
@@ -130,6 +139,8 @@ class CostEdgeConfig:
             symbol_buffer_bps=symbol_buffer,
             edge_mode=edge_mode,
             log_veto=log_veto,
+            use_calibrated_k=use_calibrated_k,
+            calibrated_k_max_age_ms=calibrated_k_max_age_ms,
         )
 
 
@@ -177,7 +188,7 @@ class CostEdgeResult:
 class CostEdgeGate:
     """
     Фильтр, который отклоняет сигналы, где ожидаемый эдж не превышает затраты.
-    
+
     Использование:
         gate = CostEdgeGate.from_env()
         result = gate.evaluate(ctx, symbol="BTCUSDT", entry_price=50000.0)
@@ -185,19 +196,48 @@ class CostEdgeGate:
         if not result.passed:
             # Отклоняем сигнал
             return
+
+    Калиброванный K:
+        from core.cost_k_store import CostKStore
+        store = CostKStore.load(redis_client)
+        gate.set_k_store(store)
     """
 
     def __init__(self, config: CostEdgeConfig):
         self.config = config
+        self._k_store: Any | None = None  # lazily set via .set_k_store()
 
     @classmethod
     def from_env(cls) -> CostEdgeGate:
         """Создает гейт из переменных окружения."""
         return cls(CostEdgeConfig.from_env())
 
-    def _get_cost_multiplier(self, symbol: str) -> float:
-        """Возвращает множитель затрат для символа."""
-        # Возвращаем сырое значение, clamp будет в evaluate
+    def set_k_store(self, store: Any) -> None:
+        """Wire in a CostKStore for calibrated K lookup.
+
+        Args:
+            store: CostKStore instance (or any object with .get_k() and .age_ms)
+        """
+        self._k_store = store
+
+    def _get_cost_multiplier(self, symbol: str, regime: str | None = None) -> float:
+        """Возвращает множитель затрат для символа.
+
+        Если use_calibrated_k=True и CostKStore доступен и не устарел,
+        использует калиброванный K с иерархическим fallback.
+        Иначе — symbol_cost_k config или default_cost_k.
+        """
+        if self.config.use_calibrated_k and self._k_store is not None:
+            try:
+                # Проверяем staleness
+                age_ms = getattr(self._k_store, "age_ms", 0)
+                if age_ms <= self.config.calibrated_k_max_age_ms:
+                    k = self._k_store.get_k(symbol, regime, default=-1.0)
+                    if k > 0:
+                        return k
+            except Exception:
+                pass
+        # Fallback: symbol-specific config или default
         return self.config.symbol_cost_k.get(symbol.upper(), self.config.default_cost_k)
 
     def _get_buffer_bps(self, symbol: str) -> float:
@@ -243,10 +283,11 @@ class CostEdgeGate:
     def _estimate_edge_bps(self, ctx: Any, symbol: str, entry_price: float) -> tuple[float, str]:
         """
         Оценивает ожидаемое движение цены в базисных пунктах.
-        
+
         Returns:
             (edge_bps, source_method)
         """
+        del symbol  # reserved for per-symbol edge model hooks; not used in current modes
         mode = self.config.edge_mode
 
         try:
@@ -332,7 +373,12 @@ class CostEdgeGate:
         """
 
         # Подготовка и валидация входных данных
-        cost_k = float(self._get_cost_multiplier(symbol))
+        # Извлекаем regime из контекста (для калиброванного K lookup)
+        regime: str | None = (
+            getattr(ctx, "regime", None)
+            or getattr(ctx, "atr_policy_regime", None)
+        )
+        cost_k = self._get_cost_multiplier(symbol, regime=regime)
         buffer_bps = float(self._get_buffer_bps(symbol))
 
         # 1. Hard clamps для конфигурации

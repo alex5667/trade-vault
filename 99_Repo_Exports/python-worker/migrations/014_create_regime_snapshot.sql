@@ -43,3 +43,11 @@ EXCEPTION
     WHEN OTHERS THEN
         RAISE NOTICE 'Error creating index idx_regime_snapshot_lookup: %', SQLERRM;
 END $$;
+
+-- Grant access to all service users
+GRANT ALL PRIVILEGES ON TABLE regime_snapshot TO trading;
+GRANT ALL PRIVILEGES ON TABLE regime_snapshot TO scanner;
+GRANT ALL PRIVILEGES ON TABLE regime_snapshot TO trade_user;
+GRANT ALL PRIVILEGES ON SEQUENCE regime_snapshot_id_seq TO trading;
+GRANT ALL PRIVILEGES ON SEQUENCE regime_snapshot_id_seq TO scanner;
+GRANT ALL PRIVILEGES ON SEQUENCE regime_snapshot_id_seq TO trade_user;

@@ -233,19 +233,16 @@ def stage_build_dataset(*, inputs_path: Path, tb_labels_path: Path,
 
 
 # ---------------------------------------------------------------------------
-# Feature set (kept stable across v14_of LR + GBDT)
+# Feature set: full v14_of schema (339 numeric keys)
 # ---------------------------------------------------------------------------
 
-V14_BASE_FEATURES: list[str] = [
-    "delta_z", "ofi_z", "ofi_stability_score", "spread_bps", "expected_slippage_bps",
-    "of_score_final", "of_score_final_raw",
-    "strong_gate_have", "strong_gate_need",
-    "weak_progress", "sweep_recent", "reclaim_recent", "obi_stable",
-    "iceberg_strict", "abs_lvl_ok",
-    "liq_score", "liq_spread_bps", "liq_book_rate_hz",
-    "pressure_per_min_ema", "cooldown_hit_rate_ema",
-    "confidence",
-]
+def _get_feature_cols() -> list[str]:
+    from core.ml_feature_schema_v14_of import get_v14_of_numeric_keys
+    return get_v14_of_numeric_keys()
+
+
+# Module-level cache — loaded once per process.
+V14_BASE_FEATURES: list[str] = _get_feature_cols()
 
 
 def _load_dataset(path: Path) -> tuple[Any, Any]:
@@ -346,7 +343,7 @@ def stage_train_lr(*, dataset_path: Path, out_dir: Path, ts_str: str) -> dict[st
         "robust_scaler": robust_scaler_params,
         "schema_name": "v14_of_baseline_lr",
         "schema_version": 1,
-        "schema_hash": "v14of_og16_2026_05_13",
+        "schema_hash": "v14of_full_339_2026_05_17",
         "feature_cols_hash": hashlib.sha256(",".join(V14_BASE_FEATURES).encode("utf-8")).hexdigest()[:16],
         "created_ms": int(time.time() * 1000),
         "model_signature": "",

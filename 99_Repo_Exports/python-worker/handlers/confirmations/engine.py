@@ -280,6 +280,23 @@ class ConfirmationsEngine:
         l2_missing = l2 is None
         l2_stale = bool(getattr(ctx, "l2_is_stale", False))
 
+        # Вычисляем staleness по временным меткам если l2_is_stale не выставлен явно
+        if not l2_stale and self._metrics is not None:
+            with contextlib.suppress(Exception):
+                ts_ms = float(getattr(ctx, "ts_ms", 0) or 0)
+                l2_ts_ms = float(getattr(ctx, "l2_ts_ms", 0) or 0)
+                self._metrics.inc("l2_checks_total", 1, tags={"kind": k})
+                if ts_ms > 0 and l2_ts_ms > 0:
+                    lag_ms = ts_ms - l2_ts_ms
+                    stale_from_ts = lag_ms > 1500
+                    if stale_from_ts:
+                        l2_stale = True
+                        self._metrics.inc("l2_stale_hits_total", 1, tags={"kind": k})
+                    self._metrics.gauge("l2_stale_rate", 1.0 if stale_from_ts else 0.0, tags={"kind": k})
+        elif self._metrics is not None:
+            with contextlib.suppress(Exception):
+                self._metrics.inc("l2_checks_total", 1, tags={"kind": k})
+
         if k == "breakout":
             if l2_missing:
                 rc = normalize_reason_code("VETO_L2_MISSING")
@@ -338,6 +355,7 @@ class ConfirmationsEngine:
                 rc = normalize_reason_code(getattr(r, "reason_code", "") or "VETO_GENERIC")
                 u16 = int(getattr(r, "reason_u16", 0) or 0) or reason_u16(rc)
                 self._emit_veto_metric(kind=k, reason_code=rc, ff_mask=ff_mask)
+                self._emit_veto_metrics(kind=k, ctx=ctx, reason_code=rc)
                 return Validation(
                     veto=True,
                     conf_factor01=0.0,

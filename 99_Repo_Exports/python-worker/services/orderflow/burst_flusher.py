@@ -24,6 +24,7 @@ from services.observability import metrics_registry  # noqa: F401 (side-effect i
 from services.orderflow.metrics import (
     burst_active_gauge,
     burst_flush_total,
+    burst_wait_ms,
     pending_flush_total,
     signals_emitted_total,
     signals_published_total,
@@ -131,33 +132,42 @@ class BurstFlusher:
 
         Promotes the best-of-burst candidate when cooldown expires even if no new
         tick arrives — prevents signals from being stuck on low-activity symbols.
+
+        P3: Protected by pending_mu to prevent race condition with main task.
         """
-        pending = getattr(runtime, "pending_payload", None)
-        if pending is None:
+        # P3: Check pending under lock
+        pending_mu = getattr(runtime, "pending_mu", None)
+        if pending_mu is None:
             return
 
-        last_ts = int(getattr(runtime, "last_signal_ts", 0) or 0)
-        age = now_ms - last_ts if last_ts > 0 else 10 ** 9
+        async with pending_mu:
+            pending = getattr(runtime, "pending_payload", None)
+            if pending is None:
+                return
 
-        indicators = pending.get("indicators", {}) if isinstance(pending, dict) else {}
-        scn = (indicators.get("strong_gate_scn", "") or "")
-        if not scn:
-            scn = "reversal" if int(indicators.get("sweep", 0) or 0) == 1 else "continuation"
-        new_dir = (pending.get("direction", "") or "")
+            last_ts = int(getattr(runtime, "last_signal_ts", 0) or 0)
+            age = now_ms - last_ts if last_ts > 0 else 10 ** 9
 
-        cooldown_ms = _cooldown_ms_for(runtime, scenario=scn, now_ms=now_ms, new_dir=new_dir)
-        if age < cooldown_ms:
-            return
+            indicators = pending.get("indicators", {}) if isinstance(pending, dict) else {}
+            scn = (indicators.get("strong_gate_scn", "") or "")
+            if not scn:
+                scn = "reversal" if int(indicators.get("sweep", 0) or 0) == 1 else "continuation"
+            new_dir = (pending.get("direction", "") or "")
 
-        payload = runtime.pending_payload
-        replaced = int(getattr(runtime, "pending_replaced", 0) or 0)
-        pending_age_ms = now_ms - int(getattr(runtime, "pending_ts_ms", now_ms) or now_ms)
+            cooldown_ms = _cooldown_ms_for(runtime, scenario=scn, now_ms=now_ms, new_dir=new_dir)
+            if age < cooldown_ms:
+                return
 
-        runtime.pending_payload = None
-        runtime.pending_score = 0.0
-        runtime.pending_ts_ms = 0
-        runtime.pending_replaced = 0
+            payload = runtime.pending_payload
+            replaced = int(getattr(runtime, "pending_replaced", 0) or 0)
+            pending_age_ms = now_ms - int(getattr(runtime, "pending_ts_ms", now_ms) or now_ms)
 
+            runtime.pending_payload = None
+            runtime.pending_score = 0.0
+            runtime.pending_ts_ms = 0
+            runtime.pending_replaced = 0
+
+        # Execute payload publish outside lock
         logger.info(
             "⏱️ (%s) pending timer-flush: dir=%s age=%dms cooldown=%dms"
             " pending_age=%dms replaced=%d",
@@ -206,6 +216,17 @@ class BurstFlusher:
 
         if out is None:
             return None
+
+        # P4: Record burst wait time (deadline - start_ts_ms) for observability
+        if burst_wait_ms:
+            try:
+                emitted_at = int(out.get("burst_emitted_at", 0))
+                start_ts = int(out.get("burst_start_ts_ms", 0))
+                if emitted_at > 0 and start_ts > 0:
+                    wait_ms = emitted_at - start_ts
+                    burst_wait_ms.labels(symbol=runtime.symbol).observe(wait_ms)
+            except Exception:
+                pass  # Fail-open: metric recording shouldn't block signal emission
 
         if burst_flush_total:
             burst_flush_total.labels(symbol=runtime.symbol, mode=trigger_source).inc()

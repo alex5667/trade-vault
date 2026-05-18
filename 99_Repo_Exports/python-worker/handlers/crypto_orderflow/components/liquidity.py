@@ -35,6 +35,10 @@ class CryptoLiquidity:
     Manages liquidity analysis (walls, depth) and trade level enrichment.
     """
 
+    def __init__(self) -> None:
+        from core.liquidity_wall_calibrator import LiquidityWallCalibrator
+        self._liq_wall_cal = LiquidityWallCalibrator()
+
     @staticmethod
     def _cfg_hash(cfg: dict | None) -> str:
         """Stable cfg hash for cache keys."""
@@ -149,8 +153,14 @@ class CryptoLiquidity:
         bm = self.calculate_book_metrics(l2)
         lc.depth_5_vol = bm["depth_5_bid_vol"] + bm["depth_5_ask_vol"] # Or side-specific? Handled below.  # type: ignore
 
-        # 2) Find near wall
-        side, lvl, size_z = self.find_near_liquidity_wall(ctx, l2)
+        # 2) Find near wall (calibrated thresholds)
+        sym = str(getattr(ctx, "symbol", None) or "na")
+        _lw_th = self._liq_wall_cal.thresholds(symbol=sym)
+        side, lvl, size_z = self.find_near_liquidity_wall(
+            ctx, l2,
+            max_dist_bps=_lw_th.max_dist_bps,
+            size_z_thr=_lw_th.size_z_thr,
+        )
         if side is None or lvl is None or size_z is None:
             return lc
 
@@ -158,6 +168,11 @@ class CryptoLiquidity:
         lc.near_wall_price = lvl.price  # type: ignore
         lc.near_wall_size = lvl.size  # type: ignore
         lc.near_wall_size_z = size_z  # type: ignore
+
+        price = getattr(ctx, "last_price", None)
+        if price and price > 0:
+            dist_bps = abs(lvl.price - price) / price * 10_000.0
+            self._liq_wall_cal.observe(symbol=sym, size_z=size_z, dist_bps=dist_bps)
 
         # 3) Override depth_5 with side-specific if needed by existing logic
         # (Original code used: sum(x.size for x in (l2.bids[:5] if side == "bid" else l2.asks[:5])))

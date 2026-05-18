@@ -3,10 +3,10 @@ import os
 import pytest
 import yaml
 
-# Both parametrize variants resolve to the same real path (the file lives in
-# tick_flow_full/orderflow_services alongside this test directory).
+# The alerts YAML lives in python-worker/orderflow_services/ (canonical location).
+# This test file is at python-worker/tests/orderflow_services/tests/, so go up 3 levels.
 _THIS_DIR = os.path.dirname(__file__)
-_ALERTS_YAML = os.path.abspath(os.path.join(_THIS_DIR, "..", "prometheus_alerts_derivatives_context_v1.yml"))
+_ALERTS_YAML = os.path.abspath(os.path.join(_THIS_DIR, "../../..", "orderflow_services", "prometheus_alerts_derivatives_context_v1.yml"))
 
 
 @pytest.mark.parametrize("tick_flow_full", [False, True])

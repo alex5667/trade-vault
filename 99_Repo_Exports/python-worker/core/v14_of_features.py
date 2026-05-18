@@ -26,6 +26,37 @@ Design:
 import hashlib
 from typing import Any
 
+# ──────────────────────────────────────────────────────────────────────────────
+# Prometheus counter for fail-open events. Lazy-init so tests / processes
+# without prometheus_client still import this module cleanly.
+# ──────────────────────────────────────────────────────────────────────────────
+
+_OG_FAIL_OPEN_COUNTER = None
+
+
+def _record_fail_open(reason: str) -> None:
+    """Increment og_payload_fail_open_total{reason=<reason>}.
+
+    Reasons used:
+      - "import_error"   — caller could not import build_og_payload
+      - "build_raised"   — build_og_payload itself raised unexpectedly
+      - "wiring_error"   — outer wiring site raised (e.g. NameError on ofc/dec)
+    Silent on prometheus_client absence; never raises.
+    """
+    global _OG_FAIL_OPEN_COUNTER
+    try:
+        if _OG_FAIL_OPEN_COUNTER is None:
+            from prometheus_client import Counter
+            _OG_FAIL_OPEN_COUNTER = Counter(
+                "og_payload_fail_open_total",
+                "v14_of OG payload fail-open events (16 keys defaulted to 0.0)",
+                ["reason"],
+            )
+        _OG_FAIL_OPEN_COUNTER.labels(reason=str(reason or "unknown")).inc()
+    except Exception:
+        # Never let observability break the hot path.
+        pass
+
 
 _OG_KEYS: tuple[str, ...] = (
     "og_have",

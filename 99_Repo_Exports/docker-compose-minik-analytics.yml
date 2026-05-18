@@ -360,8 +360,8 @@ services:
     - ENTRY_TAG_ANALYTICS_LIMIT=2000
     - ENTRY_TAG_MIN_TRADES=10
     - TRAILING_AFTER_TP1_SOURCES=CryptoOrderFlow
-    - DATABASE_URL=postgresql://trading:${TRADING_PASSWORD}@postgres:5432/scanner_analytics
-    - TRADES_DB_DSN=postgresql://trading:${TRADING_PASSWORD}@postgres:5432/scanner_analytics
+    - DATABASE_URL=${ANALYTICS_DB_DSN}
+    - TRADES_DB_DSN=${ANALYTICS_DB_DSN}
     - ENABLE_CLOSED_ZSET_INDEX=1
     - BASELINE_HORIZON_DAYS=180
     - DEBUG_DB_CONN=1
@@ -441,7 +441,7 @@ services:
     restart: unless-stopped
     environment:
     - PYTHONUNBUFFERED=1
-    - ANALYTICS_DSN=postgresql://trading:${TRADING_PASSWORD}@postgres:5432/scanner_analytics
+    - ANALYTICS_DSN=${ANALYTICS_DB_DSN}
     - REGIME_Q_INTERVAL_SEC=21600
     - REGIME_Q_REDIS_TTL_SEC=129600
     - REGIME_BARS_TABLE=regime_snapshot
@@ -456,9 +456,6 @@ services:
     networks:
     - scanner-core
     - scanner-infra
-    depends_on:
-      postgres:
-        condition: service_healthy
     deploy:
       resources:
         limits:
@@ -476,8 +473,8 @@ services:
     restart: unless-stopped
     environment:
     - PYTHONUNBUFFERED=1
-    - TRADES_DB_DSN=postgresql://trading:${TRADING_PASSWORD}@postgres:5432/scanner_analytics
-    - PERF_PG_DSN=postgresql://trading:${TRADING_PASSWORD}@postgres:5432/scanner_analytics
+    - TRADES_DB_DSN=${ANALYTICS_DB_DSN}
+    - PERF_PG_DSN=${ANALYTICS_DB_DSN}
     - CONF_CAL_INTERVAL_SEC=21600
     - TZ=UTC
     command: python3 tools/run_daemon_with_minik_failover.py --job-name auto_train_calibration
@@ -486,9 +483,6 @@ services:
     networks:
     - scanner-core
     - scanner-infra
-    depends_on:
-      postgres:
-        condition: service_healthy
     volumes:
     - ./data/calibration:/app/python-worker/calibration
     deploy:
@@ -667,6 +661,8 @@ services:
     - META_ENFORCE_COV_APPROVALS_REQUIRED=2
     - ENABLE_OF_GATE_CONTRACT_CHECK=1
     - ENABLE_POLICY_EFFECTIVENESS_REPORT=1
+    # v13_of feature-registry contract check (shadow→enforce after seed-pins confirmed)
+    - ENABLE_FEATURE_REGISTRY_CONTRACT_CHECK=${ENABLE_FEATURE_REGISTRY_CONTRACT_CHECK:-1}
     - TZ=UTC
     networks: *id002
     dns: *id003

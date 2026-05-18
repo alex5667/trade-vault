@@ -11,8 +11,10 @@ class TestMetaFeaturesV5(unittest.TestCase):
             "exec_risk_norm": 0.5,
             # V5 keys
             "tick_time_age_ms": 100,
-            "tick_time_age_abs_ema_ms": 50,
+            "tick_event_age_abs_ema_ms": 50,
             "tick_event_stream_skew_abs_ema_ms": 10,
+            "tick_ts_source_now_ema": 0.0,
+            "tick_ts_source_stream_id_ema": 0.0,
             "data_health": 1.0,
             "book_health_ok": 1,
             "tick_unknown_side_ema": 0.0,

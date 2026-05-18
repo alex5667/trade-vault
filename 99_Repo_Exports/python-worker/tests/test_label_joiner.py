@@ -102,6 +102,52 @@ class TestLabelJoinerService(unittest.TestCase):
         assert result is True
         assert not self.service.decision_store.load_decision.called
 
+    def test_publish_includes_market_regime_and_kind_from_features(self):
+        """label_joiner must pass through decision.features['market_regime']
+        and 'kind' into trades:closed so downstream p_edge calibrator can
+        bucket by (symbol × regime × kind)."""
+        decision = DecisionRecord(
+            sid="BTC:LONG:1",
+            symbol="BTCUSDT",
+            ts=1_000,
+            features={"market_regime": "trend", "kind": "breakout"},
+        )
+        self.service.decision_store.load_decision.return_value = decision
+
+        payload = {
+            "sid": "BTC:LONG:1",
+            "entry_price": 100.0, "exit_price": 110.0, "total_pnl": 10.0,
+            "direction": "LONG", "sl": 90.0, "exit_ts_ms": 2_000,
+        }
+        fields = {"type": "POSITION_CLOSED", "data": json.dumps(payload)}
+        assert self.service.process_trade_event(RS.EVENTS_TRADES, "5-0", fields)
+
+        trades_closed_call = [
+            c for c in self.mock_redis.xadd.call_args_list if c[0][0] == RS.TRADES_CLOSED
+        ]
+        data = trades_closed_call[0][0][1]
+        assert data["market_regime"] == "trend"
+        assert data["kind"] == "breakout"
+
+    def test_publish_defaults_to_wildcards_when_features_empty(self):
+        decision = DecisionRecord(sid="BTC:LONG:2", symbol="BTCUSDT", ts=1_000)
+        self.service.decision_store.load_decision.return_value = decision
+
+        payload = {
+            "sid": "BTC:LONG:2",
+            "entry_price": 100.0, "exit_price": 110.0, "total_pnl": 10.0,
+            "direction": "LONG", "sl": 90.0, "exit_ts_ms": 2_000,
+        }
+        fields = {"type": "POSITION_CLOSED", "data": json.dumps(payload)}
+        assert self.service.process_trade_event(RS.EVENTS_TRADES, "6-0", fields)
+
+        trades_closed_call = [
+            c for c in self.mock_redis.xadd.call_args_list if c[0][0] == RS.TRADES_CLOSED
+        ]
+        data = trades_closed_call[0][0][1]
+        assert data["market_regime"] == "*"
+        assert data["kind"] == "*"
+
     def test_decision_not_found(self):
         self.service.decision_store.load_decision.return_value = None
         trade_payload = {"sid": "MISSING", "direction": "LONG"}

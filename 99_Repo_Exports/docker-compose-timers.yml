@@ -68,7 +68,7 @@ services:
     - BINANCE_API_SECRET=${BINANCE_API_SECRET:-}
     - BINANCE_FUTURES_BASE_URL=${BINANCE_FUTURES_BASE_URL:-https://fapi.binance.com}
     - BINANCE_HTTP_TIMEOUT_S=${BINANCE_HTTP_TIMEOUT_S:-8.0}
-    - ACTIVE_SYMBOL_GUARD_REPAIR_INTERVAL_SEC=${ACTIVE_SYMBOL_GUARD_REPAIR_INTERVAL_SEC:-5}
+    - ACTIVE_SYMBOL_GUARD_REPAIR_INTERVAL_SEC=${ACTIVE_SYMBOL_GUARD_REPAIR_INTERVAL_SEC:-30}
     - ACTIVE_SYMBOL_GUARD_REPAIR_DRY_RUN=${ACTIVE_SYMBOL_GUARD_REPAIR_DRY_RUN:-0}
     - EXEC_SINGLE_ACTIVE_POSITION_REQUIRE_FLAT_NO_ORDERS=${EXEC_SINGLE_ACTIVE_POSITION_REQUIRE_FLAT_NO_ORDERS:-1}
     - EXEC_SINGLE_ACTIVE_POSITION_GUARD_REPAIR_ENABLE=${EXEC_SINGLE_ACTIVE_POSITION_GUARD_REPAIR_ENABLE:-1}
@@ -86,7 +86,7 @@ services:
     command:
     - sh
     - -c
-    - sleep 5 && python3 -m services.binance_active_symbol_guard_repair_worker
+    - sleep 10 && python3 -m services.binance_active_symbol_guard_repair_worker
     depends_on:
       redis-worker-1:
         condition: service_healthy
@@ -135,8 +135,8 @@ services:
     - TZ=UTC
     volumes:
     - ./python-worker/services:/app/services
-    command: "sh -c \"sleep 5 && while true; do\n  python3 -u -m services.active_symbol_guard_incident_notifier;\n\
-      \  sleep 15;\ndone\"\n"
+    command: "sh -c \"sleep 16 && while true; do\n  python3 -u -m services.active_symbol_guard_incident_notifier;\n\
+      \  sleep 60;\ndone\"\n"
     networks:
     - scanner-timers
     - scanner-infra
@@ -162,12 +162,12 @@ services:
     working_dir: /app
     volumes:
     - ./python-worker:/app
-    command: "sh -c \"sleep 5 && while true; do\n  HOUR=$$(date +%-H);\n  MIN=$$(date\
+    command: "sh -c \"sleep 24 && while true; do\n  HOUR=$$(date +%-H);\n  MIN=$$(date\
       \ +%-M);\n  # Run daily at 02:25 UTC\n  if [ \\\"$$HOUR\\\" -eq 2 ] && [ \\\"\
       $$MIN\\\" -ge 25 ] && [ \\\"$$MIN\\\" -lt 40 ]; then\n    echo 'Running Nightly\
       \ Monitoring Smoke Tests...';\n    python3 -u ml_analysis/tools/nightly_monitoring_smoke_tests_v1.py;\n\
       \    echo 'Smoke tests complete. Sleeping...';\n    sleep 82800;\n  else\n \
-      \   sleep 60;\n  fi\ndone\"\n"
+      \   sleep 600;\n  fi\ndone\"\n"
     depends_on:
       redis-worker-1:
         condition: service_healthy
@@ -199,9 +199,9 @@ services:
     volumes:
     - ./python-worker:/app
     command:
-    - python3
-    - -u
-    - orderflow_services/decision_coverage_kpi_worker_v1.py
+    - sh
+    - -c
+    - sleep 32 && python3 -u orderflow_services/decision_coverage_kpi_worker_v1.py
     depends_on:
       redis-worker-1:
         condition: service_healthy
@@ -247,7 +247,7 @@ services:
     # Use canonical orderflow_services (not the tick_flow_full mirror) so code
     # edits to derivatives_context_collector_v1.py take effect on restart.
     - ./python-worker/orderflow_services:/app/orderflow_services
-    command: python3 -m orderflow_services.derivatives_context_collector_v1
+    command: sh -c "sleep 40 && python3 -m orderflow_services.derivatives_context_collector_v1"
     depends_on:
       redis-worker-1:
         condition: service_healthy
@@ -280,9 +280,9 @@ services:
     volumes:
     - ./python-worker:/app
     command:
-    - python3
-    - -u
-    - orderflow_services/enforce_bucket_state_exporter_v1.py
+    - sh
+    - -c
+    - sleep 48 && python3 -u orderflow_services/enforce_bucket_state_exporter_v1.py
     depends_on:
       redis-worker-1:
         condition: service_healthy
@@ -315,7 +315,7 @@ services:
     volumes:
     - ./python-worker/services:/app/services
     - ./python-worker/tick_flow_full/orderflow_services:/app/orderflow_services
-    command: python3 -m orderflow_services.derivatives_context_exporter_v1
+    command: sh -c "sleep 56 && python3 -m orderflow_services.derivatives_context_exporter_v1"
     depends_on:
       redis-worker-1:
         condition: service_healthy
@@ -363,9 +363,9 @@ services:
     - ./python-worker/tools:/app/tools
     - ./python-worker/tests:/app/tests
     command:
-    - python
-    - -m
-    - tools.tick_gate_metrics_aggregator_v2
+    - sh
+    - -c
+    - sleep 64 && python -m tools.tick_gate_metrics_aggregator_v2
     depends_on:
       redis-worker-1:
         condition: service_healthy
@@ -423,9 +423,9 @@ services:
     - ./python-worker/services:/app/services
     - ./python-worker/orderflow_services:/app/orderflow_services
     command:
-    - python3
-    - -m
-    - orderflow_services.exec_health_freeze_client_name_audit_exporter_v1
+    - sh
+    - -c
+    - sleep 80 && python3 -m orderflow_services.exec_health_freeze_client_name_audit_exporter_v1
     healthcheck:
       test:
       - CMD-SHELL
@@ -468,7 +468,7 @@ services:
     - ./python-worker/services:/app/services
     - ./python-worker/orderflow_services:/app/orderflow_services
     - ./python-worker/tick_flow_full/orderflow_services:/app/tick_flow_full/orderflow_services
-    command: python3 -m orderflow_services.latency_contract_deploy_lint_exporter_v1
+    command: sh -c "sleep 88 && python3 -m orderflow_services.latency_contract_deploy_lint_exporter_v1"
     depends_on:
       redis-worker-1:
         condition: service_healthy
@@ -502,7 +502,7 @@ services:
     - ./python-worker/services:/app/services
     - ./python-worker/orderflow_services:/app/orderflow_services
     - ./python-worker/tick_flow_full/orderflow_services:/app/tick_flow_full/orderflow_services
-    command: "sh -c \"sleep 5 && while true; do\n  python3 -u -m orderflow_services.latency_contract_deploy_lint_notifier_v1;\n\
+    command: "sh -c \"sleep 96 && while true; do\n  python3 -u -m orderflow_services.latency_contract_deploy_lint_notifier_v1;\n\
       \  sleep 300;\ndone\"\n"
     depends_on:
       redis-worker-1:
@@ -521,6 +521,9 @@ services:
     - scanner-infra
     deploy:
       resources:
+        limits:
+          cpus: '0.10'
+          memory: 128M
         reservations:
           memory: 24M
     environment:
@@ -536,6 +539,9 @@ services:
     - scanner-infra
     deploy:
       resources:
+        limits:
+          cpus: '0.10'
+          memory: 128M
         reservations:
           memory: 24M
     environment:
@@ -566,9 +572,9 @@ services:
     volumes:
     - ./python-worker:/app
     command:
-    - python3
-    - -u
-    - orderflow_services/conf_score_weight_tuning_exporter_v1.py
+    - sh
+    - -c
+    - sleep 120 && python3 -u orderflow_services/conf_score_weight_tuning_exporter_v1.py
     depends_on:
       redis-worker-1:
         condition: service_healthy
@@ -608,13 +614,13 @@ services:
     - ./python-worker:/app
     - /var/lib/trade/replay_inputs_archives:/var/lib/trade/replay_inputs_archives
     - /var/lib/trade/conf_score_weight_tuning:/var/lib/trade/conf_score_weight_tuning
-    command: "sh -c \"sleep 5 && while true; do\n  HOUR=$$(date +%-H);\n  MIN=$$(date\
+    command: "sh -c \"sleep 128 && while true; do\n  HOUR=$$(date +%-H);\n  MIN=$$(date\
       \ +%-M);\n  # Run daily at 22:00 UTC (after NYSE close)\n  if [ \\\"$$HOUR\\\
       \" -eq 22 ] && [ \\\"$$MIN\\\" -ge 0 ] && [ \\\"$$MIN\\\" -lt 15 ]; then\n \
       \   echo 'Running Nightly Confidence Scorer Weight Tuning...';\n    python3\
       \ -u orderflow_services/nightly_conf_score_weight_tuning_bundle_v1.py;\n   \
       \ echo 'Tuning done. Sleeping until next day...';\n    sleep 82800;\n  else\n\
-      \    sleep 60;\n  fi\ndone\"\n"
+      \    sleep 600;\n  fi\ndone\"\n"
     networks:
     - scanner-timers
     - scanner-infra
@@ -643,7 +649,7 @@ services:
     volumes:
     - ./python-worker:/app
     - /var/lib/trade:/var/lib/trade
-    command: "sh -c \"sleep 5 && while true; do\n  HOUR=$$(date +%-H);\n  MIN=$$(date\
+    command: "sh -c \"sleep 136 && while true; do\n  HOUR=$$(date +%-H);\n  MIN=$$(date\
       \ +%-M);\n  # Run daily at 22:30 UTC (after conf-score-tuning at 22:00)\n  if\
       \ [ \\\"$$HOUR\\\" -eq 22 ] && [ \\\"$$MIN\\\" -ge 30 ] && [ \\\"$$MIN\\\" -lt\
       \ 45 ]; then\n    echo 'Running Nightly Meta Skew Guard (Stage 4)...';\n   \
@@ -651,7 +657,7 @@ services:
       \ -u tools/nightly_meta_skew_guard_v7.py --train-ndjson \\\"$$META_TRAIN_NDJSON\\\
       \" --out-dir \\\"$$META_SKEW_OUT_DIR\\\" --freeze-json \\\"$$META_FREEZE_FILE\\\
       \";\n    echo 'Guard updated. Sleeping until next day...';\n    sleep 82800;\n\
-      \  else\n    sleep 60;\n  fi\ndone\"\n"
+      \  else\n    sleep 600;\n  fi\ndone\"\n"
     networks:
     - scanner-timers
     - scanner-infra
@@ -685,7 +691,7 @@ services:
     volumes:
     - ./python-worker:/app
     - /var/lib/trade:/var/lib/trade
-    command: "sh -c \"sleep 5 && while true; do\n  HOUR=$$(date +%-H);\n  MIN=$$(date\
+    command: "sh -c \"sleep 144 && while true; do\n  HOUR=$$(date +%-H);\n  MIN=$$(date\
       \ +%-M);\n  # Run daily at 23:00 UTC (after meta-skew-guard at 22:30)\n  if\
       \ [ \\\"$$HOUR\\\" -eq 23 ] && [ \\\"$$MIN\\\" -ge 0 ] && [ \\\"$$MIN\\\" -lt\
       \ 20 ]; then\n    echo 'Running Stage 4 A/B Winner Evaluator...';\n    python3\
@@ -695,7 +701,7 @@ services:
       \ \\\"$$META_MIN_DELTA_EXP_R\\\" --tail-slack \\\"$$META_TAIL_SLACK\\\" --ramp-step\
       \ \\\"$$META_RAMP_STEP\\\" --share-max \\\"$$META_SHARE_MAX\\\" --apply;\n \
       \   echo 'Evaluator done. Sleeping until next day...';\n    sleep 82800;\n \
-      \ else\n    sleep 60;\n  fi\ndone\"\n"
+      \ else\n    sleep 600;\n  fi\ndone\"\n"
     networks:
     - scanner-timers
     - scanner-infra
@@ -740,7 +746,7 @@ services:
     volumes:
     - ./python-worker:/app
     - /var/lib/trade:/var/lib/trade
-    command: "sh -c \"sleep 150 && while true; do\n  HOUR=$$(date +%-H);\n  MIN=$$(date\
+    command: "sh -c \"sleep 152 && while true; do\n  HOUR=$$(date +%-H);\n  MIN=$$(date\
       \ +%-M);\n  # Run daily at 23:30 UTC (after v1 at 23:00, after meta-skew-guard\
       \ at 22:30)\n  if [ \\\"$$HOUR\\\" -eq 23 ] && [ \\\"$$MIN\\\" -ge 30 ] && [\
       \ \\\"$$MIN\\\" -lt 50 ]; then\n    echo 'Running Stage 4 A/B Winner Evaluator\
@@ -755,7 +761,7 @@ services:
       \" --ramp-step \\\"$$META_AB_RAMP_STEP\\\" --max-share \\\"$$META_AB_MAX_SHARE\\\
       \" --current-share \\\"$$META_AB_CURRENT_SHARE\\\" --apply \\\"$$META_AB_APPLY\\\
       \";\n    echo 'Evaluator v2 done. Sleeping until next day...';\n    sleep 82800;\n\
-      \  else\n    sleep 60;\n  fi\ndone\"\n"
+      \  else\n    sleep 600;\n  fi\ndone\"\n"
     networks:
     - scanner-timers
     - scanner-infra
@@ -785,11 +791,9 @@ services:
     - ./python-worker:/app
     - /var/lib/trade/of_reports:/var/lib/trade/of_reports
     command:
-    - python3
-    - -m
-    - tools.meta_ab_v2_report_exporter_v1
-    - --port
-    - '9634'
+    - sh
+    - -c
+    - sleep 160 && python3 -m tools.meta_ab_v2_report_exporter_v1 --port '9634'
     networks:
     - scanner-timers
     - scanner-infra
@@ -821,7 +825,7 @@ services:
     command:
     - sh
     - -c
-    - sleep 60 && while true; do echo 'Running Meta A/B Evaluator v1...'; python3
+    - sleep 168 && while true; do echo 'Running Meta A/B Evaluator v1...'; python3
       tools/meta_ab_evaluator_v1.py --since-min 720 --min-n 200 --min-delta-mean-r
       0.05; echo 'Meta A/B evaluation done. Sleeping 30 minutes...'; sleep 1800; done
     networks:
@@ -865,8 +869,8 @@ services:
     command:
     - sh
     - -c
-    - sleep 90 && while true; do echo 'Running Meta Drift Guard v1...'; python3 tools/meta_drift_guard_v1.py
-      --since-min 180 --emit-suggestion --unfreeze-on-ok --notify; echo 'Meta drift
+    - sleep 176 && while true; do echo 'Running Meta Drift Guard v1...'; python3 tools/meta_drift_guard_v1.py
+      - -since-min 180 --emit-suggestion --unfreeze-on-ok --notify; echo 'Meta drift
       guard done. Sleeping 30 minutes...'; sleep 1800; done
     networks:
     - scanner-timers
@@ -898,11 +902,9 @@ services:
     - ./python-worker:/app
     - /var/lib/trade/of_reports:/var/lib/trade/of_reports
     command:
-    - python3
-    - -m
-    - tools.confirmations_coverage_report_exporter_v1
-    - --port
-    - '9628'
+    - sh
+    - -c
+    - sleep 184 && python3 -m tools.confirmations_coverage_report_exporter_v1 --port '9628'
     networks:
     - scanner-timers
     - scanner-infra
@@ -943,9 +945,9 @@ services:
     - ./python-worker/handlers:/app/handlers
     - ./python-worker/tools:/app/tools
     command:
-    - python
-    - -m
-    - tools.tick_gate_group_reaper
+    - sh
+    - -c
+    - sleep 192 && python -m tools.tick_gate_group_reaper
     networks:
     - scanner-timers
     - scanner-infra
@@ -991,9 +993,9 @@ services:
     - ./python-worker/handlers:/app/handlers
     - ./python-worker/tools:/app/tools
     command:
-    - python
-    - -m
-    - tools.auto_apply_tick_gate_blocker_v2
+    - sh
+    - -c
+    - sleep 200 && python -m tools.auto_apply_tick_gate_blocker_v2
     depends_on:
       redis-worker-1:
         condition: service_healthy
@@ -1036,9 +1038,9 @@ services:
     - ./python-worker/handlers:/app/handlers
     - ./python-worker/tools:/app/tools
     command:
-    - python
-    - -m
-    - tools.auto_apply_tick_gate_exporter
+    - sh
+    - -c
+    - sleep 208 && python -m tools.auto_apply_tick_gate_exporter
     depends_on:
       redis-worker-1:
         condition: service_healthy
@@ -1067,12 +1069,12 @@ services:
     working_dir: /app
     volumes:
     - ./python-worker:/app
-    command: "sh -c \"sleep 5 && while true; do\n  HOUR=$$(date +%-H);\n  MIN=$$(date\
+    command: "sh -c \"sleep 216 && while true; do\n  HOUR=$$(date +%-H);\n  MIN=$$(date\
       \ +%-M);\n  # Run at 07:00 UTC\n  if [ \\\"$$HOUR\\\" -eq 7 ] && [ \\\"$$MIN\\\
       \" -ge 0 ] && [ \\\"$$MIN\\\" -lt 10 ]; then\n    echo 'Running Auto-Apply Tick\
       \ Gate Daily Report...';\n    python3 -m tools.auto_apply_tick_gate_daily_report\
       \ --hours 24;\n    echo 'Report done. Sleeping 1 hour...';\n    sleep 3600;\n\
-      \  else\n    sleep 60;\n  fi\ndone\"\n"
+      \  else\n    sleep 600;\n  fi\ndone\"\n"
     networks:
     - scanner-timers
     - scanner-infra
@@ -1109,7 +1111,7 @@ services:
     volumes:
     - ./python-worker:/app
     - /var/lib/trade/of_reports:/var/lib/trade/of_reports
-    command: "sh -c \"sleep 5 && while true; do\n  echo 'Running Auto-Apply Job (Step\
+    command: "sh -c \"sleep 224 && while true; do\n  echo 'Running Auto-Apply Job (Step\
       \ 28)...';\n  python3 -m tools.auto_apply_job_entrypoint_hardguard_v1;\n  echo\
       \ 'Job done. Sleeping 5 minutes...';\n  sleep 300;\ndone\"\n"
     networks:
@@ -1141,7 +1143,7 @@ services:
     working_dir: /app
     volumes:
     - ./python-worker:/app
-    command: "sh -c \"sleep 5 && while true; do\n  echo 'Running Meta Coverage Outcome\
+    command: "sh -c \"sleep 232 && while true; do\n  echo 'Running Meta Coverage Outcome\
       \ Guard (P42)...';\n  python3 orderflow_services/meta_cov_outcome_guard_v1.py;\n\
       \  echo 'Guard check done. Sleeping 10 minutes...';\n  sleep 600;\ndone\"\n"
     networks:
@@ -1160,6 +1162,8 @@ services:
           memory: 256M
         reservations:
           memory: 24M
+    env_file:
+    - config/generated/symbols.env
     environment:
     - REDIS_URL=${REDIS_URL:-redis://redis-worker-1:6379/0}
     - PYTHONPATH=.:/app
@@ -1167,8 +1171,8 @@ services:
     working_dir: /app
     volumes:
     - ./python-worker:/app
-    command: "sh -c \"sleep 5 && while true; do\n  python3 tools/recommend_trailing_from_redis.py\
-      \ --source CryptoOrderFlow --symbols ETHUSDT,BTCUSDT --auto-write\
+    command: "sh -c \"sleep 240 && while true; do\n  python3 tools/recommend_trailing_from_redis.py\
+      \ --source CryptoOrderFlow --symbols ${CANARY_SYMBOLS} --auto-write\
       \ --limit 2000 --min-trades 40\
       \ --auto-apply-conf-threshold 0.72 --propose-conf-threshold 0.60\
       \ --min-trades-for-apply 60 --hold-down-hours 8 --min-delta-change-pct 2;\n\
@@ -1210,7 +1214,7 @@ services:
     working_dir: /app
     volumes:
     - ./python-worker:/app
-    command: "sh -c \"sleep 5 && while true; do\n  echo 'Running Trail Post-Analyzer\
+    command: "sh -c \"sleep 248 && while true; do\n  echo 'Running Trail Post-Analyzer\
       \ + Calibrator...';\n  python3 -m tools.trail_post_analyzer_worker --once;\n\
       \  echo 'Done. Sleeping 6 hours...';\n  sleep $${TRAIL_ANALYZER_INTERVAL_SEC:-21600};\n\
       done\"\n"
@@ -1237,7 +1241,7 @@ services:
     - AGGREGATOR_MAX_RSS_MB=3072
     - TZ=UTC
     working_dir: /app
-    command: "sh -c \"sleep 5 && while true; do\n  START=$$(date -d 'today 00:00'\
+    command: "sh -c \"sleep 256 && while true; do\n  START=$$(date -d 'today 00:00'\
       \ -Iseconds);\n  END=$$(date -Iseconds);\n  OUT=/var/log/scanner_infra/exec_$$(date\
       \ +%Y-%m-%d).parquet;\n  python3 services/aggregate_exec.py --start \\\"$$START\\\
       \" --end \\\"$$END\\\" --out \\\"$$OUT\\\";\n  echo 'Daily aggregation complete.\
@@ -1279,7 +1283,7 @@ services:
     working_dir: /app
     volumes:
     - ./python-worker:/app
-    command: "sh -c \"sleep 5 && while true; do\n  python3 services/ab_winner_suggester_service_v2.py\
+    command: "sh -c \"sleep 264 && while true; do\n  python3 services/ab_winner_suggester_service_v2.py\
       \ --run-once;\n  sleep 3600;\ndone\"\n"
     networks:
     - scanner-timers
@@ -1305,7 +1309,7 @@ services:
     env_file: .env
     volumes:
     - ./python-worker:/app
-    command: "sh -c \"sleep 5 && while true; do\n  python3 -m tools.ab_suggest_entry_policy;\n\
+    command: "sh -c \"sleep 272 && while true; do\n  python3 -m tools.ab_suggest_entry_policy;\n\
       \  sleep 900;\ndone\"\n"
     networks:
     - scanner-timers
@@ -1333,7 +1337,7 @@ services:
     working_dir: /app
     volumes:
     - ./python-worker:/app
-    command: "sh -c \"sleep 5 && while true; do\n  echo 'Running Trade Diagnostics\
+    command: "sh -c \"sleep 280 && while true; do\n  echo 'Running Trade Diagnostics\
       \ Report...';\n  python3 tools/trade_diagnostics/report_top_loss_reasons.py;\n\
       \  echo 'Report done. Sleeping 24h...';\n  sleep 86400;\ndone\"\n"
     networks:
@@ -1367,7 +1371,7 @@ services:
     working_dir: /app
     volumes:
     - ./python-worker:/app
-    command: "sh -c \"sleep 5 && while true; do\n  echo 'Running Tick Quality Gate\
+    command: "sh -c \"sleep 288 && while true; do\n  echo 'Running Tick Quality Gate\
       \ Check...';\n  python3 -m tools.tick_quality_gate_check --metrics-url http://crypto-orderflow-service:8001/metrics\
       \ --window-s 60;\n  echo 'Check done. Sleeping 1 hour...';\n  sleep 3600;\n\
       done\"\n"
@@ -1396,7 +1400,7 @@ services:
     working_dir: /app
     volumes:
     - ./python-worker:/app
-    command: "sh -c \"sleep 5 && while true; do\n  echo 'Applying DQ Gate Penalty-Only\
+    command: "sh -c \"sleep 296 && while true; do\n  echo 'Applying DQ Gate Penalty-Only\
       \ Config...';\n  python3 -c \\\"import redis, os; r = redis.from_url(os.environ['REDIS_URL'],\
       \ decode_responses=True); [r.hset(p[1], p[2], p[3]) for line in open('/app/ops/dynamic_cfg_examples/dq_gate_penalty_only.hset')\
       \ for p in [line.strip().split()] if line.strip() and not line.startswith('#')\
@@ -1436,7 +1440,7 @@ services:
     volumes:
     - ./python-worker:/app
     - ./tools:/app/tools
-    command: "sh -c \"sleep 5 && while true; do\n  echo 'Running Signal Quality KPI\
+    command: "sh -c \"sleep 304 && while true; do\n  echo 'Running Signal Quality KPI\
       \ Worker (P70)...';\n  python3 -m services.orderflow.signal_quality_kpi_worker_v1\
       \ --once;\n  echo 'KPI compute done. Sleeping 10 minutes...';\n  sleep 600;\n\
       done\"\n"
@@ -1480,7 +1484,7 @@ services:
     volumes:
     - ./python-worker:/app
     - ./tools:/app/tools
-    command: "sh -c \"sleep 5 && while true; do\n  echo 'Running Policy Regime Effectiveness\
+    command: "sh -c \"sleep 312 && while true; do\n  echo 'Running Policy Regime Effectiveness\
       \ Report (P72)...';\n  python3 tools/policy_regime_effectiveness_report_worker_p72.py\
       \ --once;\n  echo 'Report done. Sleeping 10 minutes...';\n  sleep 600;\ndone\"\
       \n"
@@ -1520,7 +1524,7 @@ services:
     volumes:
     - ./python-worker:/app
     - ./tools:/app/tools
-    command: "sh -c \"sleep 5 && while true; do\n  echo 'Running Policy Calibration\
+    command: "sh -c \"sleep 320 && while true; do\n  echo 'Running Policy Calibration\
       \ Suggester (P74)...';\n  python3 tools/policy_calibration_suggester_p74.py\
       \ --once;\n  echo 'Suggestion done. Sleeping 5 minutes...';\n  sleep 300;\n\
       done\"\n"
@@ -1557,12 +1561,9 @@ services:
     - ./python-worker:/app
     - ./calibration:/app/calibration
     command:
-    - python3
-    - -m
-    - tools.auto_train_conf_calibration
-    - --loop
-    - --interval
-    - '21600'
+    - sh
+    - -c
+    - sleep 328 && python3 -m tools.auto_train_conf_calibration --loop --interval '21600'
     networks:
     - scanner-timers
     - scanner-infra
@@ -1590,7 +1591,7 @@ services:
     - ./python-worker:/app
     - /var/lib/trade/of_reports:/var/lib/trade/of_reports
     - /var/lib/trade/ml_models:/var/lib/trade/ml_models
-    command: "sh -c \"sleep 5 && while true; do\n  echo 'Running Confidence Drift\
+    command: "sh -c \"sleep 336 && while true; do\n  echo 'Running Confidence Drift\
       \ Monitor...';\n  /app/ml_analysis/tools/run_confidence_drift_monitor.sh;\n\
       \  echo 'Monitor done. Sleeping 3 hours...';\n  sleep 10800;\ndone\"\n"
     networks:
@@ -1625,7 +1626,7 @@ services:
     - ./python-worker:/app
     - /var/lib/trade/of_reports:/var/lib/trade/of_reports
     - /var/lib/trade/conf_score_guard_bundles:/var/lib/trade/conf_score_guard_bundles
-    command: "sh -c \"sleep 5 && while true; do\n  if [ -f \\\"$$DRIFT_REPORT_PATH\\\
+    command: "sh -c \"sleep 344 && while true; do\n  if [ -f \\\"$$DRIFT_REPORT_PATH\\\
       \" ]; then\n    python3 -m orderflow_services.conf_score_guardrails_apply_v1\
       \ --drift-report \\\"$$DRIFT_REPORT_PATH\\\" --apply \\\"$${APPLY_GUARDRAILS:-0}\\\
       \" --stage 1 --staged-key-prefix \\\"cfg:crypto_of:overrides_staged:\\\" --bundle-dir\
@@ -1679,18 +1680,13 @@ services:
     command:
     - sh
     - -c
-    - sleep 180 && while true; do echo 'Running Confidence Guardrails AUTOPROMO Controller...';
-      python3 -m orderflow_services.conf_score_guardrails_autopromo_controller_v1
-      --redis-url "$$REDIS_URL" --bundle-dir "$$CONF_SCORE_GUARD_BUNDLE_DIR" --health-state-path
-      "$$CONF_SCORE_GUARD_HEALTH_STATE_PATH" --state-path "$$CONF_SCORE_GUARD_AUTOPROMO_STATE_PATH"
-      --lock-path "$$CONF_SCORE_GUARD_LOCK_PATH" --observe-window-sec "$$CONF_SCORE_GUARD_CANARY_OBSERVE_SEC"
-      --max-delta-ece "$$CONF_SCORE_GUARD_MAX_DELTA_ECE" --max-delta-brier "$$CONF_SCORE_GUARD_MAX_DELTA_BRIER"
-      --max-arm-delta-ece "$$CONF_SCORE_GUARD_MAX_ARM_DELTA_ECE" --max-arm-delta-brier
-      "$$CONF_SCORE_GUARD_MAX_ARM_DELTA_BRIER" --max-cohort-delta-ece-wmean "$$CONF_SCORE_GUARD_MAX_COHORT_DELTA_ECE_WMEAN"
-      --max-cohort-delta-brier-wmean "$$CONF_SCORE_GUARD_MAX_COHORT_DELTA_BRIER_WMEAN"
-      --max-cohort-delta-ece-max "$$CONF_SCORE_GUARD_MAX_COHORT_DELTA_ECE_MAX" --max-cohort-delta-brier-max
-      "$$CONF_SCORE_GUARD_MAX_COHORT_DELTA_BRIER_MAX" --min-n "$$CONF_SCORE_GUARD_MIN_N"
-      --apply "$$CONF_SCORE_GUARD_AUTOPROMO_APPLY"; sleep 300; done
+    - |
+      sleep 352
+      while true; do
+        echo 'Running Confidence Guardrails AUTOPROMO Controller...'
+        python3 -m orderflow_services.conf_score_guardrails_autopromo_controller_v1
+        sleep 300
+      done
     networks:
     - scanner-timers
     - scanner-infra
@@ -1717,9 +1713,9 @@ services:
     - ./python-worker:/app
     - /var/lib/trade/of_reports:/var/lib/trade/of_reports
     command:
-    - python3
-    - -m
-    - orderflow_services.conf_score_guard_state_exporter_v1
+    - sh
+    - -c
+    - sleep 360 && python3 -m orderflow_services.conf_score_guard_state_exporter_v1
     ports:
     - 9135:9135
     networks:
@@ -1750,11 +1746,7 @@ services:
     volumes:
     - ./python-worker:/app
     - ./calibration:/app/calibration
-    command: "sh -c \"sleep 5 && while true; do\n  echo 'Running Auto Train Confidence\
-      \ Calibrator V2...';\n  python3 -m ml_analysis.tools.nightly_confidence_calibrator_bundle_v2\
-      \ \\\n    --lookback_days $${CONF_CAL_V2_DAYS:-60} \\\n    --method $${CONF_CAL_V2_METHOD:-platt}\
-      \ \\\n    --out_dir /app/calibration \\\n    --champion_name confidence_calibration_v2.json;\n\
-      \  echo 'Run complete. Sleeping 6 hours...';\n  sleep 21600;\ndone\"\n"
+    command: "sh -c \"sleep 368 && while true; do python3 -m ml_analysis.tools.nightly_confidence_calibrator_bundle_v2 --lookback_days $${CONF_CAL_V2_DAYS:-60} --method $${CONF_CAL_V2_METHOD:-platt} --out_dir /app/calibration --champion_name confidence_calibration_v2.json; echo 'Run complete. Sleeping 6 hours...'; sleep 21600; done\""
     networks:
     - scanner-timers
     - scanner-infra
@@ -1843,11 +1835,13 @@ services:
     - META_ENFORCE_COV_APPROVALS_REQUIRED=2
     - ENABLE_OF_GATE_CONTRACT_CHECK=1
     - ENABLE_POLICY_EFFECTIVENESS_REPORT=1
+    # v13_of feature-registry contract check (shadow→enforce after seed-pins confirmed)
+    - ENABLE_FEATURE_REGISTRY_CONTRACT_CHECK=${ENABLE_FEATURE_REGISTRY_CONTRACT_CHECK:-1}
     - TZ=UTC
     working_dir: /app
     volumes:
     - ./python-worker:/app
-    command: "python3 tools/run_daemon_with_minik_failover.py --job-name trade_ml_sre_monitor -- sh -c \"sleep 5 && while true; do\\\n  NF=/tmp/.sre_notify_ts;\\\n \
+    command: "python3 tools/run_daemon_with_minik_failover.py --job-name trade_ml_sre_monitor -- sh -c \"sleep 376 && while true; do\\\n  NF=/tmp/.sre_notify_ts;\\\n \
       \ if [ ! -f $$NF ] || find $$NF -mmin +60 | grep -q .; then\\\n    echo 'Running\
       \ SRE Monitors WITH notify (1h gate)...';\\\n    python3 -m tools.sre_monitor_all_v3\
       \ --emit-metrics --notify --emit-suggestions;\\\n    touch $$NF;\\\n  else\\\
@@ -1896,12 +1890,12 @@ services:
     volumes:
     - ./python-worker:/app
     - /var/lib/trade/of_reports:/var/lib/trade/of_reports
-    command: "sh -c \"sleep 5 && while true; do\n  HOUR=$$(date +%-H);\n  MIN=$$(date\
+    command: "sh -c \"sleep 384 && while true; do\n  HOUR=$$(date +%-H);\n  MIN=$$(date\
       \ +%-M);\n  if [ \\\"$$HOUR\\\" = \\\"01\\\" ] && [ \\\"$$MIN\\\" -ge \\\"0\\\
       \" ] && [ \\\"$$MIN\\\" -lt \\\"20\\\" ]; then\n    echo 'Running Nightly Gate\
       \ Calibrate Bundle...';\n    python3 -m tools.nightly_gate_calibrate_bundle;\n\
       \    echo 'Calibration done. Sleeping 1 hour...';\n    sleep 3600;\n  else\n\
-      \    sleep 60;\n  fi\ndone\"\n"
+      \    sleep 600;\n  fi\ndone\"\n"
     networks:
     - scanner-timers
     - scanner-infra
@@ -1936,7 +1930,7 @@ services:
     volumes:
     - ./python-worker:/app
     - /var/lib/trade/of_reports:/var/lib/trade/of_reports
-    command: "sh -c \"sleep 5 && while true; do\n  if [ \\\"$${META_LR_RETRAIN_ENABLED:-1}\\\
+    command: "sh -c \"sleep 392 && while true; do\n  if [ \\\"$${META_LR_RETRAIN_ENABLED:-1}\\\
       \" = \\\"0\\\" ]; then\n    echo '[meta-lr-retrain] disabled, sleeping 86400s...';\n\
       \    sleep 86400;\n    continue;\n  fi\n  HOUR=$$(date +%-H);\n  MIN=$$(date\
       \ +%-M);\n  if [ \\\"$$HOUR\\\" -eq 2 ] && [ \\\"$$MIN\\\" -ge 30 ] && [ \\\"\
@@ -1947,7 +1941,7 @@ services:
       \ -m tools.calibrate_meta_lr_v1 --dataset /tmp/meta_train_nightly/meta_model_ds.jsonl\
       \ --apply;\n      echo '[meta-lr-retrain] Done.';\n    else\n      echo '[meta-lr-retrain]\
       \ Train failed (rc=$$TRAIN_RC), skipping calibration.';\n    fi;\n    sleep\
-      \ 82800;\n  else\n    sleep 60;\n  fi\ndone\"\n"
+      \ 82800;\n  else\n    sleep 600;\n  fi\ndone\"\n"
     networks:
     - scanner-timers
     - scanner-infra
@@ -1995,7 +1989,7 @@ services:
     - /var/lib/trade/of_reports:/var/lib/trade/of_reports
     expose:
     - "9842"
-    command: "sh -c \"sleep 10 && python3 -m orderflow_services.meta_model_calibrator_v1\
+    command: "sh -c \"sleep 400 && python3 -m orderflow_services.meta_model_calibrator_v1\
       \ --daemon 1 --apply 1 --enforce 1\"\n"
     networks:
     - scanner-timers
@@ -2035,13 +2029,13 @@ services:
     - ./python-worker:/app
     - /var/lib/trade/of_reports:/var/lib/trade/of_reports
     - /var/lib/trade/of_calibrators:/var/lib/trade/of_calibrators
-    command: "sh -c \"sleep 180 && while true; do\n  HOUR=$$(date +%-H);\n  MIN=$$(date\
+    command: "sh -c \"sleep 408 && while true; do\n  HOUR=$$(date +%-H);\n  MIN=$$(date\
       \ +%-M);\n  # Run at 06:15 UTC (after OF nightly?)\n  if [ \\\"$$HOUR\\\" =\
       \ \\\"01\\\" ] && [ \\\"$$MIN\\\" -ge \\\"30\\\" ] && [ \\\"$$MIN\\\" -lt \\\
       \"50\\\" ]; then\n    echo 'Running Nightly Confidence Calibrator V2...';\n\
       \    python3 -m ml_analysis.tools.nightly_confidence_calibrator_v1 --method\
       \ auto;\n    echo 'Done. Sleeping 1 hour...';\n    sleep 3600;\n  else\n   \
-      \ sleep 60;\n  fi\ndone\"\n"
+      \ sleep 600;\n  fi\ndone\"\n"
     networks:
     - scanner-timers
     - scanner-infra
@@ -2075,7 +2069,7 @@ services:
     - conf-cal-status:/shared/conf_cal
     - ./calibration:/app/calibration
     - /var/log/trade:/var/log/trade:ro
-    command: "sh -c \"sleep 5 && while true; do\n  echo 'Running Confidence Cal Live\
+    command: "sh -c \"sleep 416 && while true; do\n  echo 'Running Confidence Cal Live\
       \ Health Loop...';\n  python3 -m ml_analysis.tools.confidence_cal_live_health_loop_v1;\n\
       \  echo 'Done. Sleeping 1 hour...';\n  sleep 3600;\ndone\"\n"
     networks:
@@ -2108,8 +2102,9 @@ services:
     - /var/lib/trade/of_reports:/var/lib/trade/of_reports
     - conf-cal-status:/shared/conf_cal
     command:
-    - python3
-    - orderflow_services/conf_cal_live_status_exporter_v1.py
+    - sh
+    - -c
+    - sleep 424 && python3 orderflow_services/conf_cal_live_status_exporter_v1.py
     networks:
     - scanner-timers
     - scanner-infra
@@ -2145,7 +2140,7 @@ services:
     # Run every 24h. With PHASE3_TRAINER_ENABLE=0 it computes a dry-report only.
     # ML_SCORING_ENABLE in the scanner-python-worker env is the second gate
     # before fusion goes live; see docs/PHASE3_ML_FUSION_REDESIGN.md §8.
-    command: "sh -c \"sleep 60 && while true; do\n  echo 'Running Phase-3 scorer model trainer (enable=$$PHASE3_TRAINER_ENABLE)...';\n  python3 -m tools.train_scorer_model_v1;\n  echo 'Done. Sleeping 24 hours...';\n  sleep 86400;\ndone\"\n"
+    command: "sh -c \"sleep 432 && while true; do\n  echo 'Running Phase-3 scorer model trainer (enable=$$PHASE3_TRAINER_ENABLE)...';\n  python3 -m tools.train_scorer_model_v1;\n  echo 'Done. Sleeping 24 hours...';\n  sleep 86400;\ndone\"\n"
     networks:
     - scanner-timers
     - scanner-infra
@@ -2182,7 +2177,7 @@ services:
     - /var/lib/trade/of_reports:/var/lib/trade/of_reports:ro
     # Run every 6h. With PHASE2_OPTIMIZER_ENABLE=0 it computes a dry-run-equivalent
     # report into logs but does NOT overwrite suggested_weights.json.
-    command: "sh -c \"sleep 30 && while true; do\n  echo 'Running Phase-2 scorer multipliers optimizer (enable=$$PHASE2_OPTIMIZER_ENABLE)...';\n  python3 -m tools.optimize_scorer_multipliers_v1;\n  echo 'Done. Sleeping 6 hours...';\n  sleep 21600;\ndone\"\n"
+    command: "sh -c \"sleep 440 && while true; do\n  echo 'Running Phase-2 scorer multipliers optimizer (enable=$$PHASE2_OPTIMIZER_ENABLE)...';\n  python3 -m tools.optimize_scorer_multipliers_v1;\n  echo 'Done. Sleeping 6 hours...';\n  sleep 21600;\ndone\"\n"
     networks:
     - scanner-timers
     - scanner-infra
@@ -2218,7 +2213,7 @@ services:
     volumes:
     - ./python-worker:/app
     - /var/lib/trade/of_reports:/var/lib/trade/of_reports
-    command: "sh -c \"sleep 10 && while true; do\n  python3 -m orderflow_services.conf_cal_proof_state_controller_v1;\n  sleep 600;\ndone\"\n"
+    command: "sh -c \"sleep 448 && while true; do\n  python3 -m orderflow_services.conf_cal_proof_state_controller_v1;\n  sleep 600;\ndone\"\n"
     networks:
     - scanner-timers
     - scanner-infra
@@ -2250,9 +2245,9 @@ services:
     - ./python-worker:/app
     - /tmp:/tmp
     command:
-    - python3
-    - -m
-    - orderflow_services.calibration_extended_exporter_v1
+    - sh
+    - -c
+    - sleep 456 && python3 -m orderflow_services.calibration_extended_exporter_v1
     networks:
     - scanner-timers
     - scanner-infra
@@ -2281,9 +2276,9 @@ services:
     - ./python-worker:/app
     - conf-cal-status:/shared/conf_cal
     command:
-    - python3
-    - -u
-    - services/orderflow/conf_cal_rollback_event_watcher_v1.py
+    - sh
+    - -c
+    - sleep 464 && python3 -u services/orderflow/conf_cal_rollback_event_watcher_v1.py
     networks:
     - scanner-timers
     - scanner-infra
@@ -2314,9 +2309,9 @@ services:
     volumes:
     - ./python-worker:/app
     command:
-    - python3
-    - -m
-    - tools.feature_drift_exporter_v1
+    - sh
+    - -c
+    - sleep 472 && python3 -m tools.feature_drift_exporter_v1
     networks:
     - scanner-timers
     - scanner-infra
@@ -2349,9 +2344,9 @@ services:
     - ./python-worker:/app
     - /var/lib/trade:/var/lib/trade
     command:
-    - python3
-    - -m
-    - orderflow_services.feature_drift_batch_exporter_v1
+    - sh
+    - -c
+    - sleep 480 && python3 -m orderflow_services.feature_drift_batch_exporter_v1
     networks:
     - scanner-timers
     - scanner-infra
@@ -2381,9 +2376,9 @@ services:
     volumes:
     - ./python-worker:/app
     command:
-    - python3
-    - -u
-    - orderflow_services/decision_coverage_exporter_v1.py
+    - sh
+    - -c
+    - sleep 488 && python3 -u orderflow_services/decision_coverage_exporter_v1.py
     networks:
     - scanner-timers
     - scanner-infra
@@ -2415,11 +2410,11 @@ services:
     - ./python-worker:/app
     - /var/lib/trade:/var/lib/trade
     - ./calibration:/app/calibration
-    command: "sh -c \"sleep 5 && while true; do\n  HOUR=$$(date +%-H);\n  MIN=$$(date\
+    command: "sh -c \"sleep 496 && while true; do\n  HOUR=$$(date +%-H);\n  MIN=$$(date\
       \ +%-M);\n  if [ \\\"$$HOUR\\\" -eq 0 ] && [ \\\"$$MIN\\\" -ge 0 ] && [ \\\"\
       $$MIN\\\" -lt 20 ]; then\n    echo 'Running Nightly Edge Stack v1 Train Bundle...';\n\
       \    python3 -m ml_analysis.tools.nightly_edge_stack_v1_train_bundle;\n    echo\
-      \ 'Done. Sleeping until next day...';\n    sleep 82800;\n  else\n    sleep 60;\n\
+      \ 'Done. Sleeping until next day...';\n    sleep 82800;\n  else\n    sleep 600;\n\
       \  fi\ndone\"\n"
     networks:
     - scanner-timers
@@ -2462,14 +2457,14 @@ services:
     volumes:
     - ./python-worker:/app
     - /var/lib/trade:/var/lib/trade
-    command: "sh -c \"sleep 5 && while true; do\n  if [ \\\"$${V13_TRAIN_ENABLED:-1}\\\
+    command: "sh -c \"sleep 504 && while true; do\n  if [ \\\"$${V13_TRAIN_ENABLED:-1}\\\
       \" = \\\"0\\\" ]; then\n    echo '[v13-of-train-timer] disabled (V13_TRAIN_ENABLED=0),\
       \ sleeping 86400s...';\n    sleep 86400;\n    continue;\n  fi\n  HOUR=$$(date\
       \ +%-H);\n  MIN=$$(date +%-M);\n  if [ \\\"$$HOUR\\\" -eq 1 ] && [ \\\"$$MIN\\\
       \" -ge 0 ] && [ \\\"$$MIN\\\" -lt 20 ]; then\n    echo '[v13-of-train-timer]\
       \ Running Nightly Edge Stack v13_of Train Bundle...';\n    python3 -m ml_analysis.tools.nightly_edge_stack_v1_train_bundle;\n\
       \    echo '[v13-of-train-timer] Done. Sleeping until next day...';\n    sleep\
-      \ 82800;\n  else\n    sleep 60;\n  fi\ndone\"\n"
+      \ 82800;\n  else\n    sleep 600;\n  fi\ndone\"\n"
     networks:
     - scanner-timers
     - scanner-infra
@@ -2496,12 +2491,12 @@ services:
     volumes:
     - ./python-worker:/app
     - /var/lib/trade:/var/lib/trade
-    command: "sh -c \"sleep 5 && while true; do\n  HOUR=$$(date +%-H);\n  MIN=$$(date\
+    command: "sh -c \"sleep 512 && while true; do\n  HOUR=$$(date +%-H);\n  MIN=$$(date\
       \ +%-M);\n  if [ \\\"$$HOUR\\\" -eq 22 ] && [ \\\"$$MIN\\\" -ge 30 ] && [ \\\
       \"$$MIN\\\" -lt 50 ]; then\n    echo 'Running Nightly Feature Selection Loop\
       \ Bundle...';\n    python3 -m ml_analysis.tools.nightly_feature_selection_loop_bundle_v1;\n\
       \    echo 'Done. Sleeping until next day...';\n    sleep 82800;\n  else\n  \
-      \  sleep 60;\n  fi\ndone\"\n"
+      \  sleep 600;\n  fi\ndone\"\n"
     networks:
     - scanner-timers
     - scanner-infra
@@ -2535,13 +2530,13 @@ services:
     volumes:
     - ./python-worker:/app
     - /var/lib/trade:/var/lib/trade
-    command: "sh -c \"sleep 5 && while true; do\n  HOUR=$$(date +%-H);\n  MIN=$$(date\
+    command: "sh -c \"sleep 520 && while true; do\n  HOUR=$$(date +%-H);\n  MIN=$$(date\
       \ +%-M);\n  if [ \\\"$$HOUR\\\" -eq 21 ] && [ \\\"$$MIN\\\" -ge 30 ] && [ \\\
       \"$$MIN\\\" -lt 45 ]; then\n    echo '[fgh-builder] Running Offline Builder\
       \ for Edge Stack (FGH)...';\n    python3 -m ml_analysis.tools.build_edge_stack_dataset_from_redis\
       \ --out_jsonl \\\"$$FGH_BUILDER_OUT_JSONL\\\" --feature_schema_ver \\\"$$ML_FEATURE_SCHEMA_VER\\\
       \";\n    echo '[fgh-builder] Done. Outputs: '\\\"$$FGH_BUILDER_OUT_JSONL\\\"\
-      ;\n    sleep 82800;\n  else\n    sleep 60;\n  fi\ndone\"\n"
+      ;\n    sleep 82800;\n  else\n    sleep 600;\n  fi\ndone\"\n"
     networks:
     - scanner-timers
     - scanner-infra
@@ -2577,7 +2572,7 @@ services:
     - ./python-worker/ml_analysis:/app/ml_analysis
     - /var/lib/trade/training:/var/lib/trade/training
     - /var/lib/trade/ablation:/var/lib/trade/ablation
-    command: "sh -c \"sleep 5 && while true; do\n  HOUR=$$(date +%-H);\n  MIN=$$(date\
+    command: "sh -c \"sleep 528 && while true; do\n  HOUR=$$(date +%-H);\n  MIN=$$(date\
       \ +%-M);\n  # Run daily at 05:30 UTC (after nightly edge-stack train at ~04:30)\n\
       \  if [ \\\"$$HOUR\\\" -eq 0 ] && [ \\\"$$MIN\\\" -ge 30 ] && [ \\\"$$MIN\\\"\
       \ -lt 55 ]; then\n    if [ ! -f \\\"$$ABLATION_E_DATA_PATH\\\" ]; then\n   \
@@ -2594,7 +2589,7 @@ services:
       $$ABLATION_E_DENY_MIN_AUC_DROP\\\" \\\n      --deny_max_features \\\"$$ABLATION_E_DENY_MAX_FEATURES\\\
       \";\n    echo '[ablation-e] Done. Outputs: '\\\"$$ABLATION_E_OUT_DIR\\\";\n\
       \    echo '[ablation-e] Sleeping until next day...';\n    sleep 82800;\n  else\n\
-      \    sleep 60;\n  fi\ndone\"\n"
+      \    sleep 600;\n  fi\ndone\"\n"
     networks:
     - scanner-timers
     - scanner-infra
@@ -2611,6 +2606,8 @@ services:
           memory: 256M
         reservations:
           memory: 24M
+    env_file:
+    - config/generated/symbols.env
     environment:
     - REDIS_URL=${LIQMAP_SNAPSHOT_REDIS_URL:-redis://redis-worker-1:6379/0}
     - LIQ_EVT_STREAM=stream:liq_evt
@@ -2622,7 +2619,7 @@ services:
     - LIQMAP_SNAPSHOT_TTL_SEC=30
     # Seed empty snapshots for these symbols at startup (Binance dead, Bybit
     # canary). source_status="no_data" on empty levels keeps gate in SHADOW.
-    - LIQ_SYMBOLS=BTCUSDT,ETHUSDT,SOLUSDT,BNBUSDT,XRPUSDT,DOGEUSDT,1000PEPEUSDT
+    - LIQ_SYMBOLS=${LIQ_SYMBOLS}
     - LIQMAP_METRICS_PORT=9122
     - LIQMAP_PUBLISH_STREAM_ENABLED=1
     - LIQMAP_SNAPSHOT_STREAM_PREFIX=stream:liqmap_snapshot
@@ -2635,9 +2632,9 @@ services:
     volumes:
     - ./python-worker:/app
     command:
-    - python3
-    - -m
-    - services.liquidation_map_service
+    - sh
+    - -c
+    - sleep 536 && python3 -m services.liquidation_map_service
     networks:
     - scanner-timers
     - scanner-infra
@@ -2668,13 +2665,13 @@ services:
     volumes:
     - ./python-worker:/app
     - /var/lib/trade:/var/lib/trade
-    command: "sh -c \"sleep 5 && while true; do\n  HOUR=$$(date +%-H);\n  MIN=$$(date\
+    command: "sh -c \"sleep 544 && while true; do\n  HOUR=$$(date +%-H);\n  MIN=$$(date\
       \ +%-M);\n  if [ \\\"$$HOUR\\\" -eq 23 ] && [ \\\"$$MIN\\\" -ge 30 ] && [ \\\
       \"$$MIN\\\" -lt 50 ]; then\n    echo 'Running Nightly Meta Model LR v1 Training...';\n\
       \    python3 -m ml_analysis.tools.train_meta_model_lr_v1 --parquet \\\"$$META_TRAIN_NDJSON\\\
       \" --schema meta_feat_v8 --y-col y_util_pos_60000 --out \\\"$$META_MODEL_OUT_DIR/meta_model_lr_v8.json\\\
       \";\n    echo 'Training done. Sleeping until next day...';\n    sleep 82800;\n\
-      \  else\n    sleep 60;\n  fi\ndone\"\n"
+      \  else\n    sleep 600;\n  fi\ndone\"\n"
     networks:
     - scanner-timers
     - scanner-infra
@@ -2702,13 +2699,13 @@ services:
     volumes:
     - ./python-worker:/app
     - /var/lib/trade:/var/lib/trade
-    command: "sh -c \"sleep 150 && while true; do\n  HOUR=$$(date +%-H);\n  MIN=$$(date\
+    command: "sh -c \"sleep 552 && while true; do\n  HOUR=$$(date +%-H);\n  MIN=$$(date\
       \ +%-M);\n  if [ \\\"$$HOUR\\\" -eq 23 ] && [ \\\"$$MIN\\\" -ge 45 ] && [ \\\
       \"$$MIN\\\" -lt 59 ]; then\n    echo 'Running Nightly Meta Model LR v9 Training...';\n\
       \    python3 -m ml_analysis.tools.train_meta_model_lr_v1 --parquet \\\"$$META_TRAIN_NDJSON\\\
       \" --schema meta_feat_v9 --y-col y_util_pos_60000 --out \\\"$$META_MODEL_OUT_DIR/meta_model_lr_v9.json\\\
       \";\n    echo 'Training v9 done. Sleeping until next day...';\n    sleep 82800;\n\
-      \  else\n    sleep 60;\n  fi\ndone\"\n"
+      \  else\n    sleep 600;\n  fi\ndone\"\n"
     networks:
     - scanner-timers
     - scanner-infra
@@ -2718,6 +2715,8 @@ services:
       dockerfile: python-worker/Dockerfile.gpu
     container_name: scanner-liqmap-snapshot-timer
     restart: unless-stopped
+    env_file:
+    - config/generated/symbols.env
     deploy:
       resources:
         limits:
@@ -2737,14 +2736,14 @@ services:
     - LIQMAP_PUBLISH_STREAM_ENABLED=0
     # Seed empty snapshots for these symbols at startup (Binance dead, Bybit
     # canary). source_status="no_data" on empty levels keeps gate in SHADOW.
-    - LIQ_SYMBOLS=BTCUSDT,ETHUSDT,SOLUSDT,BNBUSDT,XRPUSDT,DOGEUSDT,1000PEPEUSDT
+    - LIQ_SYMBOLS=${LIQ_SYMBOLS}
     - PYTHONPATH=.:/app
     - PYTHONUNBUFFERED=1
     - TZ=UTC
     working_dir: /app
     volumes:
     - ./python-worker:/app
-    command: "sh -c \"sleep 5 && while true; do\n  echo '[liqmap-snapshot-timer] Starting\
+    command: "sh -c \"sleep 560 && while true; do\n  echo '[liqmap-snapshot-timer] Starting\
       \ liquidation_map_service...';\n  python3 -u services/liquidation_map_service.py;\n\
       \  echo '[liqmap-snapshot-timer] Service exited, restarting in 5s...';\n  sleep\
       \ 5;\ndone\"\n"
@@ -2783,7 +2782,7 @@ services:
     volumes:
     - .:/app
     - /var/lib/trade/of_reports:/var/lib/trade/of_reports
-    command: "sh -c \"sleep 5 && while true; do\n  echo '[preflight-baseline-timer]\
+    command: "sh -c \"sleep 568 && while true; do\n  echo '[preflight-baseline-timer]\
       \ Running preflight baseline...';\n  python3 -u tools/preflight_baseline_v1.py;\n\
       \  echo '[preflight-baseline-timer] Done. Sleeping 24h...';\n  sleep 86400;\n\
       done\"\n"
@@ -2816,9 +2815,9 @@ services:
     - OF_GATE_QUARANTINE_ARCHIVE_ENABLED=0
     - TZ=UTC
     command:
-    - python
-    - -u
-    - services/archivers/stream_archiver.py
+    - sh
+    - -c
+    - sleep 576 && python -u services/archivers/stream_archiver.py
     volumes:
     - ./python-worker/services:/app/services
     - ./python-worker/core:/app/core
@@ -2854,13 +2853,13 @@ services:
     - ./python-worker:/app
     - /var/lib/trade/of_reports:/var/lib/trade/of_reports
     - /var/lib/trade/training:/var/lib/trade/training
-    command: "sh -c \"sleep 5 && while true; do\n  HOUR=$$(date +%-H);\n  MIN=$$(date\
+    command: "sh -c \"sleep 584 && while true; do\n  HOUR=$$(date +%-H);\n  MIN=$$(date\
       \ +%-M);\n  # Run daily at 05:05 UTC\n  if [ \\\"$$HOUR\\\" -eq 23 ] && [ \\\
       \"$$MIN\\\" -ge 15 ] && [ \\\"$$MIN\\\" -lt 30 ]; then\n    echo 'Running ML\
       \ Golden Replay Parity Check...';\n    python3 -m ml_analysis.tools.golden_replay_parity_v1\
       \ --input /var/lib/trade/training/latest_confirm_train_v7.ndjson --outdir /var/lib/trade/of_reports/out_gr\
       \ --limit 5000 --compare-meta-features --evidence lite;\n    echo 'Golden Replay\
-      \ Done. Sleeping until next day...';\n    sleep 82800;\n  else\n    sleep 60;\n\
+      \ Done. Sleeping until next day...';\n    sleep 82800;\n  else\n    sleep 600;\n\
       \  fi\ndone\"\n"
     networks:
     - scanner-timers
@@ -2889,12 +2888,12 @@ services:
     - ./python-worker:/app
     - /var/lib/scanner/ofc_capture:/var/lib/scanner/ofc_capture
     - /var/lib/scanner/golden_replay_reports:/var/lib/scanner/golden_replay_reports
-    command: "sh -c \"sleep 5 && while true; do\n  HOUR=$$(date +%-H);\n  MIN=$$(date\
+    command: "sh -c \"sleep 592 && while true; do\n  HOUR=$$(date +%-H);\n  MIN=$$(date\
       \ +%-M);\n  # Run daily at 22:30 UTC (after NYSE close)\n  if [ \\\"$$HOUR\\\
       \" -eq 22 ] && [ \\\"$$MIN\\\" -ge 30 ] && [ \\\"$$MIN\\\" -lt 45 ]; then\n\
       \    echo 'Running scanner golden replay parity nightly...';\n    python3 -m\
       \ ml_analysis.tools.nightly_golden_replay_job_v1 --fail-on-mismatch;\n    echo\
-      \ 'Done. Sleeping until next day...';\n    sleep 82800;\n  else\n    sleep 60;\n\
+      \ 'Done. Sleeping until next day...';\n    sleep 82800;\n  else\n    sleep 600;\n\
       \  fi\ndone\"\n"
     networks:
     - scanner-timers
@@ -2927,9 +2926,9 @@ services:
     - ./python-worker:/app
     - /var/lib/scanner:/var/lib/scanner
     command:
-    - python3
-    - -u
-    - orderflow_services/golden_replay_capture_exporter_p112.py
+    - sh
+    - -c
+    - python3 -u orderflow_services/golden_replay_capture_exporter_p112.py
     networks:
     - scanner-timers
     - scanner-infra
@@ -2956,7 +2955,7 @@ services:
     volumes:
     - ./python-worker:/app
     - /var/lib/trade:/var/lib/trade
-    command: "sh -c \"sleep 5 && while true; do\n  # Run 24h soak stats\n  echo 'Running\
+    command: "sh -c \"sleep 600 && while true; do\n  # Run 24h soak stats\n  echo 'Running\
       \ Soak DQ Level Share Analysis...';\n  python3 ml_analysis/tools/soak_dq_level_share_v1.py\
       \ \\\"\\$$SOAK_CAPTURE_NDJSON\\\" --max-points 20000;\n  sleep 86400;\ndone\"\
       \n"
@@ -3001,10 +3000,9 @@ services:
     volumes:
     - ./python-worker:/app
     command:
-    - python3
-    - -u
-    - -m
-    - services.binance_account_reporter
+    - sh
+    - -c
+    - python3 -u -m services.binance_account_reporter
     networks:
     - scanner-timers
     - scanner-infra
@@ -3043,12 +3041,12 @@ services:
     volumes:
     - ./python-worker:/app
     - /var/lib/trade/of_reports:/var/lib/trade/of_reports
-    command: "sh -c \"sleep 5 && while true; do\n  HOUR=$$(date +%-H);\n  MIN=$$(date\
+    command: "sh -c \"sleep 600 && while true; do\n  HOUR=$$(date +%-H);\n  MIN=$$(date\
       \ +%-M);\n  if [ \\\"$$HOUR\\\" = \\\"04\\\" ] && [ \\\"$$MIN\\\" -ge \\\"30\\\
       \" ] && [ \\\"$$MIN\\\" -lt \\\"50\\\" ]; then\n    echo 'Running nightly engine\
       \ regress (safe)...';\n    python3 -m tools.nightly_regress_engine_replay_safe\
       \ || true;\n    echo 'Regress done. Sleeping 1 hour...';\n    sleep 3600;\n\
-      \  else\n    sleep 60;\n  fi\ndone\"\n"
+      \  else\n    sleep 600;\n  fi\ndone\"\n"
     networks:
     - scanner-timers
     - scanner-infra
@@ -3078,10 +3076,9 @@ services:
     volumes:
     - ./python-worker:/app
     command:
-    - python3
-    - -u
-    - -m
-    - services.posttrade.decision_snapshot_writer
+    - sh
+    - -c
+    - python3 -u -m services.posttrade.decision_snapshot_writer
     networks:
     - scanner-timers
     - scanner-infra
@@ -3098,8 +3095,9 @@ services:
           memory: 24M
     working_dir: /srv
     command:
-    - python
-    - /srv/runbooks/server/runbook_server.py
+    - sh
+    - -c
+    - python /srv/runbooks/server/runbook_server.py
     environment:
     - RUNBOOK_ROOT=/srv/runbooks
     - RUNBOOK_REPORT_DIR=/var/lib/trade-runbook/reports
@@ -3156,12 +3154,12 @@ services:
     volumes:
     - ./python-worker:/app
     - ./var/runbook-reports:/var/lib/trade-runbook/reports:rw
-    command: "python3 tools/run_daemon_with_minik_failover.py --job-name exec_healthcheck_timer -- sh -c \"sleep 5 && while true; do\n  echo '[p7-healthcheck] Running\
+    command: "python3 tools/run_daemon_with_minik_failover.py --job-name exec_healthcheck_timer -- sh -c \"sleep 600 && while true; do\n  echo '[p7-healthcheck] Running\
       \ execution healthcheck...';\n  if [ -n \\\"$$EXEC_HEALTHCHECK_TEXTFILE_PATH\\\
       \" ]; then\n    python3 -u scripts/execution_healthcheck.py --report-dir /var/lib/trade-runbook/reports\
       \ --textfile-output \\\"$$EXEC_HEALTHCHECK_TEXTFILE_PATH\\\" || true;\n  else\n\
       \    python3 -u scripts/execution_healthcheck.py --report-dir /var/lib/trade-runbook/reports\
-      \ || true;\n  fi;\n  sleep 60;\ndone\"\n"
+      \ || true;\n  fi;\n  sleep 120;\ndone\"\n"
     networks:
     - scanner-timers
     - scanner-infra
@@ -3193,7 +3191,7 @@ services:
     working_dir: /app
     volumes:
     - ./python-worker:/app
-    command: "sh -c \"sleep 5 && while true; do\n  HOUR=$$(date +%-H);\n  MIN=$$(date\
+    command: "sh -c \"sleep 600 && while true; do\n  HOUR=$$(date +%-H);\n  MIN=$$(date\
       \ +%-M);\n  if [ \\\"$$HOUR\\\" -eq 5 ] && [ \\\"$$MIN\\\" -ge 0 ] && [ \\\"\
       $$MIN\\\" -lt 15 ]; then\n    if [ \\\"$$EXEC_REPAIR_APPLY\\\" = \\\"1\\\" ];\
       \ then\n      echo '[p7-repair] Running SQL mirror APPLY repair...';\n     \
@@ -3201,7 +3199,7 @@ services:
       \      echo '[p7-repair] Running SQL mirror DRY-RUN repair (set EXEC_REPAIR_APPLY=1\
       \ to apply)...';\n      python3 -u scripts/repair_execution_inconsistencies.py\
       \ --dry-run || true;\n    fi;\n    echo '[p7-repair] Done. Sleeping until next\
-      \ daily window...';\n    sleep 82800;\n  else\n    sleep 60;\n  fi;\ndone\"\n"
+      \ daily window...';\n    sleep 82800;\n  else\n    sleep 600;\n  fi;\ndone\"\n"
     networks:
     - scanner-timers
     - scanner-infra
@@ -3235,7 +3233,7 @@ services:
     working_dir: /app
     volumes:
     - ./python-worker:/app
-    command: "sh -c \"sleep 5 && while true; do\n  HOUR=$$(date +%-H);\n  MIN=$$(date\
+    command: "sh -c \"sleep 600 && while true; do\n  HOUR=$$(date +%-H);\n  MIN=$$(date\
       \ +%-M);\n  if [ \\\"$$HOUR\\\" -eq 5 ] && [ \\\"$$MIN\\\" -ge 15 ] && [ \\\"\
       $$MIN\\\" -lt 30 ]; then\n    if [ \\\"$$EXEC_QUARANTINE_APPLY\\\" = \\\"1\\\
       \" ]; then\n      echo '[p7-quarantine] Running sid quarantine APPLY mode...';\n\
@@ -3244,7 +3242,7 @@ services:
       \ (set EXEC_QUARANTINE_APPLY=1 to apply)...';\n      python3 -u scripts/quarantine_inconsistent_sid.py\
       \ --severity $$EXEC_QUARANTINE_MIN_SEVERITY --dry-run || true;\n    fi;\n  \
       \  echo '[p7-quarantine] Done. Sleeping until next daily window...';\n    sleep\
-      \ 82800;\n  else\n    sleep 60;\n  fi;\ndone\"\n"
+      \ 82800;\n  else\n    sleep 600;\n  fi;\ndone\"\n"
     networks:
     - scanner-timers
     - scanner-infra
@@ -3287,7 +3285,7 @@ services:
     working_dir: /app
     volumes:
     - ./python-worker:/app
-    command: python3 tools/run_daemon_with_minik_failover.py --job-name bbo_ts_writer -- python -m services.posttrade.bbo_ts_writer
+    command: sh -c "python3 tools/run_daemon_with_minik_failover.py --job-name bbo_ts_writer -- python -m services.posttrade.bbo_ts_writer"
     depends_on:
       redis-worker-1:
         condition: service_healthy
@@ -3324,9 +3322,9 @@ services:
     volumes:
     - ./python-worker:/app
     command:
-    - python
-    - -m
-    - services.posttrade.fills_writer
+    - sh
+    - -c
+    - python -m services.posttrade.fills_writer
     networks:
     - scanner-timers
     - scanner-infra
@@ -3366,9 +3364,9 @@ services:
     volumes:
     - ./python-worker:/app
     command:
-    - python
-    - -m
-    - services.posttrade.tca_worker
+    - sh
+    - -c
+    - python -m services.posttrade.tca_worker
     networks:
     - scanner-timers
     - scanner-infra
@@ -3399,7 +3397,7 @@ services:
     working_dir: /app
     volumes:
     - ./python-worker:/app
-    command: "sh -c \"sleep 5 && while true; do\n  HOUR=$$(date +%-H);\n  MIN=$$(date\
+    command: "sh -c \"sleep 600 && while true; do\n  HOUR=$$(date +%-H);\n  MIN=$$(date\
       \ +%-M);\n  if [ \\\"$$HOUR\\\" -eq 5 ] && [ \\\"$$MIN\\\" -ge 30 ] && [ \\\"\
       $$MIN\\\" -lt 45 ]; then\n    if [ \\\"$$EXEC_REPLAY_DRY_RUN\\\" = \\\"1\\\"\
       \ ]; then\n      echo '[p33-rebuild] Running orders:state rebuild DRY-RUN...';\n\
@@ -3407,7 +3405,7 @@ services:
       \    else\n      echo '[p33-rebuild] Running orders:state rebuild from orders:exec...';\n\
       \      python3 -u scripts/rebuild_orders_state_from_exec.py || true;\n    fi;\n\
       \    echo '[p33-rebuild] Done. Sleeping until next window...';\n    sleep 82800;\n\
-      \  else\n    sleep 60;\n  fi;\ndone\"\n"
+      \  else\n    sleep 600;\n  fi;\ndone\"\n"
     networks:
     - scanner-timers
     - scanner-infra
@@ -3439,7 +3437,7 @@ services:
     working_dir: /app
     volumes:
     - ./python-worker:/app
-    command: "sh -c \"sleep 5 && while true; do\n  echo '[p33-consistency] Running\
+    command: "sh -c \"sleep 600 && while true; do\n  echo '[p33-consistency] Running\
       \ execution replay consistency check...';\n  python3 -u scripts/check_execution_replay_consistency.py\
       \ || true;\n  echo '[p33-consistency] Done. Sleeping 1h...';\n  sleep 3600;\n\
       done\"\n"
@@ -3475,7 +3473,7 @@ services:
     working_dir: /app
     volumes:
     - ./python-worker:/app
-    command: "sh -c \"sleep 300 && while true; do\n  echo '[p33-scrubber] Running\
+    command: "sh -c \"sleep 600 && while true; do\n  echo '[p33-scrubber] Running\
       \ replay checkpoint scrubber...';\n  python3 -u scripts/scrub_replay_checkpoints.py\
       \ || true;\n  echo '[p33-scrubber] Done. Sleeping 20 minutes...';\n  sleep 1200;\n\
       done\"\n"
@@ -3519,7 +3517,7 @@ services:
     volumes:
     - ./python-worker:/app
     - ./var/runbook-reports:/var/lib/trade-runbook/reports:rw
-    command: "sh -c \"sleep 360 && while true; do\n  echo '[p33-autonomy-scrubber]\
+    command: "sh -c \"sleep 600 && while true; do\n  echo '[p33-autonomy-scrubber]\
       \ Running auto-trigger check...';\n  python3 -u scripts/auto_trigger_checkpoint_scrubber.py\
       \ --report-dir /var/lib/trade-runbook/reports || true;\n  echo '[p33-autonomy-scrubber]\
       \ Done. Sleeping 10 minutes...';\n  sleep 600;\ndone\"\n"
@@ -3551,7 +3549,7 @@ services:
     volumes:
     - ./python-worker:/app
     - ./var/runbook-reports:/var/lib/trade-runbook/reports:rw
-    command: "sh -c \"sleep 480 && while true; do\n  if [ -n \\\"$$EXECUTION_JOURNAL_DSN\\\
+    command: "sh -c \"sleep 600 && while true; do\n  if [ -n \\\"$$EXECUTION_JOURNAL_DSN\\\
       \" ]; then\n    echo '[p33-autonomy-slo] Refreshing replay SLO materialized\
       \ view...';\n    python3 -u scripts/refresh_execution_replay_slo_summary.py\
       \ --report-dir /var/lib/trade-runbook/reports || true;\n    echo '[p33-autonomy-slo]\
@@ -3584,7 +3582,7 @@ services:
     volumes:
     - ./python-worker:/app
     - ./var/runbook-reports:/var/lib/trade-runbook/reports
-    command: "sh -c \"sleep 5 && while true; do\n  echo 'Building risk engine canary\
+    command: "sh -c \"sleep 600 && while true; do\n  echo 'Building risk engine canary\
       \ report...';\n  python3 scripts/build_risk_engine_canary_report.py --hours\
       \ \\\"$$RISK_CANARY_LOOKBACK_HOURS\\\" --out \\\"$$RISK_CANARY_REPORT_PATH\\\
       \" || echo 'Canary report failed (DB unavailable), skipping.';\n  echo 'Done.\
@@ -3615,7 +3613,7 @@ services:
     volumes:
     - ./python-worker:/app
     - ./var/runbook-reports:/var/lib/trade-runbook/reports
-    command: "sh -c \"sleep 5 && while true; do\n  if [ -n \\\"$$RISK_AUDIT_SQL_DSN\\\
+    command: "sh -c \"sleep 600 && while true; do\n  if [ -n \\\"$$RISK_AUDIT_SQL_DSN\\\
       \" ]; then\n    echo '[p46-summary] Fetching latest risk decisions from continuous\
       \ aggregate...';\n    python3 scripts/refresh_risk_decision_summary.py --out\
       \ \\\"$$RISK_DECISION_SUMMARY_REPORT_PATH\\\" || echo '[p46-summary] Refresh\
@@ -3656,7 +3654,7 @@ services:
     volumes:
     - ./python-worker:/app
     - ./var/runbook-reports:/var/lib/trade-runbook/reports:rw
-    command: "sh -c \"sleep 360 && while true; do\n  if [ -n \\\"$$RISK_AUDIT_SQL_DSN\\\
+    command: "sh -c \"sleep 600 && while true; do\n  if [ -n \\\"$$RISK_AUDIT_SQL_DSN\\\
       \" ]; then\n    echo '[p47-consistency] Running risk signal/snapshot consistency\
       \ check...';\n    if [ \\\"$$RISK_CONSISTENCY_QUARANTINE_ON_REPEATED\\\" = \\\
       \"1\\\" ]; then\n      python3 -u scripts/check_risk_signal_snapshot_consistency.py\
@@ -3692,7 +3690,7 @@ services:
     working_dir: /app
     volumes:
     - ./python-worker:/app
-    command: "sh -c \"sleep 5 && while true; do\n  HOUR=$$(date +%-H);\n  MIN=$$(date\
+    command: "sh -c \"sleep 600 && while true; do\n  HOUR=$$(date +%-H);\n  MIN=$$(date\
       \ +%-M);\n  if [ \\\"$$HOUR\\\" -eq 3 ] && [ \\\"$$MIN\\\" -ge 40 ] && [ \\\"\
       $$MIN\\\" -lt 55 ]; then\n    if [ -n \\\"$$RISK_AUDIT_SQL_DSN\\\" ]; then\n\
       \      if [ \\\"$$RISK_AUDIT_RETENTION_APPLY\\\" = \\\"1\\\" ]; then\n     \
@@ -3704,7 +3702,7 @@ services:
       \ \\\"$$RISK_AUDIT_RETENTION_DAYS\\\" --dry-run || true;\n      fi;\n    else\n\
       \      echo '[p47-retention] RISK_AUDIT_SQL_DSN not set, skipping.';\n    fi;\n\
       \    echo '[p47-retention] Done. Sleeping until next nightly window...';\n \
-      \   sleep 82800;\n  else\n    sleep 60;\n  fi;\ndone\"\n"
+      \   sleep 82800;\n  else\n    sleep 600;\n  fi;\ndone\"\n"
     networks:
     - scanner-timers
     - scanner-infra
@@ -3732,7 +3730,7 @@ services:
     volumes:
     - ./python-worker:/app
     - ./var/runbook-reports:/var/lib/trade-runbook/reports:rw
-    command: "sh -c \"sleep 480 && while true; do\n  echo '[p47-operator-score] Building\
+    command: "sh -c \"sleep 600 && while true; do\n  echo '[p47-operator-score] Building\
       \ merged operator score report...';\n  python3 -u scripts/build_operator_score_report.py\
       \ --report-dir \\\"$$RUNBOOK_REPORT_DIR\\\" --out \\\"$$OPERATOR_SCORE_REPORT_PATH\\\
       \" || true;\n  echo '[p47-operator-score] Done. Sleeping 15 minutes...';\n \
@@ -3806,7 +3804,7 @@ services:
     volumes:
     - ./python-worker:/app
     - ./var/runbook-reports:/var/lib/trade-runbook/reports:rw
-    command: "sh -c \"sleep 420 && while true; do\n  if [ -n \\\"$$RISK_AUDIT_SQL_DSN\\\
+    command: "sh -c \"sleep 600 && while true; do\n  if [ -n \\\"$$RISK_AUDIT_SQL_DSN\\\
       \" ]; then\n    echo '[p48-mismatch-refresh] Refreshing risk mismatch summary\
       \ materialized view...';\n    if [ -n \\\"$$RISK_MISMATCH_SUMMARY_TEXTFILE_PATH\\\
       \" ]; then\n      python3 -u scripts/refresh_risk_mismatch_summary.py --out\
@@ -3849,7 +3847,7 @@ services:
     volumes:
     - ./python-worker:/app
     - ./var/runbook-reports:/var/lib/trade-runbook/reports:rw
-    command: "sh -c \"sleep 5 && while true; do\n  HOUR=$$(date +%-H);\n  MIN=$$(date\
+    command: "sh -c \"sleep 600 && while true; do\n  HOUR=$$(date +%-H);\n  MIN=$$(date\
       \ +%-M);\n  if [ \\\"$$HOUR\\\" -eq 3 ] && [ \\\"$$MIN\\\" -ge 35 ] && [ \\\"\
       $$MIN\\\" -lt 50 ]; then\n    if [ -n \\\"$$RISK_AUDIT_SQL_DSN\\\" ]; then\n\
       \      if [ \\\"$$RISK_MISMATCH_RETENTION_APPLY\\\" = \\\"1\\\" ]; then\n  \
@@ -3871,7 +3869,7 @@ services:
       \"$$RISK_MISMATCH_RETENTION_REPORT_PATH\\\" || true;\n        fi;\n      fi;\n\
       \    else\n      echo '[p49-mismatch-retention] RISK_AUDIT_SQL_DSN not set,\
       \ skipping.';\n    fi;\n    echo '[p49-mismatch-retention] Done. Sleeping until\
-      \ next nightly window...';\n    sleep 82800;\n  else\n    sleep 60;\n  fi;\n\
+      \ next nightly window...';\n    sleep 82800;\n  else\n    sleep 600;\n  fi;\n\
       done\"\n"
     networks:
     - scanner-timers
@@ -3905,7 +3903,7 @@ services:
     volumes:
     - ./python-worker:/app
     - ./var/runbook-reports:/var/lib/trade-runbook/reports:rw
-    command: "sh -c \"sleep 300 && while true; do\n  echo '[p5x-autosilence] Running\
+    command: "sh -c \"sleep 600 && while true; do\n  echo '[p5x-autosilence] Running\
       \ risk drift auto-silence check...';\n  python3 -u scripts/auto_silence_risk_drift_storm.py\
       \ --report-dir /var/lib/trade-runbook/reports --out /var/lib/trade-runbook/reports/latest_risk_drift_autosilence.json\
       \ || true;\n  echo '[p5x-autosilence] Done. Sleeping 20 minutes...';\n  sleep\
@@ -3939,7 +3937,7 @@ services:
     volumes:
     - ./python-worker:/app
     - ./var/runbook-reports:/var/lib/trade-runbook/reports:rw
-    command: "sh -c \"sleep 420 && while true; do\n  if [ -n \\\"$$RISK_AUDIT_SQL_DSN\\\
+    command: "sh -c \"sleep 600 && while true; do\n  if [ -n \\\"$$RISK_AUDIT_SQL_DSN\\\
       \" ]; then\n    echo '[p5x-archive-consistency] Running risk mismatch archive\
       \ consistency check...';\n    if [ -n \\\"$$RISK_MISMATCH_ARCHIVE_CONSISTENCY_TEXTFILE_PATH\\\
       \" ]; then\n      python3 -u scripts/check_risk_mismatch_summary_archive_consistency.py\
@@ -3984,7 +3982,7 @@ services:
     - ./python-worker:/app
     - /var/lib/trade/exec_audit:/var/lib/trade/exec_audit
     - /var/lib/node_exporter/textfile_collector:/var/lib/node_exporter/textfile_collector
-    command: "sh -c \"sleep 5 && while true; do\n  echo '[exec-audit-chain] Running\
+    command: "sh -c \"sleep 600 && while true; do\n  echo '[exec-audit-chain] Running\
       \ P5.6 execution audit chain check...';\n  python3 scripts/check_execution_audit_chain.py\
       \ --dsn \\\"$$TRADES_DB_DSN\\\" --lookback-hours \\\"$$EXEC_AUDIT_LOOKBACK_HOURS\\\
       \" --limit \\\"$$EXEC_AUDIT_LIMIT\\\" --report-json \\\"$$EXEC_AUDIT_REPORT_JSON\\\
@@ -4025,7 +4023,7 @@ services:
     working_dir: /app
     volumes:
     - ./python-worker:/app
-    command: "sh -c \"sleep 5 && while true; do\n  python3 -m orderflow_services.exec_health_slo_checker_v1;\n\
+    command: "sh -c \"sleep 600 && while true; do\n  python3 -m orderflow_services.exec_health_slo_checker_v1;\n\
       \  sleep 30;\ndone\"\n"
     networks:
     - scanner-timers
@@ -4067,7 +4065,7 @@ services:
     command:
     - sh
     - -c
-    - sleep 5 && exec python3 -m orderflow_services.exec_health_slo_exporter_v1
+    - python3 -m orderflow_services.exec_health_slo_exporter_v1
     depends_on:
       redis-worker-1:
         condition: service_healthy
@@ -4104,7 +4102,7 @@ services:
     command:
     - sh
     - -c
-    - sleep 5 && exec python3 -m orderflow_services.exec_health_freeze_service_identity_exporter_v1
+    - python3 -m orderflow_services.exec_health_freeze_service_identity_exporter_v1
     networks:
     - scanner-timers
     - scanner-infra
@@ -4150,7 +4148,7 @@ services:
     command:
     - sh
     - -c
-    - sleep 5 && exec python3 -m orderflow_services.exec_health_slo_autoguard_v1
+    - python3 -m orderflow_services.exec_health_slo_autoguard_v1
     networks:
     - scanner-timers
     - scanner-infra
@@ -4182,9 +4180,9 @@ services:
     volumes:
     - ./python-worker:/app
     command:
-    - python3
-    - -m
-    - orderflow_services.exec_health_slo_autoguard_exporter_v1
+    - sh
+    - -c
+    - python3 -m orderflow_services.exec_health_slo_autoguard_exporter_v1
     healthcheck:
       test:
       - CMD-SHELL
@@ -4224,9 +4222,9 @@ services:
     volumes:
     - ./python-worker:/app
     command:
-    - python3
-    - -m
-    - orderflow_services.exec_health_freeze_control_exporter_v1
+    - sh
+    - -c
+    - python3 -m orderflow_services.exec_health_freeze_control_exporter_v1
     healthcheck:
       test:
       - CMD-SHELL
@@ -4272,7 +4270,7 @@ services:
     command:
     - sh
     - -c
-    - sleep 5 && exec python3 -m orderflow_services.exec_health_freeze_integrity_exporter_v1
+    - python3 -m orderflow_services.exec_health_freeze_integrity_exporter_v1
     networks:
     - scanner-timers
     - scanner-infra
@@ -4311,7 +4309,7 @@ services:
     command:
     - sh
     - -c
-    - sleep 5 && exec python3 -m orderflow_services.exec_health_freeze_dual_control_exporter_v1
+    - python3 -m orderflow_services.exec_health_freeze_dual_control_exporter_v1
     networks:
     - scanner-timers
     - scanner-infra
@@ -4355,7 +4353,7 @@ services:
     command:
     - sh
     - -c
-    - sleep 5 && exec python3 -m orderflow_services.exec_health_freeze_tamper_guard_v1
+    - python3 -m orderflow_services.exec_health_freeze_tamper_guard_v1
     networks:
     - scanner-timers
     - scanner-infra
@@ -4392,7 +4390,7 @@ services:
     command:
     - sh
     - -c
-    - sleep 5 && exec python3 -m orderflow_services.exec_health_freeze_acl_audit_exporter_v1
+    - python3 -m orderflow_services.exec_health_freeze_acl_audit_exporter_v1
     networks:
     - scanner-timers
     - scanner-infra
@@ -4424,7 +4422,7 @@ services:
     command:
     - sh
     - -c
-    - sleep 5 && exec python3 -m orderflow_services.exec_health_freeze_acl_drift_exporter_v1
+    - python3 -m orderflow_services.exec_health_freeze_acl_drift_exporter_v1
     networks:
     - scanner-timers
     - scanner-infra
@@ -4472,8 +4470,9 @@ services:
     - ./runtime/execution_audit_chain:/var/lib/trade/runbooks
     - ./runtime/node_exporter_textfile:/var/lib/node_exporter/textfile_collector
     command:
-    - python3
-    - /app/scripts/run_execution_audit_chain_scheduler.py
+    - sh
+    - -c
+    - python3 /app/scripts/run_execution_audit_chain_scheduler.py
     networks:
     - scanner-timers
     - scanner-infra
@@ -4509,8 +4508,9 @@ services:
     ports:
     - ${RUNBOOK_SERVER_PORT:-8777}:${RUNBOOK_SERVER_PORT:-8777}
     command:
-    - python3
-    - /app/runbooks/server/runbook_server.py
+    - sh
+    - -c
+    - python3 /app/runbooks/server/runbook_server.py
     networks:
     - scanner-timers
     - scanner-infra
@@ -4542,7 +4542,7 @@ services:
     working_dir: /app
     volumes:
     - ./python-worker:/app
-    command: "sh -c \"sleep 5 && while true; do\n  echo 'Running ExecHealth Reconnect\
+    command: "sh -c \"sleep 600 && while true; do\n  echo 'Running ExecHealth Reconnect\
       \ Chaos (P16)...';\n  python3 -m orderflow_services.exec_health_freeze_reconnect_chaos_harness_v1\
       \ --mode reconnect-both;\n  echo 'Chaos run done. Sleeping 1 hour...';\n  sleep\
       \ 3600;\ndone\"\n"
@@ -4578,12 +4578,12 @@ services:
     - ./python-worker:/app
     - /var/lib/trade/exec_health_reconnect_smoke:/var/lib/trade/exec_health_reconnect_smoke
     - /var/lib/node_exporter/textfile_collector:/var/lib/node_exporter/textfile_collector
-    command: "sh -c \"sleep 150 && while true; do\n  HOUR=$$(date +%k);\n  MIN=$$(date\
+    command: "sh -c \"sleep 600 && while true; do\n  HOUR=$$(date +%k);\n  MIN=$$(date\
       \ +%M);\n  if [ \\\"$$HOUR\\\" -eq 3 ] && [ \\\"$$MIN\\\" -ge 17 ] && [ \\\"\
       $$MIN\\\" -lt 32 ]; then\n    echo 'Running Nightly ExecHealth Reconnect Smoke\
       \ (P17)...';\n    python3 -m orderflow_services.exec_health_freeze_reconnect_nightly_smoke_v1;\n\
       \    echo 'Nightly run done. Sleeping until next day...';\n    sleep 82800;\n\
-      \  else\n    sleep 60;\n  fi\ndone\"\n"
+      \  else\n    sleep 600;\n  fi\ndone\"\n"
     networks:
     - scanner-timers
     - scanner-infra
@@ -4615,7 +4615,7 @@ services:
     command:
     - sh
     - -c
-    - "sleep 45\nwhile true; do\n  echo 'Running trade meta-cov rollout controller\
+    - "sleep 600\nwhile true; do\n  echo 'Running trade meta-cov rollout controller\
       \ (latency-contract gated)...'\n  /app/orderflow_services/integrations/run_with_latency_contract_rollout_preflight_v1.sh\
       \ \\\n    python3 -m orderflow_services.meta_cov_rollout_controller_v1 \\\n\
       \    --redis-url \"redis://redis-worker-1:6379/0\" \\\n    --lookback-min 60\
@@ -4655,7 +4655,7 @@ services:
     command:
     - sh
     - -c
-    - "sleep 60\nwhile true; do\n  echo 'Running trade conf-score guardrails autopromo\
+    - "sleep 600\nwhile true; do\n  echo 'Running trade conf-score guardrails autopromo\
       \ controller (latency-contract gated)...'\n  /app/orderflow_services/integrations/run_with_latency_contract_rollout_preflight_v1.sh\
       \ \\\n    python3 -m orderflow_services.conf_score_guardrails_autopromo_controller_v1\
       \ \\\n    --redis-url \"redis://redis-worker-1:6379/0\" \\\n    --bundle-dir\
@@ -4695,9 +4695,9 @@ services:
     volumes:
     - ./python-worker:/app
     command:
-    - python3
-    - -m
-    - orderflow_services.tca_nightly_report_exporter_v1
+    - sh
+    - -c
+    - python3 -m orderflow_services.tca_nightly_report_exporter_v1
     networks:
     - scanner-timers
     - scanner-infra
@@ -4729,9 +4729,9 @@ services:
     - ./python-worker:/app
     working_dir: /app
     command:
-    - python3
-    - -m
-    - news_pipeline.news_agent_timer
+    - sh
+    - -c
+    - python3 -m news_pipeline.news_agent_timer
     depends_on:
       redis-worker-1:
         condition: service_healthy
@@ -4776,9 +4776,9 @@ services:
     volumes:
     - ./python-worker/services:/app/services
     command:
-    - python3
-    - -m
-    - services.entry_policy_rollback_guard_v2
+    - sh
+    - -c
+    - python3 -m services.entry_policy_rollback_guard_v2
     depends_on:
       redis-worker-1:
         condition: service_healthy
@@ -4817,7 +4817,7 @@ services:
     working_dir: /app
     volumes:
     - ./python-worker:/app
-    command: "sh -c \"sleep 5 && LAST_REMIND=0 && while true; do\n  HOUR=$$(date +%-H);\n\
+    command: "sh -c \"sleep 600 && LAST_REMIND=0 && while true; do\n  HOUR=$$(date +%-H);\n\
       \  MIN=$$(date +%-M);\n  NOW=$$(date +%s);\n  REMIND_INTERVAL=${TAKER_REMIND_INTERVAL_SEC:-1800};\n\
       \  ELAPSED=$$((NOW - LAST_REMIND));\n  if [ \\\"$$HOUR\\\" -eq 2 ] && [ \\\"\
       $$MIN\\\" -ge 30 ] && [ \\\"$$MIN\\\" -lt 45 ]; then\n    echo 'Running TakerFlow\
@@ -4827,8 +4827,8 @@ services:
       \   sleep 82800;\n  elif [ \\\"$$ELAPSED\\\" -ge \\\"$$REMIND_INTERVAL\\\" ];\
       \ then\n    echo 'Checking for pending TakerFlowGate proposals to remind...';\n\
       \    python3 -m tools.taker_flow_gate_calibrator --remind-pending --remind-interval-sec\
-      \ \\\"$$REMIND_INTERVAL\\\";\n    LAST_REMIND=$$NOW;\n    sleep 60;\n  else\n\
-      \    sleep 60;\n  fi\ndone\"\n"
+      \ \\\"$$REMIND_INTERVAL\\\";\n    LAST_REMIND=$$NOW;\n    sleep 600;\n  else\n\
+      \    sleep 600;\n  fi\ndone\"\n"
     depends_on:
       redis-worker-1:
         condition: service_healthy
@@ -4859,12 +4859,12 @@ services:
     working_dir: /app
     volumes:
     - ./python-worker:/app
-    command: "sh -c \"sleep 5 && while true; do\n  HOUR=$$(date +%-H);\n  MIN=$$(date\
+    command: "sh -c \"sleep 600 && while true; do\n  HOUR=$$(date +%-H);\n  MIN=$$(date\
       \ +%-M);\n  if [ \\\"$$HOUR\\\" -eq 3 ] && [ \\\"$$MIN\\\" -ge 0 ] && [ \\\"\
       $$MIN\\\" -lt 15 ]; then\n    echo 'Running LiqMap Gate Calibrator...';\n  \
       \  python3 -m tools.liqmap_gate_calibrator --hours ${LIQMAP_CALIBRATOR_HOURS:-168}\
       \ --min-veto-hits 3 --max-r-mult -0.5;\n    echo 'LiqMap calibration done. Sleeping\
-      \ 23h...';\n    sleep 82800;\n  else\n    sleep 60;\n  fi\ndone\"\n"
+      \ 23h...';\n    sleep 82800;\n  else\n    sleep 600;\n  fi\ndone\"\n"
     depends_on:
       redis-worker-1:
         condition: service_healthy
@@ -4906,8 +4906,7 @@ services:
     volumes:
     - ./python-worker:/app
     - /var/lib/trade/of_reports:/var/lib/trade/of_reports
-    command: "sh -c \"sleep 10 && python3 -m orderflow_services.liqmap_gate_calibrator_v1\"\
-      \n"
+    command: "sh -c \"python3 -m orderflow_services.liqmap_gate_calibrator_v1\"\n"
     networks:
     - scanner-timers
     - scanner-infra
@@ -4949,12 +4948,12 @@ services:
     working_dir: /app
     volumes:
     - ./python-worker:/app
-    command: "sh -c \"sleep 5 && while true; do\n  HOUR=$$(date +%-H);\n  MIN=$$(date\
+    command: "sh -c \"sleep 600 && while true; do\n  HOUR=$$(date +%-H);\n  MIN=$$(date\
       \ +%-M);\n  if [ \\\"$$HOUR\\\" -eq 3 ] && [ \\\"$$MIN\\\" -ge 30 ] && [ \\\"\
       $$MIN\\\" -lt 45 ]; then\n    echo 'Running ML Confirm Gate Calibrator...';\n\
       \    python3 -m tools.ml_confirm_gate_calibrator --hours ${ML_CAL_HOURS:-168}\
       \ --min-veto-hits ${ML_CAL_MIN_VETO_HITS:-30};\n    echo 'ML Confirm calibration\
-      \ done. Sleeping 23h...';\n    sleep 82800;\n  else\n    sleep 60;\n  fi\ndone\"\
+      \ done. Sleeping 23h...';\n    sleep 82800;\n  else\n    sleep 600;\n  fi\ndone\"\
       \n"
     depends_on:
       redis-worker-1:
@@ -4997,12 +4996,12 @@ services:
     working_dir: /app
     volumes:
     - ./python-worker:/app
-    command: "sh -c \"sleep 5 && while true; do\n  HOUR=$$(date +%-H);\n  MIN=$$(date\
+    command: "sh -c \"sleep 600 && while true; do\n  HOUR=$$(date +%-H);\n  MIN=$$(date\
       \ +%-M);\n  if [ \\\"$$HOUR\\\" -eq 4 ] && [ \\\"$$MIN\\\" -ge 15 ] && [ \\\"\
       $$MIN\\\" -lt 30 ]; then\n    echo 'Running ML Scorer V2 Calibrator...';\n \
       \   python3 -m tools.ml_scorer_calibrator --hours ${MLS_CAL_HOURS:-168} --min-scored-trades\
       \ ${MLS_CAL_MIN_SCORED_TRADES:-50};\n    echo 'ML Scorer calibration done. Sleeping\
-      \ 23h...';\n    sleep 82800;\n  else\n    sleep 60;\n  fi\ndone\"\n"
+      \ 23h...';\n    sleep 82800;\n  else\n    sleep 600;\n  fi\ndone\"\n"
     depends_on:
       redis-worker-1:
         condition: service_healthy
@@ -5040,13 +5039,13 @@ services:
     working_dir: /app
     volumes:
     - ./python-worker:/app
-    command: "sh -c \"sleep 5 && while true; do\n  HOUR=$$(date +%-H);\n  MIN=$$(date\
+    command: "sh -c \"sleep 600 && while true; do\n  HOUR=$$(date +%-H);\n  MIN=$$(date\
       \ +%-M);\n  if [ \\\"$$HOUR\\\" -eq 4 ] && [ \\\"$$MIN\\\" -ge 0 ] && [ \\\"\
       $$MIN\\\" -lt 15 ]; then\n    echo 'Running LiqPressure Gate Calibrator...';\n\
       \    python3 -m tools.liq_pressure_gate_calibrator \\\n      --hours ${LIQ_CAL_HOURS:-168}\
       \ \\\n      --min-boost-hits ${LIQ_CAL_MIN_BOOST_HITS:-10} \\\n      --min-r-delta\
       \ ${LIQ_CAL_MIN_R_DELTA:-0.05};\n    echo 'LiqPressure calibration done. Sleeping\
-      \ 23h...';\n    sleep 82800;\n  else\n    sleep 60;\n  fi\ndone\"\n"
+      \ 23h...';\n    sleep 82800;\n  else\n    sleep 600;\n  fi\ndone\"\n"
     depends_on:
       redis-worker-1:
         condition: service_healthy
@@ -5086,12 +5085,12 @@ services:
     volumes:
     - ./python-worker:/app
     - /var/lib/trade/of_reports:/var/lib/trade/of_reports
-    command: "sh -c \"sleep 5 && while true; do\n  HOUR=$$(date +%-H);\n  MIN=$$(date\
+    command: "sh -c \"sleep 600 && while true; do\n  HOUR=$$(date +%-H);\n  MIN=$$(date\
       \ +%-M);\n  if [ \\\"$$HOUR\\\" -eq 4 ] && [ \\\"$$MIN\\\" -ge 45 ] && [ \\\"\
       $$MIN\\\" -lt 59 ]; then\n    echo '[dq-gate-cal-v1] Running DQ Gate Calibrator\
       \ v1...';\n    python3 -m orderflow_services.dq_gate_calibrator_v1 --apply 1;\n\
       \    echo '[dq-gate-cal-v1] Done. Sleeping 23h...';\n    sleep 82800;\n  else\n\
-      \    sleep 60;\n  fi\ndone\"\n"
+      \    sleep 600;\n  fi\ndone\"\n"
     networks:
     - scanner-timers
     - scanner-infra
@@ -5121,7 +5120,7 @@ services:
     working_dir: /app
     volumes:
     - ./python-worker:/app
-    command: "sh -c \"sleep 30 && while true; do\n  echo '[dq-cal-publisher] Applying\
+    command: "sh -c \"sleep 600 && while true; do\n  echo '[dq-cal-publisher] Applying\
       \ DQ Gate calibration to dynamic_cfg...';\n  python3 -m orderflow_services.dq_calibration_publisher_v1\
       \ --apply 1;\n  echo '[dq-cal-publisher] Done. Sleeping 2h...';\n  sleep 7200;\n\
       done\"\n"
@@ -5162,7 +5161,7 @@ services:
     working_dir: /app
     volumes:
     - ./python-worker:/app
-    command: "sh -c \"sleep 5 && while true; do\n  echo 'Running Research Guard (G14)\
+    command: "sh -c \"sleep 600 && while true; do\n  echo 'Running Research Guard (G14)\
       \ Calibrator...';\n  python3 -m services.research_guard_calibrator_service;\n\
       \  echo 'RG Calibrator done. Sleeping 1h...';\n  sleep 3600;\ndone\"\n"
     depends_on:
@@ -5202,12 +5201,12 @@ services:
     volumes:
     - ./python-worker:/app
     - /var/lib/trade/research:/var/lib/trade/research
-    command: "sh -c \"sleep 10 && while true; do\n  HOUR=$$(date +%-H);\n  MIN=$$(date\
+    command: "sh -c \"sleep 600 && while true; do\n  HOUR=$$(date +%-H);\n  MIN=$$(date\
       \ +%-M);\n  if [ \\\"$$HOUR\\\" -eq 1 ] && [ \\\"$$MIN\\\" -ge 0 ] && [ \\\"\
       $$MIN\\\" -lt 15 ]; then\n    echo 'Running Nightly Strategy Research Guard Bundle\
       \ (G14)...';\n    python3 -m ml_analysis.tools.nightly_strategy_research_guard_bundle_v1;\n\
       \    echo 'Research Guard bundle done. Sleeping 23h...';\n    sleep 82800;\n\
-      \  else\n    sleep 60;\n  fi\ndone\"\n"
+      \  else\n    sleep 600;\n  fi\ndone\"\n"
     depends_on:
       redis-worker-1:
         condition: service_healthy
@@ -5246,7 +5245,7 @@ services:
     - TZ=UTC
     volumes:
     - ./python-worker/services:/app/services
-    command: 'sh -c "sleep 5 && exec python3 -m services.orderflow.ofc_contextual_decision_writer_v1"
+    command: 'sh -c "exec python3 -m services.orderflow.ofc_contextual_decision_writer_v1"
 
       '
     depends_on:
@@ -5282,10 +5281,9 @@ services:
     - ./python-worker/services:/app/services
     - ./python-worker/orderflow_services:/app/orderflow_services
     command:
-    - python3
-    - -u
-    - -m
-    - orderflow_services.ofc_contextual_exporter_v1
+    - sh
+    - -c
+    - python3 -u -m orderflow_services.ofc_contextual_exporter_v1
     healthcheck:
       test:
       - CMD-SHELL
@@ -5325,7 +5323,7 @@ services:
     volumes:
     - ./python-worker:/app
     - /var/lib/trade:/var/lib/trade
-    command: "sh -c \"sleep 5 && while true; do\n  HOUR=$$(date +%-H);\n  MIN=$$(date\
+    command: "sh -c \"sleep 600 && while true; do\n  HOUR=$$(date +%-H);\n  MIN=$$(date\
       \ +%-M);\n  # Run daily at 05:15 UTC (before ofc-contextual runs at 05:45)\n\
       \  if [ \\\"$$HOUR\\\" -eq 5 ] && [ \\\"$$MIN\\\" -ge 15 ] && [ \\\"$$MIN\\\"\
       \ -lt 30 ]; then\n    echo '[confirm-v7-builder] Running Offline Builder for\
@@ -5333,7 +5331,7 @@ services:
       \ \\\n      --out_decisions \\\"$$CONFIRM_V7_OUT_DECISIONS\\\" \\\n      --out_outcomes\
       \ \\\"$$CONFIRM_V7_OUT_OUTCOMES\\\";\n    echo '[confirm-v7-builder] Done. Outputs:\
       \ '\\\"$$CONFIRM_V7_OUT_DECISIONS\\\"', '\\\"$$CONFIRM_V7_OUT_OUTCOMES\\\";\n\
-      \    sleep 82800;\n  else\n    sleep 60;\n  fi\ndone\"\n"
+      \    sleep 82800;\n  else\n    sleep 600;\n  fi\ndone\"\n"
     depends_on:
       redis-worker-1:
         condition: service_healthy
@@ -5372,13 +5370,13 @@ services:
     volumes:
     - ./python-worker:/app
     - /var/lib/trade:/var/lib/trade
-    command: "sh -c \"sleep 5 && while true; do\n  HOUR=$$(date +%-H);\n  MIN=$$(date\
+    command: "sh -c \"sleep 600 && while true; do\n  HOUR=$$(date +%-H);\n  MIN=$$(date\
       \ +%-M);\n  # Run daily at 05:45 UTC (after v7 bundle & datasets are ready)\n\
       \  if [ \\\"$$HOUR\\\" -eq 5 ] && [ \\\"$$MIN\\\" -ge 45 ] && [ \\\"$$MIN\\\"\
       \ -lt 55 ]; then\n    echo 'Running Nightly OFC Contextual Bundle Pipeline (Patch\
       \ C orchestrator)...';\n    python3 -u orderflow_services/nightly_ofc_contextual_ops_bundle_v1.py\
       \ --emit-metrics;\n    echo 'Pipeline done. Sleeping until next day...';\n \
-      \   sleep 82800;\n  else\n    sleep 60;\n  fi\ndone\"\n"
+      \   sleep 82800;\n  else\n    sleep 600;\n  fi\ndone\"\n"
     networks:
     - scanner-timers
     - scanner-infra
@@ -5410,7 +5408,7 @@ services:
     command:
     - sh
     - -c
-    - "sleep 5\nwhile true; do\n  echo 'Running trade ofc-contextual rollout controller\
+    - "sleep 600\nwhile true; do\n  echo 'Running trade ofc-contextual rollout controller\
       \ (latency-contract gated)...'\n  /app/orderflow_services/integrations/run_with_latency_contract_rollout_preflight_v1.sh\
       \ \\\n    python3 -m orderflow_services.ofc_contextual_rollout_controller_v1\
       \ \\\n    --redis-url \"redis://redis-worker-1:6379/0\" \\\n    --min-observations\
@@ -5447,11 +5445,7 @@ services:
     command:
     - sh
     - -c
-    - 'sleep 15
-
-      exec python3 -m orderflow_services.ofc_contextual_rollout_exporter_v1
-
-      '
+    - 'python3 -m orderflow_services.ofc_contextual_rollout_exporter_v1'
     healthcheck:
       test:
       - CMD-SHELL
@@ -5490,7 +5484,7 @@ services:
     working_dir: /app
     volumes:
     - ./python-worker:/app
-    command: "sh -c \"sleep 5 && while true; do\n  if [ \\\"$${DEMO_RECONCILE_ENABLE:-0}\\\
+    command: "sh -c \"sleep 600 && while true; do\n  if [ \\\"$${DEMO_RECONCILE_ENABLE:-0}\\\
       \" = '1' ]; then\n    echo 'Running Demo Reconcile Report...';\n    python3\
       \ -m tools.cron_demo_reconcile && echo 'Demo reconcile done.' || echo 'Demo\
       \ reconcile failed (non-critical).';\n  else\n    echo 'Demo Reconcile disabled\
@@ -5545,9 +5539,7 @@ services:
     - TZ=UTC
     volumes:
     - ./python-worker/services:/app/services
-    command: 'sh -c "sleep 5 && exec python3 -m services.binance_dust_cleanup_worker"
-
-      '
+    command: 'sh -c "exec python3 -m services.binance_dust_cleanup_worker"'
     depends_on:
       redis-worker-1:
         condition: service_healthy
@@ -5593,9 +5585,7 @@ services:
     - TZ=UTC
     volumes:
     - ./python-worker/services:/app/services
-    command: 'sh -c "sleep 5 && exec python3 -m services.binance_orphan_order_cleanup_worker"
-
-      '
+    command: 'sh -c "exec python3 -m services.binance_orphan_order_cleanup_worker"'
     depends_on:
       redis-worker-1:
         condition: service_healthy
@@ -5633,9 +5623,7 @@ services:
     - ${BINANCE_DUST_ADMIN_HTTP_PORT:-8791}:${BINANCE_DUST_ADMIN_HTTP_PORT:-8791}
     volumes:
     - ./python-worker/services:/app/services
-    command: 'sh -c "sleep 5 && exec python3 -m services.binance_dust_cleanup_admin_http"
-
-      '
+    command: 'sh -c "exec python3 -m services.binance_dust_cleanup_admin_http"'
     depends_on:
       redis-worker-1:
         condition: service_healthy
@@ -5678,7 +5666,7 @@ services:
     - TZ=UTC
     volumes:
     - ./python-worker/services:/app/services
-    command: "sh -c \"sleep 5 && exec python3 -m services.binance_dust_cleanup_admin_notifier\
+    command: "sh -c \"exec python3 -m services.binance_dust_cleanup_admin_notifier\
       \ \\\n  --interval-sec ${BINANCE_DUST_ADMIN_NOTIFY_INTERVAL_SEC:-30}\"\n"
     depends_on:
       redis-worker-1:
@@ -5717,9 +5705,9 @@ services:
     volumes:
     - ./python-worker:/app
     command:
-    - python3
-    - -u
-    - orderflow_services/regime_drift_worker_v1.py
+    - sh
+    - -c
+    - python3 -u orderflow_services/regime_drift_worker_v1.py
     depends_on:
       redis-worker-1:
         condition: service_healthy
@@ -5764,11 +5752,7 @@ services:
     command:
     - sh
     - -c
-    - 'sleep 30
-
-      exec python3 -m orderflow_services.ml_inventory_exporter_v1
-
-      '
+    - 'exec python3 -m orderflow_services.ml_inventory_exporter_v1'
     depends_on:
       redis-worker-1:
         condition: service_healthy
@@ -5812,11 +5796,7 @@ services:
     command:
     - sh
     - -c
-    - 'sleep 30
-
-      exec python3 -m orderflow_services.ml_health_rollup_worker_v1
-
-      '
+    - 'exec python3 -m orderflow_services.ml_health_rollup_worker_v1'
     depends_on:
       redis-worker-1:
         condition: service_healthy
@@ -5832,9 +5812,9 @@ services:
       context: .
       dockerfile: python-worker/Dockerfile.gpu
     command:
-    - python
-    - -m
-    - orderflow_services.local_fallback_plane_gateway_v3_0
+    - sh
+    - -c
+    - python -m orderflow_services.local_fallback_plane_gateway_v3_0
     restart: unless-stopped
     environment:
       REDIS_URL: ${REDIS_URL:-redis://redis-worker-1:6379/0}
@@ -5857,6 +5837,9 @@ services:
     - redis-worker-1
     deploy:
       resources:
+        limits:
+          cpus: '0.10'
+          memory: 128M
         reservations:
           memory: 24M
   scanner-vertex-local-fallback-handoff-v3-1:
@@ -5868,9 +5851,9 @@ services:
       context: .
       dockerfile: python-worker/Dockerfile.gpu
     command:
-    - python
-    - -m
-    - orderflow_services.vertex_local_fallback_handoff_controller_v3_1
+    - sh
+    - -c
+    - python -m orderflow_services.vertex_local_fallback_handoff_controller_v3_1
     restart: unless-stopped
     environment:
       REDIS_URL: ${REDIS_URL:-redis://redis-worker-1:6379/0}
@@ -5888,6 +5871,9 @@ services:
     - redis-worker-1
     deploy:
       resources:
+        limits:
+          cpus: '0.10'
+          memory: 128M
         reservations:
           memory: 24M
   scanner-local-report-handoff-rewire-v3-2:
@@ -5899,9 +5885,9 @@ services:
       context: .
       dockerfile: python-worker/Dockerfile.gpu
     command:
-    - python
-    - -m
-    - orderflow_services.local_report_handoff_rewire_adapter_v3_2
+    - sh
+    - -c
+    - python -m orderflow_services.local_report_handoff_rewire_adapter_v3_2
     restart: unless-stopped
     environment:
       REDIS_URL: ${REDIS_URL:-redis://redis-worker-1:6379/0}
@@ -5920,6 +5906,9 @@ services:
     - redis-worker-1
     deploy:
       resources:
+        limits:
+          cpus: '0.10'
+          memory: 128M
         reservations:
           memory: 24M
   scanner-offline-debug-handoff-rewire-v3-3:
@@ -5931,9 +5920,9 @@ services:
       context: .
       dockerfile: python-worker/Dockerfile.gpu
     command:
-    - python
-    - -m
-    - orderflow_services.offline_debug_handoff_rewire_adapter_v3_3
+    - sh
+    - -c
+    - python -m orderflow_services.offline_debug_handoff_rewire_adapter_v3_3
     restart: unless-stopped
     environment:
       REDIS_URL: ${REDIS_URL:-redis://redis-worker-1:6379/0}
@@ -5952,6 +5941,9 @@ services:
     - redis-worker-1
     deploy:
       resources:
+        limits:
+          cpus: '0.10'
+          memory: 128M
         reservations:
           memory: 24M
   scanner-emergency-summarize-handoff-rewire-v3-4:
@@ -5963,9 +5955,9 @@ services:
       context: .
       dockerfile: python-worker/Dockerfile.gpu
     command:
-    - python
-    - -m
-    - orderflow_services.emergency_summarize_handoff_rewire_adapter_v3_4
+    - sh
+    - -c
+    - python -m orderflow_services.emergency_summarize_handoff_rewire_adapter_v3_4
     restart: unless-stopped
     environment:
       REDIS_URL: ${REDIS_URL:-redis://redis-worker-1:6379/0}
@@ -5988,6 +5980,9 @@ services:
     - redis-worker-1
     deploy:
       resources:
+        limits:
+          cpus: '0.10'
+          memory: 128M
         reservations:
           memory: 24M
   scanner-route-incident-rca-shadow-handoff-v3-5:
@@ -5999,9 +5994,9 @@ services:
       context: .
       dockerfile: python-worker/Dockerfile.gpu
     command:
-    - python
-    - -m
-    - orderflow_services.route_incident_rca_shadow_handoff_adapter_v3_5
+    - sh
+    - -c
+    - python -m orderflow_services.route_incident_rca_shadow_handoff_adapter_v3_5
     restart: unless-stopped
     environment:
       REDIS_URL: ${REDIS_URL:-redis://redis-worker-1:6379/0}
@@ -6021,6 +6016,9 @@ services:
     - redis-worker-1
     deploy:
       resources:
+        limits:
+          cpus: '0.10'
+          memory: 128M
         reservations:
           memory: 24M
   scanner-route-incident-rca-shadow-comparator-v3-6:
@@ -6032,9 +6030,9 @@ services:
       context: .
       dockerfile: python-worker/Dockerfile.gpu
     command:
-    - python
-    - -m
-    - orderflow_services.route_incident_rca_shadow_comparator_v3_6
+    - sh
+    - -c
+    - python -m orderflow_services.route_incident_rca_shadow_comparator_v3_6
     restart: unless-stopped
     environment:
       REDIS_URL: ${REDIS_URL:-redis://redis-worker-1:6379/0}
@@ -6050,6 +6048,9 @@ services:
     - redis-worker-1
     deploy:
       resources:
+        limits:
+          cpus: '0.10'
+          memory: 128M
         reservations:
           memory: 24M
   scanner-route-incident-rca-mirror-governor-v3-7:
@@ -6061,9 +6062,9 @@ services:
       context: .
       dockerfile: python-worker/Dockerfile.gpu
     command:
-    - python
-    - -m
-    - orderflow_services.route_incident_rca_mirror_governor_v3_7
+    - sh
+    - -c
+    - python -m orderflow_services.route_incident_rca_mirror_governor_v3_7
     restart: unless-stopped
     environment:
       REDIS_URL: ${REDIS_URL:-redis://redis-worker-1:6379/0}
@@ -6089,6 +6090,9 @@ services:
     - redis-worker-1
     deploy:
       resources:
+        limits:
+          cpus: '0.10'
+          memory: 128M
         reservations:
           memory: 24M
   scanner-route-incident-rca-mirror-verification-v3-8:
@@ -6100,9 +6104,9 @@ services:
       context: .
       dockerfile: python-worker/Dockerfile.gpu
     command:
-    - python
-    - -m
-    - orderflow_services.route_incident_rca_mirror_verification_loop_v3_8
+    - sh
+    - -c
+    - python -m orderflow_services.route_incident_rca_mirror_verification_loop_v3_8
     restart: unless-stopped
     environment:
       REDIS_URL: ${REDIS_URL:-redis://redis-worker-1:6379/0}
@@ -6127,6 +6131,9 @@ services:
     - redis-worker-1
     deploy:
       resources:
+        limits:
+          cpus: '0.10'
+          memory: 128M
         reservations:
           memory: 24M
   scanner-route-incident-rca-mirror-rollout-controller-v3-9:
@@ -6135,9 +6142,9 @@ services:
       context: .
       dockerfile: python-worker/Dockerfile.gpu
     command:
-    - python
-    - -m
-    - orderflow_services.route_incident_rca_mirror_rollout_controller_v3_9
+    - sh
+    - -c
+    - python -m orderflow_services.route_incident_rca_mirror_rollout_controller_v3_9
     restart: unless-stopped
     networks:
     - scanner-timers
@@ -6158,6 +6165,9 @@ services:
     - redis-worker-1
     deploy:
       resources:
+        limits:
+          cpus: '0.10'
+          memory: 128M
         reservations:
           memory: 24M
   scanner-route-incident-rca-mirror-slo-v3-10:
@@ -6166,9 +6176,9 @@ services:
       context: .
       dockerfile: python-worker/Dockerfile.gpu
     command:
-    - python
-    - -m
-    - orderflow_services.route_incident_rca_mirror_slo_analytics_v3_10
+    - sh
+    - -c
+    - python -m orderflow_services.route_incident_rca_mirror_slo_analytics_v3_10
     restart: unless-stopped
     networks:
     - scanner-timers
@@ -6185,6 +6195,9 @@ services:
     - redis-worker-1
     deploy:
       resources:
+        limits:
+          cpus: '0.10'
+          memory: 128M
         reservations:
           memory: 24M
   scanner-route-incident-rca-mirror-retry-v3-10:
@@ -6193,9 +6206,9 @@ services:
       context: .
       dockerfile: python-worker/Dockerfile.gpu
     command:
-    - python
-    - -m
-    - orderflow_services.route_incident_rca_mirror_retry_controller_v3_10
+    - sh
+    - -c
+    - python -m orderflow_services.route_incident_rca_mirror_retry_controller_v3_10
     restart: unless-stopped
     networks:
     - scanner-timers
@@ -6214,6 +6227,9 @@ services:
     - redis-worker-1
     deploy:
       resources:
+        limits:
+          cpus: '0.10'
+          memory: 128M
         reservations:
           memory: 24M
   scanner-route-incident-rca-mirror-escalations-v3-10:
@@ -6222,9 +6238,9 @@ services:
       context: .
       dockerfile: python-worker/Dockerfile.gpu
     command:
-    - python
-    - -m
-    - orderflow_services.route_incident_rca_mirror_auto_escalation_summarizer_v3_10
+    - sh
+    - -c
+    - python -m orderflow_services.route_incident_rca_mirror_auto_escalation_summarizer_v3_10
     restart: unless-stopped
     networks:
     - scanner-timers
@@ -6241,6 +6257,9 @@ services:
     - redis-worker-1
     deploy:
       resources:
+        limits:
+          cpus: '0.10'
+          memory: 128M
         reservations:
           memory: 24M
   scanner-route-incident-rca-mirror-incident-bundles-v3-11:
@@ -6249,9 +6268,9 @@ services:
       context: .
       dockerfile: python-worker/Dockerfile.gpu
     command:
-    - python
-    - -m
-    - orderflow_services.route_incident_rca_mirror_incident_bundle_builder_v3_11
+    - sh
+    - -c
+    - python -m orderflow_services.route_incident_rca_mirror_incident_bundle_builder_v3_11
     restart: unless-stopped
     networks:
     - scanner-timers
@@ -6269,6 +6288,9 @@ services:
     - redis-worker-1
     deploy:
       resources:
+        limits:
+          cpus: '0.10'
+          memory: 128M
         reservations:
           memory: 24M
   scanner-route-incident-rca-mirror-rca-bridge-v3-12:
@@ -6277,9 +6299,9 @@ services:
       context: .
       dockerfile: python-worker/Dockerfile.gpu
     command:
-    - python
-    - -m
-    - orderflow_services.route_incident_rca_mirror_bundle_rca_bridge_v3_12
+    - sh
+    - -c
+    - python -m orderflow_services.route_incident_rca_mirror_bundle_rca_bridge_v3_12
     restart: unless-stopped
     networks:
     - scanner-timers
@@ -6297,6 +6319,9 @@ services:
     - redis-worker-1
     deploy:
       resources:
+        limits:
+          cpus: '0.10'
+          memory: 128M
         reservations:
           memory: 24M
   scanner-route-incident-rca-mirror-vertex-rca-consumer-v3-13:
@@ -6305,9 +6330,9 @@ services:
       context: .
       dockerfile: python-worker/Dockerfile.gpu
     command:
-    - python
-    - -m
-    - orderflow_services.route_incident_rca_mirror_vertex_rca_consumer_v3_13
+    - sh
+    - -c
+    - python -m orderflow_services.route_incident_rca_mirror_vertex_rca_consumer_v3_13
     restart: unless-stopped
     networks:
     - scanner-timers
@@ -6325,6 +6350,9 @@ services:
     - redis-worker-1
     deploy:
       resources:
+        limits:
+          cpus: '0.10'
+          memory: 128M
         reservations:
           memory: 24M
   scanner-route-incident-rca-mirror-vertex-feedback-governor-v3-13:
@@ -6333,9 +6361,9 @@ services:
       context: .
       dockerfile: python-worker/Dockerfile.gpu
     command:
-    - python
-    - -m
-    - orderflow_services.route_incident_rca_mirror_vertex_feedback_governor_v3_13
+    - sh
+    - -c
+    - python -m orderflow_services.route_incident_rca_mirror_vertex_feedback_governor_v3_13
     restart: unless-stopped
     networks:
     - scanner-timers
@@ -6356,6 +6384,9 @@ services:
     - redis-worker-1
     deploy:
       resources:
+        limits:
+          cpus: '0.10'
+          memory: 128M
         reservations:
           memory: 24M
   scanner-route-incident-rca-mirror-rca-experiment-harness-v3-14:
@@ -6364,9 +6395,9 @@ services:
       context: .
       dockerfile: python-worker/Dockerfile.gpu
     command:
-    - python
-    - -m
-    - orderflow_services.route_incident_rca_mirror_rca_experiment_harness_v3_14
+    - sh
+    - -c
+    - python -m orderflow_services.route_incident_rca_mirror_rca_experiment_harness_v3_14
     restart: unless-stopped
     networks:
     - scanner-timers
@@ -6385,6 +6416,9 @@ services:
     - redis-worker-1
     deploy:
       resources:
+        limits:
+          cpus: '0.10'
+          memory: 128M
         reservations:
           memory: 24M
   scanner-route-incident-rca-mirror-rca-evaluator-v3-15:
@@ -6393,9 +6427,9 @@ services:
       context: .
       dockerfile: python-worker/Dockerfile.gpu
     command:
-    - python
-    - -m
-    - orderflow_services.route_incident_rca_mirror_rca_evaluator_v3_15
+    - sh
+    - -c
+    - python -m orderflow_services.route_incident_rca_mirror_rca_evaluator_v3_15
     restart: unless-stopped
     networks:
     - scanner-timers
@@ -6421,6 +6455,9 @@ services:
     - redis-worker-1
     deploy:
       resources:
+        limits:
+          cpus: '0.10'
+          memory: 128M
         reservations:
           memory: 24M
   scanner-route-incident-rca-mirror-rca-winner-apply-v3-16:
@@ -6429,9 +6466,9 @@ services:
       context: .
       dockerfile: python-worker/Dockerfile.gpu
     command:
-    - python
-    - -m
-    - orderflow_services.route_incident_rca_mirror_rca_winner_apply_controller_v3_16
+    - sh
+    - -c
+    - python -m orderflow_services.route_incident_rca_mirror_rca_winner_apply_controller_v3_16
     restart: unless-stopped
     networks:
     - scanner-timers
@@ -6452,6 +6489,9 @@ services:
     - redis-worker-1
     deploy:
       resources:
+        limits:
+          cpus: '0.10'
+          memory: 128M
         reservations:
           memory: 24M
   scanner-route-incident-rca-mirror-rca-winner-apply-verification-v3-17:
@@ -6460,9 +6500,9 @@ services:
       context: .
       dockerfile: python-worker/Dockerfile.gpu
     command:
-    - python
-    - -m
-    - orderflow_services.route_incident_rca_mirror_rca_winner_apply_verification_loop_v3_17
+    - sh
+    - -c
+    - python -m orderflow_services.route_incident_rca_mirror_rca_winner_apply_verification_loop_v3_17
     restart: unless-stopped
     networks:
     - scanner-timers
@@ -6485,6 +6525,9 @@ services:
     - redis-worker-1
     deploy:
       resources:
+        limits:
+          cpus: '0.10'
+          memory: 128M
         reservations:
           memory: 24M
   scanner-route-incident-rca-mirror-rca-winner-apply-slo-analytics-v3-18:
@@ -6493,9 +6536,9 @@ services:
       context: .
       dockerfile: python-worker/Dockerfile.gpu
     command:
-    - python
-    - -m
-    - orderflow_services.route_incident_rca_mirror_rca_winner_apply_slo_analytics_v3_18
+    - sh
+    - -c
+    - python -m orderflow_services.route_incident_rca_mirror_rca_winner_apply_slo_analytics_v3_18
     restart: unless-stopped
     networks:
     - scanner-timers
@@ -6512,6 +6555,9 @@ services:
     - redis-worker-1
     deploy:
       resources:
+        limits:
+          cpus: '0.10'
+          memory: 128M
         reservations:
           memory: 24M
   scanner-route-incident-rca-mirror-rca-winner-apply-retry-controller-v3-18:
@@ -6520,9 +6566,9 @@ services:
       context: .
       dockerfile: python-worker/Dockerfile.gpu
     command:
-    - python
-    - -m
-    - orderflow_services.route_incident_rca_mirror_rca_winner_apply_retry_controller_v3_18
+    - sh
+    - -c
+    - python -m orderflow_services.route_incident_rca_mirror_rca_winner_apply_retry_controller_v3_18
     restart: unless-stopped
     networks:
     - scanner-timers
@@ -6541,6 +6587,9 @@ services:
     - redis-worker-1
     deploy:
       resources:
+        limits:
+          cpus: '0.10'
+          memory: 128M
         reservations:
           memory: 24M
   scanner-route-incident-rca-mirror-rca-winner-apply-auto-escalation-summarizer-v3-18:
@@ -6549,9 +6598,9 @@ services:
       context: .
       dockerfile: python-worker/Dockerfile.gpu
     command:
-    - python
-    - -m
-    - orderflow_services.route_incident_rca_mirror_rca_winner_apply_auto_escalation_summarizer_v3_18
+    - sh
+    - -c
+    - python -m orderflow_services.route_incident_rca_mirror_rca_winner_apply_auto_escalation_summarizer_v3_18
     restart: unless-stopped
     networks:
     - scanner-timers
@@ -6569,6 +6618,9 @@ services:
     - redis-worker-1
     deploy:
       resources:
+        limits:
+          cpus: '0.10'
+          memory: 128M
         reservations:
           memory: 24M
   scanner-route-incident-rca-mirror-rca-winner-apply-incident-bundles-v3-19:
@@ -6577,9 +6629,9 @@ services:
       context: .
       dockerfile: python-worker/Dockerfile.gpu
     command:
-    - python
-    - -m
-    - orderflow_services.route_incident_rca_mirror_rca_winner_apply_incident_bundle_builder_v3_19
+    - sh
+    - -c
+    - python -m orderflow_services.route_incident_rca_mirror_rca_winner_apply_incident_bundle_builder_v3_19
     restart: unless-stopped
     networks:
     - scanner-timers
@@ -6599,6 +6651,9 @@ services:
     - redis-worker-1
     deploy:
       resources:
+        limits:
+          cpus: '0.10'
+          memory: 128M
         reservations:
           memory: 24M
   scanner-route-incident-rca-mirror-rca-winner-apply-bundle-rca-bridge-v3-20:
@@ -6607,9 +6662,9 @@ services:
       context: .
       dockerfile: python-worker/Dockerfile.gpu
     command:
-    - python
-    - -m
-    - orderflow_services.route_incident_rca_mirror_rca_winner_apply_bundle_rca_bridge_v3_20
+    - sh
+    - -c
+    - python -m orderflow_services.route_incident_rca_mirror_rca_winner_apply_bundle_rca_bridge_v3_20
     restart: unless-stopped
     networks:
     - scanner-timers
@@ -6629,6 +6684,9 @@ services:
     - redis-worker-1
     deploy:
       resources:
+        limits:
+          cpus: '0.10'
+          memory: 128M
         reservations:
           memory: 24M
   scanner-route-incident-rca-mirror-rca-winner-apply-vertex-rca-consumer-v3-21:
@@ -6637,9 +6695,9 @@ services:
       context: .
       dockerfile: python-worker/Dockerfile.gpu
     command:
-    - python
-    - -m
-    - orderflow_services.route_incident_rca_mirror_rca_winner_apply_vertex_rca_consumer_v3_21
+    - sh
+    - -c
+    - python -m orderflow_services.route_incident_rca_mirror_rca_winner_apply_vertex_rca_consumer_v3_21
     restart: unless-stopped
     networks:
     - scanner-timers
@@ -6657,6 +6715,9 @@ services:
     - redis-worker-1
     deploy:
       resources:
+        limits:
+          cpus: '0.10'
+          memory: 128M
         reservations:
           memory: 24M
   scanner-route-incident-rca-mirror-rca-winner-apply-vertex-feedback-governor-v3-21:
@@ -6665,9 +6726,9 @@ services:
       context: .
       dockerfile: python-worker/Dockerfile.gpu
     command:
-    - python
-    - -m
-    - orderflow_services.route_incident_rca_mirror_rca_winner_apply_vertex_feedback_governor_v3_21
+    - sh
+    - -c
+    - python -m orderflow_services.route_incident_rca_mirror_rca_winner_apply_vertex_feedback_governor_v3_21
     restart: unless-stopped
     networks:
     - scanner-timers
@@ -6686,6 +6747,9 @@ services:
     - redis-worker-1
     deploy:
       resources:
+        limits:
+          cpus: '0.10'
+          memory: 128M
         reservations:
           memory: 24M
   scanner-route-incident-rca-mirror-rca-winner-apply-experiment-harness-v3-22:
@@ -6694,9 +6758,9 @@ services:
       context: .
       dockerfile: python-worker/Dockerfile.gpu
     command:
-    - python
-    - -m
-    - orderflow_services.route_incident_rca_mirror_rca_winner_apply_experiment_harness_v3_22
+    - sh
+    - -c
+    - python -m orderflow_services.route_incident_rca_mirror_rca_winner_apply_experiment_harness_v3_22
     restart: unless-stopped
     networks:
     - scanner-timers
@@ -6718,6 +6782,9 @@ services:
     - redis-worker-1
     deploy:
       resources:
+        limits:
+          cpus: '0.10'
+          memory: 128M
         reservations:
           memory: 24M
   scanner-route-incident-rca-mirror-rca-winner-apply-evaluator-v3-23:
@@ -6726,9 +6793,9 @@ services:
       context: .
       dockerfile: python-worker/Dockerfile.gpu
     command:
-    - python
-    - -m
-    - orderflow_services.route_incident_rca_mirror_rca_winner_apply_evaluator_v3_23
+    - sh
+    - -c
+    - python -m orderflow_services.route_incident_rca_mirror_rca_winner_apply_evaluator_v3_23
     restart: unless-stopped
     networks:
     - scanner-timers
@@ -6747,6 +6814,9 @@ services:
     - redis-worker-1
     deploy:
       resources:
+        limits:
+          cpus: '0.10'
+          memory: 128M
         reservations:
           memory: 24M
   scanner-route-incident-rca-mirror-rca-winner-apply-apply-controller-v3-24:
@@ -6755,9 +6825,9 @@ services:
       context: .
       dockerfile: python-worker/Dockerfile.gpu
     command:
-    - python
-    - -m
-    - orderflow_services.route_incident_rca_mirror_rca_winner_apply_apply_controller_v3_24
+    - sh
+    - -c
+    - python -m orderflow_services.route_incident_rca_mirror_rca_winner_apply_apply_controller_v3_24
     restart: unless-stopped
     networks:
     - scanner-timers
@@ -6777,6 +6847,9 @@ services:
     - redis-worker-1
     deploy:
       resources:
+        limits:
+          cpus: '0.10'
+          memory: 128M
         reservations:
           memory: 24M
   scanner-route-incident-rca-mirror-rca-winner-apply-verification-v3-25:
@@ -6785,9 +6858,9 @@ services:
       context: .
       dockerfile: python-worker/Dockerfile.gpu
     command:
-    - python
-    - -m
-    - orderflow_services.route_incident_rca_mirror_rca_winner_apply_verification_loop_v3_25
+    - sh
+    - -c
+    - python -m orderflow_services.route_incident_rca_mirror_rca_winner_apply_verification_loop_v3_25
     restart: unless-stopped
     networks:
     - scanner-timers
@@ -6806,6 +6879,9 @@ services:
     - redis-worker-1
     deploy:
       resources:
+        limits:
+          cpus: '0.10'
+          memory: 128M
         reservations:
           memory: 24M
   scanner-route-incident-rca-mirror-rca-winner-apply-apply-retry-controller-v3-26:
@@ -6814,9 +6890,9 @@ services:
       context: .
       dockerfile: python-worker/Dockerfile.gpu
     command:
-    - python
-    - -m
-    - orderflow_services.route_incident_rca_mirror_rca_winner_apply_apply_retry_controller_v3_26
+    - sh
+    - -c
+    - python -m orderflow_services.route_incident_rca_mirror_rca_winner_apply_apply_retry_controller_v3_26
     restart: unless-stopped
     networks:
     - scanner-timers
@@ -6833,6 +6909,9 @@ services:
     - redis-worker-1
     deploy:
       resources:
+        limits:
+          cpus: '0.10'
+          memory: 128M
         reservations:
           memory: 24M
   scanner-route-incident-rca-mirror-rca-winner-apply-apply-auto-escalation-summarizer-v3-26:
@@ -6841,9 +6920,9 @@ services:
       context: .
       dockerfile: python-worker/Dockerfile.gpu
     command:
-    - python
-    - -m
-    - orderflow_services.route_incident_rca_mirror_rca_winner_apply_apply_auto_escalation_summarizer_v3_26
+    - sh
+    - -c
+    - python -m orderflow_services.route_incident_rca_mirror_rca_winner_apply_apply_auto_escalation_summarizer_v3_26
     restart: unless-stopped
     networks:
     - scanner-timers
@@ -6860,6 +6939,9 @@ services:
     - redis-worker-1
     deploy:
       resources:
+        limits:
+          cpus: '0.10'
+          memory: 128M
         reservations:
           memory: 24M
   scanner-route-incident-rca-mirror-rca-winner-apply-apply-incident-bundle-builder-v3-27:
@@ -6868,9 +6950,9 @@ services:
       context: .
       dockerfile: python-worker/Dockerfile.gpu
     command:
-    - python
-    - -m
-    - orderflow_services.route_incident_rca_mirror_rca_winner_apply_apply_incident_bundle_builder_v3_27
+    - sh
+    - -c
+    - python -m orderflow_services.route_incident_rca_mirror_rca_winner_apply_apply_incident_bundle_builder_v3_27
     restart: unless-stopped
     networks:
     - scanner-timers
@@ -6887,6 +6969,9 @@ services:
     - redis-worker-1
     deploy:
       resources:
+        limits:
+          cpus: '0.10'
+          memory: 128M
         reservations:
           memory: 24M
   scanner-route-incident-rca-mirror-rca-winner-apply-apply-bundle-rca-bridge-v3-28:
@@ -6895,9 +6980,9 @@ services:
       context: .
       dockerfile: python-worker/Dockerfile.gpu
     command:
-    - python
-    - -m
-    - orderflow_services.route_incident_rca_mirror_rca_winner_apply_apply_bundle_rca_bridge_v3_28
+    - sh
+    - -c
+    - python -m orderflow_services.route_incident_rca_mirror_rca_winner_apply_apply_bundle_rca_bridge_v3_28
     restart: unless-stopped
     networks:
     - scanner-timers
@@ -6914,6 +6999,9 @@ services:
     - redis-worker-1
     deploy:
       resources:
+        limits:
+          cpus: '0.10'
+          memory: 128M
         reservations:
           memory: 24M
   scanner-route-incident-rca-mirror-rca-winner-apply-apply-vertex-rca-consumer-v3-29:
@@ -6922,9 +7010,9 @@ services:
       context: .
       dockerfile: python-worker/Dockerfile.gpu
     command:
-    - python
-    - -m
-    - orderflow_services.route_incident_rca_mirror_rca_winner_apply_apply_vertex_rca_consumer_v3_29
+    - sh
+    - -c
+    - python -m orderflow_services.route_incident_rca_mirror_rca_winner_apply_apply_vertex_rca_consumer_v3_29
     restart: unless-stopped
     networks:
     - scanner-timers
@@ -6941,6 +7029,9 @@ services:
     - redis-worker-1
     deploy:
       resources:
+        limits:
+          cpus: '0.10'
+          memory: 128M
         reservations:
           memory: 24M
   scanner-route-incident-rca-mirror-rca-winner-apply-apply-vertex-feedback-governor-v3-29:
@@ -6949,9 +7040,9 @@ services:
       context: .
       dockerfile: python-worker/Dockerfile.gpu
     command:
-    - python
-    - -m
-    - orderflow_services.route_incident_rca_mirror_rca_winner_apply_apply_vertex_feedback_governor_v3_29
+    - sh
+    - -c
+    - python -m orderflow_services.route_incident_rca_mirror_rca_winner_apply_apply_vertex_feedback_governor_v3_29
     restart: unless-stopped
     networks:
     - scanner-timers
@@ -6966,6 +7057,9 @@ services:
     - redis-worker-1
     deploy:
       resources:
+        limits:
+          cpus: '0.10'
+          memory: 128M
         reservations:
           memory: 24M
   scanner-route-incident-rca-mirror-rca-winner-apply-apply-governance-apply-flow-experiment-apply-controller-v3-49:
@@ -6974,9 +7068,9 @@ services:
       context: .
       dockerfile: python-worker/Dockerfile.gpu
     command:
-    - python
-    - -m
-    - orderflow_services.route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_apply_controller_v3_49
+    - sh
+    - -c
+    - python -m orderflow_services.route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_apply_controller_v3_49
     restart: unless-stopped
     networks:
     - scanner-timers
@@ -6999,6 +7093,9 @@ services:
     - redis-worker-1
     deploy:
       resources:
+        limits:
+          cpus: '0.10'
+          memory: 128M
         reservations:
           memory: 24M
   scanner-route-incident-rca-mirror-rca-winner-apply-apply-governance-apply-flow-experiment-verifier-v3-50:
@@ -7007,9 +7104,9 @@ services:
       context: .
       dockerfile: python-worker/Dockerfile.gpu
     command:
-    - python
-    - -m
-    - orderflow_services.route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_post_apply_verifier_v3_50
+    - sh
+    - -c
+    - python -m orderflow_services.route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_post_apply_verifier_v3_50
     restart: unless-stopped
     networks:
     - scanner-timers
@@ -7029,6 +7126,9 @@ services:
     - redis-worker-1
     deploy:
       resources:
+        limits:
+          cpus: '0.10'
+          memory: 128M
         reservations:
           memory: 24M
   scanner-route-incident-rca-mirror-rca-winner-apply-apply-governance-apply-flow-experiment-rollback-v3-50:
@@ -7037,9 +7137,9 @@ services:
       context: .
       dockerfile: python-worker/Dockerfile.gpu
     command:
-    - python
-    - -m
-    - orderflow_services.route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_rollback_controller_v3_50
+    - sh
+    - -c
+    - python -m orderflow_services.route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_rollback_controller_v3_50
     restart: unless-stopped
     networks:
     - scanner-timers
@@ -7058,6 +7158,9 @@ services:
     - redis-worker-1
     deploy:
       resources:
+        limits:
+          cpus: '0.10'
+          memory: 128M
         reservations:
           memory: 24M
   burst-gate-calibrator-timer:
@@ -7077,7 +7180,7 @@ services:
     - REDIS_URL=${REDIS_URL:-redis://redis-worker-1:6379/0}
     - PYTHONPATH=.:/app
     - BURST_CALIB_ENABLE=${BURST_CALIB_ENABLE:-1}
-    - BURST_CALIB_PROM_URL=${BURST_CALIB_PROM_URL:-http://prometheus:9090}
+    - BURST_CALIB_PROM_URL=${BURST_CALIB_PROM_URL:-http://scanner-prometheus:9090}
     - BURST_CALIB_MIN_STREAK_DAYS=${BURST_CALIB_MIN_STREAK_DAYS:-7}
     - BURST_CALIB_ENFORCE_STREAK_DAYS=${BURST_CALIB_ENFORCE_STREAK_DAYS:-7}
     - BURST_CALIB_ROLLBACK_STREAK=${BURST_CALIB_ROLLBACK_STREAK:-3}
@@ -7089,7 +7192,7 @@ services:
     working_dir: /app
     volumes:
     - ./python-worker:/app
-    command: "sh -c \"sleep 30 && while true; do\n  python3 -m services.burst_gate_calibrator_service;\n\
+    command: "sh -c \"sleep 600 && while true; do\n  python3 -m services.burst_gate_calibrator_service;\n\
       \  echo 'Burst gate calibration done. Sleeping 1 hour...';\n  sleep 3600;\n\
       done\"\n"
     networks:
@@ -7125,7 +7228,7 @@ services:
     working_dir: /app
     volumes:
     - ./python-worker:/app
-    command: "sh -c \"sleep 60 && while true; do\n  echo 'Running DQ Calibration Publisher...';\n\
+    command: "sh -c \"sleep 600 && while true; do\n  echo 'Running DQ Calibration Publisher...';\n\
       \  python3 -m orderflow_services.dq_calibration_publisher_v1 --apply ${V14_DQ_CAL_PUBLISHER_APPLY:-0};\n\
       \  echo 'DQ Calibration publisher done. Sleeping 10 minutes...';\n  sleep 600;\n\
       done\"\n"
@@ -7173,12 +7276,12 @@ services:
     volumes:
     - ./python-worker:/app
     - /var/lib/trade:/var/lib/trade
-    command: "sh -c \"sleep 30 && while true; do\n  HOUR=$$(date +%-H);\n  MIN=$$(date\
+    command: "sh -c \"sleep 600 && while true; do\n  HOUR=$$(date +%-H);\n  MIN=$$(date\
       \ +%-M);\n  if [ \\\"$$HOUR\\\" -eq 5 ] && [ \\\"$$MIN\\\" -ge 30 ] && [ \\\"\
       $$MIN\\\" -lt 45 ]; then\n    echo 'Running DQ Gate Calibrator...';\n    python3\
       \ -m orderflow_services.dq_gate_calibrator_v1 --apply ${V14_DQ_CAL_APPLY:-0};\n\
       \    echo 'DQ Gate calibration done. Sleeping 23h...';\n    sleep 82800;\n \
-      \ else\n    sleep 60;\n  fi\ndone\"\n"
+      \ else\n    sleep 600;\n  fi\ndone\"\n"
     depends_on:
       redis-worker-1:
         condition: service_healthy
@@ -7216,7 +7319,7 @@ services:
     working_dir: /app
     volumes:
     - ./python-worker:/app
-    command: "sh -c \"sleep 5 && while true; do\n  HOUR=$$(date +%-H);\n  MIN=$$(date\
+    command: "sh -c \"sleep 600 && while true; do\n  HOUR=$$(date +%-H);\n  MIN=$$(date\
       \ +%-M);\n  if [ \\\"$$HOUR\\\" -eq 2 ] && [ \\\"$$MIN\\\" -ge 0 ] && [ \\\"\
       $$MIN\\\" -lt 15 ]; then\n    echo 'Running PIT priors builder for prev day...';\n\
       \    NOW_MS=$$(date +%s)000;\n    LOOKBACK_MS=$$((PIT_BUILDER_LOOKBACK_HOURS\
@@ -7224,10 +7327,143 @@ services:
       \ - 3600000));\n    python3 -m tools.build_pit_priors_v1 --start-ts-ms $$START_MS\
       \ --end-ts-ms $$END_MS --embargo-ms $${PIT_EMBARGO_MS:-3600000} --ttl-sec $${PIT_TTL_SEC:-7776000};\n\
       \    echo 'PIT priors materialization done. Sleeping 23h...';\n    sleep 82800;\n\
-      \  else\n    sleep 60;\n  fi\ndone\"\n"
+      \  else\n    sleep 600;\n  fi\ndone\"\n"
     depends_on:
       redis-worker-1:
         condition: service_healthy
+    networks:
+    - scanner-timers
+    - scanner-infra
+
+  cost-k-calibrator-v1-nightly-timer:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile.gpu
+    container_name: scanner-cost-k-calibrator-v1-nightly-timer
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 256M
+        reservations:
+          memory: 32M
+    environment:
+    - REDIS_URL=${REDIS_URL:-redis://redis-worker-1:6379/0}
+    - REDIS_MAIN_URL=${REDIS_MAIN_URL:-redis://redis:6379/0}
+    - DATABASE_URL=${DATABASE_URL:-postgresql://trading:${TRADING_PASSWORD}@scanner-postgres:5432/scanner_analytics}
+    - PYTHONPATH=.:/app
+    - PYTHONUNBUFFERED=1
+    - COST_K_CAL_APPLY=${COST_K_CAL_APPLY:-1}
+    - COST_K_CAL_SHADOW_ENFORCE=${COST_K_CAL_SHADOW_ENFORCE:-1}
+    - COST_K_CAL_LOOKBACK_DAYS=${COST_K_CAL_LOOKBACK_DAYS:-60}
+    - COST_K_CAL_OUT_DIR=/var/lib/trade/of_reports/cost_k_calibration
+    - COST_K_CAL_STATE_PATH=/var/lib/trade/of_reports/cost_k_calibrator_state.json
+    - COST_K_CAL_MIN_TRADES_PER_GROUP=${COST_K_CAL_MIN_TRADES_PER_GROUP:-20}
+    - NOTIFY_STREAM=${NOTIFY_STREAM:-notify:telegram}
+    - TZ=UTC
+    working_dir: /app
+    volumes:
+    - ./python-worker:/app
+    - /var/lib/trade/of_reports:/var/lib/trade/of_reports
+    command: "sh -c \"sleep 660 && while true; do\n  HOUR=$$(date +%-H);\n  MIN=$$(date\
+      \ +%-M);\n  if [ \\\"$$HOUR\\\" -eq 3 ] && [ \\\"$$MIN\\\" -ge 23 ] && [ \\\"\
+      $$MIN\\\" -lt 38 ]; then\n    echo '[cost-k-cal-v1] Running Cost-K Calibrator\
+      \ v1...';\n    python3 -m orderflow_services.cost_k_calibrator_v1\
+      \  --apply $${COST_K_CAL_APPLY:-1}\
+      \  --shadow-enforce $${COST_K_CAL_SHADOW_ENFORCE:-1}\
+      \  --lookback-days $${COST_K_CAL_LOOKBACK_DAYS:-60}\
+      \  --out-dir $${COST_K_CAL_OUT_DIR:-/var/lib/trade/of_reports/cost_k_calibration}\
+      \  --state-path $${COST_K_CAL_STATE_PATH:-/var/lib/trade/of_reports/cost_k_calibrator_state.json};\n\
+      \    echo '[cost-k-cal-v1] Done. Sleeping 23h...';\n    sleep 82800;\n  else\n\
+      \    sleep 600;\n  fi\ndone\"\n"
+    depends_on:
+      redis-worker-1:
+        condition: service_healthy
+    networks:
+    - scanner-timers
+    - scanner-infra
+
+  conf-threshold-cal-monitor-timer:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    container_name: scanner-conf-threshold-cal-monitor-timer
+    restart: unless-stopped
+    env_file:
+    - config/generated/symbols.env
+    deploy:
+      resources:
+        limits:
+          cpus: '0.10'
+          memory: 128M
+        reservations:
+          memory: 24M
+    environment:
+    - REDIS_URL=${REDIS_URL:-redis://redis-worker-1:6379/0}
+    - PYTHONPATH=.:/app
+    - PYTHONUNBUFFERED=1
+    - TZ=UTC
+    - CONF_CAL_ENFORCE=1
+    - CONF_CAL_TARGET_WR=${CONF_CAL_TARGET_WR:-0.55}
+    - CONF_CAL_OUTCOME=${CONF_CAL_OUTCOME:-tp2}
+    - CONF_CAL_MIN_SAMPLES=${CONF_CAL_MIN_SAMPLES:-50}
+    - CONF_CAL_PREFIX=${CONF_CAL_PREFIX:-relcal}
+    - CONF_CAL_TOP_SYMBOLS=${CONF_CAL_TOP_SYMBOLS:-${CRYPTO_SYMBOLS}}
+    - STABILITY_THRESH=${CONF_CAL_STABILITY_THRESH:-3.0}
+    - ECE_DECLINE_MAX=${CONF_CAL_ECE_DECLINE_MAX:-0.03}
+    - PROOF_NIGHTS_REQUIRED=${CONF_CAL_PROOF_NIGHTS:-3}
+    - PROOF_STATE_KEY=sre:conf_threshold_cal:proof
+    - DYN_CFG_KEY=settings:dynamic_cfg
+    - NOTIFY_TELEGRAM_STREAM=notify:telegram
+    - PROMOTE_DRY_RUN=${CONF_CAL_PROMOTE_DRY_RUN:-0}
+    working_dir: /app
+    volumes:
+    - ./python-worker:/app
+    command: "sh -c \"sleep 420 && while true; do\n  HOUR=$$(date +%-H);\n  MIN=$$(date\
+      \ +%-M);\n  # Run daily at 02:22 UTC (after reliability_calibrator nightly flush)\n\
+      \  if [ \\\"$$HOUR\\\" -eq 2 ] && [ \\\"$$MIN\\\" -ge 22 ] && [ \\\"$$MIN\\\"\
+      \ -lt 37 ]; then\n    echo '[conf-threshold-cal-monitor] Running nightly proof-streak\
+      \ check...';\n    python3 -m tools.monitor_conf_threshold_calibrator;\n    echo\
+      \  '[conf-threshold-cal-monitor] Done. Sleeping 23h...';\n    sleep 82800;\n\
+      \  else\n    sleep 600;\n  fi\ndone\"\n"
+    depends_on:
+      redis-worker-1:
+        condition: service_healthy
+    networks:
+    - scanner-timers
+    - scanner-infra
+
+  execution-journal-purge-nightly-timer:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    container_name: scanner-execution-journal-purge-nightly-timer
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '0.10'
+          memory: 128M
+        reservations:
+          memory: 24M
+    environment:
+    - DATABASE_URL=${DATABASE_URL:-postgresql://trading:${TRADING_PASSWORD}@scanner-postgres:5432/scanner_analytics}
+    - PURGE_RETENTION_DAYS=${EXEC_JOURNAL_PURGE_RETENTION_DAYS:-30}
+    - PURGE_DRY_RUN=${EXEC_JOURNAL_PURGE_DRY_RUN:-0}
+    - PYTHONPATH=.:/app
+    - PYTHONUNBUFFERED=1
+    - TZ=UTC
+    working_dir: /app
+    volumes:
+    - ./python-worker:/app
+    command: "sh -c \"sleep 300 && while true; do\n  HOUR=$$(date +%-H);\n  MIN=$$(date\
+      \ +%-M);\n  # Run daily at 04:15 UTC (after archive partition creation jobs)\n\
+      \  if [ \\\"$$HOUR\\\" -eq 4 ] && [ \\\"$$MIN\\\" -ge 15 ] && [ \\\"$$MIN\\\"\
+      \ -lt 30 ]; then\n    echo '[exec-journal-purge] Running nightly hot-table purge\
+      \ (retention=$${PURGE_RETENTION_DAYS:-30}d)...';\n    python3 -m runners.execution_journal_purge_runner;\n\
+      \    echo '[exec-journal-purge] Done. Sleeping 23h...';\n    sleep 82800;\n  else\n\
+      \    sleep 600;\n  fi\ndone\"\n"
     networks:
     - scanner-timers
     - scanner-infra

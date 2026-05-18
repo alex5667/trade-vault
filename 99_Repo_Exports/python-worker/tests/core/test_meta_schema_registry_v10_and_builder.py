@@ -23,8 +23,8 @@ def test_central_registry_contains_v10():
 
 
 def test_get_schema_cols_matches_registry_for_all_versions():
-    for name, (_ver, cols, _h) in META_SCHEMA_REGISTRY.items():
-        assert get_schema_cols(name) == list(cols), f"cols mismatch for {name}"
+    for name, spec in META_SCHEMA_REGISTRY.items():
+        assert get_schema_cols(name) == list(spec.cols), f"cols mismatch for {name}"
 
 
 def test_get_schema_cols_unknown_returns_empty():

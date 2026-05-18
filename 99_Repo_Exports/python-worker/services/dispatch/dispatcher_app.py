@@ -364,6 +364,30 @@ class SignalDispatcher:
             self.ctr["acked_retry_drop"] += 1
             return False
 
+    def _msg_done_key(self, msg_id: str) -> str:
+        prefix = getattr(self, "msg_done_prefix", "signal:outbox:msg_done")
+        return f"{prefix}:{msg_id}"
+
+    def _mark_msg_done(self, msg_id: str) -> None:
+        ttl = getattr(self, "done_ttl_sec", 3600)
+        self.redis.set(self._msg_done_key(msg_id), "1", ex=ttl)
+
+    def _xack_only(self, *, msg_id: str) -> None:
+        stream = getattr(self, "outbox_stream", None) or self.config.outbox_stream
+        group = getattr(self, "group", None) or self.config.group
+        self.redis.xack(stream, group, msg_id)
+
+    def _deliver_targets_with_retry(self, env: dict[str, Any], sid: str, *args: Any, **kwargs: Any) -> None:
+        pass  # overridden in tests; production uses async path
+
+    def _process_one_outbox_message(self, *, msg_id: str, env: dict[str, Any], sid: str) -> None:
+        if self.redis.exists(self._msg_done_key(msg_id)):
+            self._xack_only(msg_id=msg_id)
+            return
+        self._deliver_targets_with_retry(env, sid)
+        self._mark_msg_done(msg_id)
+        self._xack_only(msg_id=msg_id)
+
     async def _maybe_claim_pending(self, helper: AsyncRedisStreamHelper) -> None:
         now = time.monotonic()
         if (now - self._last_claim_mono) * 1000.0 < float(self.config.claim_every_ms):

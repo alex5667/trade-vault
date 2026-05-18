@@ -371,6 +371,12 @@ from core.meta_features_v10 import (
     META_FEAT_V10_VERSION,
     build_meta_features_v10,
 )
+from core.meta_features_v13_of import (
+    META_FEAT_V13_OF_HASH,
+    META_FEAT_V13_OF_NAME,
+    META_FEAT_V13_OF_VERSION,
+    build_meta_features_v13_of,
+)
 from core.meta_model_lr import MetaModelLR
 from core.of_confirm_contract import OFConfirmV3
 from core.of_evidence import compute_absorption_flags, compute_reclaim_recent, compute_sweep_recent
@@ -424,9 +430,10 @@ META_SCHEMA_REGISTRY: dict[str, tuple[int, str]] = {
     META_FEAT_V8_NAME: (META_FEAT_V8_VERSION, META_FEAT_V8_HASH),
     META_FEAT_V9_NAME: (META_FEAT_V9_VERSION, META_FEAT_V9_HASH),
     META_FEAT_V10_NAME: (META_FEAT_V10_VERSION, META_FEAT_V10_HASH),
+    META_FEAT_V13_OF_NAME: (META_FEAT_V13_OF_VERSION, META_FEAT_V13_OF_HASH),
 }
 
-META_SCHEMA_V2P = (META_FEAT_V2_NAME, META_FEAT_V3_NAME, META_FEAT_V4_NAME, META_FEAT_V5_NAME, META_FEAT_V6_NAME, META_FEAT_V7_NAME, META_FEAT_V8_NAME, META_FEAT_V9_NAME, META_FEAT_V10_NAME)
+META_SCHEMA_V2P = (META_FEAT_V2_NAME, META_FEAT_V3_NAME, META_FEAT_V4_NAME, META_FEAT_V5_NAME, META_FEAT_V6_NAME, META_FEAT_V7_NAME, META_FEAT_V8_NAME, META_FEAT_V9_NAME, META_FEAT_V10_NAME, META_FEAT_V13_OF_NAME)
 
 def _get_attr_or_key(obj: Any, name: str, default: Any = None) -> Any:
     if obj is None:
@@ -3979,6 +3986,14 @@ class OFConfirmEngine:
                                 ml_feature_stale_total.labels(feature="deriv_ctx", symbol=symbol).inc()
                             except Exception:
                                 pass
+                        # G6: Log if leader_confirm is missing/zero in valid snapshot
+                        _leader_val = float(_deriv_data.get("leader_btc_eth_confirm") or 0.0)
+                        if not _deriv_stale and _leader_val == 0.0:
+                            try:
+                                from services.orderflow.metrics import ml_feature_missing_total
+                                ml_feature_missing_total.labels(feature="leader_btc_eth_confirm", symbol=symbol).inc()
+                            except Exception:
+                                pass
                 except Exception:
                     _deriv_data = {}
 
@@ -4026,9 +4041,15 @@ class OFConfirmEngine:
                 indicators_with_v4.setdefault("long_short_ratio_z", float(_deriv_data.get("long_short_ratio_z") or 0.0) if not _deriv_stale else 0.0)
 
                 # Direction-conflict signal (BTC/ETH leader confirms target direction)
+                # G6: leader_confirm = (btc_ret_24h + eth_ret_24h) / 2 from runtime:breadth
                 _leader_confirm = float(_deriv_data.get("leader_btc_eth_confirm") or 0.0) if not _deriv_stale else 0.0
+                # Validate: must be finite and in range [-1, 1]
+                if not math.isfinite(_leader_confirm):
+                    _leader_confirm = 0.0
+                else:
+                    _leader_confirm = max(-1.0, min(1.0, _leader_confirm))
                 indicators_with_v4.setdefault("leader_btc_eth_confirm", _leader_confirm)
-                # Conflict = inverse of confirmation
+                # Conflict = inverse of confirmation (high abs(confirm) → low conflict)
                 indicators_with_v4.setdefault("leader_direction_conflict", 1.0 - abs(_leader_confirm) if not _deriv_stale else 0.0)
 
                 # Sector breadth (24h return / volume z)
@@ -5136,7 +5157,8 @@ class OFConfirmEngine:
                         META_FEAT_V7_NAME: dict(name=META_FEAT_V7_NAME, version=META_FEAT_V7_VERSION, hash=META_FEAT_V7_HASH, builder=build_meta_features_v7),
                         META_FEAT_V8_NAME: dict(name=META_FEAT_V8_NAME, version=META_FEAT_V8_VERSION, hash=META_FEAT_V8_HASH, builder=build_meta_features_v8),
                         META_FEAT_V9_NAME: dict(name=META_FEAT_V9_NAME, version=META_FEAT_V9_VERSION, hash=META_FEAT_V9_HASH, builder=build_meta_features_v9),
-                        META_FEAT_V10_NAME: dict(name=META_FEAT_V10_NAME, version=META_FEAT_V10_VERSION, hash=META_FEAT_V10_HASH, builder=build_meta_features_v10)
+                        META_FEAT_V10_NAME: dict(name=META_FEAT_V10_NAME, version=META_FEAT_V10_VERSION, hash=META_FEAT_V10_HASH, builder=build_meta_features_v10),
+                        META_FEAT_V13_OF_NAME: dict(name=META_FEAT_V13_OF_NAME, version=META_FEAT_V13_OF_VERSION, hash=META_FEAT_V13_OF_HASH, builder=build_meta_features_v13_of),
                     }
 
                     schema_cfg = SCHEMAS.get(model_schema_name)
@@ -5544,11 +5566,24 @@ class OFConfirmEngine:
         # v14_of: write og_* (rule-gate consensus) keys into shared `indicators` dict
         # so they flow through signal_pipeline → signals:of:inputs → ML dataset.
         # Fail-open: build_og_payload returns 16 zero-valued keys if any input is malformed.
+        # Every fail-open path increments `og_payload_fail_open_total{reason}` so
+        # silent drift to all-zero og_* features is alertable (>1% over 5m).
         try:
-            from core.v14_of_features import build_og_payload
-            indicators.update(build_og_payload(ofc=ofc, dec=dec, indicators=indicators))
+            from core.v14_of_features import build_og_payload, _record_fail_open as _og_fail
         except Exception:
-            pass
+            try:
+                from core.v14_of_features import _record_fail_open as _og_fail
+                _og_fail("import_error")
+            except Exception:
+                pass
+        else:
+            try:
+                indicators.update(build_og_payload(ofc=ofc, dec=dec, indicators=indicators))
+            except Exception:
+                try:
+                    _og_fail("build_raised")
+                except Exception:
+                    pass
 
         # v14_of Group OE + Phase 7.8/7.9/7.9b: copy external/derivative/composite
         # feature keys from inference-time `indicators_with_v4` into outbound
@@ -5578,6 +5613,22 @@ class OFConfirmEngine:
                     indicators.update(
                         v13_tracker.compute_interactions(v13_snap, indicators)
                     )
+        except Exception:
+            pass
+
+        # v13_of Group ND: cross-asset/macro runtime attrs loaded by
+        # maybe_load_crossasset_v13() into SymbolRuntime but never forwarded
+        # to indicators. Without this, all 4 ND keys are constant 0.0 in the
+        # offline dataset (train/serve skew).
+        try:
+            for _nd_key in (
+                "btc_dominance_momentum",
+                "oi_weighted_funding",
+                "total_market_oi_delta",
+                "liq_heatmap_distance_bps",
+            ):
+                if _nd_key not in indicators:
+                    indicators[_nd_key] = float(getattr(runtime, _nd_key, 0.0) or 0.0)
         except Exception:
             pass
 

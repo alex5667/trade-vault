@@ -5,6 +5,7 @@ from collections import deque
 from typing import Any
 
 from common.deque_utils import ensure_bounded_deque
+from core.vol_z_thr_calibrator import VolZThrCalibrator
 from handlers.crypto_orderflow.types.crypto_orderflow_handler_types import BarSample
 
 
@@ -12,13 +13,21 @@ class CryptoMarketState:
     """
     Manages market state history (bars, regime samples) and basic extreme detection.
     """
-    def __init__(self, bar_history_maxlen: int = 512, regime_window_size: int = 240):
+    def __init__(
+        self,
+        bar_history_maxlen: int = 512,
+        regime_window_size: int = 240,
+        vol_z_calibrator: VolZThrCalibrator | None = None,
+    ):
         self._bar_history: dict[str, deque[BarSample]] = {}
         self._regime_history: dict[str, deque[Any]] = {}
 
         # Config params
         self._bar_history_maxlen = bar_history_maxlen
         self._regime_cfg_window_size = regime_window_size
+
+        # Adaptive vol_z threshold calibrator (shadow-mode by default)
+        self._vol_z_cal: VolZThrCalibrator = vol_z_calibrator or VolZThrCalibrator()
 
     def get_bar_hist(self, symbol: str) -> deque[BarSample]:
         """Get or initialize bounded deque for bar history."""
@@ -54,11 +63,15 @@ class CryptoMarketState:
         symbol: str,
         bar: BarSample,
         atr_intraday: float,
-        k_atr: float = 0.25,     # 0.25 ATR top/bottom
-        vol_z_thr: float = 1.5,  # z-score volume
+        k_atr: float = 0.25,
+        vol_z_thr: float | None = None,  # None → use calibrated threshold
+        session: str = "na",             # e.g. "us" / "eu" / "asia" / "off"
     ) -> bool:
         """
         Detect if bar creates a new local extreme with volume spike.
+
+        `vol_z_thr=None` delegates to the embedded VolZThrCalibrator.
+        Pass an explicit float to override (e.g. in tests or legacy callers).
         """
         hist = self.get_bar_hist(symbol)
         if not hist or len(hist) < 20:
@@ -68,51 +81,26 @@ class CryptoMarketState:
         lows = [b.low for b in hist]
         vols = [b.volume for b in hist]  # type: ignore
 
-        # Previous extremes (excluding current bar if not yet appended,
-        # BUT usually this checks 'bar' against 'hist' where 'bar' might be the NEW one.
-        # Original code: prev_high = max(highs[:-1]) suggests hist contains current bar?
-        # Let's check original usage: _update_bar_history is called distinct from _is_new_local_extreme.
-        # Usually checking happens *before* or *after* update.
-        # Original code used highs[:-1]. If hist HAS the new bar, this makes sense.
-        # If hist DOES NOT have new bar, highs[:-1] skips the last OLD bar.
-        # Safe approach: pass explicit history or assume policy.
-        # We will assume hist DOES NOT contain 'bar' yet, or if it does,
-        # we strictly follow original logic which took highs[:-1].
-
-        # NOTE: Original code (Step 16/106)
-        # highs = [b.high for b in hist]
-        # prev_high = max(highs[:-1])
-        # This implies 'hist' DOES contain some recent bars.
-        # If 'bar' is passed as argument, and 'hist' is self._bar_history...
-        # In original code, update_bar_history is separate.
-        # If update called BEFORE this check, then hist[-1] is 'bar'.
-        # If called AFTER, then hist hasn't 'bar'.
-        # max(highs[:-1]) implies comparing to EVERYTHING except the very last one in history.
-        # So it implies hist contains the candidate?
-        # Let's assume standard usage: update -> check.
-        pass
-
-        # Re-implementing logic blindly matching original:
         if len(highs) < 2:
-             return False
+            return False
 
         prev_high = max(highs[:-1])
         prev_low = min(lows[:-1])
 
         mu_vol = sum(vols[:-1]) / (len(vols) - 1)
-        # Avoid division by zero
         n_var = max(len(vols) - 2, 1)
         var_vol = sum((v - mu_vol) ** 2 for v in vols[:-1]) / n_var
         std_vol = math.sqrt(max(var_vol, 1e-9))
 
-        # bar.volume is from the new bar being checked
         vol_z = (bar.volume - mu_vol) / max(std_vol, 1e-6)  # type: ignore
 
-        is_new_high = (
-            bar.high > prev_high + k_atr * atr_intraday and vol_z >= vol_z_thr
-        )
-        is_new_low = (
-            bar.low < prev_low - k_atr * atr_intraday and vol_z >= vol_z_thr
-        )
+        # Calibrated threshold (shadow-mode by default, fail-open)
+        regime = f"{symbol.lower()}:{session}"
+        self._vol_z_cal.observe(regime=regime, vol_z=vol_z)
+        th = self._vol_z_cal.thresholds(regime=regime)
+        effective_thr = vol_z_thr if vol_z_thr is not None else th.soft
+
+        is_new_high = bar.high > prev_high + k_atr * atr_intraday and vol_z >= effective_thr
+        is_new_low = bar.low < prev_low - k_atr * atr_intraday and vol_z >= effective_thr
 
         return is_new_high or is_new_low

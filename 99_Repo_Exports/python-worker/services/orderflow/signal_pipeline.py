@@ -22,6 +22,7 @@ from core.gates.decision import GateDecisionV1
 from handlers.crypto_orderflow.components.gates import GateOrchestrator
 from handlers.crypto_orderflow.utils.log_sampler import LogSamplerFactory
 from handlers.crypto_orderflow.utils.edge_cost_gate import EdgeCostGate
+from handlers.crypto_orderflow.utils.entry_policy_gate import EntryPolicyGate
 from handlers.crypto_orderflow.utils.pre_publish_gates import (
     AtrFloorGate,
     BreadthGate,
@@ -168,8 +169,10 @@ class SignalPipeline:
         self._rejected_signal_stream = os.getenv("CRYPTO_REJECTED_SIGNAL_STREAM", RS.CRYPTO_REJECTED)
         
         # Unified Orchestrator (P1)
+        # EntryPolicyGate: enabled by default — drives autocal:adverse_cross / spread_staleness /
+        # burst_c2t accumulation and freeze enforcement. Toggle via ENTRY_POLICY_ENABLED=0 env.
         self.orchestrator = GateOrchestrator(
-            entry_policy=None, # Loaded separately if needed
+            entry_policy=EntryPolicyGate.from_env(),
             cost_gate=EdgeCostGate.from_env(),
             portfolio_gate=PortfolioExposureGate(r=getattr(publisher, "r", None)),
             consistency_gate=ConsistencyGate.from_env(),
@@ -182,6 +185,29 @@ class SignalPipeline:
             breadth_gate=BreadthGate.from_env(),
         )
         self._ev_tp1_cfg = EvTp1StatsConfig.from_env()
+
+        # ------------------------------------------------------------------
+        # Pipeline-level calibrators (observed on emit, snapshotted to Redis)
+        # ------------------------------------------------------------------
+        # These calibrators were historically wired in the legacy SignalOrchestrator
+        # (multi-symbol-orderflow service, now disabled). Wired here so the new
+        # pipeline path (used by scanner-crypto-orderflow*) also persists them.
+        from core.cooldown_calibrator import CooldownCalibrator
+        from core.vol_z_thr_calibrator import VolZThrCalibrator
+        from core.htf_proximity_calibrator import HtfProximityCalibrator
+        from core.liquidity_wall_calibrator import LiquidityWallCalibrator
+
+        self._cooldown_calib = CooldownCalibrator(
+            min_signals=int(os.getenv("COOLDOWN_CAL_MIN_SIGNALS", "100") or "100"),
+            enforce=(os.getenv("COOLDOWN_CAL_ENFORCE", "0") or "0").strip().lower() in {"1", "true", "yes", "on"},
+        )
+        self._vol_z_calib = VolZThrCalibrator()
+        self._htf_prox_calib = HtfProximityCalibrator()
+        self._liq_wall_calib = LiquidityWallCalibrator()
+
+        self._calib_loaded: bool = False
+        self._calib_last_snap_ms: int = 0
+        self._calib_snap_interval_ms: int = int(os.getenv("PIPELINE_CALIB_SNAP_SEC", "60") or "60") * 1000
 
         # ------------------------------------------------------------------
         # Decision Snapshot (A2)
@@ -837,6 +863,131 @@ class SignalPipeline:
         )
         return ctx
 
+    def _pipeline_calib_sync_redis(self) -> Any:
+        """Lazy-cached sync Redis client for pipeline calibrator persist/restore."""
+        rc = getattr(self, "_pipeline_calib_redis", None)
+        if rc is not None:
+            return rc
+        try:
+            from handlers.crypto_orderflow.config.handler_config import _get_sync_redis
+            self._pipeline_calib_redis = _get_sync_redis()
+            return self._pipeline_calib_redis
+        except Exception:
+            return None
+
+    def _pipeline_calib_load(self) -> None:
+        """Warm-start pipeline calibrators from Redis (best-effort, once)."""
+        if self._calib_loaded:
+            return
+        self._calib_loaded = True
+        rc = self._pipeline_calib_sync_redis()
+        if rc is None:
+            return
+        import json as _json
+        from core.redis_keys import RK
+        for key, calib, loader_attr in (
+            (RK.AUTOCAL_COOLDOWN,      self._cooldown_calib,  "load_symbol_state"),
+            (RK.AUTOCAL_VOL_Z_THR,     self._vol_z_calib,     "load_regime_state"),
+            (RK.AUTOCAL_HTF_PROXIMITY, self._htf_prox_calib,  "load_symbol_state"),
+            (RK.AUTOCAL_LIQ_WALL,      self._liq_wall_calib,  "load_symbol_state"),
+        ):
+            try:
+                raw_map = rc.hgetall(key)
+                if not raw_map:
+                    continue
+                loader = getattr(calib, loader_attr)
+                for v in raw_map.values():
+                    s = v.decode("utf-8", "ignore") if isinstance(v, (bytes, bytearray)) else v
+                    loader(_json.loads(s))
+            except Exception:
+                pass
+
+    def _pipeline_calib_snap(self, now_ms: int) -> None:
+        """Throttled snapshot of pipeline calibrators to Redis (best-effort)."""
+        if (now_ms - self._calib_last_snap_ms) < self._calib_snap_interval_ms:
+            return
+        self._calib_last_snap_ms = now_ms
+        rc = self._pipeline_calib_sync_redis()
+        if rc is None:
+            return
+        import json as _json
+        from core.redis_keys import RK
+        # cooldown (per symbol)
+        try:
+            for sym_key in list(self._cooldown_calib._n.keys()):
+                state = self._cooldown_calib.dump_symbol_state(symbol=sym_key, updated_ts_ms=now_ms)
+                rc.hset(RK.AUTOCAL_COOLDOWN, sym_key, _json.dumps(state))
+        except Exception:
+            pass
+        # vol_z_thr (per regime)
+        try:
+            for regime_key in list(self._vol_z_calib._n.keys()):
+                sym_part = regime_key.split(":")[0].upper()
+                state = self._vol_z_calib.dump_regime_state(symbol=sym_part, regime=regime_key, updated_ts_ms=now_ms)
+                rc.hset(RK.AUTOCAL_VOL_Z_THR, regime_key, _json.dumps(state))
+        except Exception:
+            pass
+        # htf_proximity (per symbol)
+        try:
+            for sym_key in list(self._htf_prox_calib._n.keys()):
+                state = self._htf_prox_calib.dump_symbol_state(symbol=sym_key, updated_ts_ms=now_ms)
+                rc.hset(RK.AUTOCAL_HTF_PROXIMITY, sym_key, _json.dumps(state))
+        except Exception:
+            pass
+        # liq_wall (per symbol)
+        try:
+            for sym_key in list(self._liq_wall_calib._n.keys()):
+                state = self._liq_wall_calib.dump_symbol_state(symbol=sym_key, updated_ts_ms=now_ms)
+                rc.hset(RK.AUTOCAL_LIQ_WALL, sym_key, _json.dumps(state))
+        except Exception:
+            pass
+
+    def _pipeline_calib_observe_on_emit(self, *, symbol: str, signal: dict[str, Any], indicators: dict[str, Any], now_ms: int) -> None:
+        """Observe pipeline calibrators on a successful emit. Fail-open."""
+        try:
+            self._pipeline_calib_load()
+        except Exception:
+            pass
+        sym = (symbol or "").upper()
+        if not sym:
+            return
+        # cooldown: just needs (symbol, emit_ts_ms)
+        try:
+            self._cooldown_calib.observe(symbol=sym, emit_ts_ms=float(now_ms))
+        except Exception:
+            pass
+        # vol_z_thr: regime = "{sym}:{session}"; needs a z-score
+        try:
+            session = str(signal.get("session") or indicators.get("session") or "na").lower()
+            vol_z = indicators.get("vol_z") or indicators.get("volume_z") or indicators.get("vol_z_score")
+            if vol_z is not None:
+                self._vol_z_calib.observe(regime=f"{sym.lower()}:{session}", vol_z=float(vol_z))
+        except Exception:
+            pass
+        # htf_proximity: needs (symbol, dist_bps, daily_atr_bps)
+        try:
+            dist_bps = indicators.get("htf_dist_bps") or indicators.get("htf_proximity_bps")
+            daily_atr_bps = indicators.get("atr_daily_bps") or indicators.get("daily_atr_bps") or indicators.get("atr_1d_bps")
+            if dist_bps is not None and daily_atr_bps is not None:
+                self._htf_prox_calib.observe(
+                    symbol=sym, dist_bps=float(dist_bps), daily_atr_bps=float(daily_atr_bps),
+                )
+        except Exception:
+            pass
+        # liq_wall: needs (symbol, size_z, dist_bps)
+        try:
+            wall_size_z = indicators.get("liq_wall_size_z") or indicators.get("wall_size_z")
+            wall_dist_bps = indicators.get("liq_wall_dist_bps") or indicators.get("wall_dist_bps")
+            if wall_size_z is not None and wall_dist_bps is not None:
+                self._liq_wall_calib.observe(symbol=sym, size_z=float(wall_size_z), dist_bps=float(wall_dist_bps))
+        except Exception:
+            pass
+        # throttled snap
+        try:
+            self._pipeline_calib_snap(now_ms)
+        except Exception:
+            pass
+
     async def publish_signal(self, runtime: SymbolRuntime, signal: dict[str, Any]) -> None:
         """
         Публикация сигнала в необходимые каналы.
@@ -949,6 +1100,10 @@ class SignalPipeline:
         # 3. Quality / Floor
         if _apply_decision(self.orchestrator.check_quality(ctx, kind)): return  # type: ignore
         if _apply_decision(self.orchestrator.check_atr_floor(ctx, kind)): return  # type: ignore
+
+        # 4. Entry Policy (spread shock / burst flip / c2t / freeze + adaptive calibrators).
+        # Drives autocal:adverse_cross / spread_staleness / burst_c2t accumulation.
+        if _apply_decision(self.orchestrator.check_entry_policy(ctx, kind)): return  # type: ignore
 
         # ------------------------------------------------------------------
         # STAGE 2: CONTEXT & MARKET GATES (Fail-Open / Tighten / Veto)
@@ -1343,9 +1498,14 @@ class SignalPipeline:
         ctx.sl_price = sl
         ctx.tp1_price = tp_levels[0] if tp_levels else None
         with contextlib.suppress(Exception):
+            # runtime.redis_client is aioredis (async); ev_tp1_stats needs a sync client.
+            _ev_rc = getattr(self, "_ev_sync_redis", None)
+            if _ev_rc is None:
+                from handlers.crypto_orderflow.config.handler_config import _get_sync_redis
+                self._ev_sync_redis = _ev_rc = _get_sync_redis()
             attach_tp1_hit_prob_to_ctx(
                 ctx,
-                redis_client=getattr(runtime, "redis_client", None),
+                redis_client=_ev_rc,
                 kind=kind,
                 symbol=symbol,
                 tf=str(signal.get("tf") or indicators.get("tf") or "na"),
@@ -1600,7 +1760,7 @@ class SignalPipeline:
             "qty": lot,
             "quantity": lot,
             "atr": atr,
-            "confidence": float(signal.get("confidence", 0.0) or 0.0), # Will be re-calculated or passed
+            "confidence": confidence, # Use gated confidence (with fallback to indicators + default 0.3) for audit trail integrity
             "reason": (signal.get("reason", "unknown")),
             "ts_ms": ts_ms,
             "generated_at": ts_ms,
@@ -1663,13 +1823,13 @@ class SignalPipeline:
             t1 = float(runtime.dynamic_cfg.get(DK.ATR_FLOOR_T1_BPS, cfg.get("atr_floor_t1_bps", 0.0)) or 0.0)
             t2 = float(runtime.dynamic_cfg.get(DK.ATR_FLOOR_T2_BPS, cfg.get("atr_floor_t2_bps", 0.0)) or 0.0)
 
-            tier, picked, floor_th = compute_atr_bps_threshold(regime=rg, cfg=cfg, t0=t0, t1=t1, t2=t2)
+            tier, _rg_norm, floor_th = compute_atr_bps_threshold(regime=rg, cfg=cfg, t0=t0, t1=t1, t2=t2)
 
             indicators["atr_floor_t0_bps"] = t0
             indicators["atr_floor_t1_bps"] = t1
             indicators["atr_floor_t2_bps"] = t2
             indicators["atr_floor_tier"] = tier
-            indicators["atr_floor_picked_bps"] = float(picked)
+            indicators["atr_floor_picked_bps"] = floor_th
             indicators["atr_floor_th_bps"] = floor_th
             indicators["atr_floor_rg"] = rg
             indicators["atr_floor_ready"] = int(runtime.dynamic_cfg.get(DK.ATR_CALIB_READY, 0) or 0)
@@ -1793,6 +1953,14 @@ class SignalPipeline:
                     confidence=confidence, min_conf=min_conf,
                     entry=_entry, sl=_sl, tp_levels=_tp_list,
                 )
+                if _PRE_PUBLISH_VETO_TOTAL is not None:
+                    with contextlib.suppress(Exception):
+                        _PRE_PUBLISH_VETO_TOTAL.labels(
+                            gate=_conf_dec.gate,
+                            reason_code=getattr(_conf_dec, "reason_code", "LOW_CONFIDENCE"),
+                            symbol=symbol,
+                            kind=kind
+                        ).inc()
             if _apply_decision(_conf_dec): return  # type: ignore
         # ---
 
@@ -2218,6 +2386,18 @@ class SignalPipeline:
             )
         except Exception as _lc_err:
             logger.debug("(%s) latency contract emit stamp failed: %s", symbol, _lc_err)
+
+        # Pipeline calibrator observation on successful emit (fail-open).
+        # Feeds autocal:cooldown / vol_z_thr / htf_proximity / liq_wall.
+        try:
+            self._pipeline_calib_observe_on_emit(
+                symbol=symbol,
+                signal=enriched_signal,
+                indicators=indicators,
+                now_ms=ts_ms,
+            )
+        except Exception:
+            pass
 
         # A2 Decision Snapshot publication (enriched output, fail-open)
         # This MUST contain joinable keys, is_virtual flag, and be stable across retries.

@@ -29,7 +29,13 @@ from services.orderflow.derivatives_context import (
     build_snapshot_v2,
     robust_zscore,
 )
-from services.orderflow.metrics_derivatives_context import deriv_ctx_collector_errors_total, deriv_ctx_collector_up
+from services.orderflow.breadth_context import aread_breadth_context
+from services.orderflow.metrics_derivatives_context import (
+    deriv_ctx_collector_errors_total,
+    deriv_ctx_collector_up,
+    deriv_ctx_leader_btc_eth_confirm,
+    deriv_ctx_leader_confirm_missing_total,
+)
 import contextlib
 
 logger = logging.getLogger("derivatives_context_collector_v1")
@@ -424,6 +430,20 @@ class DerivativesContextCollector:
                 pass
             _crowding = max(-3.0, min(3.0, _fz * ls_z / 9.0))
 
+            # Read leader_confirm from runtime:breadth (go-worker publishes this)
+            breadth_ctx = await aread_breadth_context(self.r)
+            leader_confirm = float(breadth_ctx.get("leader_confirm", 0.0)) if breadth_ctx else 0.0
+
+            # G6: Monitor leader confirmation availability
+            try:
+                if leader_confirm == 0.0 and breadth_ctx is None:
+                    if deriv_ctx_leader_confirm_missing_total:
+                        deriv_ctx_leader_confirm_missing_total.labels(symbol=symbol).inc()
+                elif deriv_ctx_leader_btc_eth_confirm:
+                    deriv_ctx_leader_btc_eth_confirm.labels(symbol=symbol).observe(leader_confirm)
+            except Exception:
+                pass
+
             snap = build_snapshot_v2(
                 symbol=symbol,
                 ts_ms=now_ms,
@@ -453,6 +473,8 @@ class DerivativesContextCollector:
                 oi_delta_history=oi_delta_hist,
                 premium_history=premium_hist,
                 oi_notional_history=oi_notional_hist,
+                # G6: SMT leader confirmation from breadth snapshot
+                leader_btc_eth_confirm=leader_confirm,
             )
             # Re-verify build_snapshot didn't return something weird
             gather_tasks = [

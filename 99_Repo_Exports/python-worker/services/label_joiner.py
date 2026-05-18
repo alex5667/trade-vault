@@ -157,6 +157,13 @@ class LabelJoinerService:
         trace_id is propagated from the originating events:trades message
         to maintain end-to-end traceability (Go → Python → NestJS).
         """
+        # Pull market_regime / kind from decision features for downstream
+        # per-(symbol × regime × kind) calibrators (PEdgeThresholdCalibrator).
+        # Defaults to "*" so consumers can use the fallback hierarchy.
+        feats = decision.features or {}
+        regime = str(feats.get("market_regime") or feats.get("regime") or "*")
+        kind = str(feats.get("kind") or feats.get("signal_kind") or "*")
+
         out = {
             "sid": decision.sid,
             "symbol": decision.symbol,
@@ -169,6 +176,8 @@ class LabelJoinerService:
             "ts_decision": str(decision.ts),
             "ts_close": str(metrics["close_ts"]),
             "trace_id": trace_id,
+            "market_regime": regime,
+            "kind": kind,
         }
         self.redis.xadd(RS.TRADES_CLOSED, out, maxlen=10000, approximate=True)
 

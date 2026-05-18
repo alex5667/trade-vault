@@ -61,6 +61,9 @@ services:
     - sleep 60 && while true; do ./redis-streams-cleanup.sh setup; sleep 21600; done
     deploy:
       resources:
+        limits:
+          cpus: '0.10'
+          memory: 64M
         reservations:
           memory: 24M
   redis-key-janitor:

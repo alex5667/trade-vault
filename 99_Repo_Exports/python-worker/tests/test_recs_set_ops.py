@@ -17,7 +17,7 @@ from services.recs_store import (
     STATUS_KEY,
     get_status,
 )
-from tests.fakeredis import FakeStrictRedis
+from tests.fakeredis_stub import FakeStrictRedis
 
 
 @pytest.fixture

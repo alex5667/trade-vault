@@ -139,6 +139,7 @@ def _validate_payload(p: dict[str, Any]) -> tuple[bool, str]:
 class PgWriter:
     def __init__(self, dsn: str):
         self.dsn = dsn
+        self._conn = None
 
     def _connect(self):
         try:
@@ -148,38 +149,46 @@ class PgWriter:
             import psycopg2  # type: ignore
             return psycopg2.connect(self.dsn)
 
+    def _get_conn(self):
+        if self._conn is None or self._conn.closed:
+            self._conn = self._connect()
+        return self._conn
+
+    def _execute_insert(self, rows: list[dict[str, Any]]) -> int:
+        conn = self._get_conn()
+        cur = conn.cursor()
+        sql = (
+            "INSERT INTO bbo_ts (ts, ts_ms, sym, venue, bid, ask, mid, producer, schema_version, stream_id) "
+            "VALUES (to_timestamp(%(ts_ms)s/1000.0), %(ts_ms)s, %(sym)s, %(venue)s, %(bid)s, %(ask)s, %(mid)s, %(producer)s, %(schema_version)s, %(stream_id)s) "
+            "ON CONFLICT (sym, venue, ts_ms, ts) DO NOTHING"
+        )
+        params = []
+        for r in rows:
+            params.append(
+                {
+                    "ts_ms": int(r["ts_ms"]),
+                    "sym": str(r["sym"]),
+                    "venue": str(r["venue"]),
+                    "bid": float(r["bid"]),
+                    "ask": float(r["ask"]),
+                    "mid": float(r["mid"]),
+                    "producer": (r.get("producer") or ""),
+                    "schema_version": int(r.get("schema_version") or 1),
+                    "stream_id": (r.get("stream_id") or ""),
+                }
+            )
+        cur.executemany(sql, params)
+        conn.commit()
+        return len(rows)
+
     def insert_rows(self, rows: list[dict[str, Any]]) -> int:
         if not rows:
             return 0
-        conn = self._connect()
         try:
-            cur = conn.cursor()
-            # ON CONFLICT DO NOTHING keeps idempotency cheap.
-            sql = (
-                "INSERT INTO bbo_ts (ts, ts_ms, sym, venue, bid, ask, mid, producer, schema_version, stream_id) "
-                "VALUES (to_timestamp(%(ts_ms)s/1000.0), %(ts_ms)s, %(sym)s, %(venue)s, %(bid)s, %(ask)s, %(mid)s, %(producer)s, %(schema_version)s, %(stream_id)s) "
-                "ON CONFLICT (sym, venue, ts_ms, ts) DO NOTHING"
-            )
-            params = []
-            for r in rows:
-                params.append(
-                    {
-                        "ts_ms": int(r["ts_ms"]),
-                        "sym": str(r["sym"]),
-                        "venue": str(r["venue"]),
-                        "bid": float(r["bid"]),
-                        "ask": float(r["ask"]),
-                        "mid": float(r["mid"]),
-                        "producer": (r.get("producer") or ""),
-                        "schema_version": int(r.get("schema_version") or 1),
-                        "stream_id": (r.get("stream_id") or ""),
-                    }
-                )
-            cur.executemany(sql, params)
-            conn.commit()
-            return len(rows)
-        finally:
-            conn.close()
+            return self._execute_insert(rows)
+        except Exception:
+            self._conn = None
+            return self._execute_insert(rows)
 
 
 @dataclass

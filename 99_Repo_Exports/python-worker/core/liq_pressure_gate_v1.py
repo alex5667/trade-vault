@@ -114,14 +114,15 @@ def eval_liq_pressure_gate(
         # Penalty if SIGNIFICANT misalignment (split across 3 sources)
         p = 0.0
         if q_align == -1:
-            p += (1.0 / 3.0) * pen_max
+            p += 0.5 * pen_max
             reasons.append("bad_q")
         if ofi_align == -1:
-            p += (1.0 / 3.0) * pen_max
+            p += 0.5 * pen_max
             reasons.append("bad_ofi")
         if obi_align == -1:
-            p += (1.0 / 3.0) * pen_max
+            p += 0.5 * pen_max
             reasons.append("bad_obi")
+        p = min(p, pen_max)
         pen_score = p
 
     # 3b. Resilience adjustment: fast recovery after sweep => more likely fake impulse

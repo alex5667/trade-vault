@@ -29,6 +29,9 @@ class L3LiteSnapshot:
     eta_fill_bid_sec: float = 0.0     # depth_bid_5 / taker_sell_rate
     eta_fill_ask_sec: float = 0.0     # depth_ask_5 / taker_buy_rate
 
+    fill_prob_bid: float = 0.0        # P(limit bid fills within max_wait_s)
+    fill_prob_ask: float = 0.0        # P(limit ask fills within max_wait_s)
+
 
 class L3LiteTracker:
     """
@@ -182,6 +185,12 @@ class L3LiteTracker:
         self._prev_depth_ask_5 = ask5
         self._last_book_ts = ts
 
+    @staticmethod
+    def _fill_prob(c2t: float, eta_s: float, max_wait_s: float = 2.0, eps: float = 1e-9) -> float:
+        p_base = 1.0 / (1.0 + max(0.0, c2t))
+        p_wait = 1.0 if eta_s <= eps else min(1.0, max_wait_s / max(eta_s, eps))
+        return max(0.0, min(1.0, p_base * p_wait))
+
     def _recalc_eta(self, bid5: float, ask5: float) -> None:
         # bid fill depends on taker-sell rate; ask fill depends on taker-buy rate
         sell_rate = max(self.snap.taker_sell_rate_ema, self.eps)
@@ -189,6 +198,13 @@ class L3LiteTracker:
 
         self.snap.eta_fill_bid_sec = float(bid5) / sell_rate if bid5 > 0 else 0.0
         self.snap.eta_fill_ask_sec = float(ask5) / buy_rate if ask5 > 0 else 0.0
+
+        self.snap.fill_prob_bid = self._fill_prob(
+            self.snap.cancel_to_trade_bid, self.snap.eta_fill_bid_sec
+        )
+        self.snap.fill_prob_ask = self._fill_prob(
+            self.snap.cancel_to_trade_ask, self.snap.eta_fill_ask_sec
+        )
 
     def attach_to_context(self, ctx: object) -> None:
         """
@@ -208,6 +224,8 @@ class L3LiteTracker:
             ("cancel_to_trade_ask", s.cancel_to_trade_ask),
             ("eta_fill_bid_sec", s.eta_fill_bid_sec),
             ("eta_fill_ask_sec", s.eta_fill_ask_sec),
+            ("fill_prob_bid", s.fill_prob_bid),
+            ("fill_prob_ask", s.fill_prob_ask),
         ):
             with contextlib.suppress(Exception):
                 setattr(ctx, k, float(v))

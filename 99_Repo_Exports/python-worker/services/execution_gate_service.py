@@ -109,6 +109,26 @@ virtual_enforce_mode_info = Gauge(
     "exec_gate_virtual_enforce_mode",
     "1 if virtual proposals also go through ENFORCE gate",
 )
+exec_gate_rejection_total = Counter(
+    "exec_gate_rejection_total",
+    "Orders rejected by SAFEGUARD (ok=0)",
+    ["symbol", "direction", "reason", "virtual"],
+)
+exec_gate_orphan_confirmation_buffered = Counter(
+    "exec_gate_orphan_confirmation_buffered",
+    "Confirmations buffered with no matching proposal (orphan)",
+    ["symbol"],
+)
+exec_gate_orphan_expired_total = Counter(
+    "exec_gate_orphan_expired_total",
+    "Orphan confirmations expired without proposal match",
+    ["symbol"],
+)
+exec_gate_qty_mismatch = Counter(
+    "exec_gate_qty_mismatch",
+    "qty/lot disagreement (>10% delta)",
+    ["symbol"],
+)
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -423,8 +443,11 @@ class ExecutionGateService:
             )
             self.confirmations.setdefault(symbol, []).append(confirm_obj)
             confirmations_orphan_total.labels(symbol=symbol).inc()
-            logger.debug(
-                f"Confirmation for {symbol} {direction} buffered (no proposal yet)"
+            exec_gate_orphan_confirmation_buffered.labels(symbol=symbol).inc()
+            logger.info(
+                f"⏳ Confirmation for {symbol} {direction} buffered (orphan, no proposal yet) "
+                f"ts_ms={ts_ms} ok={data.get('ok', 0)} score={data.get('score', '?')}. "
+                f"Waiting for proposal (TTL={self.proposal_ttl_s}s)."
             )
 
         except Exception as e:
@@ -467,10 +490,21 @@ class ExecutionGateService:
 
             # SAFEGUARD: Do not execute if validation failed
             if not is_ok:
-                logger.info(
-                    f"🚫 EXECUTION SKIPPED (Validation Failed): "
-                    f"{proposal.symbol} {proposal.direction} ok={confirmation.get('ok')} virtual={is_virtual}"
+                reason = confirmation.get("reason", "UNKNOWN")
+                score = confirmation.get("score", 0.0)
+
+                logger.warning(
+                    f"🚫 EXEC GATE REJECTED: {proposal.symbol} {proposal.direction} "
+                    f"reason={reason} score={score:.2f} virtual={is_virtual}"
                 )
+
+                exec_gate_rejection_total.labels(
+                    symbol=proposal.symbol,
+                    direction=proposal.direction,
+                    reason=reason[:32],
+                    virtual="true" if is_virtual else "false"
+                ).inc()
+
                 if is_virtual:
                     virtual_enforce_total.labels(
                         symbol=proposal.symbol, direction=proposal.direction, result="rejected"
@@ -524,7 +558,16 @@ class ExecutionGateService:
             # often contain dummy qty=0.01 from candidate generation.
             if order_payload.get("lot") is not None:
                 with contextlib.suppress(ValueError):
-                    order_payload["qty"] = float(order_payload["lot"])
+                    new_qty = float(order_payload["lot"])
+                    old_qty = float(order_payload.get("qty") or 0.0)
+                    if old_qty > 0 and abs(new_qty - old_qty) > old_qty * 0.1:
+                        logger.warning(
+                            f"⚠️ EXEC GATE: qty/lot mismatch {proposal.symbol} "
+                            f"qty={old_qty} vs lot={new_qty} (delta={abs(new_qty-old_qty):.4f}). "
+                            f"Using lot (newer sizing)."
+                        )
+                        exec_gate_qty_mismatch.labels(symbol=proposal.symbol).inc()
+                    order_payload["qty"] = new_qty
 
             has_qty = order_payload.get("qty") is not None or order_payload.get("quantity") is not None or order_payload.get("lot") is not None
             has_sl = order_payload.get("sl") is not None
@@ -588,10 +631,21 @@ class ExecutionGateService:
                     ]
                     if len(fresh) != len(self.confirmations[sym]):
                         removed = len(self.confirmations[sym]) - len(fresh)
+                        expired_confirms = [
+                            c for c in self.confirmations[sym]
+                            if (now - c.received_at) >= self.proposal_ttl_s
+                        ]
                         confirmations_expired_total.labels(symbol=sym).inc(removed)
-                        logger.debug(
-                            f"Pruned {removed} stale confirmations for {sym}"
-                        )
+                        exec_gate_orphan_expired_total.labels(symbol=sym).inc(removed)
+
+                        if expired_confirms:
+                            ages = [(now - c.received_at) for c in expired_confirms]
+                            avg_age = sum(ages) / len(ages)
+                            logger.warning(
+                                f"⏳ {removed} orphan confirmations expired for {sym} "
+                                f"(avg age={avg_age:.1f}s, max={max(ages):.1f}s). "
+                                f"Indicates proposals not arriving from signal_pipeline."
+                            )
 
                     if not fresh:
                         del self.confirmations[sym]

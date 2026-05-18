@@ -118,8 +118,10 @@ class DeltaSpikeDetector:
         delta = self.classify_tick(tick)
 
         prev_n = len(self.values)
-        # Keep legacy warm-up behavior: require ~10 total samples (including current).
-        min_total = min(10, max(1, int(self.window)))
+        # Require 30 samples before firing to get a stable std_dev estimate.
+        # At typical crypto tick rates (5-20/s) this adds 1-6s startup latency
+        # but eliminates spurious high-z events in the first few ticks.
+        min_total = min(30, max(1, int(self.window)))
         min_prev = max(1, min_total - 1)
 
         if prev_n < min_prev:
