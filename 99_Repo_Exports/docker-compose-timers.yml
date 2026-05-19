@@ -2379,6 +2379,14 @@ services:
     - sh
     - -c
     - sleep 488 && python3 -u orderflow_services/decision_coverage_exporter_v1.py
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - python3 -c "import urllib.request; urllib.request.urlopen('http://localhost:9820/metrics')"
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 600s
     networks:
     - scanner-timers
     - scanner-infra

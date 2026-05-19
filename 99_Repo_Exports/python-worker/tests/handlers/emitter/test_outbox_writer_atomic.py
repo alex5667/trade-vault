@@ -70,22 +70,25 @@ class FakeRedis:
 
     def eval(self, script: str, numkeys: int, *args):
         # контракт OutboxWriter._atomic_xadd:
-        # KEYS: dedup_key, sem_key(or "__none__"), stream_key
-        # ARGV: dedup_ttl_sec, pending_ttl_sec, signal_id, kind, symbol, ts, payload_json, maxlen, sem_ttl_sec, sem_pending_ttl_sec
-        assert numkeys == 3
+        # KEYS: dedup_key, sem_key(or "__none__"), stream_key, meta_key(or "__none__")
+        # ARGV: dedup_ttl_sec, pending_ttl_sec, signal_id, kind, symbol, ts, payload_json, maxlen,
+        #       sem_ttl_sec, sem_pending_ttl_sec[, meta_json, meta_ttl_sec, trace_id]
+        assert numkeys in (3, 4), f"expected numkeys 3 or 4, got {numkeys}"
         dedup_key = args[0]
         sem_key = args[1]
         stream_key = args[2]
-        dedup_ttl_sec = int(args[3])
-        pending_ttl_sec = int(args[4])
-        signal_id = str(args[5])
-        kind = str(args[6])
-        symbol = str(args[7])
-        ts = str(args[8])
-        payload_json = str(args[9])
-        maxlen = int(args[10])
-        sem_ttl_sec = int(args[11])
-        sem_pending_ttl_sec = int(args[12])
+        # numkeys=4 adds meta_key at args[3]; ARGV starts at args[numkeys]
+        argv_offset = numkeys
+        dedup_ttl_sec = int(args[argv_offset])
+        pending_ttl_sec = int(args[argv_offset + 1])
+        signal_id = str(args[argv_offset + 2])
+        kind = str(args[argv_offset + 3])
+        symbol = str(args[argv_offset + 4])
+        ts = str(args[argv_offset + 5])
+        payload_json = str(args[argv_offset + 6])
+        maxlen = int(args[argv_offset + 7])
+        sem_ttl_sec = int(args[argv_offset + 8])
+        sem_pending_ttl_sec = int(args[argv_offset + 9])
         sem_enabled = (sem_key != "__none__")
 
         if self.exists(dedup_key) == 1:

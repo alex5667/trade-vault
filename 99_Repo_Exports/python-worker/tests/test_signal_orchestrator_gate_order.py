@@ -49,7 +49,7 @@ class TestGateSequenceOrder:
             call_log.append("quality")
             return _qa_pass()
 
-        def _regime(ctx, kind):
+        def _regime(ctx, kind, side=""):
             call_log.append("regime")
             return (True, "")
 
@@ -202,7 +202,7 @@ class TestGateSequenceOrder:
             call_log.append("quality") or SimpleNamespace(veto=True, reason="VETO_QUALITY")
         )
         # Остальные не должны вызываться
-        gates.check_regime_gate.side_effect = lambda ctx, kind: (
+        gates.check_regime_gate.side_effect = lambda ctx, kind, side="": (
             call_log.append("regime_SHOULD_NOT") or (True, "")
         )
 

@@ -25,6 +25,7 @@ from collections import deque
 # Additional typing imports
 # decision_to_legacy_tuple already imported above
 from common.decision_trace import serialize_trace_from_ctx, trace_enabled
+from common.qf_codes import pack_qf_u16
 from common.risk_cfg_cache import resolve_risk_cfg_cached
 from core.redis_keys import STREAM_RETENTION
 from core.redis_keys import RedisStreams as RS
@@ -673,6 +674,49 @@ class CryptoOrderFlowHandler(CryptoOrderFlowInitMixin, CryptoOrderFlowL2Stalenes
         except Exception:
             logger.debug("publish_trace_diag failed", exc_info=True)
             return
+
+    def _make_veto_event_id(self, cand: Any, ctx: Any) -> str:
+        """Generates a unique event id for veto outbox payloads."""
+        import uuid
+        ts = int(getattr(ctx, "ts", 0) or 0)
+        kind = str(getattr(cand, "kind", "") or "")
+        sym = str(getattr(ctx, "symbol", "") or "")
+        return f"veto:{sym}:{kind}:{ts}:{uuid.uuid4().hex[:8]}"
+
+    def _build_manual_audit(self, ctx: Any, cand: Any, *, parts: dict | None = None) -> dict:
+        """Builds a lightweight audit dict using cached _cfg (no getenv on hotpath)."""
+        out: dict = {
+            "kind": str(getattr(cand, "kind", "") or ""),
+            "side": int(getattr(cand, "side", 0) or 0),
+            "symbol": str(getattr(ctx, "symbol", "") or ""),
+            "ts": int(getattr(ctx, "ts", 0) or 0),
+            "price": float(getattr(ctx, "price", 0.0) or 0.0),
+            "raw_score": float(getattr(cand, "raw_score", 0.0) or 0.0),
+        }
+        cfg = getattr(self, "_cfg", None)
+        compact = bool(getattr(cfg, "audit_compact", False)) if cfg is not None else False
+        if parts and not compact:
+            out["parts"] = dict(parts)
+        return out
+
+    def _build_veto_outbox_payload(self, *, cand: Any, ctx: Any, res: Any) -> dict:
+        """Builds outbox payload for a vetoed signal."""
+        signal_id = self._make_veto_event_id(cand, ctx)
+        return {
+            "kind": "signal_veto",
+            "symbol": str(getattr(ctx, "symbol", "") or ""),
+            "ts": int(getattr(ctx, "ts", 0) or 0),
+            "signal_id": signal_id,
+            "veto_reason_code": str(getattr(res, "reason_code", "") or ""),
+            "veto_reason_u16": int(getattr(res, "reason_u16", 0) or 0),
+            "decision_code": str(getattr(res, "decision_code", "") or getattr(res, "reason_code", "") or ""),
+            "decision_u16": int(getattr(res, "decision_u16", 0) or getattr(res, "reason_u16", 0) or 0),
+            "parts": dict(getattr(res, "parts", {}) or {}),
+            "conf_factor01": float(getattr(res, "conf_factor01", 0.0) or 0.0),
+            "cand_kind": str(getattr(cand, "kind", "") or ""),
+            "cand_side": int(getattr(cand, "side", 0) or 0),
+            "level_price": float(getattr(cand, "level_price", 0.0) or 0.0),
+        }
 
     def _emit_veto_metric(self, *, kind: str, ctx: Any, reason_code: str) -> None:
         """

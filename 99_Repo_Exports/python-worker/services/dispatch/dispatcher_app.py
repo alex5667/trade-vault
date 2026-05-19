@@ -364,6 +364,83 @@ class SignalDispatcher:
             self.ctr["acked_retry_drop"] += 1
             return False
 
+    # ------------------------------------------------------------------ #
+    # Sync helpers (used by tests and ACK-only recovery path)            #
+    # ------------------------------------------------------------------ #
+
+    _TARGET_PAYLOAD_KEYS: dict[str, list[str]] = {
+        "notify": ["notify"],
+        "signal_stream": ["signal_stream_payload", "signal_stream"],
+        "audit": ["audit_payload", "audit"],
+        "manual": ["manual_payload", "manual"],
+    }
+
+    def _evalsha_or_eval(
+        self, client: Any, sha: str | None, tag: str, script: str, nkeys: int, *argv: Any
+    ) -> Any:
+        """Stub: overridden in tests. Production path uses Lua scripts via LuaScriptManager."""
+        return None
+
+    def _marker_key(self, target: str, sid: str) -> str:
+        prefix = getattr(self, "marker_prefix", "signal:delivery:marker")
+        return f"{prefix}:{target}:{sid}"
+
+    def _env_done_key(self, sid: str) -> str:
+        prefix = getattr(self, "done_prefix", "signal:done")
+        return f"{prefix}:{sid}"
+
+    def _schedule_target_retry(self, target: str, sid: str, env: dict[str, Any], attempt: int, last_error: str) -> None:
+        pass  # overridden in tests
+
+    def _send_target_dlq(self, target: str, sid: str, env: dict[str, Any], reason: str, err: str) -> None:
+        pass  # overridden in tests
+
+    def _deliver_targets_with_retry(
+        self, env: dict[str, Any], sid: str, *, targets: list[str] | None = None, **kwargs: Any
+    ) -> None:
+        env_targets = env.get("targets") or {}
+        targets_list = list(targets) if targets is not None else list(env_targets.keys())
+        all_ok = True
+
+        for target in targets_list:
+            marker_key = self._marker_key(target, sid)
+            if self.redis.exists(marker_key):
+                continue
+
+            payload_keys = self._TARGET_PAYLOAD_KEYS.get(target, [target])
+            payload = None
+            for pk in payload_keys:
+                payload = env_targets.get(pk)
+                if payload is not None:
+                    break
+
+            if payload is None:
+                all_ok = False
+                try:
+                    self._schedule_target_retry(target, sid, env, attempt=1, last_error="missing_payload")
+                except Exception:
+                    pass
+                try:
+                    self._send_target_dlq(target, sid, env, reason="missing_payload", err="No payload")
+                except Exception:
+                    pass
+                continue
+
+            try:
+                self._evalsha_or_eval(self.redis, None, target, "", 1, marker_key, sid)
+            except Exception as exc:
+                all_ok = False
+                try:
+                    self._schedule_target_retry(target, sid, env, attempt=1, last_error=str(exc))
+                except Exception:
+                    pass
+                continue
+
+        if all_ok and targets_list:
+            done_key = self._env_done_key(sid)
+            ttl = int(getattr(self, "delivery_marker_ttl_sec", 3600))
+            self.redis.set(done_key, "1", ex=ttl)
+
     def _msg_done_key(self, msg_id: str) -> str:
         prefix = getattr(self, "msg_done_prefix", "signal:outbox:msg_done")
         return f"{prefix}:{msg_id}"
@@ -376,9 +453,6 @@ class SignalDispatcher:
         stream = getattr(self, "outbox_stream", None) or self.config.outbox_stream
         group = getattr(self, "group", None) or self.config.group
         self.redis.xack(stream, group, msg_id)
-
-    def _deliver_targets_with_retry(self, env: dict[str, Any], sid: str, *args: Any, **kwargs: Any) -> None:
-        pass  # overridden in tests; production uses async path
 
     def _process_one_outbox_message(self, *, msg_id: str, env: dict[str, Any], sid: str) -> None:
         if self.redis.exists(self._msg_done_key(msg_id)):

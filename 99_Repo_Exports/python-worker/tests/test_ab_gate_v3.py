@@ -5,10 +5,13 @@ def test_regime_group():
     assert regime_group("thin") == "thin"
     assert regime_group("news") == "thin"
     assert regime_group("illiquid") == "thin"
-    assert regime_group("default") == "default"
-    assert regime_group("trend") == "default"
-    assert regime_group(None) == "default"
-    assert regime_group("") == "default"
+    assert regime_group("trend") == "trend"
+    assert regime_group("trending") == "trend"
+    assert regime_group("range") == "range"
+    assert regime_group("chop") == "range"
+    assert regime_group("default") == "mixed"
+    assert regime_group(None) == "mixed"
+    assert regime_group("") == "mixed"
 
 def test_norm_arm():
     assert norm_arm("A") == "A"

@@ -9,7 +9,7 @@ from tools import ack_sre_alert
 
 
 class TestAckSreAlert(unittest.TestCase):
-    @patch('ack_sre_alert.Redis')
+    @patch('tools.ack_sre_alert.Redis')
     def test_ack_by_kind_scope(self, mock_redis_cls):
         mock_redis = MagicMock()
         mock_redis_cls.from_url.return_value = mock_redis
@@ -24,7 +24,7 @@ class TestAckSreAlert(unittest.TestCase):
         self.assertEqual(call_args[0][0], "sre:ack:cfg_sugg:test_kind:TEST")
         self.assertEqual(call_args[0][1], 60)
 
-    @patch('ack_sre_alert.Redis')
+    @patch('tools.ack_sre_alert.Redis')
     def test_receipt(self, mock_redis_cls):
         mock_redis = MagicMock()
         mock_redis_cls.from_url.return_value = mock_redis
@@ -42,7 +42,7 @@ class TestAckSreAlert(unittest.TestCase):
         self.assertEqual(call_args[0][0], "notify:receipt:rcpt:12345")
         self.assertEqual(call_args[0][1], 120)
 
-    @patch('ack_sre_alert.Redis')
+    @patch('tools.ack_sre_alert.Redis')
     def test_receipt_with_full_key(self, mock_redis_cls):
         mock_redis = MagicMock()
         mock_redis_cls.from_url.return_value = mock_redis

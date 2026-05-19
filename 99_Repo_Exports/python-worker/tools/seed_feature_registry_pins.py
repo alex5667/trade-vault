@@ -13,6 +13,10 @@ Operational use (run once after deploy of a new schema version):
     # or pin under a custom prefix:
     python -m tools.seed_feature_registry_pins --pin-key-prefix cfg:feature_registry:
 
+For a new schema (e.g. v15_of shadow rollout), opt-in explicitly:
+
+    python -m tools.seed_feature_registry_pins --schemas v15_of
+
 Each schema gets its own pin key: ``<prefix><schema_ver>``, e.g.
 ``cfg:feature_registry:edge_stack:v13_of``. Older single-key callers
 (``cfg:feature_registry:edge_stack``) still work — pass ``--pin-key`` to

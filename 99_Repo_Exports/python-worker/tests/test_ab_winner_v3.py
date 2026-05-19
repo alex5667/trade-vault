@@ -50,6 +50,7 @@ class TestSuggestionMeta(unittest.TestCase):
         m = EntryPolicySuggestionMetaV1(sid="123", symbol="BTC", winner_arm="B", scenario="continuation")
         j = m.to_json()
         m2, _ = EntryPolicySuggestionMetaV1.from_json(j)
+        assert m2 is not None
         self.assertEqual(m2.sid, "123")
         self.assertEqual(m2.winner_arm, "B")
 
@@ -91,11 +92,6 @@ class TestABWinnerServiceV3(unittest.IsolatedAsyncioTestCase):
         svc.r.pipeline.return_value.execute = AsyncMock()
         svc.lock.acquire = AsyncMock(return_value=True)
         svc.lock.release = AsyncMock()
-
-        # Ingest one batch
-        await svc.ingest_forever() # Hack: actually infinite loop, so we can't await it strictly without cancelling.
-        # But for unit test we can just call _ingest_event directly or mock xread to return empty second time to break loop?
-        # The code loop `while True` is hard to break. Let's unit test `_ingest_event` and `evaluate_once`.
 
         # Direct ingestion
         svc._ingest_event({"event_type": "POSITION_CLOSED", "symbol": "BTC", "regime": "trend", "scenario": "continuation", "ab_arm": "A", "r_mult": "1.0", "ab_group": "g1"})

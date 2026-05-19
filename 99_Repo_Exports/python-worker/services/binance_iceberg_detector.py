@@ -73,7 +73,7 @@ def _build_iceberg_signal_payload(
         kind="iceberg",
         symbol=symbol,
         ts_ms=ts_ms,
-        direction=side_norm.internal  # type: ignore
+        direction=side_norm.direction.value,
     )
 
     # NOTE: confidence historically used 0..1 in this detector.
@@ -84,9 +84,9 @@ def _build_iceberg_signal_payload(
         "signal_id": sid,          # canonical mirror for unified consumers
         "trace_id": sid,           # correlation id for DecisionTrace
         "symbol": symbol,
-        "direction": side_norm.internal,  # legacy  # type: ignore
-        "side": side_norm.execution,      # normalized mirror (BUY/SELL)  # type: ignore
-        "side_int": side_norm.numeric,    # numeric mirror (1/-1)  # type: ignore
+        "direction": side_norm.direction.value,  # LONG/SHORT
+        "side": side_norm.side.value,            # BUY/SELL
+        "side_int": side_norm.side_int,          # 1/-1
         "kind": "iceberg",          # normalized kind for unified pipeline
         "venue": "binance",         # explicit venue
         "entry": float(price),      # legacy
@@ -100,6 +100,9 @@ def _build_iceberg_signal_payload(
         "ts_ms": ts_ms,  # explicit epoch ms
         "sl": sl,
         "tp_levels": [tp1, tp2],
+        "atr": atr_safe,
+        "atr_used_for_levels": atr_safe,
+        "atr_at_entry": atr_safe,
         "metadata": {
             "iceberg": {
                 "level_kind": level_info.get("kind"),

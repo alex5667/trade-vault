@@ -88,7 +88,7 @@ class MarketStateService:
 
         # 2. Fetch from Redis
         try:
-            raw = await self.redis.get(f"adx:{sym}")
+            raw = await self.redis.hget(f"adx:{sym}", "adx")
             v = float(raw) if raw is not None else 0.0
             if v < 0:
                 v = 0.0

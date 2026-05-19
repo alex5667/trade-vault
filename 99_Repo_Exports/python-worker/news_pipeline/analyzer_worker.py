@@ -158,7 +158,8 @@ class NewsAnalyzerWorker(StreamWorker):
             # Важно: если хотите "ат-лиз-ван" семантику, ack должен быть только после xadd/setex.
             # StreamWorker должен делать ACK после handle_message (как у вас уже сделано).
 
-
+        except Exception:
+            log.exception("handle_message failed for uid=%s", uid)
         finally:
             with contextlib.suppress(Exception):
                 self.r.delete(lease_key)

@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import shutil
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -119,6 +120,45 @@ def promote_version(registry_dir: str, kind: str, version: str, dst_path: str) -
         "dst_path": dst_path,
         "sha256": wr.sha256,
         "size": wr.size,
+        "applied_ts_ms": get_ny_time_millis(),
+    }
+    write_json_atomic(str(Path(registry_dir) / f"{kind}.champion.json"), pointer)
+    return pointer
+
+
+def _copytree_atomic(src_dir: str, dst_dir: str) -> dict[str, Any]:
+    """Atomically replace dst_dir with a copy of src_dir via temp sibling + os.replace."""
+    src = Path(src_dir)
+    dst = Path(dst_dir)
+    if not src.exists() or not src.is_dir():
+        raise FileNotFoundError(str(src))
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    tmp = dst.parent / f".{dst.name}.tmp.{os.getpid()}.{get_ny_time_millis()}"
+    if tmp.exists():
+        shutil.rmtree(tmp, ignore_errors=True)
+    shutil.copytree(src, tmp)
+    if dst.exists():
+        backup = dst.parent / f".{dst.name}.bak.{os.getpid()}.{get_ny_time_millis()}"
+        os.replace(dst, backup)
+        shutil.rmtree(backup, ignore_errors=True)
+    os.replace(tmp, dst)
+    return {"path": str(dst), "entries": sum(1 for _ in dst.rglob("*"))}
+
+
+def promote_bundle_dir(registry_dir: str, kind: str, version: str, dst_dir: str) -> dict[str, Any]:
+    """
+    Promote a versioned bundle directory <registry_dir>/<kind>.<version>/ into dst_dir atomically.
+    """
+    src_dir = Path(registry_dir) / f"{kind}.{version}"
+    if not src_dir.exists() or not src_dir.is_dir():
+        raise FileNotFoundError(str(src_dir))
+    info = _copytree_atomic(str(src_dir), dst_dir)
+    pointer = {
+        "kind": kind,
+        "version": version,
+        "dst_dir": dst_dir,
+        "src_dir": str(src_dir),
+        "entries": int(info.get("entries", 0)),
         "applied_ts_ms": get_ny_time_millis(),
     }
     write_json_atomic(str(Path(registry_dir) / f"{kind}.champion.json"), pointer)

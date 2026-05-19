@@ -6,7 +6,7 @@ from common.trace_context import new_trace_id
 from core.decision_record import DecisionRecord
 from core.decision_store import DecisionStore
 from core.redis_client import get_redis
-from core.redis_keys import RedisStreams as RS
+from core.redis_keys import RedisStreams as RS, STREAM_RETENTION
 from services.stream_worker import StreamWorker, WorkerPolicy
 from utils.time_utils import get_ny_time_millis
 import contextlib
@@ -179,7 +179,7 @@ class LabelJoinerService:
             "market_regime": regime,
             "kind": kind,
         }
-        self.redis.xadd(RS.TRADES_CLOSED, out, maxlen=10000, approximate=True)
+        self.redis.xadd(RS.TRADES_CLOSED, out, maxlen=STREAM_RETENTION.get(RS.TRADES_CLOSED, 10_000), approximate=True)
 
     def _publish_ml_replay(
         self,

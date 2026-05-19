@@ -25,7 +25,7 @@ def test_absorption_sets_wall_here_flag_when_band_sum_big():
     ]
     ctx = SimpleNamespace(ts_ms=1000.0, l2_ts_ms=1000.0, price=100.0, adverse_ratio_ema=0.70)
     ctx.l2 = L2Snapshot(bids=bids, asks=[])
-    res = v.confirm(ctx=ctx, side="buy", level_price=lvl)
+    res = v.confirm(ctx=ctx, side="buy", level_price=lvl, require_2ofn=False)
     assert res.veto is False
     assert res.flags.get("wall_here") is True
     assert "wall_notional_here" in res.parts

@@ -1,6 +1,6 @@
 from types import SimpleNamespace
 
-from handlers.crypto_orderflow.utils.quality_gates import SignalConsistencyGate
+from handlers.crypto_orderflow.utils.quality_gates import SignalConsistencyGate, _cached_getenv
 
 
 def _of(**kwargs):
@@ -77,6 +77,7 @@ def test_absorption_integration_pipeline(monkeypatch):
 
     # 5. Veto path: low z-score with symbol override
     monkeypatch.setenv("ETH_DELTA_Z_THRESHOLD", "3.0")
+    _cached_getenv.cache_clear()  # lru_cache must be cleared after setenv
     ctx_low_z = SimpleNamespace(
         of=_of(z_delta=2.5, weak_progress=True),
         touch_is_stale=False,

@@ -1,79 +1,78 @@
+"""ATR cache source-selection logic tests.
+
+Uses fakeredis instead of MagicMock to avoid fragile coupling to internal
+call patterns (hgetall vs hmget).
+"""
+from __future__ import annotations
+
 import json
-import unittest
-from unittest.mock import MagicMock, patch
+
+import fakeredis
 
 from utils.atr_cache import ATRCache
 
 
-class TestATRCacheSourceSelect(unittest.TestCase):
-    def setUp(self):
-        with patch('utils.atr_cache.get_redis') as mock_get_redis:
-            self.mock_redis = MagicMock()
-            mock_get_redis.return_value = self.mock_redis
-            self.cache = ATRCache()
-            # Restore redis checks if needed, but for now we trust the mock
-            self.cache.redis_client = self.mock_redis
-        self.now_ms = 1_000_000_000
+def _mk(fr):
+    c = ATRCache()
+    c.redis_client = fr
+    return c
 
-    def test_freshness_wins(self):
-        # Setup:
-        # Source A (tracker): val=10, ts=now (fresh)
-        # Source B (atr_str): val=20, ts=unknown (stale)
 
-        # Mock hmget for tracker (A)
-        self.mock_redis.hmget.return_value = ["10.0", str(self.now_ms)]
-        # Mock get for str (B)
-        self.mock_redis.get.return_value = "20.0"
+NOW = 1_000_000_000
 
-        # We need to control the sequence of 'get' calls strictly or mock side_effect
-        # The code calls:
-        # 1. hmget(tracker)
-        # 2. get(atr:str)
-        # 3. get(atr:val)
-        # 4. get(atr:json)
-        # 5. get(ta:last)
 
-        def get_side_effect(key):
-            if key == "atr:BTC:1m": return "20.0"
-            return None
-        self.mock_redis.get.side_effect = get_side_effect
+def test_freshness_wins():
+    """Timestamped tracker (fresh, age=0) beats string source with unknown age."""
+    fr = fakeredis.FakeRedis(decode_responses=True)
+    c = _mk(fr)
+    fr.hset("ATR:BTC:M1", mapping={"atr": "10.0", "ts": str(NOW)})
+    fr.set("atr:BTC:1m", "20.0")  # no ts
 
-        v, meta = self.cache.get_with_meta("BTC", "1m", now_ms=self.now_ms)
+    v, meta = c.get_with_meta("BTC", "1m", now_ms=NOW)
+    assert v == 10.0, f"expected 10.0, got {v}"
+    assert meta["src"] == "tracker"
 
-        # Expect 10.0 because it is fresh (age=0), while 20.0 has unknown age (penalty)
-        self.assertEqual(v, 10.0)
-        self.assertEqual(meta["src"], "atr_tracker")
 
-    def test_consistency_wins(self):
-        # Source A (tracker): 10.0 (fresh)
-        # Source B (json): 10.1 (fresh)
-        # Source C (str): 10.0 (unknown age)
-        # Source D (wrong): 100.0 (fresh but outlier)
+def test_consistency_wins():
+    """Lower-median outlier rejection: tracker(10, fresh) beats atr_json(100, fresh outlier).
 
-        self.mock_redis.hmget.return_value = ["10.0", str(self.now_ms)] # tracker
+    With two ts-matched candidates [10, 100]:
+      lower-median = 10
+      atr_json deviation = 0.9 → effective_age += 270 000 ms
+      tracker deviation = 0   → effective_age = 0
+    → tracker wins.
+    """
+    fr = fakeredis.FakeRedis(decode_responses=True)
+    c = _mk(fr)
+    fr.hset("ATR:BTC:M1", mapping={"atr": "10.0", "ts": str(NOW)})
+    fr.set("atr:json:BTC:1m", json.dumps({"atr": 100.0, "ts": NOW}))
 
-        def get_side_effect(key):
-            if "atr:json:BTC:1m" in key:
-                return json.dumps({"atr": 100.0, "ts": self.now_ms}) # outlier
-            if key == "atr:BTC:1m":
-                return "10.0" # consistent
-            return None
-        self.mock_redis.get.side_effect = get_side_effect
+    v, meta = c.get_with_meta("BTC", "1m", now_ms=NOW)
+    assert v == 10.0, f"expected tracker(10.0) to beat outlier atr_json(100.0), got {v}"
+    assert meta["src"] == "tracker"
 
-        # The median of [10, 10, 100] is 10.
-        # 100 is far from median (log distance high) -> low score.
-        # 10 is close -> high score.
 
-        v, meta = self.cache.get_with_meta("BTC", "1m", now_ms=self.now_ms)
-        self.assertEqual(v, 10.0)
-        # Should pick tracker (fresh + consistent) over json (fresh + outlier)
+def test_three_source_median():
+    """With [10, 10, 100]: median=10, outlier(100) receives high effective-age penalty."""
+    fr = fakeredis.FakeRedis(decode_responses=True)
+    c = _mk(fr)
+    fr.hset("ATR:BTC:M1", mapping={"atr": "10.0", "ts": str(NOW)})
+    # atr_val not tracked in candidates (no ts, becomes no_ts), add atr_json fresh
+    fr.set("atr:json:BTC:1m", json.dumps({"atr": 100.0, "ts": NOW}))
+    # Second fresh ts-matched source at 10.0 to shift median
+    fr.set("atr:val:BTC:1m", "10.0")  # no ts — only ensures no_ts pool is present
 
-    def test_tf_match_bonus(self):
-        # ta:last often has cross-tf data.
-        # If requested tf="15m"
-        # Source A (ta_last): val=10, tf="15m" (match)
-        # Source B (tracker): val=10, tf="1m" (tracker matches requested tf by key definition, so this test implies logic check within tracker key)
-        pass
+    v, meta = c.get_with_meta("BTC", "1m", now_ms=NOW)
+    # tracker(10) beats outlier atr_json(100)
+    assert v == 10.0, f"expected 10.0 (tracker), got {v}"
 
-if __name__ == '__main__':
-    unittest.main()
+
+def test_tf_match_bonus_skipped_for_mismatch():
+    """ta:last with wrong tf is excluded when ATR_ALLOW_TF_MISMATCH=0 (default)."""
+    fr = fakeredis.FakeRedis(decode_responses=True)
+    c = _mk(fr)
+    fr.set("ta:last:atr:BTC", json.dumps({"atr": 99.0, "tf": "H1", "ts": NOW}))
+    # No other source
+
+    v, meta = c.get_with_meta("BTC", "1m", now_ms=NOW)
+    assert v is None, f"expected None (H1 mismatch filtered), got {v}"

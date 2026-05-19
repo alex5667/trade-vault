@@ -176,13 +176,15 @@ V13_OF_NUMERIC_KEYS: list[str] = sorted(set(
     + _GROUP_NX_INTERACTIONS
 ))
 
-# Sanity guard (caught immediately at import in tests)
-_EXPECTED_MIN = 230
-_EXPECTED_MAX = 260
+# Sanity guard: schema is pinned, change intentionally and bump SCHEMA_HASH.
+# v12_of base 214 + Groups NA..NX (28 dedup'd) = 242. Range narrowed 2026-05-18
+# from [230, 260] to ±1 of actual count after audit found drift was undetectable
+# in the wider range.
+_EXPECTED = 242
 if _V12_OF_BASE:
-    assert _EXPECTED_MIN <= len(V13_OF_NUMERIC_KEYS) <= _EXPECTED_MAX, (
-        f"v13_of key count {len(V13_OF_NUMERIC_KEYS)} out of expected range "
-        f"[{_EXPECTED_MIN}, {_EXPECTED_MAX}] — check for duplicates or deletions"
+    assert abs(len(V13_OF_NUMERIC_KEYS) - _EXPECTED) <= 1, (
+        f"v13_of key count {len(V13_OF_NUMERIC_KEYS)} != expected {_EXPECTED} "
+        f"(±1 tolerance). Check for duplicates or deletions; bump SCHEMA_HASH if intentional."
     )
 
 

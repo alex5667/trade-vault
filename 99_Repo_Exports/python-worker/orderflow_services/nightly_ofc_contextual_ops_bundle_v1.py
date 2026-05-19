@@ -122,13 +122,15 @@ def main(argv: list[str] | None = None) -> int:
             _write_metrics_hash({"last_run_ts_ms": start_ts, "last_ok": 0, "last_exit_code": rc_dataset})
         return rc_dataset
 
-    rc_exec = _run([py, _script("ml_analysis/tools/train_ofc_exec_cost_v1.py"), "--train_jsonl", str(exec_ds), "--out_model_json", str(exec_model)])
+    exec_report = model_dir / "exec_cost_train_report.json"
+    rc_exec = _run([py, _script("ml_analysis/tools/train_ofc_exec_cost_v1.py"), "--rows_jsonl", str(exec_ds), "--out_model_json", str(exec_model), "--out_report_json", str(exec_report)])
     if rc_exec != 0:
         if args.emit_metrics:
             _write_metrics_hash({"last_run_ts_ms": start_ts, "last_ok": 0, "last_exit_code": rc_exec})
         return rc_exec
 
-    rc_rule = _run([py, _script("ml_analysis/tools/train_ofc_rule_success_v1.py"), "--train_jsonl", str(rule_ds), "--out_model_json", str(rule_model)])
+    rule_report = model_dir / "rule_success_train_report.json"
+    rc_rule = _run([py, _script("ml_analysis/tools/train_ofc_rule_success_v1.py"), "--rows_jsonl", str(rule_ds), "--out_model_json", str(rule_model), "--out_report_json", str(rule_report)])
     if rc_rule != 0:
         if args.emit_metrics:
             _write_metrics_hash({"last_run_ts_ms": start_ts, "last_ok": 0, "last_exit_code": rc_rule})
@@ -139,10 +141,10 @@ def main(argv: list[str] | None = None) -> int:
         _script("ml_analysis/tools/build_ofc_contextual_bundle_v1.py"),
         "--exec_cost_model_path", str(exec_model),
         "--rule_success_model_path", str(rule_model),
-        "--gate_cfg_json", str(gate_cfg),
+        "--gate_cfg_path", str(gate_cfg),
         "--out_bundle_dir", str(bundle_dir),
         "--registry_dir", str(args.registry_dir),
-        "--promote_dst_dir", str(args.bundle_out_dir),
+        "--promote_dir", str(args.bundle_out_dir),
     ])
     created_ts_ms = _read_manifest_created_ts(str(args.bundle_out_dir)) if rc_bundle == 0 else 0
     if args.emit_metrics:

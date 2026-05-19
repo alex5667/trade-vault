@@ -183,12 +183,32 @@ class GateOrchestrator:
         self._fb_snapshot_interval_ms: int = _snap_sec * 1000
 
         self._regime_strict = (os.getenv("REGIME_GATE_STRICT", "0") or "0").strip().lower() in {"1", "true", "yes", "on"}
-        def _csv(name: str) -> set[str]:
-            v = (os.getenv(name, "") or "").strip().lower()
+        def _csv(name: str, default: str = "") -> set[str]:
+            v = (os.getenv(name, default) or default).strip().lower()
             return {x.strip() for x in v.split(",") if x.strip()}
 
         self._regime_breakout_block = _csv("REGIME_GATE_BREAKOUT_BLOCK")
         self._regime_extreme_block = _csv("REGIME_GATE_EXTREME_BLOCK")
+
+        # Direction-aware regime filter: block counter-trend trades.
+        # Mode: off | shadow | enforce  (default: off — explicit opt-in).
+        self._regime_dir_mode = (os.getenv("REGIME_DIRECTION_GATE_MODE", "off") or "off").strip().lower()
+        self._regime_bear_labels = _csv(
+            "REGIME_BEAR_LABELS",
+            "trending_bear,bear_trend,strong_bear,bear",
+        )
+        self._regime_bull_labels = _csv(
+            "REGIME_BULL_LABELS",
+            "trending_bull,bull_trend,strong_bull,bull",
+        )
+        # Fallback to Redis `regime:{SYMBOL}` when context regime is empty.
+        self._regime_redis_fallback = (os.getenv("REGIME_GATE_REDIS_FALLBACK", "1") or "1").strip().lower() in {"1", "true", "yes", "on"}
+        # In-process TTL cache for Redis fallback to avoid hot-path hammering.
+        self._regime_redis_cache: dict[str, tuple[float, str]] = {}
+        try:
+            self._regime_redis_cache_ttl_s = float(os.getenv("REGIME_GATE_REDIS_CACHE_TTL_S", "2.0"))
+        except (ValueError, TypeError):
+            self._regime_redis_cache_ttl_s = 2.0
 
     # ── FundingBasisCalibrator persistence ───────────────────────────────────
 
@@ -456,16 +476,67 @@ class GateOrchestrator:
 
         return cached_on_ctx(ctx, slot="_cache_edge_cost_v1", key=key, compute=_compute)
 
-    def check_regime_gate(self, ctx: Any, kind: str) -> GateDecisionV1:
+    def _read_regime_from_redis(self, symbol: str) -> str:
+        """Best-effort read of `regime:{SYMBOL}` from Redis with small TTL cache.
+
+        Returns lowercase regime label or "" on miss / error. Fail-open semantics.
+        """
+        if not symbol:
+            return ""
+        sym = symbol.upper()
+        now = time.monotonic()
+        cached = self._regime_redis_cache.get(sym)
+        if cached and (now - cached[0]) < self._regime_redis_cache_ttl_s:
+            return cached[1]
+        redis_client = getattr(self.portfolio_gate, "r", None) if self.portfolio_gate else None
+        if redis_client is None:
+            return ""
+        try:
+            raw = redis_client.get(f"regime:{sym}")
+        except Exception:
+            return ""
+        if raw is None:
+            self._regime_redis_cache[sym] = (now, "")
+            return ""
+        try:
+            label = raw.decode("utf-8") if isinstance(raw, (bytes, bytearray)) else str(raw)
+        except Exception:
+            label = ""
+        label = label.strip().lower()
+        self._regime_redis_cache[sym] = (now, label)
+        return label
+
+    def check_regime_gate(self, ctx: Any, kind: str, side: Any = "") -> GateDecisionV1:
         t0 = time.monotonic()
         ts_dec_ms = int(time.time() * 1000)
         ts_ev_ms = _get_ts_ms(ctx)
         sym = str(getattr(ctx, "symbol", "") or "")
         regime = str(getattr(ctx, "market_regime", None) or getattr(ctx, "regime", None) or getattr(ctx, "regime_label", None) or "")
-        inp_hash = _fast_hash(kind=kind, regime=regime, sym=sym)
+        # Normalize incoming side: accept "LONG"/"SHORT" strings or +1/-1 ints.
+        side_str = ""
+        if isinstance(side, str):
+            side_str = side.strip().upper()
+        elif isinstance(side, (int, float)):
+            if side > 0:
+                side_str = "LONG"
+            elif side < 0:
+                side_str = "SHORT"
+        if side_str not in ("LONG", "SHORT"):
+            side_str = ""
+
+        # Redis fallback for regime label when context is empty (Phase D).
+        if not regime and self._regime_redis_fallback:
+            regime = self._read_regime_from_redis(sym)
+
+        inp_hash = _fast_hash(kind=kind, regime=regime, sym=sym, side=side_str)
         gate_name = "StrictRegimeGate"
 
-        if not self._regime_strict:
+        dir_mode = self._regime_dir_mode  # off | shadow | enforce
+        dir_active = dir_mode in {"shadow", "enforce"}
+
+        # Fast-path ABSTAIN only when BOTH the legacy strict gate AND the new
+        # direction gate are disabled — otherwise we must evaluate.
+        if not self._regime_strict and not dir_active:
             latency_us = int((time.monotonic() - t0) * 1_000_000)
             return GateDecisionV1(
                 stage="regime", gate=gate_name, decision="ABSTAIN", reason_code="OK", severity="INFO",
@@ -484,14 +555,17 @@ class GateOrchestrator:
 
         veto = False
         rc = "OK"
-        notes = {"regime": r}
-        
-        # Policy mode handling
+        notes: dict[str, Any] = {"regime": r, "side": side_str}
+
+        # Policy mode handling (legacy strict gate)
         mode = os.getenv("REGIME_POLICY_MODE", "SHADOW").upper()
-        
-        # Check staleness if redis is available
+
+        # Direction-vs-regime check uses its own mode override.
+        dir_enforce = (dir_mode == "enforce")
+
+        # Check staleness if redis is available (legacy strict gate only)
         redis_client = getattr(self.portfolio_gate, "r", None) if self.portfolio_gate else None
-        if redis_client and sym:
+        if self._regime_strict and redis_client and sym:
             try:
                 snap_json = redis_client.get(f"regime_snapshot:{sym}")
                 if snap_json:
@@ -508,7 +582,7 @@ class GateOrchestrator:
                 # Fail-open if we can't read the snapshot
                 pass
 
-        if not veto and r:
+        if not veto and self._regime_strict and r:
             if k == "breakout" and any(b in r for b in self._regime_breakout_block):
                 veto = True
                 rc = "VETO_REGIME_BREAKOUT_BLOCK"
@@ -516,11 +590,30 @@ class GateOrchestrator:
                 veto = True
                 rc = "VETO_REGIME_EXTREME_BLOCK"
 
+        # Direction-aware counter-trend block.
+        # We block LONG when the active regime is in the bear set, and SHORT
+        # when it is in the bull set. Skip when side/regime are unknown
+        # (fail-open) so we don't double-veto missing data.
+        dir_counter_veto = False
+        dir_rc = "OK"
+        if dir_active and side_str and r:
+            if side_str == "LONG" and r in self._regime_bear_labels:
+                dir_counter_veto = True
+                dir_rc = "VETO_REGIME_COUNTER_TREND_LONG"
+            elif side_str == "SHORT" and r in self._regime_bull_labels:
+                dir_counter_veto = True
+                dir_rc = "VETO_REGIME_COUNTER_TREND_SHORT"
+
         decision = "ALLOW"
         sev = "INFO"
         if veto:
             decision = "DENY" if mode == "ENFORCE" else "SHADOW_DENY"
             sev = "WARN"
+        elif dir_counter_veto:
+            rc = dir_rc
+            decision = "DENY" if dir_enforce else "SHADOW_DENY"
+            sev = "WARN"
+            notes["dir_gate_mode"] = dir_mode
 
         latency_us = int((time.monotonic() - t0) * 1_000_000)
         return GateDecisionV1(

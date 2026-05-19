@@ -37,9 +37,10 @@ class OutboxEnvelope:
       schema_version          — envelope/protocol version (gated by dispatcher
                                 via ACCEPTED_SCHEMA_VERSIONS). NEVER set this
                                 from ML feature-set version.
-      feature_schema_version  — ML feature-set version (e.g. v13_of=13, v14_of=14).
-                                Propagated from confirmations_engine.build() for
-                                replay/audit, NOT for dispatcher gating.
+      feature_schema_version  — ML feature-set version (e.g. v13_of=13,
+                                v14_of=14, v15_of=15). Propagated from
+                                confirmations_engine.build() for replay/audit,
+                                NOT for dispatcher gating.
     """
     signal_id: str
     ts_ms: int

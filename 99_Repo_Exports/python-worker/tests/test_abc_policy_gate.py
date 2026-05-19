@@ -1,55 +1,54 @@
-from unittest.mock import AsyncMock
-
 import pytest
+from services.entry_policy_ab_gate import decide_active_arm, regime_group
 
-from services.smt_entry_policy_service import EntryPolicyService
 
-
-@pytest.fixture
-def anyio_backend():
-    return 'asyncio'
-
-@pytest.mark.anyio
-async def test_active_arm_gate():
+def test_active_arm_gate():
     """
-    Verify _check_active_arm logic:
-      - Reads Redis key cfg:entry_policy:active_arm:<group>
-      - Compares with candidate['ab_arm']
-      - Returns True if match (Active)
-      - Returns False if mismatch (Shadow)
+    Verify decide_active_arm logic:
+      - Compares cand_arm with active_arm_value
+      - Returns is_active=True if match
+      - Returns is_active=False if mismatch
+      - Fail-open when active_arm_value is None/empty (apply=False, is_active=True)
     """
-    svc = EntryPolicyService()
-    svc.r = AsyncMock()
+    # Case 1: Default (active=None -> fail open), Cand=A -> pass through
+    res = decide_active_arm(cand_arm="A", active_arm_value=None)
+    assert res.is_active is True
+    assert res.apply is False
 
-    # Case 1: Default (Redis returns None -> A), Cand=A -> Active
-    svc.r.get.return_value = None
-    cand_a = {"ab_arm": "A", "regime": "range"}
-    assert await svc._check_active_arm(cand_a) is True
+    # Case 2: active=A, Cand=A -> Active
+    res = decide_active_arm(cand_arm="A", active_arm_value="A")
+    assert res.is_active is True
+    assert res.apply is True
 
-    # Case 2: Redis=B, Cand=A -> Shadow
-    svc.r.get.return_value = "B"
-    cand_a = {"ab_arm": "A", "regime": "range"}
-    assert await svc._check_active_arm(cand_a) is False
+    # Case 3: active=B, Cand=A -> Shadow
+    res = decide_active_arm(cand_arm="A", active_arm_value="B")
+    assert res.is_active is False
+    assert res.apply is True
 
-    # Case 3: Redis=B, Cand=B -> Active
-    svc.r.get.return_value = "B"
-    cand_b = {"ab_arm": "B", "regime": "range"}
-    assert await svc._check_active_arm(cand_b) is True
+    # Case 4: active=B, Cand=B -> Active
+    res = decide_active_arm(cand_arm="B", active_arm_value="B")
+    assert res.is_active is True
 
-    # Case 4: Regime Thin -> Group Thin
-    # Redis for thin = C
-    def side_effect(key):
-        if "thin" in key:
-            return "C"
-        return "A"
-    svc.r.get.side_effect = side_effect
+    # Case 5: active=C, Cand=C -> Active
+    res = decide_active_arm(cand_arm="C", active_arm_value="C")
+    assert res.is_active is True
 
-    cand_thin_c = {"ab_arm": "C", "regime": "thin"}
-    assert await svc._check_active_arm(cand_thin_c) is True
+    # Case 6: Fail open on bad active value
+    res = decide_active_arm(cand_arm="A", active_arm_value="")
+    assert res.is_active is True
+    assert res.apply is False
 
-    cand_thin_a = {"ab_arm": "A", "regime": "thin"}
-    assert await svc._check_active_arm(cand_thin_a) is False
 
-    # Case 5: Fail Open (Exception) -> True
-    svc.r.get.side_effect = Exception("Boom")
-    assert await svc._check_active_arm(cand_a) is True
+def test_regime_group_mapping():
+    """Verify thin/trend/range/mixed groupings."""
+    assert regime_group("thin") == "thin"
+    assert regime_group("news") == "thin"
+    assert regime_group("illiquid") == "thin"
+    assert regime_group("trend") == "trend"
+    assert regime_group("trending_bull") == "trend"
+    assert regime_group("range") == "range"
+    assert regime_group("chop") == "range"
+    assert regime_group("sideways") == "range"
+    assert regime_group("unknown") == "mixed"
+    assert regime_group("default") == "mixed"
+    assert regime_group(None) == "mixed"  # type: ignore

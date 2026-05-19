@@ -134,7 +134,7 @@ async def release_lock(r: Any, lock: str, *, key: str) -> bool:
 class RedisLock:
     """
     Async Redis lock class for use with async redis clients.
-    
+
     Usage:
         lock = RedisLock(key="lock:my_job", ttl_sec=60)
         if await lock.acquire(r):
@@ -145,8 +145,12 @@ class RedisLock:
                 await lock.release(r)
     """
     key: str
-    ttl_sec: int
+    ttl_sec: int = 60
     _token: str = ""
+
+    @property
+    def token(self) -> str:
+        return self._token
 
     async def acquire(self, r: Any) -> bool:
         """

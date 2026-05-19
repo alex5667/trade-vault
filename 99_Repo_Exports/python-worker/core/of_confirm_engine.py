@@ -5590,15 +5590,25 @@ class OFConfirmEngine:
         # `indicators`, otherwise they vectorize to 0.0 in the offline dataset
         # (train/serve skew). Pure copy, no I/O. See external_features_payload_v1.py.
         try:
-            from core.external_features_payload_v1 import build_external_features_payload
-            # indicators_with_v4 is created upstream in this same `build()` method
-            # (around line 2961). It contains Phase 7.x/8.x populates with stale
-            # guards already applied. NameError → fall-through to fail-open path.
-            indicators.update(
-                build_external_features_payload(indicators_with_v4, indicators)
+            from core.external_features_payload_v1 import (
+                build_external_features_payload,
+                _record_fail_open as _ext_fail,
             )
         except Exception:
+            # Module unavailable — cannot import _record_fail_open from the same
+            # failed module. Fail-open: skip external features, no veto.
             pass
+        else:
+            try:
+                # indicators_with_v4 is created upstream in this same `build()` method
+                # (around line 2961). It contains Phase 7.x/8.x populates with stale
+                # guards already applied. NameError → fall-through to fail-open path.
+                indicators.update(
+                    build_external_features_payload(indicators_with_v4, indicators)
+                )
+            except Exception:
+                with contextlib.suppress(Exception):
+                    _ext_fail("build_raised")
 
         # v13_of Groups NA/NB/NC/NE/NF + NX interactions: merge V13RuntimeTracker
         # snapshot into outbound `indicators` so the registry vectorizer sees

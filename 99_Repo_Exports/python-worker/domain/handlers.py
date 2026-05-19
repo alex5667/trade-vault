@@ -1018,6 +1018,7 @@ def create_position(signal: SignalNorm, spec) -> PositionState:
             or payload.get("atr")
             or _indicators_pl.get("atr_used_for_levels")
             or _indicators_pl.get("atr_at_entry")
+            or _indicators_pl.get("atr")
             or 0.0
         ),
         # AB attribution

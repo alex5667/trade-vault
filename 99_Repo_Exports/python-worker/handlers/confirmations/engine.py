@@ -7,11 +7,64 @@ from typing import Any
 from common.math_safe import clamp01, safe_float
 from common.metrics import METRICS
 from common.qf_codes import QF
+from common.reason_codes import ReasonCode
 from common.u16_pack import pack_u16_list
 from signal_scoring.reason_registry import legacy_reason_to_code as normalize_reason_code
 from signal_scoring.reason_registry import normalize_reason, reason_code_to_u16, reason_codes_to_u16s
 from signal_scoring.reason_registry import reason_code_to_u16 as reason_u16
 import contextlib
+
+try:
+    from handlers.pipeline.validators import AbsorptionValidator as _AbsorptionValidator
+    _HAS_ABSORPTION_VALIDATOR = True
+except Exception:
+    _HAS_ABSORPTION_VALIDATOR = False
+    _AbsorptionValidator = None  # type: ignore
+
+
+class _AbsorptionAdapter:
+    """Wraps AbsorptionValidator (ctx-based) to expose the confirm() interface.
+
+    Maps AbsorptionValidator's string flags to integer QF codes so that
+    ConfirmationsEngine.validate() can return them in v.flags.
+    """
+    _FLAG_MAP = {
+        "AB_NEED_2OF2_VETO": int(QF.AB_NEED_2OF2_VETO),
+    }
+
+    def __init__(self) -> None:
+        self._v = _AbsorptionValidator()  # type: ignore[misc]
+
+    def confirm(self, *, ctx: Any, l2: Any = None, level_price: float = 0.0, side: Any = "buy", require_2ofn: bool = True, **_: Any) -> Any:
+        from dataclasses import dataclass
+
+        side_int = 1 if "buy" in str(side).lower() else -1
+        adj = self._v.adjust(kind="absorption", ctx=ctx, side=side_int, level_price=float(level_price or 0.0))
+        qf_flags = [v for k, v in self._FLAG_MAP.items() if k in adj.flags]
+        rc = "VETO_AB_NEED_2OF2" if adj.veto else "OK"
+        u16 = reason_u16(rc)
+
+        @dataclass(frozen=True)
+        class _Res:
+            passed: bool
+            veto: bool
+            score01: float
+            reason_code: str
+            reason_u16: int
+            parts: dict
+            flags: list
+            reasons: list
+
+        return _Res(
+            passed=not adj.veto,
+            veto=adj.veto,
+            score01=float(adj.mult01),
+            reason_code=rc,
+            reason_u16=int(u16),
+            parts=dict(adj.parts),
+            flags=qf_flags,
+            reasons=[adj.reason] if adj.reason else [],
+        )
 
 
 @dataclass(frozen=True)
@@ -54,7 +107,7 @@ def _finalize_reason(reason: str, reason_code: str) -> tuple[str, int]:
     # Если reason_code не передали — попробуем вывести его из legacy reason.
     code = (reason_code or "").strip()
     if not code:
-        code = legacy_reason_to_code(reason)  # type: ignore
+        code = normalize_reason_code(reason)  # type: ignore
     u16 = reason_code_to_u16(code)
     return code, int(u16)
 
@@ -91,10 +144,13 @@ class ConfirmationsEngine:
         self._strict_reason_codes = bool(kwargs.get("strict_reason_codes", False))
         # валидаторы breakout/absorption внедряются/создаются извне
         self._breakout = kwargs.get("breakout_validator")
-        self._absorption = kwargs.get("absorption_validator")
-        self._soft_max = int(kwargs.get("soft_max", 3))
-        self._debug_soft_codes = bool(kwargs.get("debug_soft_codes", False))
-        self._pack_soft_u16 = bool(kwargs.get("pack_soft_u16", True))
+        self._absorption = kwargs.get("absorption_validator") or (
+            _AbsorptionAdapter() if _HAS_ABSORPTION_VALIDATOR else None
+        )
+        import os as _os
+        self._soft_max = int(kwargs.get("soft_max", int(_os.getenv("SOFT_REASON_MAX", "3"))))
+        self._debug_soft_codes = bool(kwargs.get("debug_soft_codes", _os.getenv("DEBUG_SOFT_CODES", "0") == "1"))
+        self._pack_soft_u16 = bool(kwargs.get("pack_soft_u16", _os.getenv("PACK_SOFT_U16", "1") != "0"))
         self._l3_spoof_cancel_thr = float(kwargs.get("l3_spoof_cancel_thr", 5.0))
         self._l3_spoof_taker_thr = float(kwargs.get("l3_spoof_taker_thr", 0.1))
         self._bo_range_veto_regime_score_thr = float(kwargs.get("bo_range_veto_regime_score_thr", 0.2))
@@ -182,6 +238,11 @@ class ConfirmationsEngine:
         l2_stale = bool(getattr(ctx, "l2_is_stale", None) is True or getattr(ctx, "l2_stale", None) is True)
         parts["l2_stale"] = 1.0 if l2_stale else 0.0
         if l2_stale and str(kind) == "extreme":
+            soft_hits.append(("SOFT_L2_STALE_EXTREME", 0.15))
+
+        # --- L2 missing fail-open (только для не-breakout/absorption) ---
+        if l2 is None and str(kind) not in ("breakout", "absorption"):
+            parts["soft_l2_missing_fail_open"] = 1.0
             soft_hits.append(("SOFT_L2_STALE_EXTREME", 0.15))
 
         # Умножение штрафов

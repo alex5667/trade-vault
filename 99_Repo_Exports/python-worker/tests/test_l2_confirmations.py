@@ -8,7 +8,6 @@ from handlers.confirmations.l2_confirmations import (
     VETO_NO_BLOCKING_CONFIRM,
     VETO_NO_WALL_OR_REFILL,
     VETO_TAKER_RATE_LOW,
-    VETO_WALL_NEAR,
     l2_confirm_absorption,
     l2_confirm_breakout,
 )
@@ -50,21 +49,23 @@ def _l2_no_walls(level_price: float) -> L2Snapshot:
 
 
 def test_breakout_up_veto_wall_near() -> None:
+    # Variant B: functional fn suppresses VETO_WALL_NEAR; emits near_wall=1 in parts instead
     ctx = Ctx(spread_bps=1.0, microprice_shift_bps_20=0.0)
     level = 100.0
     l2 = _l2_with_ask_wall_near(level)
     r = l2_confirm_breakout(ctx=ctx, l2=l2, level_price=level, side="buy", wall_near_bps=6.0, min_wall_notional=50_000.0)
-    assert r.veto is True
-    assert r.reason_code == VETO_WALL_NEAR
+    assert r.veto is False
+    assert r.parts.get("near_wall") == 1
 
 
 def test_breakout_down_veto_wall_near() -> None:
+    # Variant B: functional fn suppresses VETO_WALL_NEAR; emits near_wall=1 in parts instead
     ctx = Ctx(spread_bps=1.0, microprice_shift_bps_20=0.0)
     level = 100.0
     l2 = _l2_with_bid_wall_near(level)
     r = l2_confirm_breakout(ctx=ctx, l2=l2, level_price=level, side="sell", wall_near_bps=6.0, min_wall_notional=50_000.0)
-    assert r.veto is True
-    assert r.reason_code == VETO_WALL_NEAR
+    assert r.veto is False
+    assert r.parts.get("near_wall") == 1
 
 
 def test_breakout_veto_microprice_contra() -> None:

@@ -14,8 +14,8 @@ import pandas as pd
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import brier_score_loss, log_loss, roc_auc_score
 
-# P9: Future behavior opt-in
-pd.set_option('future.no_silent_downcasting', True)
+with __import__("contextlib").suppress(Exception):
+    pd.set_option('future.no_silent_downcasting', True)
 
 from core.feature_engineering import apply_transform
 

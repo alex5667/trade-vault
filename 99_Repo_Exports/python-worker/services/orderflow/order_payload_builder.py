@@ -27,18 +27,28 @@ class OrderPayloadBuilder:
             return
 
         # Unified side normalization (P0)
-        side_norm = normalize_side_3(signal.get("direction") or signal.get("side") or "")
-        direction = side_norm.side.value.lower() # buy/sell
+        try:
+            side_norm = normalize_side_3(signal.get("direction") or signal.get("side") or "")
+        except ValueError:
+            logger.warning("⚠️ (%s) unknown direction=%r side=%r — skip orders:queue",
+                           symbol, signal.get("direction"), signal.get("side"))
+            return
+        direction = side_norm.side.value.lower()  # buy/sell
         venue = (signal.get("venue") or "mt5").lower()
 
         reason = signal.get("reason") or "delta_spike"
 
-        # Signal ID generation (P0)
-        signal_id = generate_signal_id(
-            kind=(signal.get("kind") or "spike"),
-            symbol=symbol,
-            ts_ms=int(ts_value),
-            direction=side_norm.direction.value
+        # Prefer existing sid from upstream pipeline (preserves of:SYM:TS:LONG format).
+        # Fall back to generate only when the signal has no identity yet.
+        signal_id = (
+            signal.get("sid")
+            or signal.get("signal_id")
+            or generate_signal_id(
+                kind=(signal.get("kind") or "spike"),
+                symbol=symbol,
+                ts_ms=int(ts_value),
+                direction=side_norm.direction.value,
+            )
         )
 
         order_cmd = {

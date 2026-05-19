@@ -39,6 +39,15 @@ class MockRedis:
         self.streams[stream].append(fields)
         return "123-0"
 
+    def xgroup_create(self, stream, group, id="0-0", mkstream=False):
+        return True
+
+    def xreadgroup(self, group, consumer, streams, count=None, block=None, **kwargs):
+        return []
+
+    def xack(self, stream, group, *ids):
+        return len(ids)
+
 
 def test_analyzer_lease_prevents_duplicate_processing():
     """Test that lease prevents duplicate processing of same UID"""

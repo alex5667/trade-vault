@@ -1,11 +1,11 @@
-from hypothesis import given, settings
+from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 from core.redis_keys import RedisStreams as RS
 
 targets_st = st.lists(st.sampled_from(["notify", "signal_stream", "audit", "manual"]), unique=True, min_size=1, max_size=4)
 missing_st = st.sets(st.sampled_from(["notify", "signal_stream", "audit", "manual"]), min_size=0, max_size=4)
 
-@settings(max_examples=50, deadline=None)
+@settings(max_examples=50, deadline=None, suppress_health_check=[HealthCheck.function_scoped_fixture])
 @given(targets=targets_st, missing=missing_st)
 def test_done_marker_iff_all_targets_delivered(dispatcher, r, targets, missing):
     sid = "sid_prop_" + "_".join(targets)

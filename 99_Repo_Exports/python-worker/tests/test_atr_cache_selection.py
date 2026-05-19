@@ -44,4 +44,4 @@ def test_prefers_tracker_hash_when_fresh_and_consistent():
     atr, meta = c.get_with_meta(sym, tf, now_ms=now)
     assert atr is not None
     assert meta["tf"] == "M1"
-    assert meta["src"] in ("tracker_hash", "atr_json")
+    assert meta["src"] in ("tracker", "atr_json")

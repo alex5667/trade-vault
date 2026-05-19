@@ -33,6 +33,23 @@ from dataclasses import dataclass
 from typing import Any
 
 
+def _is_async_redis(rc: Any) -> bool:
+    """Detect redis.asyncio.Redis (and similar) reliably.
+
+    `inspect.iscoroutinefunction(rc.get)` is unreliable: redis-py's async client
+    methods are not declared with `async def` at the class level (they're wrapped),
+    so the inspect check returns False even for async clients. We instead check the
+    module name of the class (`redis.asyncio.*`).
+    """
+    if rc is None:
+        return False
+    try:
+        mod = type(rc).__module__ or ""
+        return "asyncio" in mod or "aioredis" in mod
+    except Exception:
+        return False
+
+
 def _sync_redis_for_autocal(ctx: Any = None) -> Any:
     """Return a sync Redis client for calibrator persist/restore.
 
@@ -41,10 +58,8 @@ def _sync_redis_for_autocal(ctx: Any = None) -> Any:
     """
     if ctx is not None:
         rc = getattr(ctx, "redis", None)
-        if rc is not None:
-            import inspect
-            if not inspect.iscoroutinefunction(getattr(rc, "get", None)):
-                return rc
+        if rc is not None and not _is_async_redis(rc):
+            return rc
     try:
         from handlers.crypto_orderflow.config.handler_config import _get_sync_redis
         return _get_sync_redis()

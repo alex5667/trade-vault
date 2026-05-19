@@ -67,6 +67,15 @@ async def get_release_board():
         rows = await conn.fetch("SELECT * FROM v_governance_current_state ORDER BY change_id DESC LIMIT 200")
         return [dict(row) for row in rows]
 
+@app.get("/auditor/release-board/{change_id}")
+async def get_release_board_entry(change_id: str):
+    pool = await get_db_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow("SELECT * FROM v_governance_current_state WHERE change_id = $1", change_id)
+        if not row:
+            raise HTTPException(status_code=404, detail="Change not found")
+        return dict(row)
+
 @app.get("/auditor/change/{change_id}")
 async def get_change_details(change_id: str):
     pool = await get_db_pool()

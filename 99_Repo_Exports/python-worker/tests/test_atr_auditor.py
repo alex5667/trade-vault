@@ -1,4 +1,4 @@
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -9,7 +9,8 @@ from services.atr_auditor_api import app
 
 @pytest.fixture
 def mock_db_pool():
-    pool_mock = AsyncMock()
+    # asyncpg pool.acquire() is a sync call returning an async CM (not a coroutine)
+    pool_mock = MagicMock()
     conn_mock = AsyncMock()
     pool_mock.acquire.return_value.__aenter__.return_value = conn_mock
     app.state.db_pool = pool_mock

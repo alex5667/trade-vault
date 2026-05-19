@@ -58,14 +58,21 @@ class ATRCache:
         ttl: int = 3600,
         redis_client: redis.Redis | None = None,  # type: ignore[type-arg]
     ) -> None:
-        if redis_client is not None:
-            self.redis_client = redis_client
-        else:
+        self._redis_client = redis_client  # None → lazy init on first access
+        self.ttl = ttl
+
+    @property
+    def redis_client(self) -> redis.Redis:  # type: ignore[type-arg,return-value]
+        if self._redis_client is None:
             url = os.getenv("ATR_REDIS_URL")
-            self.redis_client = (
+            self._redis_client = (
                 redis.from_url(url, decode_responses=True) if url else get_redis()
             )
-        self.ttl = ttl
+        return self._redis_client
+
+    @redis_client.setter
+    def redis_client(self, value: redis.Redis | None) -> None:  # type: ignore[type-arg]
+        self._redis_client = value
 
     # ------------------------------------------------------------------
     # Public read API
@@ -131,13 +138,20 @@ class ATRCache:
                     return float(c["atr"]), _candidate_meta(c, tf)
             # Fallthrough to normal freshness selection if prefer_src not found
 
+        # filter tf_mismatch candidates unless ATR_ALLOW_TF_MISMATCH=1
+        allow_tf_mismatch = os.getenv("ATR_ALLOW_TF_MISMATCH", "0") in {"1", "true", "yes"}
+        if not allow_tf_mismatch:
+            candidates = [c for c in candidates if not c.get("tf_mismatch")]
+
         if not candidates:
             return None, {"src": "none", "tf": tf, "ts_ms": 0, "age_ms": 0}
 
-        # 3. Pick freshest (timestamped first, then smallest age)
+        # 3. Pick best candidate (freshness + consistency penalty for outliers)
         best = _pick_best_candidate(candidates)
         if best and float(best.get("atr", 0) or 0) > 0:
-            return float(best["atr"]), _candidate_meta(best, tf)
+            m = _candidate_meta(best, tf)
+            m["candidates_n"] = len(candidates)
+            return float(best["atr"]), m
 
         return None, {"src": "none", "tf": tf, "ts_ms": 0, "age_ms": 0}
 
@@ -162,16 +176,17 @@ class ATRCache:
         # --- 1. Tracker hash ATR:{SYM}:{TFN} ---
         tracker_key = f"ATR:{sym}:{tf_norm}"
         try:
-            v_atr, v_ts = self.redis_client.hmget(tracker_key, "atr", "lastCloseTime")
-            if v_atr:
-                atr = _f(v_atr, 0.0)
-                ts_ms = _i(v_ts, 0) if v_ts else 0
-                age = max(0, nm - ts_ms) if ts_ms > 0 else 0
-                out.append({
-                    "atr": atr, "src": "atr_tracker", "key": tracker_key,
-                    "tf": tf_norm, "ts_ms": ts_ms, "age_ms": age,
-                    "has_ts": int(ts_ms > 0),
-                })
+            h = self.redis_client.hgetall(tracker_key)
+            if h:
+                atr = _f(h.get("atr") or h.get("ATR"), 0.0)
+                ts_ms = _i(h.get("ts") or h.get("lastCloseTime"), 0)
+                if atr and atr > 0:
+                    age = max(0, nm - ts_ms) if ts_ms > 0 else 0
+                    out.append({
+                        "atr": atr, "src": "tracker", "key": tracker_key,
+                        "tf": tf_norm, "ts_ms": ts_ms, "age_ms": age,
+                        "has_ts": int(ts_ms > 0),
+                    })
         except Exception:  # noqa: BLE001
             pass
 
@@ -303,35 +318,58 @@ def _normalize_tracker_tf(tf: str) -> str:
 
 def _candidate_meta(c: dict[str, Any], requested_tf: str) -> dict[str, Any]:
     """Build a normalised meta dict from a candidate entry."""
+    tf_mismatch = int(c.get("tf_mismatch", 0))
     return {
         "src": (c.get("src", "unknown")),
         "key": (c.get("key", "")),
         "tf": (c.get("tf", requested_tf)),
         "ts_ms": int(c.get("ts_ms", 0) or 0),
         "age_ms": int(c.get("age_ms", 0) or 0),
-        "tf_mismatch": int(c.get("tf_mismatch", 0)),
+        "tf_mismatch": tf_mismatch,
+        "tf_match": 1 - tf_mismatch,
     }
 
 
 def _pick_best_candidate(candidates: list[dict[str, Any]]) -> dict[str, Any] | None:
-    """Pick the best candidate using freshness + tf-match priority.
+    """Pick the best candidate using freshness + consistency penalty for outliers.
 
     Priority order:
-    1. Timestamped candidates with ``tf_mismatch=0`` (smallest age wins)
-    2. Timestamped candidates with ``tf_mismatch=1`` (tf mismatch penalty)
+    1. Timestamped candidates with ``tf_mismatch=0`` (smallest effective age wins)
+    2. Timestamped candidates with ``tf_mismatch=1``
     3. Non-timestamped candidates (first in list)
+
+    Consistency penalty: candidates whose ATR deviates > 30% from the median
+    of timestamped candidates receive a penalty proportional to deviation,
+    preventing fresh outliers from winning over consistent slower values.
     """
     if not candidates:
         return None
-    # Split by has_ts and tf_mismatch
     ts_matched = [c for c in candidates if c.get("has_ts") and not c.get("tf_mismatch")]
     ts_mismatch = [c for c in candidates if c.get("has_ts") and c.get("tf_mismatch")]
     no_ts = [c for c in candidates if not c.get("has_ts")]
 
+    def _effective_age(c: dict[str, Any], median_atr: float) -> float:
+        age = float(c.get("age_ms", 0) or 0)
+        if median_atr > 0:
+            atr = float(c.get("atr", 0) or 0)
+            deviation = abs(atr - median_atr) / median_atr
+            if deviation > 0.30:
+                age += deviation * 300_000  # 300s per unit of deviation
+        return age
+
+    def _best_with_consistency(pool: list[dict]) -> dict | None:
+        if not pool:
+            return None
+        if len(pool) == 1:
+            return pool[0]
+        vals = sorted(float(c.get("atr", 0) or 0) for c in pool)
+        median_atr = vals[(len(vals) - 1) // 2]  # lower-median: for [10,100] → 10, not 100
+        return min(pool, key=lambda c: _effective_age(c, median_atr))
+
     if ts_matched:
-        return min(ts_matched, key=lambda c: c.get("age_ms", 0))
+        return _best_with_consistency(ts_matched)
     if ts_mismatch:
-        return min(ts_mismatch, key=lambda c: c.get("age_ms", 0))
+        return _best_with_consistency(ts_mismatch)
     return no_ts[0] if no_ts else None
 
 

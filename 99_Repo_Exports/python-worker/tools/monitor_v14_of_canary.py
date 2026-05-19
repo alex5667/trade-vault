@@ -1,9 +1,15 @@
 #!/usr/bin/env python3
 """
-Monitor v14_of canary rollout: EV/R, ECE, latency metrics.
+Monitor ML schema canary/shadow rollout: EV/R, ECE, latency metrics.
+
+Schema-agnostic — pass --schema v14_of (default) or --schema v15_of when the
+next schema version enters shadow/canary. Stream key defaults to
+metrics:ml_confirm; override with --stream-key when isolating per-schema
+streams (e.g. metrics:ml_confirm:v15_of).
 
 Usage:
     python -m tools.monitor_v14_of_canary
+    python -m tools.monitor_v14_of_canary --schema v15_of
     python -m tools.monitor_v14_of_canary --redis-url redis://localhost:6379/0
     python -m tools.monitor_v14_of_canary --hours 24  # last 24h metrics
     python -m tools.monitor_v14_of_canary --watch     # continuous monitoring
@@ -24,7 +30,7 @@ import redis
 
 @dataclass
 class CanaryMetrics:
-    """v14_of canary health metrics."""
+    """ML schema canary health metrics (schema-agnostic)."""
 
     timestamp_ms: int
     ev_r: float | None = None  # Expected Value / Risk
@@ -183,14 +189,21 @@ def check_promotion_readiness(metrics_list: list[CanaryMetrics]) -> dict:
 
 def main() -> None:
     ap = argparse.ArgumentParser(
-        description="Monitor v14_of canary: EV/R, ECE, latency",
+        description="Monitor ML schema canary: EV/R, ECE, latency",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
   python -m tools.monitor_v14_of_canary
+  python -m tools.monitor_v14_of_canary --schema v15_of
   python -m tools.monitor_v14_of_canary --hours 24
   python -m tools.monitor_v14_of_canary --watch  # continuous, updates every 30s
         """,
+    )
+    ap.add_argument(
+        "--schema",
+        default="v14_of",
+        choices=("v13_of", "v14_of", "v15_of"),
+        help="Schema to monitor (default: v14_of). v13_of for prod baseline read-only.",
     )
     ap.add_argument(
         "--redis-url",
@@ -218,7 +231,7 @@ Examples:
     r = redis.Redis.from_url(args.redis_url, decode_responses=True)
 
     print(f"\n{'='*80}")
-    print("v14_of CANARY MONITORING")
+    print(f"{args.schema.upper()} CANARY MONITORING")
     print(f"{'='*80}\n")
 
     iteration = 0

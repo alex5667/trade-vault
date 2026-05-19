@@ -131,6 +131,8 @@ class CryptoOrderFlowGenerateMixin:
           - signals_veto{reason} должен отражать реальную причину из ConfirmationsEngine.validate().
           - conf_factor_hist/final_score_hist должны наблюдаться на "ok" ветке.
         """
+        if ctx is None:
+            return False
         any_sent = False
         pack_rc16 = os.getenv("RC_PACK_U16", "1").lower() not in {"0", "false", "no"}
         keep_reason_str = os.getenv("RC_KEEP_STR", "1").lower() not in {"0", "false", "no"}

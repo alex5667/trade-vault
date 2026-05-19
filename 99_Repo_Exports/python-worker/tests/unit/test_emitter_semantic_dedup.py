@@ -5,9 +5,9 @@ from handlers.emitter.unified_signal_emitter import UnifiedSignalEmitter
 class FakeOutbox:
     def __init__(self):
         self.published = []
-    def write(self, payload, signal_id=None, dedup=True):
+    def publish(self, payload):
         self.published.append(payload)
-        return True
+        return "1"
 
 class FakeAnalytics:
     def __init__(self):

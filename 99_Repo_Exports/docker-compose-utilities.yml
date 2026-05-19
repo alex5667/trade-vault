@@ -40,6 +40,8 @@ services:
       context: .
       dockerfile: Dockerfile.cleanup
     container_name: redis-cleanup
+    profiles:
+    - disabled
     environment:
     - REDIS_HOST=redis-worker-1
     - REDIS_PORT=6379
@@ -76,10 +78,11 @@ services:
     - REDIS_URL=${REDIS_URL:-redis://redis-worker-1:6379/0}
     - ATR_REDIS_URL=${ATR_REDIS_URL:-redis://redis-worker-2:6379/0}
     - REDIS_TICKS_URL=${REDIS_TICKS_URL:-redis://redis-ticks:6379/0}
-    - JANITOR_INTERVAL_S=300
+    - JANITOR_INTERVAL_S=600
     - JANITOR_DRY_RUN=false
     - JANITOR_LOG_LEVEL=INFO
-    - JANITOR_SCAN_BATCH=200
+    - JANITOR_SCAN_BATCH=100
+    - JANITOR_SKIP_STALE_CLEANUP=1
     - TZ=UTC
     depends_on:
       redis-worker-1:

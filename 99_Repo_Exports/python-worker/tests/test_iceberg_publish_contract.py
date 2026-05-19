@@ -64,7 +64,8 @@ def test_build_payload_has_normalized_mirrors(monkeypatch):
         state=st,
         level_info={"kind": "bid", "price": 99.5},
     )
-    assert p["side"] == "LONG"
+    assert p["direction"] == "LONG"
+    assert p["side"] == "BUY"
     assert p["kind"] == "iceberg"
     assert p["entry_price"] == 100.0
     assert p["price"] == 100.0
@@ -111,7 +112,8 @@ def test_publish_payload_enforces_contract_and_writes_all_sinks(monkeypatch):
 
     # Contract fields expected from preprocess + builder mirrors
     assert "ts_ms" in stored
-    assert stored.get("side") in ("LONG", "SHORT")
+    assert stored.get("direction") in ("LONG", "SHORT")
+    assert stored.get("side") in ("BUY", "SELL")
     assert int(stored.get("side_int", 0)) in (1, -1)
     assert float(stored.get("entry_price", 0.0)) > 0
     assert float(stored.get("price", 0.0)) > 0

@@ -29,7 +29,8 @@ class ArmAgg:
         if self.n < 2:
             return 0.0
         mu = self.mean()
-        var = (self.sumsq_r / self.n) - mu * mu
+        # sample variance (ddof=1) — correct for statistical inference
+        var = (self.sumsq_r - self.n * mu * mu) / (self.n - 1)
         return math.sqrt(max(0.0, var))
 
     def winrate(self) -> float:

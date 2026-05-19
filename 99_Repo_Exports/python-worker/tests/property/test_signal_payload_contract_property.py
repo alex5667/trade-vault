@@ -4,7 +4,7 @@ import pytest
 
 try:
     hypothesis = pytest.importorskip("hypothesis")
-    from hypothesis import given, settings
+    from hypothesis import HealthCheck, given, settings
     from hypothesis import strategies as st
     HAS_HYPOTHESIS = True
 except pytest.skip.Exception:
@@ -12,20 +12,22 @@ except pytest.skip.Exception:
     hypothesis = None
     given = lambda *args, **kwargs: lambda f: f  # noop decorator
     settings = lambda *args, **kwargs: lambda f: f  # noop decorator
+    class _MockHealthCheck:
+        function_scoped_fixture = None
+    HealthCheck = _MockHealthCheck()  # type: ignore
     class MockSt:
         def text(self, *args, **kwargs): return None
     st = MockSt()
     HAS_HYPOTHESIS = False
 
-from common.reason_codes import code_to_u16
-from signal_scoring.reason_registry import normalize_reason
+from signal_scoring.reason_registry import normalize_reason, reason_code_to_u16 as code_to_u16
 
 
 @given(
     reason=st.text(min_size=0, max_size=40),
     reason_code=st.text(min_size=0, max_size=40),
 )
-@settings(max_examples=500, deadline=None)
+@settings(max_examples=500, deadline=None, suppress_health_check=[HealthCheck.function_scoped_fixture])
 def test_reason_normalization_always_produces_u16(reason, reason_code, monkeypatch):
     monkeypatch.setenv("STRICT_REASON_CODES", "0")
     r, rc, u16 = normalize_reason(reason=reason, reason_code=reason_code)

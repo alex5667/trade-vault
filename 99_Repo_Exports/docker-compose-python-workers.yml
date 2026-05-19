@@ -40,6 +40,8 @@ services:
       start_period: 60s
     environment:
     - liqmap_gate_mode=${LIQMAP_GATE_MODE:-enforce}
+    # Direction-aware counter-trend gate: off | shadow | enforce
+    - REGIME_DIRECTION_GATE_MODE=${REGIME_DIRECTION_GATE_MODE:-enforce}
     # 2026-05-14: TradeProfileRouter ENFORCE — overlay (tp_rr / stop_atr_mult /
     # tp1_atr_mult) already applies in SHADOW, but ENFORCE additionally enables
     # the net_edge_bps gate and canary-share logic per profile.
@@ -132,7 +134,7 @@ services:
     - SESSION_CLOSE_TZ=UTC
     - SESSION_CLOSE_HOUR=0
     - SESSION_CLOSE_MIN=0
-    - OF_LAG_THRESHOLD_SHED=30
+    - OF_LAG_THRESHOLD_SHED=400
     - OUTBOX_RETRY_BACKOFF_MS=0
     - ATR_SOURCE=ticks
     - ATR_TF=${ATR_TF:-5m}
@@ -140,7 +142,7 @@ services:
     - ATR_TF_CALIB_ENABLE=${ATR_TF_CALIB_ENABLE:-1}
     - Z_MAPPING_CALIB_PERSIST_GAP_MS=${Z_MAPPING_CALIB_PERSIST_GAP_MS:-120000}
     - LIQ_SIGNAL_CALIB_PERSIST_GAP_MS=${LIQ_SIGNAL_CALIB_PERSIST_GAP_MS:-120000}
-    - ATR_HORIZON_MODE=off
+    - ATR_HORIZON_MODE=${ATR_HORIZON_MODE:-enforce}
     - ATR_HORIZON_CONTRACT_VER=2
     - ATR_HORIZON_EMIT_PAYLOAD_META=1
     - ATR_HORIZON_DEFAULT_TF_MS=60000
@@ -156,7 +158,8 @@ services:
     - ATR_HORIZON_CANDIDATE_TTL_SEC=86400
     - ATR_HORIZON_EMIT_CANDIDATES=1
     - ATR_HORIZON_CANDIDATE_WRITER_ENABLE=1
-    - ATR_HORIZON_DQ_SHADOW_ENABLE=0
+    - ATR_HORIZON_DQ_SHADOW_ENABLE=1
+    - ATR_HORIZON_GATE_MODE=${ATR_HORIZON_GATE_MODE:-enforce}
     - ATR_HORIZON_SHADOW_RISK_SURFACE_ENABLE=0
     - ATR_HORIZON_USE_FOR_EXECUTION=0
     - ATR_HORIZON_USE_FOR_TRAILING=0
@@ -415,7 +418,7 @@ services:
     - GATE_PROFILE=hard
     - SPREAD_STALENESS_CALIB_ENFORCE=true
     - SPREAD_CALIB_MIN_SAMPLES=200
-    - FUNDING_BASIS_CALIB_ENFORCE=${FUNDING_BASIS_CALIB_ENFORCE:-0}
+    - FUNDING_BASIS_CALIB_ENFORCE=${FUNDING_BASIS_CALIB_ENFORCE:-1}
     - FUNDING_BASIS_CALIB_MIN_SAMPLES=${FUNDING_BASIS_CALIB_MIN_SAMPLES:-500}
     - FEATURE_DRIFT_ENABLED=1
     - FEATURE_DRIFT_PROFILE=hard
@@ -431,8 +434,19 @@ services:
     - CRYPTO_BURST_ENABLE=${CRYPTO_BURST_ENABLE:-1}
     - BURST_FLUSH_MODE=${BURST_FLUSH_MODE:-wall}
     - BURST_FLUSH_INTERVAL_MS=${BURST_FLUSH_INTERVAL_MS:-200}
+    - BURST_GATE_MODE=${BURST_GATE_MODE:-veto}
     - DQ_GATE_ENABLE=1
     - DQ_GATE_MODE=enforce
+    # ── Cooldown calibrator enforce (audit 2026-05-18) ──────────────────────
+    - COOLDOWN_CAL_ENFORCE=${COOLDOWN_CAL_ENFORCE:-1}
+    # ── Edge gate events (G8) audit stream ─────────────────────────────────
+    # Default "off" → now redis_stream to populate edge_gate_events table.
+    - EDGE_GATE_EVENTS_MODE=${EDGE_GATE_EVENTS_MODE:-redis_stream}
+    - EDGE_GATE_SAMPLE_PASS=${EDGE_GATE_SAMPLE_PASS:-0.10}
+    # ── Confidence scores stream → Postgres ────────────────────────────────
+    - CONF_SCORES_PUBLISH_ENABLED=${CONF_SCORES_PUBLISH_ENABLED:-1}
+    # ── Burst gate calibrator: fix DNS (prometheus:9090 → scanner-prometheus) ──
+    - BURST_CALIB_PROM_URL=${BURST_CALIB_PROM_URL:-http://scanner-prometheus:9090}
     # v13_of feature-registry contract check (shadow→enforce after seed-pins confirmed)
     - ENABLE_FEATURE_REGISTRY_CONTRACT_CHECK=${ENABLE_FEATURE_REGISTRY_CONTRACT_CHECK:-1}
     - FEATURE_DRIFT_BASE_ALPHA=0.01
@@ -522,6 +536,26 @@ services:
     - AUTOCAL_P_EDGE_READ_ENABLED=${AUTOCAL_P_EDGE_READ_ENABLED:-1}
     - AUTOCAL_P_EDGE_REFRESH_MS=${AUTOCAL_P_EDGE_REFRESH_MS:-60000}
     - AUTOCAL_P_EDGE_STALE_MS=${AUTOCAL_P_EDGE_STALE_MS:-1800000}
+    # ── Confirmation Barrier (audit 2026-05-18) ─────────────────────────────
+    # Start in shadow to collect telemetry. Switch to enforce when drop-rate
+    # converges (expect ~25-30% of signals dropped — chop without follow-through).
+    # Rollback: set CONFIRMATION_BARRIER_MODE=off and restart.
+    - CONFIRMATION_BARRIER_MODE=${CONFIRMATION_BARRIER_MODE:-shadow}
+    - CONFIRMATION_BARRIER_TIMEOUT_MS=${CONFIRMATION_BARRIER_TIMEOUT_MS:-5000}
+    - CONFIRMATION_BARRIER_MIN_PROGRESS_BPS=${CONFIRMATION_BARRIER_MIN_PROGRESS_BPS:-10}
+    - CONFIRMATION_BARRIER_MAX_ADVERSE_BPS=${CONFIRMATION_BARRIER_MAX_ADVERSE_BPS:-20}
+    - CONFIRMATION_BARRIER_MIN_OBSERVATIONS=${CONFIRMATION_BARRIER_MIN_OBSERVATIONS:-3}
+    - BARRIER_POLL_INTERVAL_MS=${BARRIER_POLL_INTERVAL_MS:-500}
+    # ── Regime direction gate (audit 2026-05-18) ────────────────────────────
+    # Blocks counter-trend entries (LONG in bear, SHORT in bull).
+    # shadow → log VETO_REGIME_COUNTER_TREND_* without blocking.
+    - REGIME_DIRECTION_GATE_MODE=${REGIME_DIRECTION_GATE_MODE:-shadow}
+    # ── Entry-tag confidence floors (audit 2026-05-18) ──────────────────────
+    # weak_progress:95 → need 95% conf to pass if primary_reason=weak_progress.
+    - MIN_CONF_BY_TAG=${MIN_CONF_BY_TAG:-weak_progress:95,absorption:85,ok:75}
+    # ── weak_progress as confirmation (disabled by audit) ───────────────────
+    # Set to 1 only if you want weak_progress to appear in confirmations list.
+    - WEAK_PROGRESS_AS_CONFIRMATION=${WEAK_PROGRESS_AS_CONFIRMATION:-0}
     - TZ=UTC
     depends_on:
       postgres:
@@ -586,6 +620,8 @@ services:
       start_period: 60s
     environment:
     - liqmap_gate_mode=${LIQMAP_GATE_MODE:-enforce}
+    # Direction-aware counter-trend gate: off | shadow | enforce
+    - REGIME_DIRECTION_GATE_MODE=${REGIME_DIRECTION_GATE_MODE:-enforce}
     # 2026-05-14: TradeProfileRouter ENFORCE — overlay (tp_rr / stop_atr_mult /
     # tp1_atr_mult) already applies in SHADOW, but ENFORCE additionally enables
     # the net_edge_bps gate and canary-share logic per profile.
@@ -644,7 +680,7 @@ services:
     - CUPY_CACHE_SAVE_CUDA_SOURCE=0
     - NUMBA_CACHE_DIR=/tmp/numba_cache
     - TZ=UTC
-    - OF_LAG_THRESHOLD_SHED=30
+    - OF_LAG_THRESHOLD_SHED=400
     - OUTBOX_RETRY_BACKOFF_MS=0
     - ATR_SOURCE=ticks
     - ATR_TF=${ATR_TF:-5m}
@@ -687,11 +723,12 @@ services:
     - ML_CONFIRM_FAIL_POLICY=OPEN
     - ML_REDIS_URL=${REDIS_URL}
     - ML_CONFIRM_P_MIN=0.55
+    - ML_CONFIRM_ENFORCE_SHARE=${ML_CONFIRM_ENFORCE_SHARE:-0.0}
     - OF_CONFIRM_VERSION=3
     - GATE_PROFILE=hard
     - SPREAD_STALENESS_CALIB_ENFORCE=true
     - SPREAD_CALIB_MIN_SAMPLES=200
-    - FUNDING_BASIS_CALIB_ENFORCE=${FUNDING_BASIS_CALIB_ENFORCE:-0}
+    - FUNDING_BASIS_CALIB_ENFORCE=${FUNDING_BASIS_CALIB_ENFORCE:-1}
     - FUNDING_BASIS_CALIB_MIN_SAMPLES=${FUNDING_BASIS_CALIB_MIN_SAMPLES:-500}
     - ML_CONFIRM_METRICS_ENABLE=${ML_CONFIRM_METRICS_ENABLE:-1}
     - PUBLISH_OF_CONFIRM=1
@@ -700,8 +737,16 @@ services:
     - ADVERSE_CROSS_CAL_MIN_SAMPLES=500
     - ADVERSE_CROSS_CAL_MIN_LOSSES=30
     - ADVERSE_CROSS_CAL_SNAPSHOT_SEC=60
-    - CRYPTO_OF_STRONG_GATE_SHADOW=${CRYPTO_OF_STRONG_GATE_SHADOW}
+    # ── F rollout 2026-05-18 SHADOW on btceth canary (BTCUSDT/ETHUSDT) ──
+    # would-veto signals now pass with is_virtual=1 → demo/testnet client (PnL=0).
+    # Observe via strong_gate_veto_total{mode=ENFORCE} vs shadow indicators in DB.
+    # Rollback: revert to ${CRYPTO_OF_STRONG_GATE_SHADOW} and `docker compose up -d --force-recreate scanner-python-worker-btceth`.
+    - CRYPTO_OF_STRONG_GATE_SHADOW=1
     - CRYPTO_OF_REQUIRE_STRONG_CONFIRMATION=${CRYPTO_OF_REQUIRE_STRONG_CONFIRMATION}
+    # ── E rollout 2026-05-18 SHADOW: would-allow counter ──
+    # Activates trade_risk_shadow_relax_would_allow_total{tier=A|B}. Pure observability.
+    - RISK_TIER_A_MIN_CONFIDENCE_SHADOW=${RISK_TIER_A_MIN_CONFIDENCE_SHADOW:-}
+    - RISK_TIER_B_MIN_CONFIDENCE_SHADOW=${RISK_TIER_B_MIN_CONFIDENCE_SHADOW:-}
     - CRYPTO_OF_DROP_ON_LAG=${CRYPTO_OF_DROP_ON_LAG:-true}
     - CRYPTO_OF_MAX_TS_SKEW_MS=${CRYPTO_OF_MAX_TS_SKEW_MS:-5000}
     - FEATURE_DRIFT_ENABLED=1
@@ -718,8 +763,14 @@ services:
     - CRYPTO_BURST_ENABLE=${CRYPTO_BURST_ENABLE:-1}
     - BURST_FLUSH_MODE=${BURST_FLUSH_MODE:-wall}
     - BURST_FLUSH_INTERVAL_MS=${BURST_FLUSH_INTERVAL_MS:-200}
+    - BURST_GATE_MODE=${BURST_GATE_MODE:-veto}
     - DQ_GATE_ENABLE=1
     - DQ_GATE_MODE=enforce
+    - COOLDOWN_CAL_ENFORCE=${COOLDOWN_CAL_ENFORCE:-1}
+    - EDGE_GATE_EVENTS_MODE=${EDGE_GATE_EVENTS_MODE:-redis_stream}
+    - EDGE_GATE_SAMPLE_PASS=${EDGE_GATE_SAMPLE_PASS:-0.10}
+    - CONF_SCORES_PUBLISH_ENABLED=${CONF_SCORES_PUBLISH_ENABLED:-1}
+    - BURST_CALIB_PROM_URL=${BURST_CALIB_PROM_URL:-http://scanner-prometheus:9090}
     - AUTO_CALIBRATION_THRESHOLD=100
     - AUTO_CALIBRATION_SOURCE=CryptoOrderFlow
     - STRATEGY_RESEARCH_GUARD_BLOCKER_KEY=cfg:research_guard:blocker:v1
@@ -734,6 +785,7 @@ services:
     - LATENCY_CONTRACT_STATE_MIN_UPDATE_MS=3000
     - TM_ORPHAN_TIMEOUT_ENABLED=${TM_ORPHAN_TIMEOUT_ENABLED}
     - PROMETHEUS_PORT=8002
+    - METRICS_PORT=8002
     - SCANNER_CONSUMER_NAME=scanner-python-worker-btceth
     - CRYPTO_OF_READ_BLOCK_MS=5
     - REDIS_IDLE_SLEEP_SEC=0
@@ -745,6 +797,18 @@ services:
     - PUBLISH_OF_INPUTS=1
     - OF_INPUTS_STREAM=signals:of:inputs
     - OF_INPUTS_STREAM_MAXLEN=5000
+    # ── Confirmation Barrier (audit 2026-05-18) ─────────────────────────────
+    - CONFIRMATION_BARRIER_MODE=${CONFIRMATION_BARRIER_MODE:-shadow}
+    - CONFIRMATION_BARRIER_TIMEOUT_MS=${CONFIRMATION_BARRIER_TIMEOUT_MS:-5000}
+    - CONFIRMATION_BARRIER_MIN_PROGRESS_BPS=${CONFIRMATION_BARRIER_MIN_PROGRESS_BPS:-10}
+    - CONFIRMATION_BARRIER_MAX_ADVERSE_BPS=${CONFIRMATION_BARRIER_MAX_ADVERSE_BPS:-20}
+    - CONFIRMATION_BARRIER_MIN_OBSERVATIONS=${CONFIRMATION_BARRIER_MIN_OBSERVATIONS:-3}
+    - BARRIER_POLL_INTERVAL_MS=${BARRIER_POLL_INTERVAL_MS:-500}
+    # ── Regime direction gate ────────────────────────────────────────────────
+    - REGIME_DIRECTION_GATE_MODE=${REGIME_DIRECTION_GATE_MODE:-shadow}
+    # ── Entry-tag confidence floors ─────────────────────────────────────────
+    - MIN_CONF_BY_TAG=${MIN_CONF_BY_TAG:-weak_progress:95,absorption:85,ok:75}
+    - WEAK_PROGRESS_AS_CONFIRMATION=${WEAK_PROGRESS_AS_CONFIRMATION:-0}
     depends_on:
       postgres:
         condition: service_healthy
@@ -1083,7 +1147,7 @@ services:
     - GATE_PROFILE=hard
     - SPREAD_STALENESS_CALIB_ENFORCE=true
     - SPREAD_CALIB_MIN_SAMPLES=200
-    - FUNDING_BASIS_CALIB_ENFORCE=${FUNDING_BASIS_CALIB_ENFORCE:-0}
+    - FUNDING_BASIS_CALIB_ENFORCE=${FUNDING_BASIS_CALIB_ENFORCE:-1}
     - FUNDING_BASIS_CALIB_MIN_SAMPLES=${FUNDING_BASIS_CALIB_MIN_SAMPLES:-500}
     - ENTRY_POLICY_PROFILE=default
     - EXEC_HEALTH_MODE=enforce
@@ -2128,6 +2192,14 @@ services:
     - SIGNAL_OUTBOX_CONSUMER=signal-outbox-router
     - SIGNAL_OUTBOX_READ_COUNT=200
     - SIGNAL_OUTBOX_READ_BLOCK_MS=1000
+    # Outbox protocol dual-read window (v1 + v2). Explicit override == current
+    # default in core/outbox_envelope.py (SCHEMA_VERSION=2, LEGACY_SCHEMA_VERSIONS=(1,)).
+    # Cutoff to single-read: set to "2" once dispatcher_schema_version_total{schema_version="1"}
+    # has been at 0 for ≥48h. See CLAUDE.md §Outbox Data Contracts.
+    - OUTBOX_ACCEPT_SCHEMA_VERSIONS=1,2
+    # Prometheus metrics port (dispatcher_schema_version_total etc.). Required
+    # to observe the v1→v2 cutoff criterion. Scrape job: prometheus.yml.
+    - OUTBOX_ROUTER_METRICS_PORT=9836
     - SIGNAL_TASK_KEY_PREFIX=signal:task
     - SIGNAL_DUE_ZSET_PREFIX=zset:signals:due
     - SIGNAL_DELIVERY_TTL_SEC=86400
@@ -2868,6 +2940,8 @@ services:
     - TRADE_ENTRY_AUDIT_STREAM=${TRADE_ENTRY_AUDIT_STREAM:-stream:trade:entry_audit}
     - TRADE_EVENTS_STREAM=${TRADE_EVENTS_STREAM:-events:trades}
     - ENTRY_AUDIT_ARCHIVE_ENABLED=${ENTRY_AUDIT_ARCHIVE_ENABLED:-1}
+    - CONFIDENCE_SCORES_ARCHIVE_ENABLED=${CONFIDENCE_SCORES_ARCHIVE_ENABLED:-1}
+    - CONFIDENCE_SCORES_STREAM=${CONFIDENCE_SCORES_STREAM:-signals:confidence:scores}
     - ENTRY_AUDIT_CG=${ENTRY_AUDIT_CG:-entry_audit_archiver}
     - ENTRY_AUDIT_CONSUMER=${ENTRY_AUDIT_CONSUMER:-archiver_1}
     - ENTRY_AUDIT_BATCH=${ENTRY_AUDIT_BATCH:-500}

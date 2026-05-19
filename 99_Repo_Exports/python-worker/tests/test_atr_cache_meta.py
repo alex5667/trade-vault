@@ -25,7 +25,7 @@ def test_atr_cache_meta_prefers_tracker_hash():
 
     v, meta = c.get_with_meta(sym, "1m", now_ms=get_ny_time_millis())
     assert float(v) == 42.0
-    assert meta["src"] == "atr_tracker"
+    assert meta["src"] == "tracker"
     assert meta["key"].startswith("ATR:")
 
 

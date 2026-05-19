@@ -109,9 +109,11 @@ def main():
         tools.append(["of_gate_metrics_contract_check_v1.py", []])
 
     # P94: Feature Registry contract check (schema_hash / feature_cols_hash pinning)
-    # Run once per active schema so v13_of (prod) and v14_of (canary) are both
-    # guarded against accidental hash drift. Pin keys are per-schema; seed them
-    # via `python -m tools.seed_feature_registry_pins` after schema bumps.
+    # Run once per active schema. Default: v13_of (prod) + v14_of (canary).
+    # When v15_of moves to shadow/canary, set
+    # FEATURE_REGISTRY_CONTRACT_SCHEMAS=v13_of,v14_of,v15_of in the env and run
+    # `python -m tools.seed_feature_registry_pins --schemas v15_of` first.
+    # Pin keys are per-schema.
     if os.getenv("ENABLE_FEATURE_REGISTRY_CONTRACT_CHECK", "0") == "1":
         schemas = [
             s.strip() for s in (

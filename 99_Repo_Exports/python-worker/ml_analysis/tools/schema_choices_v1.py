@@ -53,9 +53,14 @@ _SCHEMA_VERSIONS: list[str] = [
     # v13_of — v12_of (214) + GroupNA-NX (28) = 242 numeric keys
     "v13",
     "v13_of",
-    # v14_of — v13_of (242) + Group OG (16) rule-gate + Group OE (81) external/execution = 339
+    # v14_of — v13_of (242) + Group OG (16) rule-gate + Group OE (81) external/execution = 359 (incl Phase 8.1 composites)
     "v14",
     "v14_of",
+    # v15_of — v14_of (359) + 156 keys (Phase 8.2/8.3/8.4/8.5/P1/P2/P3/4.x: Hawkes/VPIN,
+    # cross-venue, CoinGecko/CoinPaprika/CMC, Deribit term structure, DefiLlama,
+    # macro calendar, derivatives base, PIT priors, breadth segments) = 515 numeric keys
+    "v15",
+    "v15_of",
 ]
 
 
@@ -108,4 +113,6 @@ def normalize_schema_ver(ver: str) -> str:
         return "v13_of"
     if vv == "v14":
         return "v14_of"
+    if vv == "v15":
+        return "v15_of"
     return v

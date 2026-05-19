@@ -57,7 +57,9 @@ jsonish = st.recursive(
         st.lists(children, max_size=50),
         st.dictionaries(keys=st.one_of(st.text(max_size=20), st.integers(), st.floats(allow_nan=True, allow_infinity=True)), values=children, max_size=50),
         st.tuples(children, children),
-        st.sets(children, max_size=20),
+        # sets must use only hashable (non-container) base types to avoid
+        # "unhashable type: set" when Hypothesis generates nested sets
+        st.sets(weird_scalars, max_size=20),
     ),
     max_leaves=300,
 )

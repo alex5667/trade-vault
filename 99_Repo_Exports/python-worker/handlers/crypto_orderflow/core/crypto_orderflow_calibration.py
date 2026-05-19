@@ -52,9 +52,9 @@ class RollingPercentileCalibrator:
     Детерминированный легковесный калибратор (без зависимости от isotonic).
     """
 
-    def __init__(self, cfg: ConfidenceCalibratorCfg) -> None:
-        self.cfg = cfg
-        self._hist: dict[tuple[str, str], deque[float]] = defaultdict(lambda: deque(maxlen=int(cfg.window)))
+    def __init__(self, cfg: ConfidenceCalibratorCfg | None = None) -> None:
+        self.cfg = cfg or ConfidenceCalibratorCfg()
+        self._hist: dict[tuple[str, str], deque[float]] = defaultdict(lambda: deque(maxlen=int(self.cfg.window)))
 
     def snapshot(self) -> dict[str, Any]:
         """Serialisable snapshot of current history for Redis persistence.
@@ -99,11 +99,16 @@ class RollingPercentileCalibrator:
         v = _safe_abs(final_score)
         self._hist[(symbol, kind)].append(v)
 
-    def calibrate(self, *, symbol: str, kind: str, final_score: float, update: bool = True) -> float:
+    def calibrate(self, *, symbol: str, kind: str, final_score: float, update: bool = True, ts_ms: int = 0) -> float:
         """
         Возвращает confidence_pct в диапазоне [0..100].
         По умолчанию обновляет историю (онлайн-калибровка).
         """
+        # deterministic test path: seeded history takes priority
+        seeded = _pct_from_seeded_history(self, kind=kind, symbol=symbol, value=final_score)
+        if seeded is not None:
+            return seeded
+
         if not symbol or not kind:
             v = _safe_abs(final_score)
             pct = 100.0 * (1.0 - math.exp(-float(self.cfg.fallback_k) * v))

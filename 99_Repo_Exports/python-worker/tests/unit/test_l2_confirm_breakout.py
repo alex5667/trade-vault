@@ -18,6 +18,7 @@ def test_breakout_stale_is_veto_with_reason_code():
 
 
 def test_breakout_near_big_wall_is_soft_fail_not_veto():
+    # Variant B (9.4): near_big_wall is now a hard VETO in the class validator
     v = L2ConfirmBreakout(BreakoutConfirmCfg(min_wall_notional=10_000.0, max_near_wall_bps=5.0))
     lvl = 100.0
     # wall at 100.02 (2 bps) with big notional
@@ -25,7 +26,7 @@ def test_breakout_near_big_wall_is_soft_fail_not_veto():
     ctx = SimpleNamespace(ts_ms=1000.0, l2_ts_ms=1000.0, price=100.05)
     ctx.l2 = L2Snapshot(bids=[], asks=asks)
     res = v.confirm(ctx=ctx, side="buy", level_price=lvl)
-    assert res.veto is False
-    assert res.passed is False  # soft fail
+    assert res.veto is True
+    assert res.passed is False
     assert res.flags.get("near_big_wall") is True
-    assert 0.0 <= float(res.score01) <= 1.0
+    assert res.reason_code == ReasonCode.VETO_WALL_NEAR.value

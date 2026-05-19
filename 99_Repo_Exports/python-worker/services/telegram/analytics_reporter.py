@@ -94,7 +94,7 @@ class AnalyticsReporter:
         # jsonl log path (optional)
         self._jsonl_path = os.getenv("ANALYTICS_TG_LOG_JSONL_PATH", "").strip()
 
-        self._next_flush_ms = _now_ms() + self._interval_s * 1000
+        self._next_flush_ms: int = 0  # flush on first call
         self._last_sent_ms: int = 0
         # key: (symbol, kind)
         self._pairs: dict[tuple[str,str], PairCounts] = {}
@@ -243,16 +243,23 @@ class AnalyticsReporter:
                 offenders_low.append((sym, kind, r, pc.hits, pc.writes, pc.downstream_dups)),
 
         if not offenders_high and not offenders_low:
-            return "",  # type: ignore
+            return ""
 
-        offenders_high.sort(key=lambda x: x[2], reverse=True),
-        offenders_low.sort(key=lambda x: x[2]),
+        offenders_high.sort(key=lambda x: x[2], reverse=True)
+        offenders_low.sort(key=lambda x: x[2])
 
         # --- Impact evaluation ---
-        impact = self._compute_impact(),
+        impact = self._compute_impact()
+
+        summary_parts = []
+        if offenders_high:
+            summary_parts.append(f"Пережимаете ({len(offenders_high)} пар)")
+        if offenders_low:
+            summary_parts.append(f"Недожимаете ({len(offenders_low)} пар)")
 
         payload: dict[str, Any] = {
             "type": "sem_dedup_analytics",
+            "summary": " | ".join(summary_parts),
             "ts_ms": _now_ms(),
             "window_s": int(self._interval_s),
             "totals": {

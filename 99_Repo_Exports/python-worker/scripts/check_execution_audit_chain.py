@@ -417,20 +417,20 @@ def build_report_from_db(dsn: str, *, lookback_hours: int, limit: int) -> dict[s
             decision_snapshot_keys,
             existing_tables=existing,
             lookback_hours=lookback_hours,
-        ),
+        )
     finally:
-        conn.close(),
+        conn.close()
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     """Entry point: parse args, run audit chain check, write reports."""
-    args = parse_args(argv),
+    args = parse_args(argv)
     try:
         report = build_report_from_db(
             args.dsn, lookback_hours=args.lookback_hours, limit=args.limit,
-        ),
-        write_json_report(args.report_json, report),
-        write_textfile_report(args.report_prom, report),
+        )
+        write_json_report(args.report_json, report)
+        write_textfile_report(args.report_prom, report)
         print(
             json.dumps(
                 {

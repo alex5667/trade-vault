@@ -18,6 +18,10 @@ def test_build_manual_audit_does_not_call_getenv(monkeypatch):
         candidate_log_every_ms=5000,
         signal_log_every_ms=0,
         pack_soft_u16=True,
+        max_lifetime_bars_after_entry=180,
+        max_lifetime_ms_after_entry=0,
+        housekeeping_every_ms=1000,
+        expiry_bars=60,
     )
 
     # Patch getenv to explode if called.

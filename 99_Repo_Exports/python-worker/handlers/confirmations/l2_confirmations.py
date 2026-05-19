@@ -122,6 +122,7 @@ def l2_confirm_absorption(
     ctx: Any,
     l2: Any,
     side: str,  # "buy" => absorption of buys, "sell" => absorption of sells
+    level_price: float | None = None,
     min_taker_rate: float = 0.05,
     refill_min: float = 0.3,
     wall_near_bps: float = 8.0,
@@ -152,6 +153,7 @@ def l2_confirm_absorption(
         pass
 
     # 2) делегируем class-валидатору для флагов wall_here/micro_proxy/mp_contra (и stale тоже)
+    # require_2ofn=False: 2ofN проверяется ниже с учётом ctx (micro_proxy_progress_blocked)
     v = L2ConfirmAbsorption(
         AbsorptionConfirmCfg(
             l2_stale_ms=int(getattr(getattr(ctx, "cfg", None), "l2_stale_ms", 1500) or 1500),
@@ -161,11 +163,15 @@ def l2_confirm_absorption(
             min_refill_ratio=float(refill_min),
         )
     )
-    res = v.confirm(ctx=ctx, side=side, level_price=ctx.level_price if hasattr(ctx, 'level_price') else 100.0)
+    _lvl = level_price if level_price is not None else (getattr(ctx, "level_price", None) or 100.0)
+    res = v.confirm(ctx=ctx, side=side, level_price=_lvl, l2=l2, require_2ofn=False)
     parts.update(res.parts or {})
     parts.update(res.flags or {})
     if res.veto:
         return L2ConfirmResult(True, 0.0, res.reason_code or "veto", parts, res.reason_code, res.reason_u16)
+    # читаем micro_proxy_progress_blocked из ctx для src_b
+    if getattr(ctx, "micro_proxy_progress_blocked", False):
+        parts["micro_proxy"] = True
 
     # 3) энфорсим 3.3: два независимых подтверждения
     refill = getattr(ctx, "refill_ratio", None)

@@ -164,6 +164,16 @@ TRADE_RISK_CONFIDENCE_DENY_TOTAL = _metric(
     "Number of denials caused by confidence floor by tier.",
     ["tier"],
 )
+# E rollout 2026-05-18 SHADOW counter: counts decisions that would have been
+# ALLOWED if RISK_TIER_<T>_MIN_CONFIDENCE_SHADOW were enforced instead of the
+# current floor. Active only when the shadow env is set below the live floor.
+# Use for "what-if" analysis before promoting a relaxed threshold to canary.
+TRADE_RISK_SHADOW_RELAX_WOULD_ALLOW_TOTAL = _metric(
+    Counter,
+    "trade_risk_shadow_relax_would_allow_total",
+    "Decisions denied by current floor that would be allowed at the shadow floor.",
+    ["tier"],
+)
 
 # Decision level string constants
 RISK_ALLOW = "ALLOW"
@@ -619,6 +629,14 @@ def evaluate_risk_policy(inp: RiskPolicyInput, limits: RiskPolicyLimits | None =
         reasons.append("confidence_below_tier_floor")
         if TRADE_RISK_CONFIDENCE_DENY_TOTAL:  # P4.5: count confidence-floor denials by tier
             TRADE_RISK_CONFIDENCE_DENY_TOTAL.labels(tier=tier).inc()
+        # E shadow: would this have passed under a relaxed floor?
+        shadow_floor = _f_env(f"RISK_TIER_{tier}_MIN_CONFIDENCE_SHADOW", float(tier_policy.min_confidence))
+        if (
+            shadow_floor < float(tier_policy.min_confidence)
+            and confidence >= shadow_floor
+            and TRADE_RISK_SHADOW_RELAX_WOULD_ALLOW_TOTAL
+        ):
+            TRADE_RISK_SHADOW_RELAX_WOULD_ALLOW_TOTAL.labels(tier=tier).inc()
 
     # ── Priority 9–10: Market cost hard caps ──────────────────────────────────
     spread_bps = _f(inp.spread_bps)

@@ -21,7 +21,7 @@ import os
 import time
 from typing import Any
 
-from common.normalization import generate_signal_id, normalize_side_3_safe
+from common.normalization import generate_signal_id
 from common.of_gate_metrics_contract import enrich_schema_fields, validate_of_gate_row, why_label
 from common.time_utils import normalize_epoch_ms as normalize_epoch_ms_v2
 from core.atr_sanity import ATRSanity
@@ -68,6 +68,8 @@ from core.slippage_model import expected_slippage_bps
 from core.smt_symbol_snapshot import SymbolSnapshot
 from core.strong_of_gate import hidden_trend_dir
 from core.time_utils import normalize_epoch_ms
+from core.per_tag_conf_floor import get_min_conf_for_tag
+from core.primary_reason_resolver import resolve_primary_reason
 from core.weak_progress import compute_weak_progress
 from handlers.crypto_orderflow.utils.smt_coherence_gate import SmtLeaderCoherenceGate
 from services.async_signal_publisher import AsyncSignalPublisher
@@ -265,6 +267,7 @@ class OrderFlowStrategy:
         self.dn_gate_relaxed_counters = {}  # Counter for [DN-GATE] RELAXED messages
         self.dn_gate_proxy_relaxed_counters = {}  # Counter for [DN-GATE-PROXY] RELAXED messages
         self.conf_relax_counters = {}  # Counter for [CONF-RELAX] messages
+        self.conf_tag_floor_counters: dict[str, int] = {}  # Counter for [CONF-TAG-FLOOR] messages
         self.adverse_continuation_counters = {}  # Counter for [ADVERSE] Continuation Verified messages
         # Confidence scorer with injected calibrator (calibrator applied in _compute_confidence)
         self.conf_scorer = ConfidenceScorer(cfg=ConfidenceConfig())
@@ -355,6 +358,13 @@ class OrderFlowStrategy:
         self._regime_pub_gap_ms: int = int(os.getenv("REGIME_REDIS_PUB_GAP_MS", "2000"))
         self._regime_redis_ttl_sec: int = int(os.getenv("REGIME_REDIS_TTL_SEC", "120"))
         self._runtime_refresh_tasks: dict[tuple[str, str], asyncio.Task] = {}
+
+        # ── ConfirmationBarrier tick wiring ─────────────────────────────────────
+        # Registry keeps the latest runtime per symbol so barrier_poll_and_publish
+        # can resolve ALLOW payloads without needing a service-level lookup.
+        self._runtime_registry: dict[str, Any] = {}
+        self._barrier_poll_last_ms: int = 0
+        self._barrier_poll_interval_ms: int = int(os.getenv("BARRIER_POLL_INTERVAL_MS", "500"))
 
     def _schedule_runtime_refresh(self, runtime, refresh_name: str, coro_factory) -> None:
         """Keep Redis-backed runtime refreshes out of the tick loop task churn."""
@@ -714,6 +724,11 @@ class OrderFlowStrategy:
         price = _safe_float(tick.get("price") or tick.get("last") or tick.get("mid"))
         if not price or price <= 0:
             return None
+
+        # Feed the barrier with a fresh price observation for this symbol so that
+        # pending signals have data when barrier_poll_and_publish evaluates them.
+        self._runtime_registry[runtime.symbol] = runtime
+        self.signal_pipeline.barrier_observe_tick(runtime.symbol, int(tick_ts), price)
 
         # 2. Lazy Start для батчеров (если они еще не запущены)
         if self._mbatch_task is None:
@@ -1089,6 +1104,18 @@ class OrderFlowStrategy:
                 pass
         except Exception:
             pass
+
+        # Periodically drain confirmation barrier (throttled, non-blocking).
+        # Runs on every tick cadence but at most once per BARRIER_POLL_INTERVAL_MS.
+        _now_ms = int(tick_ts)
+        if (_now_ms - self._barrier_poll_last_ms) >= self._barrier_poll_interval_ms:
+            self._barrier_poll_last_ms = _now_ms
+            safe_create_task(
+                self.signal_pipeline.barrier_poll_and_publish(
+                    _now_ms,
+                    self._runtime_registry.get,
+                )
+            )
 
         if not delta_event:
             self._log_metrics(runtime)
@@ -2682,7 +2709,14 @@ class OrderFlowStrategy:
                          confirmations.insert(0, "sweep_eqh=1" if kind == "EQH_SWEEP" else "sweep_eql=1")
 
                 if ev.get("absorption"): confirmations.append(f"absorption={ev.get('absorption_volume', 0.0):.2f}")
-                if ev.get("weak_progress"): confirmations.append("weak_progress=1")
+                # weak_progress is a *weakness* marker, not a directional signal.
+                # Default: never feed it into the confirmation list (audit
+                # 2026-05-18: 1006/1356 trades tagged weak_progress, -59.7 PnL).
+                # Opt-in via WEAK_PROGRESS_AS_CONFIRMATION=1 to restore legacy
+                # behaviour; the feature stays available in ``indicators`` for
+                # the scorer regardless.
+                if ev.get("weak_progress") and os.getenv("WEAK_PROGRESS_AS_CONFIRMATION", "0").strip().lower() in {"1", "true", "yes", "on"}:
+                    confirmations.append("weak_progress=1")
                 if ev.get("abs_lvl_ok"): confirmations.append(f"abs_lvl={ev.get('abs_lvl_score', 0.0):.2f}")
 
                 # ------------------------------------------------------------
@@ -3079,9 +3113,11 @@ class OrderFlowStrategy:
         now_ms = int(tick_ts)
 
         # P1-FIX: resolve primary_reason BEFORE computing signal_id
-        primary_reason = "delta_spike"
-        if confirmations:
-            primary_reason = confirmations[0].split("=", 1)[0]
+        # Use prioritized resolver instead of confirmations[0] (audit 2026-05-18:
+        # append-order made weak_progress the primary reason for 74% of trades
+        # because it is appended before strong evidence). Resolver picks the
+        # highest-priority key actually present and excludes weakness markers.
+        primary_reason = resolve_primary_reason(confirmations, fallback="delta_spike")
 
         # P1-FIX: signal_id must be deterministic for replay and dedup.
         # The old fallback `f"crypto-of:{runtime.symbol}:{now_ms}"` used wall-clock
@@ -3338,6 +3374,24 @@ class OrderFlowStrategy:
                             bias = (ev.get("direction", "") or "").upper()
                             if bias == str(direction).upper():
                                 confirmations.append(f"ofi_stable={float(indicators['ofi_stable_secs']):.1f}s")
+        except Exception:
+            pass
+
+        # Per-tag confidence floor (audit 2026-05-18): raise-only.
+        # Applied AFTER meme-relax so weak tags cannot be relaxed below
+        # their tag-specific safety floor.
+        # Configure via env MIN_CONF_BY_TAG="weak_progress:95,absorption:85,..."
+        try:
+            _pre_tag_floor = min_conf_pct
+            min_conf_pct = get_min_conf_for_tag(primary_reason, min_conf_pct)
+            if min_conf_pct > _pre_tag_floor:
+                cnt = self.conf_tag_floor_counters.get(runtime.symbol, 0) + 1
+                self.conf_tag_floor_counters[runtime.symbol] = cnt
+                if cnt % 1000 == 0:
+                    self.logger.info(
+                        "🎯 [CONF-TAG-FLOOR] (%s) tag=%s raised min_conf %.1f%% → %.1f%% (x%d)",
+                        runtime.symbol, primary_reason, _pre_tag_floor, min_conf_pct, cnt,
+                    )
         except Exception:
             pass
 
@@ -3932,63 +3986,6 @@ class OrderFlowStrategy:
         Delegates signal publishing to SignalPipeline.
         """
         await self.signal_pipeline.publish_signal(runtime, signal)
-    async def _publish_orders_queue(self, runtime: SymbolRuntime, signal: dict[str, Any]) -> None:
-        """
-        Публикует команду в очередь ордеров (MT5=Stream, Binance=List).
-        Схема: order_creation.md (минимально необходимый payload).
-        """
-        symbol = signal.get("symbol") or runtime.symbol
-        ts_value = signal.get("tick_ts") or signal.get("ts_event_ms") or signal.get("generated_at")
-        if not ts_value:
-            logger.warning("⚠️ (%s) Нет временной метки сигнала, пропускаем orders:queue", runtime.symbol)
-            return
-
-        # Unified side normalization (P0)
-        side_norm = normalize_side_3_safe(signal.get("direction") or signal.get("side") or "")
-        if side_norm is None:
-            logger.warning("⚠️ (%s) _publish_orders_queue: unknown direction=%r side=%r (skip)",
-                           symbol, signal.get("direction"), signal.get("side"))
-            return
-        direction = side_norm.execution.lower() # buy/sell  # type: ignore
-        venue = (signal.get("venue") or "mt5").lower()  # type: ignore
-
-        reason = signal.get("reason") or "delta_spike"
-
-        # Signal ID generation (P0)
-        signal_id = generate_signal_id(
-            kind=(signal.get("kind") or "spike"),
-            symbol=symbol,
-            ts_ms=int(ts_value),
-            direction=side_norm.internal  # type: ignore
-        )  # type: ignore
-
-        order_cmd = {
-            "id": f"order-{symbol}-{ts_value}",
-            "sid": signal_id,
-            "signal_id": signal_id,
-            "symbol": symbol,
-            "type": "market",
-            "direction": direction,
-            "side": side_norm.execution,  # type: ignore
-            "side_int": side_norm.numeric,  # type: ignore
-            "source": "CryptoOrderFlow",  # type: ignore
-            "venue": venue,
-            "reason": reason,
-        }
-
-        try:
-            if venue == "mt5":
-                if not self.orders_queue_mt5:
-                    logger.warning("⚠️ (%s) orders_queue_mt5 не задан, пропуск", runtime.symbol)
-                    return
-                # MT5 uses Redis Stream
-                await self.redis.xadd(self.orders_queue_mt5, order_cmd, maxlen=STREAM_RETENTION[RS.ORDERS_QUEUE_MT5], approximate=True)
-            else:
-                # Binance uses Redis List
-                queue = self.orders_queue_binance or RS.ORDERS_QUEUE_BINANCE
-                await self.redis.lpush(queue, json.dumps(order_cmd))
-        except RedisError as exc:
-            logger.warning("⚠️ (%s) Не удалось отправить в очередь ордеров (%s): %s", runtime.symbol, venue, exc)
 
     # ── Парсинг сообщений ──────────────────────────────────────────────────────
 
@@ -4553,7 +4550,7 @@ class OrderFlowStrategy:
         # Here we only read adx14 (cheap); adx_q is computed in snapshot publisher.
         try:
             # best-effort; fail-open
-            adx_raw = await self.redis.get(f"adx:{runtime.symbol}")
+            adx_raw = await self.redis.hget(f"adx:{runtime.symbol}", "adx")
             runtime.dynamic_cfg[DK.ADX14] = float(adx_raw) if adx_raw is not None else 0.0
         except Exception:
             pass

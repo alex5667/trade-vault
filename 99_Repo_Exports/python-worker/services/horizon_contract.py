@@ -50,35 +50,43 @@ _PROFILE_STALE_MAX_MS = int(
 _REDIS_URL_FOR_PROFILE = os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
 _R_PROFILE_SYNC: Any = None  # set lazily
 
-_M_EMITTED = Counter(
+def _safe_counter(name, doc, labels):
+    if Counter is None:
+        return None
+    try:
+        return Counter(name, doc, labels)
+    except ValueError:
+        return None
+
+_M_EMITTED = _safe_counter(
     "trade_horizon_contract_emitted_total",
     "Phase0 horizon contract emitted into payload",
     ["source", "phase_mode"],
-) if Counter is not None else None
+)
 
-_M_REASON = Counter(
+_M_REASON = _safe_counter(
     "trade_horizon_reason_total",
     "Phase0 horizon contract reason",
     ["reason_code"],
-) if Counter is not None else None
+)
 
-_M_POS_ATTACH = Counter(
+_M_POS_ATTACH = _safe_counter(
     "trade_horizon_position_attach_total",
     "Phase0.2 horizon contract attached to PositionState",
     ["source"],
-) if Counter is not None else None
+)
 
-_M_POS_RECOVER = Counter(
+_M_POS_RECOVER = _safe_counter(
     "trade_horizon_position_recover_total",
     "Phase0.2 horizon contract recovered into PositionState",
     ["source"],
-) if Counter is not None else None
+)
 
-_M_POS_MISSING = Counter(
+_M_POS_MISSING = _safe_counter(
     "trade_horizon_position_missing_total",
     "Phase0.2 missing horizon contract during attach/recovery",
     ["source"],
-) if Counter is not None else None
+)
 
 
 def _safe_float(v: Any, default: float = 0.0) -> float:
@@ -759,22 +767,23 @@ def extract_position_horizon_scalars(obj: Any) -> dict[str, Any]:
     }
 
 
-_M_SCALAR_RECOVER = Counter(
+_M_SCALAR_RECOVER = _safe_counter(
     "trade_horizon_position_scalar_recover_total",
     "Phase 0.3 horizon scalars restored directly from Redis hash fields",
     ["source"],
-) if Counter is not None else None
+)
 
-_M_SCALAR_MISSING = Counter(
+_M_SCALAR_MISSING = _safe_counter(
     "trade_horizon_position_scalar_missing_total",
     "Phase 0.3 position had no horizon scalar fields in Redis hash",
     ["source"],
-) if Counter is not None else None
+)
 
-_M_CLOSED_STAMPED = Counter(
+_M_CLOSED_STAMPED = _safe_counter(
     "trade_horizon_closed_scalar_stamped_total",
     "Phase 0.3 horizon scalars stamped onto TradeClosed",
-) if Counter is not None else None
+    [],
+)
 
 
 def apply_position_horizon_scalars_from_hash(pos: Any, h: dict[str, Any], *, source: str = "hash") -> bool:

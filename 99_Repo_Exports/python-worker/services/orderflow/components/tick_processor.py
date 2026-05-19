@@ -300,3 +300,126 @@ class TickProcessor:
             await strat.publish_signal(runtime, signal)
             with contextlib.suppress(Exception):
                 signals_published_total.labels(symbol=symbol).inc()
+
+    async def _inject_liqmap_features(
+        self,
+        *,
+        runtime: Any,
+        now_ms: int,
+        price: float,
+        indicators: dict[str, Any],
+    ) -> None:
+        """Best-effort LiqMap snapshot -> indicator injection. Fail-open."""
+        import asyncio
+        from core.liqmap_features_v1 import (
+            compute_liqmap_features,
+            liqmap_feature_keys,
+            make_liqmap_default_features,
+            parse_liqmap_snapshot_v1,
+        )
+        try:
+            if not bool(getattr(self, "liqmap_features_enable", False)):
+                return
+
+            sym = str(getattr(runtime, "symbol", "") or "").strip().upper()
+            if not sym:
+                return
+
+            windows = list(getattr(self, "liqmap_features_windows", []) or [])
+            if not windows:
+                return
+
+            refresh_ms = int(getattr(self, "liqmap_features_refresh_ms", 0) or 0)
+            stale_ms = int(getattr(self, "liqmap_features_failopen_stale_ms", 0) or 0)
+            prefix = str(getattr(self, "liqmap_snapshot_key_prefix", "liqmap:snapshot") or "liqmap:snapshot")
+            near_band_bps = float(getattr(self, "liqmap_near_band_bps", 20.0) or 20.0)
+            peak_min_share = float(getattr(self, "liqmap_peak_min_share", 0.05) or 0.05)
+
+            for w in windows:
+                wnd = str(w)
+                ck = (sym, wnd)
+                if not hasattr(self, "_liqmap_cache"):
+                    self._liqmap_cache = {}
+                if not hasattr(self, "_liqmap_next_refresh_ts_ms"):
+                    self._liqmap_next_refresh_ts_ms = {}
+                cached = self._liqmap_cache.get(ck)
+                next_ts = int(self._liqmap_next_refresh_ts_ms.get(ck, 0) or 0)
+
+                if cached and refresh_ms > 0 and now_ms < next_ts:
+                    feats = cached.get("feats") if isinstance(cached, dict) else None
+                    if isinstance(feats, dict) and feats:
+                        with contextlib.suppress(Exception):
+                            snap_ts_ms = int(cached.get("snap_ts_ms", 0) or 0)
+                            if snap_ts_ms > 0:
+                                feats[f"liqmap_{wnd}_age_ms"] = float(max(0, now_ms - snap_ts_ms))
+                        indicators.update(feats)
+                    continue
+
+                with contextlib.suppress(Exception):
+                    self._liqmap_next_refresh_ts_ms[ck] = now_ms + int(refresh_ms)
+
+                raw = None
+                with contextlib.suppress(Exception):
+                    raw = await asyncio.wait_for(
+                        self.redis.get(f"{prefix}:{sym}:{wnd}"),
+                        timeout=0.005,
+                    )
+
+                if raw is None:
+                    if isinstance(cached, dict):
+                        good_ms = int(cached.get("good_ms", 0) or 0)
+                        if good_ms > 0 and stale_ms > 0 and (now_ms - good_ms) <= stale_ms:
+                            feats = cached.get("feats")
+                            if isinstance(feats, dict) and feats:
+                                with contextlib.suppress(Exception):
+                                    snap_ts_ms = int(cached.get("snap_ts_ms", 0) or 0)
+                                    if snap_ts_ms > 0:
+                                        feats[f"liqmap_{wnd}_age_ms"] = float(max(0, now_ms - snap_ts_ms))
+                                indicators.update(feats)
+                                continue
+                    defaults = make_liqmap_default_features([wnd])
+                    indicators.update(defaults)
+                    self._liqmap_cache[ck] = {
+                        "fetch_ms": now_ms,
+                        "good_ms": int(cached.get("good_ms", 0) or 0) if isinstance(cached, dict) else 0,
+                        "snap_ts_ms": int(cached.get("snap_ts_ms", 0) or 0) if isinstance(cached, dict) else 0,
+                        "feats": defaults,
+                    }
+                    continue
+
+                raw_s: str
+                try:
+                    raw_s = raw.decode("utf-8") if isinstance(raw, (bytes, bytearray)) else str(raw)
+                except Exception:
+                    raw_s = str(raw)
+
+                try:
+                    snap = parse_liqmap_snapshot_v1(raw_s, expected_symbol=sym, expected_window=wnd)
+                    feats = compute_liqmap_features(
+                        snap,
+                        price=float(price),
+                        windows=(wnd,),
+                        near_band_bps=float(near_band_bps),
+                        peak_min_share=float(peak_min_share),
+                        now_ms=now_ms,
+                    )
+                    for k in liqmap_feature_keys(wnd):
+                        feats.setdefault(k, 0.0)
+                    indicators.update(feats)
+                    self._liqmap_cache[ck] = {
+                        "fetch_ms": now_ms,
+                        "good_ms": now_ms,
+                        "snap_ts_ms": int(getattr(snap, "ts_ms", 0) or 0),
+                        "feats": feats,
+                    }
+                except Exception:
+                    defaults = make_liqmap_default_features([wnd])
+                    indicators.update(defaults)
+                    self._liqmap_cache[ck] = {
+                        "fetch_ms": now_ms,
+                        "good_ms": int(cached.get("good_ms", 0) or 0) if isinstance(cached, dict) else 0,
+                        "snap_ts_ms": int(cached.get("snap_ts_ms", 0) or 0) if isinstance(cached, dict) else 0,
+                        "feats": defaults,
+                    }
+        except Exception:
+            return

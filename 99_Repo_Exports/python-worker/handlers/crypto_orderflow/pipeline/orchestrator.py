@@ -645,7 +645,7 @@ class SignalOrchestrator:
 
             # 2. Regime Gate (Component)
             _t_r = time.monotonic()
-            rg_decision = self.gates.check_regime_gate(ctx=ctx, kind=kind_key)
+            rg_decision = self.gates.check_regime_gate(ctx=ctx, kind=kind_key, side=_resolve_side(cand))
             audit.record_stage("regime", _t_r)
             if isinstance(rg_decision, tuple):
                 _rg_dec = "ALLOW" if rg_decision[0] else "DENY"

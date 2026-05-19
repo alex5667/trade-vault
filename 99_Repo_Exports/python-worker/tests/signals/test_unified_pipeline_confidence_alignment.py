@@ -4,7 +4,10 @@ from dataclasses import dataclass
 
 import pytest
 
-from handlers.crypto_orderflow.core.crypto_orderflow_calibration import RollingPercentileCalibrator
+from handlers.crypto_orderflow.core.crypto_orderflow_calibration import (
+    ConfidenceCalibratorCfg,
+    RollingPercentileCalibrator,
+)
 from signals.unified_pipeline import UnifiedSignalPipeline
 
 
@@ -16,13 +19,14 @@ class _Publisher:
     def __init__(self):
         self.last_payload = None
 
-    def build_payload(self, ctx, scoring_result):
-        # минимальный "wire" payload
+    def build_payload(self, ctx=None, scoring_result=None, result=None):
+        # минимальный "wire" payload; pipeline вызывает build_payload(ctx=..., result=...)
+        sr = result if result is not None else scoring_result
         return {
             "kind": "breakout",
             "symbol": getattr(ctx, "symbol", ""),
             "ts": getattr(ctx, "ts", 0),
-            "final_score": getattr(scoring_result, "final_score", 0.0),
+            "final_score": getattr(sr, "final_score", 0.0),
         }
 
     def publish(self, payload):
@@ -32,6 +36,7 @@ class _Publisher:
 @dataclass
 class _ScoringResult:
     final_score: float
+    should_emit: bool = True
 
 
 class _ScoringEngine:
@@ -42,7 +47,7 @@ class _ScoringEngine:
 
 
 def test_unified_pipeline_uses_same_confidence_calibrator_scale():
-    cal = RollingPercentileCalibrator()
+    cal = RollingPercentileCalibrator(ConfidenceCalibratorCfg(min_history=4))
     cal.seed_history_for_tests(kind="breakout", symbol="BTCUSDT", abs_scores=[1, 2, 3, 4])
 
     publisher = _Publisher()

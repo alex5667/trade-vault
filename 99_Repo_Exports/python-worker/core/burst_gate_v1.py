@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+import os
 from typing import Any
 
 # -------------------------------------------------------------------------
@@ -45,7 +46,7 @@ def eval_burst_gate(
     """
 
     # 1. Config
-    mode = (cfg.get("burst_gate_mode", "penalty")).lower().strip()
+    mode = (cfg.get("burst_gate_mode") or os.getenv("BURST_GATE_MODE", "penalty")).lower().strip()
     # penalty | shadow | enforce | veto | hard | off
     if mode == "off" or int(cfg.get("burst_gate_enable", 1)) == 0:
         return 0.0, 0, "ok", {}

@@ -4,6 +4,7 @@ from types import SimpleNamespace
 
 from common.reason_codes import ReasonCode
 from handlers.confirmations.engine import ConfirmationsEngine
+from handlers.crypto_orderflow.types.crypto_orderflow_handler_types import L2Snapshot
 
 
 class _DummyBreakout:

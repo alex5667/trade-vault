@@ -36,9 +36,10 @@ FIXTURE = Path(__file__).parent / "fixtures" / "signals_of_inputs_golden.json"
 
 # Floors — bump up when coverage improves; never lower without an ADR.
 # Baseline captured 2026-05-17 from a live signal (1000PEPEUSDT/LONG, warm
-# state). v14_of canary mode active.
+# state). v14_of canary mode active. Floors tightened 2026-05-18 after
+# audit confirmed actual coverage v13=57.9%, v14=71.6% on this fixture.
 V13_COVERAGE_FLOOR = 0.55
-V14_COVERAGE_FLOOR = 0.65
+V14_COVERAGE_FLOOR = 0.68
 
 # Required structural top-level fields always emitted by signal_pipeline.
 REQUIRED_TOP_FIELDS = (
@@ -141,4 +142,99 @@ def test_v13_of_subset_of_v14_of():
     assert not removed, (
         f"v14_of removed keys from v13_of: {sorted(removed)} — "
         f"violates append-only invariant"
+    )
+
+
+# Tracked schema gap (2026-05-18 audit): external_features_payload_v1._NUM_KEYS
+# has grown past V14_OF_NUMERIC_KEYS by Phase 8.2/8.3/8.4/8.5/P1/P2/P3/4.x keys.
+# v14_of remains pinned (canary model + Redis pin); the gap was closed by
+# introducing v15_of (515 keys). The v14 gap is therefore expected to stay at
+# 156 until v14_of is retired. v15_of must have ZERO gap (strict subset).
+_EXPECTED_EXTERNAL_PAYLOAD_GAP_VS_V14 = 156
+
+
+def test_external_features_payload_known_schema_gap_v14():
+    """Pin the v14_of schema gap (156 keys; closed by v15_of, not v14_of).
+
+    Failing this test means someone changed _NUM_KEYS or V14_OF_NUMERIC_KEYS.
+    If v14_of was retrained + repinned, drop this test and rely on the v15
+    subset assertion below.
+    """
+    from core.ml_feature_schema_v14_of import V14_OF_NUMERIC_KEYS
+    from core.external_features_payload_v1 import _NUM_KEYS, _BOOL_KEYS
+    schema = set(V14_OF_NUMERIC_KEYS)
+    emitted = set(_NUM_KEYS) | set(_BOOL_KEYS)
+    gap = emitted - schema
+    assert len(gap) == _EXPECTED_EXTERNAL_PAYLOAD_GAP_VS_V14, (
+        f"external_features_payload ↔ v14_of schema gap changed: "
+        f"got {len(gap)}, expected {_EXPECTED_EXTERNAL_PAYLOAD_GAP_VS_V14}. "
+        f"If schema was extended, refresh Redis pin "
+        f"(cfg:feature_registry:edge_stack:v14_of) and retrain canary, then "
+        f"update _EXPECTED_EXTERNAL_PAYLOAD_GAP_VS_V14. "
+        f"Sample drift: {sorted(gap)[:5]} ..."
+    )
+
+
+def test_external_features_payload_subset_of_v15_of():
+    """Strict subset: every emitted key must live in v15_of schema.
+
+    This is the post-fix invariant — v15_of was created precisely to close
+    the gap. Failure means someone added a new payload key without extending
+    v15_of (bump _EXPECTED_KEYS + SCHEMA_HASH there).
+    """
+    from core.ml_feature_schema_v15_of import V15_OF_NUMERIC_KEYS
+    from core.external_features_payload_v1 import _NUM_KEYS, _BOOL_KEYS
+    schema = set(V15_OF_NUMERIC_KEYS)
+    emitted = set(_NUM_KEYS) | set(_BOOL_KEYS)
+    gap = emitted - schema
+    assert not gap, (
+        f"external_features_payload emits {len(gap)} keys outside v15_of: "
+        f"{sorted(gap)[:10]}. Extend v15_of and bump SCHEMA_HASH."
+    )
+
+
+def test_v14_of_subset_of_v15_of():
+    """Sanity: append-only invariant. v15_of must be a strict superset of v14_of."""
+    from core.ml_feature_schema_v14_of import V14_OF_NUMERIC_KEYS
+    from core.ml_feature_schema_v15_of import V15_OF_NUMERIC_KEYS
+    v14 = set(V14_OF_NUMERIC_KEYS)
+    v15 = set(V15_OF_NUMERIC_KEYS)
+    removed = v14 - v15
+    assert not removed, (
+        f"v15_of removed keys from v14_of: {sorted(removed)} — "
+        f"violates append-only invariant"
+    )
+
+
+# v15_of coverage floor — derived from v14_of floor * (359/515) ≈ 47% expected
+# once v15_of warms up. Set conservatively at v14_of floor until real data exists.
+V15_COVERAGE_FLOOR = 0.47
+
+
+def test_v15_of_key_count_pinned():
+    """v15_of key count hard invariant: 515 numeric keys, 0 duplicates."""
+    from core.ml_feature_schema_v15_of import V15_OF_NUMERIC_KEYS
+    assert len(V15_OF_NUMERIC_KEYS) == 515, (
+        f"v15_of key count changed: got {len(V15_OF_NUMERIC_KEYS)}, expected 515. "
+        "Bump _EXPECTED_KEYS + SCHEMA_HASH in ml_feature_schema_v15_of.py when intentional."
+    )
+    assert len(V15_OF_NUMERIC_KEYS) == len(set(V15_OF_NUMERIC_KEYS)), (
+        "v15_of has duplicate keys — fix _build_keys()"
+    )
+
+
+def test_v15_of_coverage_above_floor(indicators):
+    """v15_of coverage floor (shadow — will rise once warm-up fills OE keys).
+
+    Uses the module-scoped `indicators` fixture (already validated non-empty).
+    Coverage expected ≈ v14_of * (359/515) ≈ 47% once v15_of shadow starts.
+    """
+    from core.ml_feature_schema_v15_of import V15_OF_NUMERIC_KEYS
+    # v15_of is a superset; use set-intersection for speed
+    present = len(set(V15_OF_NUMERIC_KEYS) & set(indicators.keys()))
+    coverage = present / len(V15_OF_NUMERIC_KEYS)
+    assert coverage >= V15_COVERAGE_FLOOR, (
+        f"v15_of coverage {coverage:.1%} < floor {V15_COVERAGE_FLOOR:.1%} "
+        f"({present}/{len(V15_OF_NUMERIC_KEYS)} keys present). "
+        "If v15_of shadow just started, lower V15_COVERAGE_FLOOR temporarily."
     )

@@ -4316,7 +4316,7 @@ class OrderFlowStrategy:
         # Here we only read adx14 (cheap); adx_q is computed in snapshot publisher.
         try:
             # best-effort; fail-open
-            adx_raw = await self.redis.get(f"adx:{runtime.symbol}")
+            adx_raw = await self.redis.hget(f"adx:{runtime.symbol}", "adx")  # type: ignore[misc]
             runtime.dynamic_cfg[DK.ADX14] = float(adx_raw) if adx_raw is not None else 0.0
         except Exception:
             pass

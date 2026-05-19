@@ -17,7 +17,7 @@ def test_atr_cache_prefers_tracker_hash():
     v, meta = c.get_with_meta("BTCUSDT", "1m", now_ms=1700000001000)
     print(f"DEBUG RESULT: v={v}, meta={meta}")
     assert v == 42.0
-    assert meta["src"] == "atr_tracker"
+    assert meta["src"] == "tracker"
     assert meta["age_ms"] == 1000
 
 
@@ -40,7 +40,8 @@ def test_atr_cache_reads_json_key():
     assert meta["age_ms"] == 100
 
 
-def test_atr_cache_ta_last_tf_mismatch_flag():
+def test_atr_cache_ta_last_tf_mismatch_flag(monkeypatch):
+    monkeypatch.setenv("ATR_ALLOW_TF_MISMATCH", "1")
     r = fakeredis.FakeRedis(decode_responses=True)
     r.set("ta:last:atr:BTCUSDT", json.dumps({"atr": 11.0, "tf": "M5", "ts": 100}))
     c = ATRCache(redis_client=r)

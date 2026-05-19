@@ -1,7 +1,5 @@
 x-default-python-worker:
-  build: &id001
-    context: .
-    dockerfile: python-worker/Dockerfile
+  image: &id001 scanner-analytics-base:latest
   restart: unless-stopped
   environment:
   - GPU_ENABLED=false
@@ -15,7 +13,7 @@ x-default-python-worker:
   - 8.8.4.4
 services:
   scanner-ml-confirm-calibrator:
-    build: *id001
+    image: *id001
     restart: unless-stopped
     environment:
     - PYTHONUNBUFFERED=1
@@ -42,7 +40,7 @@ services:
     - /var/lib/trade/ml_models:/var/lib/trade/ml_models
     - ./calibration:/app/calibration
   scanner-taker-flow-calibrator:
-    build: *id001
+    image: *id001
     restart: unless-stopped
     environment:
     - PYTHONUNBUFFERED=1
@@ -60,7 +58,7 @@ services:
 
       '
   scanner-conf-score-tuning-nightly-timer:
-    build: *id001
+    image: *id001
     restart: unless-stopped
     environment:
     - PYTHONUNBUFFERED=1
@@ -85,7 +83,7 @@ services:
 
       '
   scanner-meta-skew-guard-nightly-timer:
-    build: *id001
+    image: *id001
     restart: unless-stopped
     environment:
     - PYTHONUNBUFFERED=1
@@ -109,7 +107,7 @@ services:
 
       '
   scanner-meta-ab-winner-evaluator-v1:
-    build: *id001
+    image: *id001
     restart: unless-stopped
     environment:
     - PYTHONUNBUFFERED=1
@@ -133,7 +131,7 @@ services:
 
       '
   scanner-meta-ab-winner-evaluator-v2:
-    build: *id001
+    image: *id001
     restart: unless-stopped
     environment:
     - PYTHONUNBUFFERED=1
@@ -158,7 +156,7 @@ services:
 
       '
   scanner-trailing-tuner:
-    build: *id001
+    image: *id001
     restart: unless-stopped
     environment:
     - REDIS_URL=${REDIS_URL}
@@ -173,7 +171,7 @@ services:
       \u0438\u0434\u0430\u043D\u0438\u0435 1 \u0447\u0430\u0441...'; sleep 3600; done\"\
       \n"
   scanner-trailing-autotune:
-    build: *id001
+    image: *id001
     restart: unless-stopped
     environment:
     - REDIS_URL=${REDIS_URL}
@@ -186,7 +184,7 @@ services:
     command: python3 tools/run_with_minik_failover.py --job-name trailing_autotune_telegram
       --is-minik -- python -m tools.trailing_autotune_telegram
   scanner-burst-report:
-    build: *id001
+    image: *id001
     restart: unless-stopped
     environment:
     - REDIS_URL=${REDIS_URL}
@@ -198,7 +196,7 @@ services:
     command: python3 tools/run_with_minik_failover.py --job-name burst_report --is-minik
       -- python -m tools.burst_report
   decision-coverage-kpi-worker:
-    build: *id001
+    image: *id001
     restart: unless-stopped
     environment:
     - REDIS_URL=${REDIS_URL}
@@ -210,7 +208,7 @@ services:
     command: python3 tools/run_with_minik_failover.py --job-name decision_coverage_kpi
       --is-minik -- python3 -u orderflow_services/decision_coverage_kpi_worker_v1.py
   candles-archiver:
-    build: *id001
+    image: *id001
     restart: unless-stopped
     environment:
     - REDIS_URL=${REDIS_URL}
@@ -222,7 +220,7 @@ services:
     command: python3 tools/run_daemon_with_minik_failover.py --job-name candles_archiver
       --is-minik -- python -m services.candles_archiver
   post-sl-analyzer:
-    build: *id001
+    image: *id001
     restart: unless-stopped
     environment:
     - REDIS_URL=${REDIS_URL}
@@ -232,7 +230,7 @@ services:
     container_name: scanner-post-sl-analyzer
     command: sh -c "sleep 40 && python services/post_sl_analyzer.py"
   sl-quantile-aggregator:
-    build: *id001
+    image: *id001
     restart: unless-stopped
     environment:
     - REDIS_URL=${REDIS_URL}
@@ -242,7 +240,7 @@ services:
     container_name: scanner-sl-quantile-aggregator
     command: sh -c "sleep 45 && python services/sl_quantile_aggregator.py"
   periodic-reporter:
-    build: *id001
+    image: *id001
     restart: unless-stopped
     environment:
     - REDIS_URL=${REDIS_URL}
@@ -588,7 +586,7 @@ services:
         reservations:
           memory: 24M
   scanner-trade-ml-sre-monitor-timer:
-    build: *id001
+    image: *id001
     restart: unless-stopped
     environment:
     - PYTHONUNBUFFERED=1
@@ -679,7 +677,7 @@ services:
       done\"\n"
 
   scanner-trade-execution-healthcheck-timer:
-    build: *id001
+    image: *id001
     restart: unless-stopped
     environment:
     - PYTHONUNBUFFERED=1
@@ -708,7 +706,7 @@ services:
       \ || true;\n  fi;\n  sleep 60;\ndone\"\n"
 
   scanner-bbo-ts-writer:
-    build: *id001
+    image: *id001
     restart: unless-stopped
     environment:
     - PYTHONUNBUFFERED=1
@@ -731,7 +729,7 @@ services:
     command: python3 tools/run_daemon_with_minik_failover.py --job-name bbo_ts_writer --is-minik -- python -m services.posttrade.bbo_ts_writer
 
   scanner-of-gate-sre:
-    build: *id001
+    image: *id001
     restart: unless-stopped
     environment:
     - PYTHONUNBUFFERED=1
@@ -770,6 +768,36 @@ services:
       \ --fail-on-mismatch 0 || echo 'Replay failed'; fi\n      if [ \"$$H\" = \"\
       04\" ]; then python -m tools.ml_calibration_health_monitor || echo 'ML monitor\
       \ failed'; fi\n    fi\n    \n    sleep 60\n  done\n\"\n"
+
+  scanner-redis-reconnect-watchdog:
+    image: docker:27-cli
+    restart: unless-stopped
+    container_name: scanner-redis-reconnect-watchdog
+    environment:
+    - REDIS_HOST=${REDIS_HOST:-192.168.0.168}
+    - REDIS_PORT=6379
+    - REDIS_TICKS_HOST=${REDIS_HOST:-192.168.0.168}
+    - REDIS_TICKS_PORT=6380
+    - CHECK_INTERVAL=30
+    - DOWN_THRESHOLD=2
+    - TZ=UTC
+    volumes:
+    - /var/run/docker.sock:/var/run/docker.sock
+    command: 'sh -c "echo ''[watchdog] starting. checking redis every $$CHECK_INTERVAL
+      s, threshold $$DOWN_THRESHOLD consecutive failures''; prev_state=up; fail_count=0;
+      while true; do if nc -z -w 3 $$REDIS_HOST $$REDIS_PORT >/dev/null 2>&1 && nc
+      -z -w 3 $$REDIS_TICKS_HOST $$REDIS_TICKS_PORT >/dev/null 2>&1; then if [ \"$$prev_state\"
+      = \"down\" ]; then echo \"[watchdog] $$(date -u +%FT%TZ) redis recovered after
+      $$fail_count failures — restarting minik analytics containers\"; docker ps --filter
+      ''name=scanner-'' --filter ''status=running'' --format ''{{.Names}}'' | grep
+      -v ''scanner-redis-reconnect-watchdog'' | xargs -r -n1 docker restart -t 10
+      >/dev/null && echo \"[watchdog] restart complete\"; fi; prev_state=up; fail_count=0;
+      else fail_count=$$((fail_count+1)); if [ \"$$fail_count\" -ge \"$$DOWN_THRESHOLD\"
+      ] && [ \"$$prev_state\" = \"up\" ]; then echo \"[watchdog] $$(date -u +%FT%TZ)
+      redis DOWN ($$fail_count consecutive failures)\"; prev_state=down; fi; fi; sleep
+      $$CHECK_INTERVAL; done"
+
+      '
 
 networks:
   scanner-timers:

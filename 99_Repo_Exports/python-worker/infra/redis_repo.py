@@ -1351,6 +1351,36 @@ class RedisTradeRepository:
 
         stream_data = _stringify(d)
 
+        # ── Flat fields required by PEdgeThresholdCalibrator ─────────────────
+        # ml_prob: signal_payload → indicators → of_confirm → evidence → ml_decision → p_edge
+        # result:  WIN / LOSS / BE derived from r_multiple
+        # ts_close: alias for exit_ts_ms
+        # market_regime: explicit field (calibrator prefers this over "regime" alias)
+        try:
+            _sp = getattr(closed, "signal_payload", None) or {}
+            if isinstance(_sp, str):
+                _sp = json.loads(_sp)
+            if isinstance(_sp, dict):
+                _ofc = (_sp.get("indicators") or {}).get("of_confirm") or {}
+                _mld = (_ofc.get("evidence") or {}).get("ml_decision") or {}
+                if isinstance(_mld, dict) and "p_edge" in _mld:
+                    stream_data["ml_prob"] = f"{float(_mld['p_edge']):.6f}"
+        except Exception:
+            pass
+        try:
+            _r = float(getattr(closed, "r_multiple", 0.0) or 0.0)
+            stream_data["result"] = "WIN" if _r > 0 else ("LOSS" if _r < 0 else "BE")
+        except Exception:
+            pass
+        stream_data.setdefault("ts_close", stream_data.get("exit_ts_ms", "0"))
+        stream_data.setdefault(
+            "market_regime",
+            stream_data.get("entry_regime") or stream_data.get("regime") or "*",
+        )
+        # r_multiple alias for compact-path compatibility: compact writes r_mult,
+        # but PEdgeThresholdCalibrator reads r_multiple.
+        stream_data.setdefault("r_multiple", stream_data.get("r_mult", "0"))
+
         logger.debug(
             f"💾 save_closed -> {TRADES_CLOSED_STREAM_NAME}: "
             f"order_id={oid}, source={getattr(closed, 'source', '')}, strategy={getattr(closed, 'strategy', '')}, "

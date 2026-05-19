@@ -3,7 +3,7 @@ services:
     image: redis:7-alpine
     container_name: redis
     ports:
-    - 127.0.0.1:6379:6379
+    - 192.168.0.168:6379:6379
     volumes:
     - redis-data:/data
     - ./redis-external-access.conf:/usr/local/etc/redis/redis.conf
@@ -37,6 +37,7 @@ services:
     shm_size: 2gb
     sysctls:
       net.core.somaxconn: 65535
+      net.ipv4.tcp_max_syn_backlog: 65535
     environment:
     - TZ=UTC
   redis-worker-1:
@@ -85,7 +86,7 @@ services:
       resources:
         limits:
           memory: 10GB
-          cpus: '2.0'
+          cpus: '3.0'
         reservations:
           memory: 3G
     ulimits:
@@ -94,7 +95,7 @@ services:
         hard: 65536
     shm_size: 512mb
     sysctls:
-      net.core.somaxconn: 4096
+      net.core.somaxconn: 65535
   redis-worker-1b:
     image: redis:7-alpine
     container_name: redis-worker-1b
@@ -146,7 +147,7 @@ services:
         hard: 65536
     shm_size: 512mb
     sysctls:
-      net.core.somaxconn: 4096
+      net.core.somaxconn: 65535
   redis-worker-2:
     image: redis:7-alpine
     container_name: redis-worker-2
@@ -191,7 +192,7 @@ services:
       resources:
         limits:
           memory: 14GB
-          cpus: '2.0'
+          cpus: '3.0'
         reservations:
           memory: 2G
     ulimits:
@@ -200,7 +201,7 @@ services:
         hard: 65536
     shm_size: 512mb
     sysctls:
-      net.core.somaxconn: 4096
+      net.core.somaxconn: 65535
   redis-worker-2b:
     image: redis:7-alpine
     container_name: redis-worker-2b
@@ -252,7 +253,7 @@ services:
         hard: 65536
     shm_size: 512mb
     sysctls:
-      net.core.somaxconn: 4096
+      net.core.somaxconn: 65535
   redis-main-stream-bootstrap:
     image: redis:7-alpine
     container_name: redis-main-stream-bootstrap
@@ -346,7 +347,7 @@ services:
       resources:
         limits:
           memory: 10GB
-          cpus: '2.0'
+          cpus: '3.0'
         reservations:
           memory: 2G
     ulimits:
@@ -355,7 +356,7 @@ services:
         hard: 65536
     shm_size: 512mb
     sysctls:
-      net.core.somaxconn: 4096
+      net.core.somaxconn: 65535
   redis-worker-3b:
     image: redis:7-alpine
     container_name: redis-worker-3b
@@ -407,12 +408,14 @@ services:
         hard: 65536
     shm_size: 512mb
     sysctls:
-      net.core.somaxconn: 4096
+      net.core.somaxconn: 65535
   redis-ticks:
     image: redis:7-alpine
     container_name: redis-ticks
     expose:
     - '6379'
+    ports:
+    - 192.168.0.168:6380:6379
     volumes:
     - redis-ticks-data:/data
     - ./redis-ticks.conf:/usr/local/etc/redis/redis.conf
@@ -445,7 +448,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: 6G
+          memory: 8G
           cpus: '4.0'
         reservations:
           memory: 3G
@@ -455,7 +458,7 @@ services:
         hard: 65536
     shm_size: 1gb
     sysctls:
-      net.core.somaxconn: 8192
+      net.core.somaxconn: 65535
   redis-ticks-b:
     image: redis:7-alpine
     container_name: redis-ticks-b
@@ -504,7 +507,7 @@ services:
         hard: 65536
     shm_size: 1gb
     sysctls:
-      net.core.somaxconn: 8192
+      net.core.somaxconn: 65535
   postgres:
     image: timescale/timescaledb-ha:pg15.15-ts2.24.0
     container_name: scanner-postgres

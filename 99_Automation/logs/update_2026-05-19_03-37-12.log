@@ -1,0 +1,12 @@
+=== START 2026-05-19T03:37:12+03:00 ===
+done: copied=135 skipped=188544 export_root=/home/alex/Apps/Obsidian/trade-vault/99_Repo_Exports
+lint failed:
+ - /home/alex/Apps/Obsidian/trade-vault/80_Research/ADR-0004 ML v5_of Feature Expansion.md: missing field `type`
+ - /home/alex/Apps/Obsidian/trade-vault/80_Research/ADR-0004 ML v5_of Feature Expansion.md: missing H1 title
+ - /home/alex/Apps/Obsidian/trade-vault/80_Research/ADR-0007 Point-in-Time Historical Priors.md: missing field `type`
+ - /home/alex/Apps/Obsidian/trade-vault/80_Research/ADR-0007 Point-in-Time Historical Priors.md: missing H1 title
+ - /home/alex/Apps/Obsidian/trade-vault/80_Research/ADR-0005 TCA EMA Priors Pipeline.md: missing field `type`
+ - /home/alex/Apps/Obsidian/trade-vault/80_Research/ADR-0005 TCA EMA Priors Pipeline.md: missing H1 title
+ - /home/alex/Apps/Obsidian/trade-vault/80_Research/ADR-0006 Cross-Symbol and Liq-OI Feature Pipeline.md: missing field `type`
+ - /home/alex/Apps/Obsidian/trade-vault/80_Research/ADR-0006 Cross-Symbol and Liq-OI Feature Pipeline.md: missing H1 title
+ - /home/alex/Apps/Obsidian/trade-vault/60_Rollouts/v14_of OE Canary.md: missing frontmatter

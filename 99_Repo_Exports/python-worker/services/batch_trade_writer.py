@@ -361,8 +361,6 @@ class BatchTradeWriter:
 
                 close_reason_detail,
                 strong_gate_ok,
-                policy_mode,
-                policy_raw,
                 atr_policy_ver,
                 atr_policy_tag,
                 atr_policy_source,
@@ -374,33 +372,14 @@ class BatchTradeWriter:
                 atr_recovery_run_id,
                 atr_restore_cert_id,
                 atr_restore_cert_status,
-                atr_policy_snapshot_json,
-                atr_sel_tf,
-                atr_sel_src,
-                atr_sel_age_ms,
-                contract_ver,
-                hold_target_ms,
-                alpha_half_life_ms,
-                max_signal_age_ms,
-                risk_horizon_bucket,
-                horizon_profile_source,
-                horizon_profile_conf,
-                horizon_reason_code,
-                atr_mode,
-                atr_value,
-                atr_window_n,
-                atr_age_ms,
-                atr_source,
-                atr_regime_value,
-                atr_trail_value,
-                atr_regime_tf_ms,
-                atr_trail_tf_ms,
-                atr_pct,
-                vol_ratio_fast_slow,
-                vol_ratio_z
+                atr_policy_snapshot_json
             ) VALUES %s
             ON CONFLICT (order_id) DO NOTHING
         """
+        # NOTE: policy_mode/policy_raw, atr_sel_*, horizon_profile_*, atr_mode/value/window_n,
+        # atr_regime_*/atr_trail_*, и непрификсированные contract_ver/hold_target_ms/.../vol_ratio_z
+        # хранятся в JSONB-блоках config_json (indicators/atr_metrics/meta) — отдельных колонок
+        # в trades_closed нет. Strategy-contract scalars дублируются в sc_* колонках выше.
 
         sql_p0 = """
             INSERT INTO trades_closed_p0 (
@@ -549,17 +528,12 @@ def _build_main_row(closed: Any) -> tuple:
         config_snapshot["features"] = features
     elif "features" in sp and sp["features"]:
         config_snapshot["features"] = sp["features"]
-    # Извлечение gate_ok и policy
     indicators = sp.get("indicators") or {}
-    meta = sp.get("meta") or {}
     strong_gate_ok_raw = indicators.get("strong_gate_ok", indicators.get("of_confirm_ok", None))
     try:
         strong_gate_ok = bool(int(strong_gate_ok_raw)) if strong_gate_ok_raw is not None else None
     except (ValueError, TypeError):
         strong_gate_ok = None
-        
-    policy_mode = meta.get("policy_effective_mode") or meta.get("policy_regime") or meta.get("policy_mode") or None
-    policy_raw = json.dumps(meta, ensure_ascii=False) if meta else None
 
     res = (
         closed.order_id, closed.sid, closed.strategy, closed.source, closed.symbol, closed.tf, closed.direction,
@@ -607,7 +581,7 @@ def _build_main_row(closed: Any) -> tuple:
         atr_tf_ms_val or None,
         getattr(closed, "is_virtual", False),
         getattr(closed, "meta_enforce_cov_bucket", ""),
-        getattr(closed, "meta_enforce_applied", -1),
+        bool(getattr(closed, "meta_enforce_applied", False)) if getattr(closed, "meta_enforce_applied", None) is not None else None,
         # Phase 2.4E: live surface A/B analytics
         getattr(closed, "live_surface_applied", None),
         getattr(closed, "live_surface_reason_code", None),
@@ -624,8 +598,6 @@ def _build_main_row(closed: Any) -> tuple:
         # --- NEW Analytics columns ---
         getattr(closed, "close_reason_detail", ""),
         strong_gate_ok,
-        policy_mode,
-        policy_raw,
         getattr(closed, "atr_policy_ver", 0),
         getattr(closed, "atr_policy_tag", ""),
         getattr(closed, "atr_policy_source", ""),
@@ -638,30 +610,11 @@ def _build_main_row(closed: Any) -> tuple:
         getattr(closed, "atr_restore_cert_id", ""),
         getattr(closed, "atr_restore_cert_status", ""),
         json.dumps(getattr(closed, "atr_policy_snapshot_json", {}) or {}, ensure_ascii=False) if getattr(closed, "atr_policy_snapshot_json", {}) else None,
-        getattr(closed, "atr_sel_tf", ""),
-        getattr(closed, "atr_sel_src", ""),
-        getattr(closed, "atr_sel_age_ms", 0),
-        getattr(closed, "contract_ver", None) or getattr(closed, "horizon_contract_ver", 2),
-        getattr(closed, "hold_target_ms", 0) or 0,
-        getattr(closed, "alpha_half_life_ms", 0) or 0,
-        getattr(closed, "max_signal_age_ms", 0) or 0,
-        getattr(closed, "risk_horizon_bucket", "") or "",
-        getattr(closed, "horizon_profile_source", ""),
-        getattr(closed, "horizon_profile_conf", 0.0),
-        getattr(closed, "horizon_reason_code", ""),
-        getattr(closed, "atr_mode", ""),
-        getattr(closed, "atr_value", 0.0),
-        getattr(closed, "atr_window_n", 0),
-        getattr(closed, "atr_age_ms", 0) or 0,
-        getattr(closed, "atr_source", "") or "",
-        getattr(closed, "atr_regime_value", 0.0),
-        getattr(closed, "atr_trail_value", 0.0),
-        getattr(closed, "atr_regime_tf_ms", 0),
-        getattr(closed, "atr_trail_tf_ms", 0),
-        getattr(closed, "atr_pct", 0.0) or 0.0,
-        getattr(closed, "vol_ratio_fast_slow", 1.0) if getattr(closed, "vol_ratio_fast_slow", None) is not None else 1.0,
-        getattr(closed, "vol_ratio_z", 0.0) or 0.0,
     )
+    # NOTE: policy_mode/policy_raw, atr_sel_*, horizon_profile_*, atr_mode/value/window_n,
+    # atr_regime_*/atr_trail_*, и непрификсированные contract_ver/hold_target_ms/.../vol_ratio_z
+    # сохраняются в config_json (config_snapshot["indicators"|"atr_metrics"|"meta"]),
+    # выделенных колонок в trades_closed нет (strategy-contract scalars уже дублируются в sc_*).
     return tuple(None if val == () else val for val in res)
 
 
@@ -731,7 +684,7 @@ def _build_p0_row(closed: Any) -> tuple:
         features_json,                                               # [13]
         getattr(closed, "is_virtual", False),                        # [14]
         getattr(closed, "meta_enforce_cov_bucket", ""),              # [15]
-        getattr(closed, "meta_enforce_applied", -1),                 # [16]
+        bool(getattr(closed, "meta_enforce_applied", False)) if getattr(closed, "meta_enforce_applied", None) is not None else None,  # [16]
         getattr(closed, "trailing_surface_applied", False),          # [17]
         getattr(closed, "trailing_surface_reason_code", None),       # [18]
         getattr(closed, "baseline_trailing_offset_atr", None),       # [19]

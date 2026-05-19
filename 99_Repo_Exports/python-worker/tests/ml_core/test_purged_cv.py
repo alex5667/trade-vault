@@ -52,7 +52,7 @@ def test_purged_kfold_embargo():
         test_t1 = t1_ms[fold.test_idx]
 
         test_min = test_ts.min() - 1000
-        test_max = test_t1.max() + 1000
+        test_max = test_ts.max() + 1000  # use observation end, not label end
 
         # No train interval should overlap with test+embargo
         for i, (ts, t1) in enumerate(zip(train_ts, train_t1)):

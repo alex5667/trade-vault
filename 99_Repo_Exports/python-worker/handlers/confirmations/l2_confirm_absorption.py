@@ -109,22 +109,23 @@ class L2ConfirmAbsorption:
         # Детекция стены "здесь": сумма notional в узкой полосе вокруг уровня на защищающейся стороне.
         wall_notional = 0.0
         if side.lower() in ("buy", "up", "long"):
-            # absorption buy: защищающаяся стена в асках
-            asks = getattr(l2, "asks", None) or []
-            for lv in asks:
-                if not isinstance(lv, L2Level) or lv.price is None:
-                    continue
-                if abs(lv.price - lvl) <= band_abs:
-                    wall_notional += _f(getattr(lv, "notional", None)) or (_f(getattr(lv, "price", 0.0)) or 0.0) * (_f(getattr(lv, "size", 0.0)) or 0.0)
-        else:
-            # absorption sell: защищающаяся стена в бидах
+            # absorption buy: защищающаяся стена в бидах (покупатели удерживают уровень)
             bids = getattr(l2, "bids", None) or []
             for lv in bids:
                 if not isinstance(lv, L2Level) or lv.price is None:
                     continue
                 if abs(lv.price - lvl) <= band_abs:
                     wall_notional += _f(getattr(lv, "notional", None)) or (_f(getattr(lv, "price", 0.0)) or 0.0) * (_f(getattr(lv, "size", 0.0)) or 0.0)
+        else:
+            # absorption sell: защищающаяся стена в асках (продавцы удерживают уровень)
+            asks = getattr(l2, "asks", None) or []
+            for lv in asks:
+                if not isinstance(lv, L2Level) or lv.price is None:
+                    continue
+                if abs(lv.price - lvl) <= band_abs:
+                    wall_notional += _f(getattr(lv, "notional", None)) or (_f(getattr(lv, "price", 0.0)) or 0.0) * (_f(getattr(lv, "size", 0.0)) or 0.0)
 
+        parts["wall_notional_here"] = float(wall_notional)
         if wall_notional >= self.cfg.min_wall_notional:
             flags["wall_here"] = True
             reasons.append("wall_here")
@@ -200,7 +201,7 @@ class L2ConfirmAbsorption:
         rc, u16 = normalize_and_u16("OK")
         return ConfirmResult(
             passed=True, veto=False,
-            parts={}, flags=flags, reasons=reasons,
+            parts=parts, flags=flags, reasons=reasons,
             score01=float(score01),
             reason_code=rc, reason_u16=u16,
         )

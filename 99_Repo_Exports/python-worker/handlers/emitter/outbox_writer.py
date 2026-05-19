@@ -47,7 +47,6 @@ class OutboxWriter:
         sem_level_decimals: int | None = None,
     ) -> None:
         self._pub = publisher
-        print("OutboxWriter.__init__ publisher:", type(publisher))
         self._logger = logger
         self._retries = max(0, retries)
         self._retry_sleep_ms = max(0, retry_sleep_ms)
@@ -494,7 +493,6 @@ class OutboxWriter:
           - по умолчанию TTL берём OUTBOX_META_TTL_SEC (fallback на dedup TTL).
         """
         redis = self._redis()
-        print("redis type:", type(redis), "pub type:", type(self._pub))
         dedup_key = self._dedup_key(signal_id)
         sem_key = self._sem_key(payload)
         meta_norm = self._normalize_sidecar_meta(meta)

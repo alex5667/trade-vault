@@ -19,6 +19,12 @@ class MockRedis:
              self.data[key] = {} # overwrite if it was string? simple mock behavior
         self.data[key].update({k: str(v) for k, v in mapping.items()})
 
+    def hgetall(self, key):
+        v = self.data.get(key)
+        if isinstance(v, dict):
+            return dict(v)
+        return {}
+
     def hmget(self, key, *fields):
         if key not in self.data or not isinstance(self.data[key], dict):
             return [None] * len(fields)

@@ -92,7 +92,9 @@ def sanitize_tick(tick: Any, *, logger: Any | None = None) -> Any | None:
         tick.ts = int(ts_ms)
         tick.bid = float(bid)
         tick.ask = float(ask)
-        tick.last = float(last if last is not None and is_finite_number(last) else float((bid + ask) / 2.0))
+        mid = float((bid + ask) / 2.0)
+        last_safe = last if (last is not None and is_finite_number(last) and last > 0.0) else mid
+        tick.last = float(last_safe)
         tick.volume = float(vol)
         tick.flags = int(flags)
     except Exception as e:  # pragma: no cover

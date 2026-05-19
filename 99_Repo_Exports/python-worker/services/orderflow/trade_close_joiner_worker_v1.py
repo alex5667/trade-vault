@@ -259,6 +259,23 @@ def _extract_prob(decision: dict[str, Any]) -> float | None:
     return p
 
 
+def label_to_calib_result(y: int | None) -> str:
+    """Map outcome label to p_edge calibrator's result whitelist.
+
+    - y=1 (r_mult >= LABEL_WIN_R_MIN)  → "WIN"
+    - y=0 (r_mult < LABEL_WIN_R_MIN)   → "LOSS"
+    - y=None (no r_mult yet, outcome unresolved) → "UNKNOWN"
+      The calibrator's whitelist accepts only WIN/LOSS/BE, so UNKNOWN trades
+      are dropped via reason="result_invalid". Critical: do NOT map None→BE,
+      because that inflates the BE-bucket and trips PEdgeCalibBEBucketInflated.
+    """
+    if y == 1:
+        return "WIN"
+    if y == 0:
+        return "LOSS"
+    return "UNKNOWN"
+
+
 def compute_label_and_brier(*, decision: dict[str, Any], r_mult: float | None) -> dict[str, Any]:
     win_min = _env_float("LABEL_WIN_R_MIN", "0.0")
     y: int | None = None
@@ -370,6 +387,25 @@ async def _write_outputs(
     payload_trades = json.dumps(out_trades, ensure_ascii=False, separators=(",", ":"), default=str)
     payload_ml = json.dumps(out_ml, ensure_ascii=False, separators=(",", ":"), default=str)
 
+    # Calibrator alias fields — p_edge_threshold_calibrator_v1 reads these exact names.
+    # Kept separate so both try-path and fallback path use the same values.
+    _y = label.get("y")
+    _p = label.get("p")
+    _result = label_to_calib_result(_y)
+    _market_regime = str(
+        close_ev.get("entry_regime") or close_ev.get("market_regime")
+        or decision.get("market_regime") or "*"
+    )
+    _kind = str(decision.get("kind") or decision.get("signal_kind") or "*")
+    calib_fields: dict[str, str] = {
+        "ml_prob":     "" if _p is None else f"{float(_p):.6f}",
+        "r_multiple":  "" if r_mult is None else str(r_mult),
+        "result":      _result,
+        "ts_close":    str(close_ts_ms),
+        "market_regime": _market_regime,
+        "kind":        _kind,
+    }
+
     # Prefer simple 'payload' format (standard)
     try:
         pipe = r.pipeline()
@@ -391,6 +427,7 @@ async def _write_outputs(
                 "payload": payload_trades,
                 "signal_payload": signal_payload_str,
                 **extra,
+                **calib_fields,
             },
             maxlen=trades_maxlen,
             approximate=True,
@@ -433,6 +470,7 @@ async def _write_outputs(
                 "payload": payload_trades,
                 "signal_payload": signal_payload_str,
                 **extra,
+                **calib_fields,
             },
             maxlen=trades_maxlen,
         )
@@ -608,6 +646,15 @@ async def run() -> None:
         level=logging.INFO,
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     )
+
+    metrics_port = _env_int("JOINER_METRICS_PORT", os.getenv("PROMETHEUS_PORT", "9846"))
+    if metrics_port > 0:
+        try:
+            from prometheus_client import start_http_server
+            start_http_server(metrics_port)
+            logger.info("trade_close_joiner metrics exposed on :%d", metrics_port)
+        except Exception as e:
+            logger.warning("trade_close_joiner metrics http_server failed on :%d: %s", metrics_port, e)
 
     if aioredis is None:
         raise RuntimeError("redis.asyncio is not available")

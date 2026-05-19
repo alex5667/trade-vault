@@ -9,11 +9,12 @@ import contextlib
 
 
 def _safe_float(x: Any) -> float | None:
+    import math
     try:
         v = float(x)
     except Exception:
         return None
-    if not v.isfinite():  # type: ignore
+    if not math.isfinite(v):
         return None
     return v
 

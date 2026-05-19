@@ -473,3 +473,91 @@ fatal: Could not read from remote repository.
 Please make sure you have the correct access rights
 and the repository exists.
 2026-05-17 05:45:02 - Синхронизация завершена успешно.
+[main ba0f5f61] Auto-sync vault notes 2026-05-18 05:45:01
+ 207 files changed, 25577 insertions(+), 2466 deletions(-)
+ create mode 100644 99_Automation/logs/update_2026-05-18_03-37-00.log
+ create mode 100644 99_Repo_Exports/python-worker/core/adverse_cross_calibrator.py
+ create mode 100644 99_Repo_Exports/python-worker/core/burst_c2t_calibrator.py
+ create mode 100644 99_Repo_Exports/python-worker/core/confidence_threshold_calibrator.py
+ create mode 100644 99_Repo_Exports/python-worker/core/cooldown_calibrator.py
+ create mode 100644 99_Repo_Exports/python-worker/core/cost_k_store.py
+ create mode 100644 99_Repo_Exports/python-worker/core/cusum_drift_detector.py
+ create mode 100644 99_Repo_Exports/python-worker/core/funding_basis_calibrator.py
+ create mode 100644 99_Repo_Exports/python-worker/core/htf_proximity_calibrator.py
+ create mode 100644 99_Repo_Exports/python-worker/core/liquidity_signal_calibrator.py
+ create mode 100644 99_Repo_Exports/python-worker/core/liquidity_wall_calibrator.py
+ create mode 100644 99_Repo_Exports/python-worker/core/meta_features_v13_of.py
+ create mode 100644 99_Repo_Exports/python-worker/core/p_edge_threshold_calibrator.py
+ create mode 100644 99_Repo_Exports/python-worker/core/p_edge_threshold_reader.py
+ create mode 100644 99_Repo_Exports/python-worker/core/smt_coh_isotonic_calibrator.py
+ create mode 100644 99_Repo_Exports/python-worker/core/smt_coherence_calibrator.py
+ create mode 100644 99_Repo_Exports/python-worker/core/spread_staleness_calibrator.py
+ create mode 100644 99_Repo_Exports/python-worker/core/vol_z_thr_calibrator.py
+ create mode 100644 99_Repo_Exports/python-worker/core/z_mapping_calibrator.py
+ create mode 100644 99_Repo_Exports/python-worker/db/migrations/033_add_trades_closed_ml_index.sql
+ create mode 100644 99_Repo_Exports/python-worker/db/migrations/034_optimize_trades_closed_ml_query.sql
+ create mode 100644 99_Repo_Exports/python-worker/db/migrations/035_create_exec_slippage_eval_view.sql
+ create mode 100644 99_Repo_Exports/python-worker/db/migrations/036_execution_journal.sql
+ create mode 100644 99_Repo_Exports/python-worker/db/migrations/037_execution_journal_indexes.sql
+ create mode 100644 99_Repo_Exports/python-worker/db/migrations/038_batch_writer_and_nightly_indexes.sql
+ create mode 100644 99_Repo_Exports/python-worker/db/migrations/20260306_03_quarantine_ledger.sql
+ create mode 100644 99_Repo_Exports/python-worker/db/migrations/20260306_04_quarantine_ledger_indexes.sql
+ create mode 100644 99_Repo_Exports/python-worker/db/migrations/20260306_05_retention_partitioning.sql
+ create mode 100644 99_Repo_Exports/python-worker/db/migrations/20260306_06_retention_partitioning_indexes.sql
+ create mode 100644 99_Repo_Exports/python-worker/db/migrations/20260306_07_execution_replay_slo_summary.sql
+ create mode 100644 99_Repo_Exports/python-worker/db/migrations/20260306_08_execution_replay_slo_summary_indexes.sql
+ create mode 100644 99_Repo_Exports/python-worker/db/migrations/20260517_51_repair_regime_quantiles_schema.sql
+ create mode 100644 99_Repo_Exports/python-worker/db/migrations/20260517_52_restore_v_atr_policy_promotion_inputs.sql
+ create mode 100644 99_Repo_Exports/python-worker/orderflow_services/cost_k_calibrator_v1.py
+ create mode 100644 99_Repo_Exports/python-worker/orderflow_services/p_edge_threshold_calibrator_v1.py
+ create mode 100644 99_Repo_Exports/python-worker/runners/execution_journal_purge_runner.py
+ create mode 100644 99_Repo_Exports/python-worker/services/migrations/phase_2_7_strong_gate_ok_signals_cols.sql
+ create mode 100644 99_Repo_Exports/python-worker/services/orderflow/ml_calibration_metrics.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/core/test_adverse_cross_calibrator.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/core/test_g1_delta_trigger.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/core/test_g1_gate_integration.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/fakeredis_stub.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/regen_signals_of_inputs_golden.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_burst_c2t_calibrator.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_confidence_threshold_calibrator.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_cooldown_calibrator.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_cost_k_calibrator_v1.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_cusum_drift_detector.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_dn_gate_fixes_v1.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_edge_cost_gate_p_edge_calibrator_wiring.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_funding_basis_calibrator.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_g9_confidence_gate.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_htf_proximity_calibrator.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_liquidity_signal_calibrator.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_liquidity_wall_calibrator.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_manip_gate_fixes_2026_05_17.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_orphan_ttl_and_time_exit.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_outbox_feature_schema_version_isolation.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_p_edge_threshold_calibrator.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_p_edge_threshold_calibrator_v1_service.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_p_edge_threshold_reader.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_signal_outbox_dispatcher_auto_repair.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_signals_of_inputs_golden.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_smt_coh_isotonic_calibrator.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_smt_coherence_calibrator.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_spread_staleness_calibrator.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_vol_z_thr_calibrator.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_z_mapping_calibrator.py
+ create mode 100644 99_Repo_Exports/python-worker/tools/apply_gate_tuning_v1.py
+ create mode 100644 99_Repo_Exports/python-worker/tools/check_v13_feature_coverage.py
+ create mode 100644 99_Repo_Exports/python-worker/tools/check_v14_oe_readiness.py
+ create mode 100644 99_Repo_Exports/python-worker/tools/monitor_conf_threshold_calibrator.py
+ create mode 100755 99_Repo_Exports/python-worker/tools/monitor_v14_of_canary.py
+ create mode 100755 99_Repo_Exports/python-worker/tools/shap_analysis_v1.py
+ create mode 100644 99_Repo_Exports/python-worker/tools/sql_orphan_timeout_diagnostics.sql
+ create mode 100644 99_Repo_Exports/python-worker/tools/train_meta_model_lgbm_v1.py
+ create mode 100644 99_Repo_Exports/python-worker/tools/tune_of_score_threshold.py
+ create mode 100644 99_Repo_Exports/python-worker/tools/verify_v13_plan_coverage.py
+ create mode 100644 99_Repo_Exports/sql/012_ml_feature_snapshot.sql
+ create mode 100644 99_Repo_Exports/sql/012_ml_feature_snapshot_down.sql
+git@github.com: Permission denied (publickey).
+fatal: Could not read from remote repository.
+
+Please make sure you have the correct access rights
+and the repository exists.
+2026-05-18 05:45:02 - Синхронизация завершена успешно.

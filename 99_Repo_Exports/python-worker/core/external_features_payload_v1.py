@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-"""External features payload helper — flushes Phase 7.8/7.9/7.9b/8.1/8.2 keys
-from the inference-time `indicators_with_v4` dict into the outbound
-`indicators` dict that ships in `signals:of:inputs`.
+"""External features payload helper — flushes Phase 7.8/7.9/7.9b/8.1/8.2/8.3/
+8.4/8.5/P1/P2/P3/4.x keys from the inference-time `indicators_with_v4` dict
+into the outbound `indicators` dict that ships in `signals:of:inputs`.
 
 Why this exists
 ---------------
@@ -13,6 +13,16 @@ features vectorize to 0.0 in the offline dataset → train/serve skew.
 
 This module mirrors the pattern of v14_of_features.build_og_payload: a pure
 function that the engine calls once per signal alongside the og_* update.
+
+Schema-gap notice (2026-05-18 audit)
+------------------------------------
+_NUM_KEYS below has grown to cover phases 8.2/8.3/8.4/8.5/P1/P2/P3/4.x, but
+core/ml_feature_schema_v14_of.py was last bumped at Phase 8.1. ~156 keys
+emitted here are NOT in V14_OF_NUMERIC_KEYS. Under deterministic Registry-
+path training they are dropped; under infer_feature_cols fallback they leak
+in non-deterministically. Resolution requires a coordinated bump of v14_of
+(or a new v15_of) + Redis pin reseed + canary retrain — do not paper over
+silently.
 
 Design
 ------
@@ -36,6 +46,46 @@ Keep this list in sync with the populate blocks in of_confirm_engine.py:
 """
 
 from typing import Any
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Prometheus counter for fail-open events at the wiring site
+# (of_confirm_engine.py). Mirrors v14_of_features._record_fail_open.
+# Lazy-init so tests / processes without prometheus_client still import cleanly.
+# ──────────────────────────────────────────────────────────────────────────────
+
+_EXT_FAIL_OPEN_COUNTER = None
+_EXT_FAIL_OPEN_INIT_FAILED = False  # latched: skip retrying Counter init after first failure
+
+
+def _record_fail_open(reason: str) -> None:
+    """Increment external_features_payload_fail_open_total{reason=<reason>}.
+
+    Reasons used at the wiring site (of_confirm_engine.py):
+      - "import_error" — caller could not import build_external_features_payload
+      - "build_raised" — build_external_features_payload itself raised unexpectedly
+
+    Silent on prometheus_client absence; never raises. After a Counter-init
+    failure the latch ``_EXT_FAIL_OPEN_INIT_FAILED`` short-circuits subsequent
+    calls — avoids repeated ImportError on the hot path under
+    ExternalFeaturesPayloadFailOpenCritical (>0.5/s).
+    """
+    global _EXT_FAIL_OPEN_COUNTER, _EXT_FAIL_OPEN_INIT_FAILED
+    if _EXT_FAIL_OPEN_INIT_FAILED:
+        return
+    try:
+        if _EXT_FAIL_OPEN_COUNTER is None:
+            from prometheus_client import Counter
+            _EXT_FAIL_OPEN_COUNTER = Counter(
+                "external_features_payload_fail_open_total",
+                "v14_of external_features_payload fail-open events at wiring site",
+                ["reason"],
+            )
+        _EXT_FAIL_OPEN_COUNTER.labels(reason=str(reason or "unknown")).inc()
+    except Exception:
+        # Never let observability break the hot path.
+        if _EXT_FAIL_OPEN_COUNTER is None:
+            _EXT_FAIL_OPEN_INIT_FAILED = True
 
 
 # Numeric keys — copied from indicators_with_v4 with float() cast.

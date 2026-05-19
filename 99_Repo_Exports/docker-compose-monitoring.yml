@@ -181,6 +181,79 @@ services:
       resources:
         reservations:
           memory: 24M
+  feature-registry-contract-check-v15of:
+    # Shadow contract-check loop for v15_of (515 keys). Runs the one-shot
+    # feature_registry_contract_check_v1 every hour and writes results to
+    # metrics:feature_registry_contract:v15_of:last, consumed by the v15of
+    # exporter below. Activate shadow once pins are seeded:
+    #   python3 -m tools.seed_feature_registry_pins --schemas v15_of
+    # Port: none (check-only loop, no HTTP server).
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    container_name: scanner-feature-registry-contract-check-v15of
+    restart: unless-stopped
+    environment:
+    - REDIS_URL=${REDIS_URL}
+    - FEATURE_SCHEMA_VER=v15_of
+    - FEATURE_REGISTRY_PIN_KEY=cfg:feature_registry:edge_stack:v15_of
+    - FEATURE_REGISTRY_CONTRACT_METRICS_KEY=metrics:feature_registry_contract:v15_of:last
+    - FEATURE_REGISTRY_CONTRACT_CHECK_INTERVAL_S=${FEATURE_REGISTRY_CONTRACT_CHECK_INTERVAL_S_V15OF:-3600}
+    - FEATURE_REGISTRY_REQUIRE_PINS=${FEATURE_REGISTRY_REQUIRE_PINS_V15OF:-0}
+    - PYTHONPATH=/app
+    - TZ=UTC
+    volumes:
+    - ./python-worker:/app
+    command:
+    - sh
+    - -c
+    - |
+      set -eu
+      while true; do
+        echo "[v15of-check] $(date -u +%FT%TZ) running contract check"
+        python3 -m orderflow_services.feature_registry_contract_check_v1 || true
+        sleep "${FEATURE_REGISTRY_CONTRACT_CHECK_INTERVAL_S:-3600}"
+      done
+    networks:
+    - scanner-ops
+    - scanner-infra
+    deploy:
+      resources:
+        reservations:
+          memory: 32M
+  feature-registry-contract-exporter-v15of:
+    # Exporter that reads metrics:feature_registry_contract:v15_of:last
+    # (written by the shadow check loop above) and exposes Prometheus gauges
+    # on :9901 — separate from v13_of (:9822), v14_of (:9823), and
+    # exec-health-slo (:9824). Alert rules in
+    # monitoring/prometheus_alerts_ml_pipeline_failopen.yml reference :9901.
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    container_name: scanner-feature-registry-contract-exporter-v15of
+    restart: unless-stopped
+    environment:
+    - REDIS_URL=${REDIS_URL}
+    - FEATURE_REGISTRY_CONTRACT_EXPORTER_PORT=9901
+    - FEATURE_REGISTRY_CONTRACT_EXPORTER_INTERVAL_S=30
+    - FEATURE_REGISTRY_CONTRACT_METRICS_KEY=metrics:feature_registry_contract:v15_of:last
+    - PYTHONPATH=/app
+    - TZ=UTC
+    volumes:
+    - ./python-worker:/app
+    ports:
+    - 9901:9901
+    command:
+    - python3
+    - -m
+    - orderflow_services.feature_registry_contract_exporter_v1
+    networks:
+    - scanner-ops
+    - scanner-infra
+    deploy:
+      resources:
+        reservations:
+          memory: 24M
 networks:
   scanner-ops:
     external: true

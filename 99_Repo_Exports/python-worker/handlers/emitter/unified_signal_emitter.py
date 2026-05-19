@@ -91,7 +91,7 @@ class UnifiedSignalEmitter:
         self._logger = logger
         # Метрики должны быть fail-open: если не передали — Noop.
         self._metrics = metrics if (metrics is not None and hasattr(metrics, "inc")) else  _NoopMetrics()  # type: ignore
-        self._analytics: AnalyticsReporter = analytics if isinstance(analytics, AnalyticsReporter) else NoopAnalyticsReporter()  # type: ignore
+        self._analytics = analytics if (analytics is not None and hasattr(analytics, "record_sem_dedup")) else NoopAnalyticsReporter()  # type: ignore
         self._retries = int(os.getenv("EMIT_RETRIES", "2"))
         self._retry_sleep_ms = int(os.getenv("EMIT_RETRY_SLEEP_MS", "15"))
 

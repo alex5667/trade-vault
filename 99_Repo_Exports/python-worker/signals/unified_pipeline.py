@@ -24,6 +24,8 @@ class UnifiedSignalPipeline:
         exec_filters: Any,
         publisher: Any,  # SignalPublisher
         calibrator: Any | None = None,
+        confidence_calibrator: Any | None = None,
+        confidence_cap_pct: float = 100.0,
     ):
         self._scoring_engine = scoring_engine
         self._regime_service = regime_service
@@ -32,7 +34,9 @@ class UnifiedSignalPipeline:
         self._publisher = publisher
         # RollingPercentileCalibrator (или совместимый) для калибровки уверенности.
         # ВАЖНО: Pipeline - ЕДИНСТВЕННЫЙ компонент, который пишет payload["confidence"].
-        self._confidence_calibrator = calibrator
+        # confidence_calibrator takes precedence over calibrator alias
+        self._confidence_calibrator = confidence_calibrator if confidence_calibrator is not None else calibrator
+        self._confidence_cap_pct = float(confidence_cap_pct)
 
         # "1/1024 micro-downgrade": строгий assert единственного писателя для confidence.
         # В dev/test вы хотите жесткое падение, если любой компонент ниже по потоку пытается установить confidence.

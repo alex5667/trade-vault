@@ -929,7 +929,7 @@ class OrderFlowDataProcessor:
                     if hasattr(self, 'parser') and hasattr(self.parser, 'redis'):
                         redis_client = getattr(self.parser, 'redis', None)
                         if redis_client:
-                            adx_raw = redis_client.get(f"adx:{str(self.symbol).upper()}")
+                            adx_raw = redis_client.hget(f"adx:{str(self.symbol).upper()}", "adx")
                             if adx_raw:
                                 with contextlib.suppress(Exception):
                                     adx_val = float(adx_raw)

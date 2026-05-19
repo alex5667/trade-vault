@@ -55,12 +55,21 @@ def build_policy_provenance(signal: dict[str, Any]) -> dict[str, Any]:
         cert_status = ""
         cert_id = ""
 
+    # Regime: prefer policy snapshot, then signal-level indicators (set by strategy.py
+    # from MarketRegimeService snapshot), then signal top-level field.
+    _ind = signal.get("indicators", {}) if isinstance(signal.get("indicators"), dict) else {}
+    _regime_fallback = (
+        _safe_str(pol.get("regime"))
+        or _safe_str(_ind.get("regime"))
+        or _safe_str(signal.get("regime"))
+    )
+
     out = {
         "policy_ver": _safe_int(pol.get("policy_ver"), 0),
         "policy_source": _safe_str(pol.get("source")),
         "symbol": _safe_str(pol.get("symbol") or signal.get("symbol")).upper(),
         "scenario": _safe_str(pol.get("scenario") or signal.get("kind")).lower(),
-        "regime": _safe_str(pol.get("regime")),
+        "regime": _regime_fallback,
         "risk_horizon_bucket": _safe_str(pol.get("risk_horizon_bucket")).lower(),
         "stop_ttl_mode": _safe_str(pol.get("stop_ttl_mode"), "canary"),
         "trailing_mode": _safe_str(pol.get("trailing_mode"), "canary"),

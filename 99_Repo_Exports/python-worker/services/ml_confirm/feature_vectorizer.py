@@ -198,7 +198,17 @@ class FeatureVectorizerMixin:
         tm = time.gmtime(float(int(ts_ms or 0)) / 1000.0)
         utc_hour = int(getattr(tm, "tm_hour", 0))
         utc_dow = int(getattr(tm, "tm_wday", 0))
-        bucket = _bucket_from_scenario(s) or "other"
+        bucket = _bucket_from_scenario(s)
+        if not bucket or bucket == "other":
+            # Scenario "none" / unknown: fall back to regime label so the ML gate
+            # uses a meaningful bucket instead of the catch-all "other" bin.
+            _rg = str(indicators.get("regime_bucket") or indicators.get("regime") or "").lower()
+            if "trend" in _rg or "bull" in _rg or "bear" in _rg:
+                bucket = "trend"
+            elif "range" in _rg or "chop" in _rg or "meanrev" in _rg:
+                bucket = "range"
+            else:
+                bucket = "other"
 
         # B1: bucket2 (breakout/reversal/high_var) — additive categorization.
         # Producer (tick_processor) should set indicators['bucket2'].

@@ -317,15 +317,14 @@ class RegimeSessionGate:
             try:
                 # drift_reader does sync hgetall(); use sync client (ctx.redis may be async aioredis).
                 redis_client = getattr(ctx, "redis", None) or getattr(ctx, "_redis", None)
+                _is_async_rc = False
                 if redis_client is not None:
-                    import inspect as _insp
-                    if _insp.iscoroutinefunction(getattr(redis_client, "get", None)):
-                        try:
-                            from handlers.crypto_orderflow.config.handler_config import _get_sync_redis
-                            redis_client = _get_sync_redis()
-                        except Exception:
-                            redis_client = None
-                else:
+                    try:
+                        _mod = type(redis_client).__module__ or ""
+                        _is_async_rc = ("asyncio" in _mod) or ("aioredis" in _mod)
+                    except Exception:
+                        _is_async_rc = False
+                if redis_client is None or _is_async_rc:
                     try:
                         from handlers.crypto_orderflow.config.handler_config import _get_sync_redis
                         redis_client = _get_sync_redis()
@@ -613,16 +612,25 @@ class SmtCoherenceGate:
             return None
         return dd
 
+    @staticmethod
+    def _is_async_redis_client(rc: Any) -> bool:
+        """Reliable async-Redis detection via module name (iscoroutinefunction is unreliable)."""
+        if rc is None:
+            return False
+        try:
+            mod = type(rc).__module__ or ""
+            return "asyncio" in mod or "aioredis" in mod
+        except Exception:
+            return False
+
     def _sync_redis_for_cal(self, redis_client: Any) -> Any:
         """Return a sync Redis client for calibrator persist/restore.
 
         Prefers redis_client if sync (tests); falls back to _get_sync_redis() when
         redis_client is async aioredis (prod) or None.
         """
-        if redis_client is not None:
-            import inspect
-            if not inspect.iscoroutinefunction(getattr(redis_client, "get", None)):
-                return redis_client
+        if redis_client is not None and not self._is_async_redis_client(redis_client):
+            return redis_client
         try:
             from handlers.crypto_orderflow.config.handler_config import _get_sync_redis
             return _get_sync_redis()

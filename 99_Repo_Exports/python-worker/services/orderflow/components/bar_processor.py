@@ -787,7 +787,7 @@ class BarProcessor:
 
     async def _update_adx_snapshot(self, runtime: SymbolRuntime):
         try:
-            adx_raw = await self.redis.get(f"adx:{runtime.symbol}")
+            adx_raw = await self.redis.hget(f"adx:{runtime.symbol}", "adx")
             runtime.dynamic_cfg[DK.ADX14] = float(adx_raw) if adx_raw is not None else 0.0
         except Exception:
             pass

@@ -112,6 +112,7 @@ services:
     - CROSSVENUE_ENABLED=1
     # (LIQ_BINANCE_WS_URL moved up to the Liquidation block; disabled by default.)
     - TZ=UTC
+    - CANDLE_STREAM_MAXLEN=10000
     depends_on:
       redis:
         condition: service_healthy
@@ -262,6 +263,7 @@ services:
     - CMC_ENABLED=0
     - CROSSVENUE_ENABLED=0
     - TZ=UTC
+    - CANDLE_STREAM_MAXLEN=10000
     depends_on:
       redis:
         condition: service_healthy
@@ -379,6 +381,7 @@ services:
     - WS_DIAL_TIMEOUT=30s
     - WS_TCP_KEEPALIVE=60s
     - TZ=UTC
+    - CANDLE_STREAM_MAXLEN=10000
     depends_on:
       redis:
         condition: service_healthy
@@ -493,6 +496,7 @@ services:
     - WS_DIAL_TIMEOUT=30s
     - WS_TCP_KEEPALIVE=60s
     - TZ=UTC
+    - CANDLE_STREAM_MAXLEN=10000
     depends_on:
       redis:
         condition: service_healthy
@@ -607,6 +611,7 @@ services:
     - WS_DIAL_TIMEOUT=30s
     - WS_TCP_KEEPALIVE=60s
     - TZ=UTC
+    - CANDLE_STREAM_MAXLEN=10000
     depends_on:
       redis:
         condition: service_healthy
@@ -721,6 +726,7 @@ services:
     - WS_DIAL_TIMEOUT=30s
     - WS_TCP_KEEPALIVE=60s
     - TZ=UTC
+    - CANDLE_STREAM_MAXLEN=10000
     depends_on:
       redis:
         condition: service_healthy
@@ -835,6 +841,7 @@ services:
     - WS_DIAL_TIMEOUT=30s
     - WS_TCP_KEEPALIVE=60s
     - TZ=UTC
+    - CANDLE_STREAM_MAXLEN=10000
     depends_on:
       redis:
         condition: service_healthy
@@ -949,6 +956,7 @@ services:
     - WS_DIAL_TIMEOUT=30s
     - WS_TCP_KEEPALIVE=60s
     - TZ=UTC
+    - CANDLE_STREAM_MAXLEN=10000
     depends_on:
       redis:
         condition: service_healthy
@@ -1063,6 +1071,7 @@ services:
     - WS_DIAL_TIMEOUT=30s
     - WS_TCP_KEEPALIVE=60s
     - TZ=UTC
+    - CANDLE_STREAM_MAXLEN=10000
     depends_on:
       redis:
         condition: service_healthy
@@ -1179,6 +1188,7 @@ services:
     - WS_DIAL_TIMEOUT=30s
     - WS_TCP_KEEPALIVE=60s
     - TZ=UTC
+    - CANDLE_STREAM_MAXLEN=10000
     depends_on:
       redis:
         condition: service_healthy
@@ -1295,6 +1305,7 @@ services:
     - WS_DIAL_TIMEOUT=30s
     - WS_TCP_KEEPALIVE=60s
     - TZ=UTC
+    - CANDLE_STREAM_MAXLEN=10000
     depends_on:
       redis:
         condition: service_healthy

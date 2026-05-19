@@ -6,6 +6,7 @@ from typing import Any
 
 from prometheus_client import Counter
 
+from contextlib import contextmanager
 from services.analytics_db import get_conn as get_db_connection
 from core.redis_keys import RedisStreams as RS
 
@@ -22,7 +23,8 @@ class ATRArchiveAndReplayService:
     Governs HOT/WARM/COLD retention logic, and creates/verifies Replay Bundles.
     """
 
-    def __init__(self):
+    def __init__(self, db_conn=None):
+        self._db_conn = db_conn
         # Formal Artifact Taxonomy
         self.taxonomy = {
             "signal": {"hot": 14, "warm": 90, "cold": 365, "format": "ndjson"},
@@ -35,6 +37,14 @@ class ATRArchiveAndReplayService:
 
     def _now(self):
         return datetime.now(UTC)
+
+    @contextmanager
+    def _get_conn(self):
+        if self._db_conn is not None:
+            yield self._db_conn
+        else:
+            with get_db_connection() as conn:
+                yield conn
 
     def classify_artifact(self, topic_or_table: str) -> str:
         """Classify a data source into one of the artifact classes."""
@@ -69,7 +79,7 @@ class ATRArchiveAndReplayService:
         summary = {"moved_records": 5000, "layer": target_layer}
 
         try:
-            with get_db_connection() as conn:
+            with self._get_conn() as conn:
                 with conn.cursor() as cur:
                     cur.execute(
                         "INSERT INTO atr_backup_jobs (job_id, job_kind, artifact_class, status, summary_json, finished_at) "
@@ -108,7 +118,7 @@ class ATRArchiveAndReplayService:
         }
 
         try:
-            with get_db_connection() as conn:
+            with self._get_conn() as conn:
                 with conn.cursor() as cur:
                     cur.execute(
                         "INSERT INTO atr_replay_bundles (bundle_id, artifact_scope, time_start, time_end, status, manifest_json, incident_linked) "
@@ -157,7 +167,7 @@ class ATRArchiveAndReplayService:
 
         if success:
             try:
-                with get_db_connection() as conn:
+                with self._get_conn() as conn:
                     with conn.cursor() as cur:
                         cur.execute(
                             "UPDATE atr_replay_bundles SET restored_at = %s WHERE bundle_id = %s",
@@ -167,9 +177,11 @@ class ATRArchiveAndReplayService:
             except Exception as e:
                 logger.error(f"Failed to update restored_at for {bundle_id}: {e}")
 
+        return success
+
     def _record_integrity_check(self, check_id: str, bundle_id: str, check_kind: str, status: str, details: dict[str, Any]):
         try:
-            with get_db_connection() as conn:
+            with self._get_conn() as conn:
                 with conn.cursor() as cur:
                     cur.execute(
                         "INSERT INTO atr_archive_integrity_checks (check_id, bundle_id, check_kind, status, details_json) "
@@ -203,7 +215,7 @@ class ATRArchiveAndReplayService:
 
     def mark_bundle_as_incident_linked(self, bundle_id: str):
         try:
-            with get_db_connection() as conn:
+            with self._get_conn() as conn:
                 with conn.cursor() as cur:
                     cur.execute("UPDATE atr_replay_bundles SET incident_linked = TRUE WHERE bundle_id = %s", (bundle_id,))
                 conn.commit()

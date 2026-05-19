@@ -1,6 +1,16 @@
 from __future__ import annotations
 
-"""v14_of — v13_of (242 keys, academic) + v5_of (execution/TCA/queue/cross-symbol)."""
+"""v14_of — v13_of (242 keys, academic) + v5_additions (execution/TCA/queue/
+cross-symbol + OG rule-gate consensus + Phase 8.1 OE composites).
+
+Known schema gap (2026-05-18 audit):
+  core/external_features_payload_v1.py emits ~156 keys from later phases
+  (Phase 8.2/8.3/8.4/8.5/P1/P2/P3/4.x — Hawkes, cross-venue, cg_*, dl_*,
+  deribit term structure, macro calendar, etc.) that are NOT yet in
+  V14_OF_NUMERIC_KEYS. Extending this schema requires bumping SCHEMA_HASH,
+  invalidating Redis pins (cfg:feature_registry:edge_stack:v14_of) and
+  retraining the v14_of canary model. Schedule as a coordinated op-event;
+  do not patch piecemeal."""
 
 SCHEMA_HASH = "v14_merged_20250517"
 
@@ -38,6 +48,15 @@ def get_v14_of_numeric_keys() -> list[str]:
         "og_contrib_z", "og_contrib_wp", "og_contrib_reclaim", "og_contrib_obi",
         "og_contrib_iceberg", "og_contrib_absorption", "og_gate_bits_count",
         "og_strong_need_rev", "og_strong_need_cont", "og_weak_progress_any", "og_reason_code_id",
+        # OE Phase 8.1 keys (deriv composites + breadth + Deribit + Fear&Greed)
+        "taker_buy_sell_imbalance", "force_order_imbalance_1m",
+        "oi_confirmation_score", "squeeze_risk_score", "liq_impulse_score",
+        "market_breadth_ret_24h", "market_breadth_vol_z",
+        "btc_leader_ret_breadth", "eth_leader_ret_breadth", "breadth_leader_confirm",
+        "deribit_btc_iv_proxy", "deribit_eth_iv_proxy",
+        "deribit_btc_iv_z", "deribit_eth_iv_z",
+        "deribit_btc_funding_8h", "deribit_eth_funding_8h", "deribit_vol_regime_code",
+        "fear_greed_index", "fear_greed_regime_extreme_fear", "fear_greed_regime_extreme_greed",
     ]
     return sorted(list(v13_keys) + [k for k in v5_additions if k not in v13_keys])
 
@@ -48,10 +67,11 @@ def v14_of_info() -> dict:
 # Export as module-level constant for compatibility
 V14_OF_NUMERIC_KEYS = get_v14_of_numeric_keys()
 
-# Hard invariant: count is pinned. v13_of (242) + 97 dedup'd v5_additions = 339.
-# Append-only contract: bump _EXPECTED_KEYS when intentionally adding keys.
+# Hard invariant: count is pinned to current state (v13_of 242 + dedup'd
+# v5_additions incl OG 16 + OE Phase 8.1 composites). Append-only contract:
+# bump _EXPECTED_KEYS when intentionally adding keys.
 # Catches accidental edits to v5_additions list or v13_of base drift.
-_EXPECTED_KEYS = 339
+_EXPECTED_KEYS = 359
 assert len(V14_OF_NUMERIC_KEYS) == _EXPECTED_KEYS, (
     f"v14_of key count drift: got {len(V14_OF_NUMERIC_KEYS)}, expected {_EXPECTED_KEYS}. "
     f"If this is intentional, bump _EXPECTED_KEYS and update SCHEMA_HASH."

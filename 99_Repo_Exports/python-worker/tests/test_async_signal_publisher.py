@@ -73,9 +73,10 @@ async def test_async_publisher_normalizes_contract_and_writes_payload_field():
     obj = json.loads(ser)
     assert obj["symbol"] == "BTCUSDT"
     assert int(obj["ts_ms"]) > 0
-    assert obj["side"] in ("LONG", "SHORT")
-    assert obj["side_lc"] in ("long", "short")
-    assert obj["side_uc"] in ("LONG", "SHORT")
+    assert obj["side"] in ("BUY", "SELL")         # execution side
+    assert obj["direction"] in ("LONG", "SHORT")  # strategy direction
+    assert obj["side_lc"] in ("buy", "sell")
+    assert obj["side_uc"] in ("BUY", "SELL")
     assert int(obj["side_int"]) in (1, -1)
     assert "signal_id" in obj and "sid" in obj
     assert 0.0 <= float(obj["confidence01"]) <= 1.0

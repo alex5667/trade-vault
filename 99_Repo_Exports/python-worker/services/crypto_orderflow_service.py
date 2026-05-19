@@ -947,8 +947,20 @@ class CryptoOrderflowService:
                 # or if ML_GATE is disabled.
                 if gate and hasattr(gate, "refresh_async"):
                     t0 = time.time()
-                    # Use ML-dedicated isolated client
-                    await gate.refresh_async(self.ml_gate_client)
+                    # Bound the refresh to ML_GATE_REFRESH_TIMEOUT_SEC so a Redis
+                    # blip cannot stall this loop for >5s and pile up connections.
+                    refresh_timeout = float(os.getenv("ML_GATE_REFRESH_TIMEOUT_SEC", "3.0"))
+                    try:
+                        await asyncio.wait_for(
+                            gate.refresh_async(self.ml_gate_client),
+                            timeout=refresh_timeout,
+                        )
+                    except asyncio.TimeoutError:
+                        logger.warning(
+                            "⏱️ ML gate async refresh timed out after %.1fs (will retry next loop)",
+                            refresh_timeout,
+                        )
+                        continue
                     dt = time.time() - t0
                     if dt > 0.5:
                         # P1: More descriptive logging for async refresh latency (SRE hint)
@@ -1219,7 +1231,7 @@ class CryptoOrderflowService:
             if 0 <= now_ms - ts0 <= cache_ms:
                 return v0 or 0.0
         try:
-            raw = await self.main.get(f"adx:{sym}")
+            raw = await self.main.hget(f"adx:{sym}", "adx")  # type: ignore[misc]
             v = float(raw) if raw is not None else 0.0
             if v < 0:
                 v = 0.0

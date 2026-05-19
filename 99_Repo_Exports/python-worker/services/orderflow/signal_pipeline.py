@@ -100,6 +100,11 @@ try:
         "Total pre-publish vetos",
         ["gate", "reason_code", "symbol", "kind"]
     )
+    _PRE_PUBLISH_GATE_EVAL_TOTAL = Counter(
+        "pre_publish_gate_eval_total",
+        "Total pre-publish gate evaluations (all decisions incl. ALLOW/ABSTAIN/DENY)",
+        ["gate", "decision", "symbol", "kind"]
+    )
     _INVALID_ENVELOPE_TOTAL = Counter(
         "outbox_invalid_envelope_total",
         "Total outbox envelopes rejected due to malformed structure",
@@ -114,6 +119,7 @@ except ImportError:
     _FEATURE_TO_DECISION_MS = None
     _DECISION_TO_OUTBOX_MS = None
     _PRE_PUBLISH_VETO_TOTAL = None
+    _PRE_PUBLISH_GATE_EVAL_TOTAL = None
     _INVALID_ENVELOPE_TOTAL = None
     _G9_CONFIDENCE_MISSING_TOTAL = None
 
@@ -208,6 +214,18 @@ class SignalPipeline:
         self._calib_loaded: bool = False
         self._calib_last_snap_ms: int = 0
         self._calib_snap_interval_ms: int = int(os.getenv("PIPELINE_CALIB_SNAP_SEC", "60") or "60") * 1000
+
+        # ------------------------------------------------------------------
+        # Confirmation Barrier (audit 2026-05-18 fix #E)
+        # ------------------------------------------------------------------
+        # Defers publish of just-emitted signals by N ms (or until next-bar)
+        # to require directional follow-through. Default mode=off — explicit
+        # opt-in via env CONFIRMATION_BARRIER_MODE=shadow|enforce.
+        from core.confirmation_barrier import ConfirmationBarrier
+        self._barrier = ConfirmationBarrier()
+        # When a signal is re-published from barrier.poll(), we mark it so
+        # publish_signal does NOT submit it again (infinite-loop guard).
+        self._BARRIER_RESOLVED_KEY = "_barrier_resolved"
 
         # ------------------------------------------------------------------
         # Decision Snapshot (A2)
@@ -988,6 +1006,121 @@ class SignalPipeline:
         except Exception:
             pass
 
+    # ----------------------------------------------------------------------
+    # Confirmation Barrier integration helpers (audit 2026-05-18 fix #E)
+    # ----------------------------------------------------------------------
+
+    def _barrier_submit(self, runtime: "SymbolRuntime", signal: dict[str, Any]) -> "str | None":
+        """Submit a signal to the confirmation barrier.
+
+        Returns:
+            ``"ALLOW"`` immediately when the barrier is in ``off`` mode or the
+            signal cannot be queued (unknown side, bad price, no sid). In
+            that case the caller MUST continue publishing inline.
+
+            ``None`` when the signal was queued. In that case the caller MUST
+            return without publishing — :meth:`barrier_poll_and_publish` will
+            re-inject it later (or drop it).
+        """
+        try:
+            barrier = self._barrier
+            if barrier.mode == "off":
+                return "ALLOW"
+            sid = str(signal.get("sid") or signal.get("signal_id") or "").strip()
+            if not sid:
+                return "ALLOW"  # cannot track without an id → fail-open
+            side = signal.get("direction") or signal.get("side") or ""
+            entry = signal.get("entry") or signal.get("price") or signal.get("entry_price")
+            trigger_ts = (
+                signal.get("tick_ts")
+                or signal.get("ts_ms")
+                or getattr(runtime, "last_ts_ms", None)
+                or get_ny_time_millis()
+            )
+            try:
+                trigger_price = float(entry or 0.0)
+            except (TypeError, ValueError):
+                trigger_price = 0.0
+            try:
+                trigger_ts_ms = int(trigger_ts)
+            except (TypeError, ValueError):
+                trigger_ts_ms = int(get_ny_time_millis())
+            dec = barrier.submit(
+                signal_id=sid,
+                symbol=runtime.symbol,
+                side=str(side),
+                trigger_price=trigger_price,
+                trigger_ts_ms=trigger_ts_ms,
+                payload=signal,
+            )
+            # In shadow mode: barrier returns None (pending), but caller is
+            # ALLOWED to publish immediately. We still want the SHADOW_DROP
+            # telemetry to fire on poll → keep the entry, but return ALLOW.
+            if barrier.mode == "shadow":
+                return "ALLOW"
+            return dec  # None → defer; "ALLOW" → publish inline
+        except Exception:
+            logger.exception("barrier_submit failed — failing open")
+            return "ALLOW"
+
+    def barrier_observe_tick(self, symbol: str, ts_ms: int, price: float) -> None:
+        """Feed an observation (tick or bar close) to the barrier.
+
+        Wire this from the tick handler in the strategy. Fail-open on errors.
+        """
+        try:
+            self._barrier.observe(symbol=symbol, ts_ms=int(ts_ms), price=float(price))
+        except Exception:
+            pass
+
+    async def barrier_poll_and_publish(
+        self,
+        now_ms: int,
+        runtime_resolver,
+    ) -> int:
+        """Resolve barrier-pending signals and publish ALLOWED ones.
+
+        Args:
+            now_ms: current wall-clock in ms.
+            runtime_resolver: callable ``(symbol) -> SymbolRuntime | None`` used
+                to fetch the runtime for re-publish.
+
+        Returns:
+            Number of signals processed (allowed + dropped).
+        """
+        try:
+            resolved = self._barrier.poll(int(now_ms))
+        except Exception:
+            logger.exception("barrier_poll failed")
+            return 0
+        if not resolved:
+            return 0
+        processed = 0
+        for sid, decision, reason, payload in resolved:
+            processed += 1
+            if decision in ("ALLOW",):
+                if not isinstance(payload, dict):
+                    logger.warning("barrier_poll: signal %s ALLOW but payload is not dict — skip", sid)
+                    continue
+                sym = str(payload.get("symbol") or "")
+                runtime = runtime_resolver(sym) if sym else None
+                if runtime is None:
+                    logger.warning("barrier_poll: signal %s ALLOW but runtime for %s not found — skip", sid, sym)
+                    continue
+                payload[self._BARRIER_RESOLVED_KEY] = True
+                payload.setdefault("indicators", {})["barrier_resolution"] = reason
+                try:
+                    await self.publish_signal(runtime, payload)
+                except Exception:
+                    logger.exception("barrier_poll: re-publish failed for %s", sid)
+            else:
+                # DROP / SHADOW_DROP / SHADOW_ALLOW → log only, do not republish.
+                logger.info(
+                    "🪤 [BARRIER] sid=%s decision=%s reason=%s — not republished",
+                    sid, decision, reason,
+                )
+        return processed
+
     async def publish_signal(self, runtime: SymbolRuntime, signal: dict[str, Any]) -> None:
         """
         Публикация сигнала в необходимые каналы.
@@ -1000,6 +1133,20 @@ class SignalPipeline:
             return
         direction = side_norm.direction
         cfg = runtime.config
+
+        # ------------------------------------------------------------------
+        # Confirmation Barrier (audit 2026-05-18): defer publish until
+        # follow-through confirms. In enforce mode the signal is held in
+        # _barrier and re-injected by barrier_poll_and_publish() after the
+        # deadline; here we just submit and return. In shadow mode we still
+        # publish immediately — barrier logs would-have-dropped for telemetry.
+        # In off mode we are a no-op.
+        if not signal.get(self._BARRIER_RESOLVED_KEY):
+            barrier_dec = self._barrier_submit(runtime, signal)
+            if barrier_dec is None:
+                # Pending — deferred publish; caller continues with other work.
+                return
+            # When mode == "off" or submit is bypassed → continue inline.
 
         use_outbox = self._cached_use_outbox
         shadow_outbox = self._cached_shadow_outbox
@@ -1050,8 +1197,16 @@ class SignalPipeline:
 
         def _apply_decision(dec: Any) -> bool:
             """Standardized decision handling for orchestrated gates."""
-            # Only increment veto metric if decision is not ALLOW
-            if _PRE_PUBLISH_VETO_TOTAL is not None and getattr(dec, "decision", "") != "ALLOW":
+            dec_str = getattr(dec, "decision", "UNKNOWN")
+            with contextlib.suppress(Exception):
+                if _PRE_PUBLISH_GATE_EVAL_TOTAL is not None:
+                    _PRE_PUBLISH_GATE_EVAL_TOTAL.labels(
+                        gate=dec.gate,
+                        decision=dec_str,
+                        symbol=symbol,
+                        kind=kind,
+                    ).inc()
+            if _PRE_PUBLISH_VETO_TOTAL is not None and dec_str != "ALLOW":
                 with contextlib.suppress(Exception):
                     _PRE_PUBLISH_VETO_TOTAL.labels(
                         gate=dec.gate,
@@ -2340,9 +2495,25 @@ class SignalPipeline:
 
         validation_status = enriched_signal.get("validation_status")
 
+        # Block virtual/shadow trades from Telegram by default. Predicate is
+        # extracted to core.notify_filters.should_skip_telegram_virtual so the
+        # gate is unit-testable without SignalPipeline setup. Reads BOTH
+        # `virtual` (bool, set at line ~2459) AND `is_virtual` (int, wire-level)
+        # so external producers cannot bypass it. CRYPTO_NOTIFY_SKIP_VIRTUAL=0
+        # restores legacy shadow-to-Telegram behaviour.
+        from core.notify_filters import should_skip_telegram_virtual as _should_skip_virt_tg
+        _skip_virtual_now = _should_skip_virt_tg(enriched_signal)
+
         if is_weak:
             telegram_payload = None
             logger.info("🚫 [TELEGRAM] (%s) Signal is WEAK (strong_ok=%s, conf=%.2f). Skipping notify.", symbol, strong_gate_ok, confidence)
+        elif _skip_virtual_now:
+            telegram_payload = None
+            logger.info(
+                "🚫 [TELEGRAM] (%s) Signal is VIRTUAL/SHADOW (%s). Skipping Telegram notify.",
+                symbol,
+                enriched_signal.get("validation_reason", "virtual"),
+            )
         elif validation_status == "failed":
             telegram_payload = None
             logger.info(
@@ -2598,7 +2769,8 @@ class SignalPipeline:
 
              try:
                 # P99 FIX: fire-and-forget for notify XADD to avoid blocking hot path
-                 if counter_value % notify_signal_every_n == 0:
+                # every_n<=1 means "send every signal" (no rate limiting); guards modulo-by-zero
+                 if notify_signal_every_n <= 1 or counter_value % notify_signal_every_n == 0:
                      safe_create_task(
                          self.publisher.r.xadd(
                              self.notify_stream,

@@ -641,7 +641,7 @@ class OFConfirmService:
                 await self.redis.xadd(  # type: ignore
                     self.stream_out,
                     {"payload": json.dumps(out_payload)},
-                    maxlen=50000,
+                    maxlen=5000,
                     approximate=True
                 )
                 confirm_signals_total.labels(symbol=symbol).inc()
@@ -654,7 +654,7 @@ class OFConfirmService:
                     await self.redis.xadd(  # type: ignore
                         self.stream_out_all,
                         {"payload": json.dumps(all_payload)},
-                        maxlen=50000,
+                        maxlen=20000,
                         approximate=True
                     )
                 except Exception as e:

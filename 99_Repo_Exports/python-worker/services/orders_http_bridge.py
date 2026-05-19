@@ -108,6 +108,12 @@ def poll_orders(symbol: str | None = Query(None)):
             with contextlib.suppress(Exception):
                 payload["tp_levels"] = json.loads(payload["tp_levels"])
 
+        # Redis Stream stringifies all values; normalize numeric fields back to int
+        # so consumers don't need to handle dual string/int encoding (F6 contract fix).
+        if "side_int" in payload:
+            with contextlib.suppress(ValueError, TypeError):
+                payload["side_int"] = int(payload["side_int"])
+
         # Symbol filter
         if symbol and payload.get("symbol") and payload["symbol"] != symbol:
             # We can't easily "push back" to a stream in a group,

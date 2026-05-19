@@ -91,7 +91,7 @@ def read_closed_trades(
     out: list[dict[str, Any]] = []
     last_id = f"{start_ts_ms - 1}-0"
     while True:
-        entries = redis_client.xrange(RS.TRADES_CLOSED, min=f"({last_id}", max=f"{end_ts_ms}-+", count=batch_size)
+        entries = redis_client.xrange(RS.TRADES_CLOSED, min=f"({last_id}", max=str(end_ts_ms), count=batch_size)
         if not entries:
             break
         for msg_id, fields in entries:
