@@ -370,6 +370,17 @@ def route_cancel(r: redis.Redis, parts: list) -> None:
 
 def main():
     """Main entry point."""
+    # MT5 kill switch (2026-05-19): orders_router publishes exclusively to the
+    # MT5 stream. Refuse to start when MT5_ENABLED=0 so we don't accumulate
+    # orders that nobody consumes. Set MT5_ENABLED=1 to re-enable.
+    from core.mt5_kill_switch import mt5_enabled
+    if not mt5_enabled():
+        import sys
+        sys.stderr.write(
+            "orders_router: MT5_ENABLED=0 (default) — refusing to start.\n"
+            "  Set MT5_ENABLED=1 to re-enable the MT5 execution router.\n"
+        )
+        sys.exit(0)
     print("🔀 Orders Router starting...")
     print(f"   Callbacks: {CALLBACKS_STREAM}")
     print(f"   Orders Queue: {ORDERS_QUEUE}")

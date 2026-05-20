@@ -265,20 +265,20 @@ def _load_sources_cfg() -> dict[str, Any]:
     ua = os.getenv("USER_AGENT", "trade-news-standby/1.0")
 
     rss = _get(obj, "rss", {})
-    rss_enabled = bool(_get(rss, "enabled", True)) and ("rss" in providers),
-    rss_urls = _get(rss, "urls", rss_def) or rss_def,
+    rss_enabled = bool(_get(rss, "enabled", True)) and ("rss" in providers)
+    rss_urls = _get(rss, "urls", rss_def) or rss_def
 
-    cp = _get(obj, "cryptopanic", {}),
-    cp_token = os.getenv("CRYPTOPANIC_AUTH_TOKEN", "").strip(),
-    cp_enabled = bool(_get(cp, "enabled", True)) and ("cryptopanic" in providers) and bool(cp_token),
+    cp = _get(obj, "cryptopanic", {})
+    cp_token = os.getenv("CRYPTOPANIC_AUTH_TOKEN", "").strip()
+    cp_enabled = bool(_get(cp, "enabled", True)) and ("cryptopanic" in providers) and bool(cp_token)
 
-    fmp = _get(obj, "fmp", {}),
-    fmp_key = os.getenv("FMP_API_KEY", "").strip(),
-    fmp_enabled = bool(_get(fmp, "enabled", True)) and ("fmp" in providers) and bool(fmp_key),
+    fmp = _get(obj, "fmp", {})
+    fmp_key = os.getenv("FMP_API_KEY", "").strip()
+    fmp_enabled = bool(_get(fmp, "enabled", True)) and ("fmp" in providers) and bool(fmp_key)
 
-    na = _get(obj, "newsapi", {}),
-    na_key = os.getenv("NEWSAPI_KEY", "").strip(),
-    na_enabled = bool(_get(na, "enabled", True)) and ("newsapi" in providers) and bool(na_key),
+    na = _get(obj, "newsapi", {})
+    na_key = os.getenv("NEWSAPI_KEY", "").strip()
+    na_enabled = bool(_get(na, "enabled", True)) and ("newsapi" in providers) and bool(na_key)
 
     return {
         "user_agent": ua,

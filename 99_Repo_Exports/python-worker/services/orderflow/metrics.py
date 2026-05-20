@@ -108,6 +108,12 @@ trade_close_joiner_prob_source_total = _get_or_create_prom_counter(
     ["symbol", "source"]
 )
 
+trade_close_joiner_skipped_no_decision_total = _get_or_create_prom_counter(
+    "trade_close_joiner_skipped_no_decision_total",
+    "Total POSITION_CLOSED events skipped because sid kind is known to have no decision_snapshot producer (e.g. iceberg, weak_progress, delta_spike, absorption, weak_recent). These never enter close_wait and never raise missing_decision noise.",
+    ["symbol", "kind"]
+)
+
 # Metrics for silent errors
 silent_errors_total = _get_or_create_prom_counter(
     "silent_errors_total",

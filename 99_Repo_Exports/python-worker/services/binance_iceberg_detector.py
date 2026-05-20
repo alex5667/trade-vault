@@ -333,22 +333,64 @@ class BinanceIcebergDetector:
         return filtered[:5]
 
     def _get_atr(self) -> float | None:
-        key = CANDLES_KEY.format(symbol=self.symbol)
+        """Resolve ATR for level-distance gating with TF fallback ladder.
+
+        Historical bug: this method read `HGET candles:{symbol}:1h atr` but
+        the production ATR feeder writes to a different namespace
+        (`atr:{SYMBOL}:{TF}` as plain string, TFs 1m/5m/15m; 1h is NOT
+        written). The legacy hash path is kept first for backward
+        compatibility, then we fall through to the canonical string keys.
+
+        ATR-distance threshold `MAX_DIST_ATR` was originally calibrated for
+        1h ATR. Falling back to 5m / 1m ATR yields a narrower absolute
+        distance — acceptable as conservative behaviour (fewer false-positive
+        iceberg matches) until the 1h feeder is restored or
+        `ICEBERG_ATR_TF_LADDER` is tuned.
+
+        Override the ladder via ``ICEBERG_ATR_TF_LADDER=1h,5m,1m`` (CSV).
+        r_core uses decode_responses=False → all reads return bytes; explicit
+        decode + float() cast prevents the TypeError that the old `return atr`
+        path produced when bytes met `atr > 0`.
+        """
+        # 1) Legacy hash path: candles:{symbol}:1h["atr"]
         try:
-            atr = self.r_core.hget(key, "atr")
-            if not atr:
-                atr = self.r_core.hget(key, b"atr")
-            if atr:
+            hash_key = CANDLES_KEY.format(symbol=self.symbol)
+            raw = self.r_core.hget(hash_key, "atr") or self.r_core.hget(hash_key, b"atr")
+            if raw:
+                if isinstance(raw, bytes):
+                    raw = raw.decode("utf-8", "replace")
                 try:
-                    return atr
-                except ValueError:
-                    return None
+                    v = float(raw)
+                    if v > 0:
+                        return v
+                except (TypeError, ValueError):
+                    pass
         except redis.exceptions.BusyLoadingError:
-            log.debug("Redis loading dataset, skipping ATR")
+            log.debug("Redis loading dataset, skipping ATR hash lookup")
             return None
         except Exception as e:
-            log.debug("Error getting ATR: %s", e)
-            return None
+            log.debug("ATR hash lookup error: %s", e)
+
+        # 2) Canonical string keys: atr:{SYMBOL}:{TF}
+        ladder = (os.getenv("ICEBERG_ATR_TF_LADDER", "1h,5m,1m") or "1h,5m,1m").split(",")
+        for tf in (t.strip() for t in ladder if t.strip()):
+            key = f"atr:{self.symbol}:{tf}"
+            try:
+                raw = self.r_core.get(key)
+            except redis.exceptions.BusyLoadingError:
+                return None
+            except Exception:
+                continue
+            if not raw:
+                continue
+            if isinstance(raw, bytes):
+                raw = raw.decode("utf-8", "replace")
+            try:
+                v = float(raw)
+            except (TypeError, ValueError):
+                continue
+            if v > 0:
+                return v
         return None
 
     def _load_adx(self) -> dict[str, float] | None:
@@ -508,10 +550,6 @@ class BinanceIcebergDetector:
         shadow_outbox = os.getenv("ICEBERG_SHADOW_OUTBOX", "0").lower() in {"1","true","yes","on"}
         outbox_stream = os.getenv("SIGNAL_OUTBOX_STREAM", RS.SIGNAL_OUTBOX)
 
-        ts_ms = get_ny_time_millis()
-        sid = f"signal:{self.symbol}:iceberg:{ts_ms}"
-        trace_id = sid  # correlation id
-
         # Get ATR for SL calculation
         atr_val = self._get_atr() or 0.0
 
@@ -524,6 +562,15 @@ class BinanceIcebergDetector:
             level_info=level_info,
             atr=atr_val,
         )
+
+        # Sid alignment (P1 fix): the payload builder allocates its own sid via
+        # generate_signal_id() and ships it as payload["sid"]/["signal_id"]/
+        # ["trace_id"]. Earlier code built a parallel "signal:{symbol}:iceberg:{ts}"
+        # sid here and used it for `signals:{sid}` SET + outbox envelope key,
+        # producing a mismatch with payload.sid that broke trade_close_joiner
+        # SID joins. Source-of-truth is payload.sid.
+        sid = str(signal_payload.get("sid") or "")
+        trace_id = sid  # correlation id
 
         # Outbox envelope (notify/raw + optional snapshot signals:{sid})
         if use_outbox or shadow_outbox:
@@ -607,6 +654,45 @@ class BinanceIcebergDetector:
             log.warning("⚠️  Redis loading dataset, signal not published: %s %s @ %.2f", self.symbol, direction, price)
         except Exception as e:
             log.error("❌ Failed to publish iceberg signal: %s", e)
+
+        # decision_snapshot publish (events:decision_snapshot): writer mirrors to
+        # decision:{sid} so trade_close_joiner can resolve POSITION_CLOSED → decision.
+        # Fail-open: never block primary publish path.
+        try:
+            self._publish_decision_snapshot(signal_payload)
+        except Exception as e:
+            log.warning("iceberg decision_snapshot publish failed: %s", e)
+
+    def _publish_decision_snapshot(self, signal_payload: dict[str, Any]) -> None:
+        """Emit a snapshot event for the iceberg signal.
+
+        Uses build_decision_snapshot_event to produce a DTO-validated payload, so
+        the downstream writer mirrors it under decision:{sid} with the same shape
+        as crypto-orderflow snapshots.
+        """
+        from services.orderflow.decision_snapshot import build_decision_snapshot_event
+
+        sid = str(signal_payload.get("sid") or "")
+        if not sid:
+            return
+
+        sig = dict(signal_payload)
+        sig.setdefault("decision_ts_ms", sig.get("ts_ms"))
+        # Iceberg has no microstructure indicators; book/spread/depth absent here.
+        snapshot = build_decision_snapshot_event(
+            signal=sig,
+            indicators=None,
+            runtime=None,
+            schema_version=1,
+        )
+        stream = os.getenv("DECISION_SNAPSHOT_STREAM", RS.DECISION_SNAPSHOT)
+        maxlen = int(os.getenv("DECISION_SNAPSHOT_STREAM_MAXLEN", "1000000") or 1000000)
+        self.r_core.xadd(
+            stream,
+            {"payload": _json_dumps_safe(snapshot)},
+            maxlen=maxlen,
+            approximate=True,
+        )
 
     # ---------- вспомогательные ----------
 

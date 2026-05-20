@@ -162,11 +162,11 @@ def _check_db(dsn: str, view: str, lookback_h: int, min_rows: int) -> tuple[bool
     if psycopg2 is None:
         return False, "psycopg2_not_installed"
 
-    q = f""",
+    q = f"""
     SELECT count(*)
     FROM {view}
-    WHERE ts >= now() - interval %s,
-    """,
+    WHERE ts >= now() - interval %s
+    """
     try:
         conn = psycopg2.connect(dsn)
         conn.autocommit = True

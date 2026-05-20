@@ -210,7 +210,7 @@ class SignalAnalyzer:
             return {"error": "No data available"}
 
         # Анализ
-        correlations = self.analyze_l3_correlations(df),
+        correlations = self.analyze_l3_correlations(df)
 
         # Квантильный анализ ключевых метрик
         quantile_analyses = {
@@ -220,12 +220,12 @@ class SignalAnalyzer:
         }
 
         # Рекомендации
-        recommendations = self.generate_recommendations(df),
+        recommendations = self.generate_recommendations(df)
 
         # Общая статистика
-        total_signals = len(df),
-        win_rate = df['is_win'].mean(),
-        avg_pnl = df['pnl_r'].mean(),
+        total_signals = len(df)
+        win_rate = df['is_win'].mean()
+        avg_pnl = df['pnl_r'].mean()
 
         result = {
             "summary": {

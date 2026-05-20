@@ -550,3 +550,57 @@ return 1
         for script_name in self._scripts:
             await self.get_sha(script_name)
         self.logger.info(f"Preloaded {len(self._scripts)} Lua scripts")
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # Sync variants. Some callers (notably the legacy SignalDispatcher in
+    # services/signal_dispatcher.py) hold a synchronous `redis.Redis` client and
+    # cannot use the async API — calling the async methods without `await`
+    # silently returned a coroutine and crashed the consumer loop with
+    # `TypeError: 'coroutine' object is not iterable`.
+    # ──────────────────────────────────────────────────────────────────────────
+
+    def get_sha_sync(self, script_name: str) -> str:
+        """Sync version of get_sha — for use with a sync redis.Redis client."""
+        if script_name not in self._scripts:
+            raise KeyError(f"Unknown script: {script_name}")
+        if script_name not in self._sha_cache:
+            sha = self.redis.script_load(self._scripts[script_name])
+            # redis-py returns bytes; normalise to str.
+            if isinstance(sha, (bytes, bytearray)):
+                sha = sha.decode("utf-8", "replace")
+            self._sha_cache[script_name] = sha
+            self.logger.debug(f"Loaded script {script_name}: {sha[:8]}...")
+        return self._sha_cache[script_name]
+
+    def execute_sync(
+        self,
+        script_name: str,
+        keys: list[str],
+        args: list[Any],
+        client: Any | None = None,
+    ) -> Any:
+        """Sync EVALSHA with NOSCRIPT-fallback to EVAL. Twin of execute()."""
+        target_client = client or self.redis
+        try:
+            sha = self.get_sha_sync(script_name)
+            try:
+                return target_client.evalsha(sha, len(keys), *keys, *args)
+            except Exception as e:
+                if "NOSCRIPT" in str(e):
+                    script = self._scripts[script_name]
+                    new_sha = target_client.script_load(script)
+                    if isinstance(new_sha, (bytes, bytearray)):
+                        new_sha = new_sha.decode("utf-8", "replace")
+                    return target_client.evalsha(new_sha, len(keys), *keys, *args)
+                raise
+        except Exception as e:
+            if "NOSCRIPT" in str(e):
+                self.logger.debug(f"SHA not found for {script_name}, using eval")
+                return target_client.eval(self._scripts[script_name], len(keys), *keys, *args)
+            raise
+
+    def preload_all_sync(self) -> None:
+        """Sync version of preload_all — for sync dispatcher init."""
+        for script_name in self._scripts:
+            self.get_sha_sync(script_name)
+        self.logger.info(f"Preloaded {len(self._scripts)} Lua scripts (sync)")

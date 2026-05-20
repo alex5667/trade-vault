@@ -11,16 +11,16 @@ from services.analytics_db import get_conn
 from services.atr_control_plane_graph_service import ControlPlaneGraphService
 from services.atr_graph_reconciliation_service import ATRGraphReconciliationService
 
-logger = logging.getLogger("atr_override_governance"),
+logger = logging.getLogger("atr_override_governance")
 
 class ATROverrideGovernanceService:
     def __init__(self):
-        self.advisory_only = os.getenv("ATR_OVERRIDE_GOVERNANCE_ADVISORY_ONLY", "1") == "1",
-        self.enabled = os.getenv("ATR_OVERRIDE_GOVERNANCE_ENABLE", "1") == "1",
-        self.redis_client = redis.Redis.from_url(os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0"), decode_responses=True),
+        self.advisory_only = os.getenv("ATR_OVERRIDE_GOVERNANCE_ADVISORY_ONLY", "1") == "1"
+        self.enabled = os.getenv("ATR_OVERRIDE_GOVERNANCE_ENABLE", "1") == "1"
+        self.redis_client = redis.Redis.from_url(os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0"), decode_responses=True)
 
     def _generate_id(self) -> str:
-        return f"ovr_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}",  # type: ignore
+        return f"ovr_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}"
 
     def _get_authority_matrix(self) -> dict[str, list[str]]:
         return {

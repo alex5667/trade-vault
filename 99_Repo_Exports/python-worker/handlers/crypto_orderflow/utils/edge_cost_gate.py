@@ -57,9 +57,19 @@ try:
         "Total count of EdgeCostGate veto events due to execution-health rollups",
         ["symbol", "reason_code"]
     )
+
+    # Directional p_min bias telemetry (post-calibrator tightening).
+    # bias_bucket: bucketed string of applied bias ("0.00","0.02","0.04","0.06","0.08","0.10","0.12+")
+    # so cardinality stays bounded regardless of ENV value.
+    edge_directional_bias_applied_total = Counter(
+        "edge_cost_gate_directional_bias_applied_total",
+        "Total signals to which EdgeCostGate applied a directional p_min bias (post-calibrator)",
+        ["symbol", "kind", "direction", "countertrend", "bias_bucket"]
+    )
 except ImportError:
     Counter = Gauge = None
     edge_time_skew_ms = edge_bad_time_total = edge_exec_health_tighten_total = edge_exec_health_veto_total = None
+    edge_directional_bias_applied_total = None
 
 # ---------------------------------------------------------------------
 # IMPORTANT: timestamp normalization MUST be consistent across pipeline.
@@ -1103,6 +1113,16 @@ class EdgeCostGate:
     calibrated_k_max_age_ms: int = 3 * 3600 * 1000  # stale after 3h
     _k_store: Any = None  # type: ignore[misc]  # CostKStore | None
 
+    # Directional p_min bias (additive, applied AFTER calibrator).
+    # Targets failure mode "counter-SMT-leader LONGs": tighten threshold for
+    # signals against the confirmed cross-asset leader. Master switch defaults
+    # OFF — shipping disabled, enable via ENV after shadow validation.
+    directional_bias_enabled: bool = False
+    directional_bias_long: float = 0.0
+    directional_bias_long_countertrend: float = 0.06
+    directional_bias_short: float = 0.0
+    directional_bias_short_countertrend: float = 0.0
+
     def set_k_store(self, store: Any) -> None:
         """Wire in a CostKStore for calibrated-K lookup.
 
@@ -1200,6 +1220,19 @@ class EdgeCostGate:
         use_calibrated_k = _env_bool("EDGE_USE_CALIBRATED_K", False)
         calibrated_k_max_age_ms = int(_env_float("EDGE_CALIBRATED_K_MAX_AGE_MS", 3 * 3600 * 1000))
 
+        # Directional p_min bias (post-calibrator, default disabled).
+        # Counter-trend = signal side ≠ SMT bundle leader direction with
+        # leader_confirm=1 and non-stale state. See pre_publish_gates.
+        directional_bias_enabled = _env_bool("EDGE_DIRECTIONAL_BIAS_ENABLED", False)
+        directional_bias_long = _env_float("EDGE_DIRECTIONAL_BIAS_LONG", 0.0)
+        directional_bias_long_countertrend = _env_float(
+            "EDGE_DIRECTIONAL_BIAS_LONG_COUNTERTREND", 0.06
+        )
+        directional_bias_short = _env_float("EDGE_DIRECTIONAL_BIAS_SHORT", 0.0)
+        directional_bias_short_countertrend = _env_float(
+            "EDGE_DIRECTIONAL_BIAS_SHORT_COUNTERTREND", 0.0
+        )
+
         return cls(
             enabled=enabled,
             mode=mode,  # type: ignore[arg-type]
@@ -1224,6 +1257,11 @@ class EdgeCostGate:
             buffer_max_bps=buffer_max_bps,
             use_calibrated_k=use_calibrated_k,
             calibrated_k_max_age_ms=calibrated_k_max_age_ms,
+            directional_bias_enabled=directional_bias_enabled,
+            directional_bias_long=directional_bias_long,
+            directional_bias_long_countertrend=directional_bias_long_countertrend,
+            directional_bias_short=directional_bias_short,
+            directional_bias_short_countertrend=directional_bias_short_countertrend,
         )
 
     def _k_for(self, symbol: str, regime: str | None = None) -> float:
@@ -1249,6 +1287,8 @@ class EdgeCostGate:
         *,
         symbol: str = "",
         regime: str = "",
+        side: str = "",
+        ctx: Any = None,
     ) -> float:
         """
         Получение минимального порога вероятности для kind.
@@ -1258,6 +1298,11 @@ class EdgeCostGate:
              AUTOCAL_P_EDGE_READ_ENABLED=1 and the snapshot is fresh).
           2. EDGE_EV_P_MIN_<KIND> env override (`ev_p_min_by_kind`).
           3. EDGE_EV_P_MIN default (`ev_p_min`).
+
+        Post-hierarchy step: optional directional p_min bias is added on top
+        (master switch `directional_bias_enabled`). Counter-trend = signal
+        side ≠ SMT bundle leader direction with leader_confirm=1 and a non-
+        stale state — same definition as the SMT coherence gate uses.
 
         The reader's `p_min_for` uses `static_floor` as a safety floor — the
         gate's per-kind ENV value remains the *minimum* required cutoff even
@@ -1274,23 +1319,131 @@ class EdgeCostGate:
             reader = None
 
         if reader is None:
-            return static_floor
-
-        try:
-            cal = reader.p_min_for(
-                symbol=symbol or "",
-                regime=regime or "",
-                kind=k,
-                default=static_floor,
-            )
-        except Exception:  # boundary fail-open
-            return static_floor
+            base = static_floor
+        else:
+            try:
+                base = float(reader.p_min_for(
+                    symbol=symbol or "",
+                    regime=regime or "",
+                    kind=k,
+                    default=static_floor,
+                    direction=(side or "*"),
+                ))
+            except Exception:  # boundary fail-open
+                base = static_floor
 
         # Calibrator-tuned cutoff is honoured even when it sits *below* the
         # static floor — operators can lower the floor in ENV to enable
         # mining lower-p_edge regions, and the reader's `default` already
         # encodes this floor (reader returns at minimum `static_floor`).
-        return float(cal)
+        return self._apply_directional_bias(
+            base, kind=k, symbol=symbol or "", side=side, ctx=ctx,
+        )
+
+    def _apply_directional_bias(
+        self,
+        base: float,
+        *,
+        kind: str,
+        symbol: str,
+        side: str,
+        ctx: Any,
+    ) -> float:
+        """Add directional p_min bias on top of calibrator output.
+
+        Counter-trend criterion (SMT-leader source of truth):
+          - side ∈ {"long","short"}
+          - ctx.smt_leader_dir ∈ {"UP","DOWN"} (canonical SMT bundle output)
+          - ctx.smt_leader_confirm == 1
+          - not ctx.smt_state_stale
+          - side direction ≠ leader direction
+
+        bias selection:
+          - LONG counter-trend → directional_bias_long_countertrend (default 0.06)
+          - LONG trend-aligned / no-SMT  → directional_bias_long       (default 0.00)
+          - SHORT counter-trend          → directional_bias_short_countertrend (default 0.00)
+          - SHORT trend-aligned / no-SMT → directional_bias_short      (default 0.00)
+
+        Result is clipped to [base, TAU_CEIL=0.80]. Master switch
+        `directional_bias_enabled=False` short-circuits to `base`.
+        Boundary method — must never raise; on any error returns `base`.
+        """
+        if not self.directional_bias_enabled:
+            return base
+        try:
+            sd = (side or "").strip().lower()
+            if sd in ("1", "buy", "bull"):
+                sd = "long"
+            elif sd in ("-1", "sell", "bear"):
+                sd = "short"
+            if sd not in ("long", "short"):
+                return base
+
+            countertrend = False
+            if ctx is not None:
+                leader_dir_raw = getattr(ctx, "smt_leader_dir", "") or ""
+                leader_dir = str(leader_dir_raw).strip().upper()
+                leader_confirm = int(getattr(ctx, "smt_leader_confirm", 0) or 0)
+                stale = bool(getattr(ctx, "smt_state_stale", True))
+                if leader_dir in ("UP", "DOWN") and leader_confirm == 1 and not stale:
+                    leader_side = "long" if leader_dir == "UP" else "short"
+                    countertrend = (sd != leader_side)
+
+            if sd == "long":
+                bias = (
+                    self.directional_bias_long_countertrend
+                    if countertrend
+                    else self.directional_bias_long
+                )
+            else:  # short
+                bias = (
+                    self.directional_bias_short_countertrend
+                    if countertrend
+                    else self.directional_bias_short
+                )
+
+            if bias <= 0.0:
+                return base
+
+            # TAU_CEIL is the calibrator's hard upper bound; honour it here so
+            # the gate never demands p_min > 0.80 (saturates the grid).
+            try:
+                from core.p_edge_threshold_calibrator import TAU_CEIL  # type: ignore[import-untyped]
+                tau_ceil = float(TAU_CEIL)
+            except Exception:
+                tau_ceil = 0.80
+            new_p_min = min(tau_ceil, max(base, base + bias))
+
+            # Observability: bucket bias to keep label cardinality bounded.
+            if edge_directional_bias_applied_total is not None:
+                try:
+                    if bias < 0.02:
+                        bucket = "0.00"
+                    elif bias < 0.04:
+                        bucket = "0.02"
+                    elif bias < 0.06:
+                        bucket = "0.04"
+                    elif bias < 0.08:
+                        bucket = "0.06"
+                    elif bias < 0.10:
+                        bucket = "0.08"
+                    elif bias < 0.12:
+                        bucket = "0.10"
+                    else:
+                        bucket = "0.12+"
+                    edge_directional_bias_applied_total.labels(
+                        symbol=(symbol or "unknown")[:20],
+                        kind=(kind or "unknown")[:20],
+                        direction=sd,
+                        countertrend="1" if countertrend else "0",
+                        bias_bucket=bucket,
+                    ).inc()
+                except Exception:
+                    pass
+
+            return new_p_min
+        except Exception:  # boundary fail-open
+            return base
 
     def _get_buffer_bps(self, ctx: Any, symbol: str) -> float:
         """
@@ -2055,8 +2208,15 @@ class EdgeCostGate:
 
             # Get per-(symbol × regime × kind) p_min — calibrator-tuned when
             # AUTOCAL_P_EDGE_READ_ENABLED=1 and snapshot fresh, else static ENV.
+            # Side is extracted here (mirrors the slippage block above on line ~1739)
+            # so that _p_min_for_kind can apply optional directional bias for
+            # counter-SMT-leader signals (e.g. LONGs against a confirmed bearish leader).
             _regime = str(getattr(ctx, "market_regime", "") or getattr(ctx, "regime", "") or "")
-            p_min = self._p_min_for_kind(kind, symbol=symbol or "", regime=_regime)
+            _side_raw_pm = getattr(ctx, "side", None) or getattr(ctx, "direction", None) or getattr(ctx, "dir", None) or ""
+            _side_pm = str(_side_raw_pm).strip().lower()
+            p_min = self._p_min_for_kind(
+                kind, symbol=symbol or "", regime=_regime, side=_side_pm, ctx=ctx,
+            )
 
             # 1) stats missing/invalid
             if not math.isfinite(ev_bps) or not math.isfinite(p) or not math.isfinite(tp1_bps) or not math.isfinite(stop_bps):

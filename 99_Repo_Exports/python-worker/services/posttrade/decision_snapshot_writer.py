@@ -177,6 +177,14 @@ class DecisionSnapshotWriterConfig:
     log_every_n: int = _env_int("DECISION_SNAPSHOT_LOG_EVERY_N", 200)
     fail_sleep_sec: float = _env_float("DECISION_SNAPSHOT_FAIL_SLEEP_SEC", 1.0)
 
+    # Decision Redis key mirror (P45/P46 contract for trade_close_joiner).
+    # When enabled, after a successful DB upsert we also SET decision:{sid}
+    # so that trade_close_joiner_worker_v1 can join POSITION_CLOSED events
+    # against the decision payload. Safe to disable: legacy behavior, joiner
+    # then falls back to its close_wait backfill loop (which today never resolves).
+    decision_redis_mirror_enabled: bool = _env_bool("DECISION_REDIS_MIRROR_ENABLED", True)
+    decision_redis_ttl_sec: int = _env_int("DECISION_TTL_SEC", 1209600)  # 14d, matches legacy writer
+
 
 def _decode_bytes(v: Any) -> Any:
     if isinstance(v, (bytes, bytearray)):
@@ -346,6 +354,64 @@ class DecisionSnapshotStreamWorker:
         except Exception as e:
             logger.warning("xack failed: %s with ids: %s", e, ids)
 
+    async def _mirror_decision_redis_keys(self, entries: Sequence[tuple[str, Any]]) -> None:
+        """SET decision:{sid} for each entry so trade_close_joiner can join close events.
+
+        Fail-open: SET failures are counted but never block ACK or DB writes.
+        The raw payload JSON is mirrored unchanged; joiner is tolerant of both
+        snapshot and legacy DecisionRecord shapes (see joiner _write_outputs).
+        """
+        if not entries:
+            return
+        ttl = self.cfg.decision_redis_ttl_sec
+        if ttl <= 0:
+            return
+
+        try:
+            pipe = self.redis.pipeline(transaction=False)
+        except Exception as e:
+            logger.warning("decision_redis_mirror: pipeline init failed: %s", e)
+            self._metrics.decision_redis_set_total.labels(result="fail").inc(float(len(entries)))
+            return
+
+        queued = 0
+        skipped = 0
+        for _eid, fields in entries:
+            try:
+                raw_payload = fields.get(b"payload") or fields.get("payload")
+                payload = _parse_payload(raw_payload)
+                if payload is None:
+                    skipped += 1
+                    continue
+                sid = str(payload.get("sid") or payload.get("signal_id") or "").strip()
+                if not sid:
+                    skipped += 1
+                    continue
+                value = raw_payload if isinstance(raw_payload, (str, bytes)) else json.dumps(payload, ensure_ascii=False, default=str)
+                pipe.set(f"decision:{sid}", value, ex=ttl)
+                queued += 1
+            except Exception:
+                skipped += 1
+
+        if skipped:
+            try:
+                self._metrics.decision_redis_set_total.labels(result="skipped").inc(float(skipped))
+            except Exception:
+                pass
+
+        if queued == 0:
+            return
+
+        try:
+            await pipe.execute()
+            self._metrics.decision_redis_set_total.labels(result="ok").inc(float(queued))
+        except Exception as e:
+            logger.warning("decision_redis_mirror: pipeline.execute failed (%d entries): %s", queued, e)
+            try:
+                self._metrics.decision_redis_set_total.labels(result="fail").inc(float(queued))
+            except Exception:
+                pass
+
     def _observe_lag(self, payload: dict[str, Any]) -> None:
         """Observe end-to-end lag from decision_ts_ms to now for Prometheus histogram."""
         try:
@@ -451,6 +517,14 @@ class DecisionSnapshotStreamWorker:
 
         self._metrics.written_total.inc(float(written))
         self._written += written
+
+        # Mirror decision payloads into Redis key `decision:{sid}` so that
+        # trade_close_joiner_worker_v1 can resolve POSITION_CLOSED -> decision.
+        # Fail-open: never block ACK on Redis-SET errors (DB is source of truth).
+        if self.cfg.decision_redis_mirror_enabled:
+            ack_bad_set = set(ack_bad)
+            good_entries = [(eid, fields) for (eid, fields) in all_entries if eid not in ack_bad_set]
+            await self._mirror_decision_redis_keys(good_entries)
 
         # ACK all entry ids corresponding to successful db write.
         # We ACK everything except those already acked as bad.

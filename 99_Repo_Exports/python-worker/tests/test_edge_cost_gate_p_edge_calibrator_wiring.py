@@ -36,8 +36,12 @@ class _StubReader:
         regime: str,
         kind: str,
         default: float,
+        direction: str = "*",
     ) -> float:
-        self.calls.append({"symbol": symbol, "regime": regime, "kind": kind, "default": default})
+        self.calls.append({
+            "symbol": symbol, "regime": regime, "kind": kind,
+            "default": default, "direction": direction,
+        })
         return self.returns
 
 
@@ -89,7 +93,7 @@ def test_uses_reader_value_when_available(reader_stub: _StubReader) -> None:
     assert val == 0.62
     assert reader_stub.calls == [{
         "symbol": "BTCUSDT", "regime": "trend",
-        "kind": "breakout", "default": 0.55,
+        "kind": "breakout", "default": 0.55, "direction": "*",
     }]
 
 

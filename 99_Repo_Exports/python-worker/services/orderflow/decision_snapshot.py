@@ -66,6 +66,11 @@ class DecisionSnapshotContractDTO:
     validation_status: str | None = None
     validation_reason: str | None = None
     indicators_small: dict[str, Any] | None = None
+    # Joiner-affinity fields (P46 trade_close_joiner reads these to populate
+    # `bucket` / `model_ver` / `market_regime` on trades:closed rows).
+    meta_enforce_bucket: str | None = None
+    ml_model_ver: str | None = None
+    market_regime: str | None = None
 
 
 def _extract_bbo(signal: dict[str, Any], runtime: Any | None) -> tuple[float | None, float | None]:
@@ -232,6 +237,37 @@ def build_decision_snapshot_event(
     if signal.get("tca_ready") is None:
         tca_ready = bool(sid and ts_decision_ms and mid is not None and (bid is not None and ask is not None) and ("crossed_bbo" not in merged_flags))
 
+    # Joiner-affinity fields — best-effort extraction so trade_close_joiner
+    # can populate bucket/model_ver/regime on trades:closed without consulting
+    # separate stores. All optional: missing values stay None.
+    def _pick_str(*candidates: Any) -> str | None:
+        for c in candidates:
+            if c is None:
+                continue
+            s = str(c).strip()
+            if s and s.lower() not in ("nan", "none"):
+                return s
+        return None
+
+    meta_enforce_bucket = _pick_str(
+        signal.get("meta_enforce_bucket"),
+        signal.get("meta_enforce_cov_bucket"),
+        indicators.get("meta_enforce_bucket"),
+        indicators.get("meta_enforce_cov_bucket"),
+    )
+    ml_model_ver = _pick_str(
+        signal.get("ml_model_ver"),
+        signal.get("model_ver"),
+        indicators.get("ml_model_ver"),
+        indicators.get("model_ver"),
+    )
+    market_regime = _pick_str(
+        signal.get("market_regime"),
+        signal.get("entry_regime"),
+        indicators.get("market_regime"),
+        indicators.get("regime"),
+    )
+
     out: dict[str, Any] = {
         "schema_version": int(schema_version),
         "producer": os.getenv("SERVICE_NAME", "python-worker"),
@@ -245,6 +281,9 @@ def build_decision_snapshot_event(
         "direction": direction,
         "side": side,
         "decision_ts_ms": int(ts_decision_ms),
+        "meta_enforce_bucket": meta_enforce_bucket,
+        "ml_model_ver": ml_model_ver,
+        "market_regime": market_regime,
         "decision_bid": bid,
         "decision_ask": ask,
         "decision_mid": mid,

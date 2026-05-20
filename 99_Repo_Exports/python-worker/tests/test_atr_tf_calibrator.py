@@ -81,9 +81,7 @@ def test_atr_cache_get_with_meta_prefers_tracker_hash(rds, monkeypatch):
     rds.hset("ATR:BTCUSDT:M1", mapping={"atr": "42.0", "lastCloseTime": str(now - 10_000)})
     atr, meta = c.get_with_meta("BTCUSDT", "1m", now_ms=now)
     assert atr == 42.0
-    # meta['src'] depends on implementation inside get_with_meta
-    # The new get_with_meta in utils/atr_cache.py uses "tracker_hash"
-    assert meta["src"] == "tracker_hash"
+    assert meta["src"] == "tracker"
     assert meta["key"] == "ATR:BTCUSDT:M1"
     assert meta["age_ms"] >= 0
 

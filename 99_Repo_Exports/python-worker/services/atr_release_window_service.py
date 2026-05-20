@@ -62,21 +62,21 @@ def classify_change(change_type: str, components_touched: list[str]) -> str:
 
 def find_eligible_window(change_class: str) -> str:
     if change_class in ["LOW_RISK_CONFIG", "LOW_RISK_OBSERVABILITY"]:
-        return "standard",  # type: ignore
+        return "standard"
     if change_class in ["MEDIUM_POLICY", "HIGH_GOVERNANCE"]:
-        return "governance",  # type: ignore
+        return "governance"
     if change_class == "CRITICAL_RUNTIME_GATING":
-        return "runtime_critical",  # type: ignore
+        return "runtime_critical"
     if change_class == "CRITICAL_EXECUTION_TOUCHING":
-        return "execution_critical",  # type: ignore
+        return "execution_critical"
     if change_class == "PROTECTIVE_PATH_TOUCHING":
-        return "protective_isolated",  # type: ignore
-    return "standard",  # type: ignore
+        return "protective_isolated"
+    return "standard"
 
 def build_pre_release_checklist(change_id: str, change_class: str, target_scope: str) -> dict[str, Any]:
     # Gathers metrics/status from Control Plane, Execution, and Protective readiness
     # Dummy implementation representing the real telemetry fetches
-    checklist_id = f"relchk_{datetime.now(UTC).strftime('%Y_%m_%d')}_{change_id[:4]}",
+    checklist_id = f"relchk_{datetime.now(UTC).strftime('%Y_%m_%d')}_{change_id[:4]}"
 
     checks = {
         "control_plane": {

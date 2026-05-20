@@ -52,6 +52,85 @@ Side = Literal["LONG", "SHORT"]
 
 
 # ---------------------------------------------------------------------------
+# Prometheus metrics (fail-open if client not available)
+# ---------------------------------------------------------------------------
+
+try:
+    from prometheus_client import Counter, Histogram
+
+    # Note: confirmation_barrier_total (decision counter) and
+    # confirmation_barrier_pending (Gauge) are defined in signal_pipeline.py;
+    # we add complementary metrics that the pipeline does not emit.
+    _confirmation_barrier_decision_class_total = Counter(
+        "confirmation_barrier_decision_class_total",
+        "ConfirmationBarrier resolutions bucketed by reason class",
+        ["mode", "result", "reason_class"],
+    )
+    _confirmation_barrier_resolution_latency_ms = Histogram(
+        "confirmation_barrier_resolution_latency_ms",
+        "Time from submit() to resolution",
+        ["mode", "result"],
+        buckets=(50, 100, 250, 500, 1000, 2000, 5000, 10000, 15000, 30000),
+    )
+    _confirmation_barrier_submit_total = Counter(
+        "confirmation_barrier_submit_total",
+        "Submits attempted by mode",
+        ["mode", "outcome"],  # outcome: queued | fail_open
+    )
+except Exception:  # pragma: no cover
+    _confirmation_barrier_decision_class_total = None  # type: ignore[assignment]
+    _confirmation_barrier_resolution_latency_ms = None  # type: ignore[assignment]
+    _confirmation_barrier_submit_total = None  # type: ignore[assignment]
+
+
+def _reason_class(reason: str) -> str:
+    """Bucket reason strings for low-cardinality metric labels."""
+    r = (reason or "").strip().lower()
+    if r.startswith("early_flip"):
+        return "early_flip"
+    if r.startswith("no_progress"):
+        return "no_progress"
+    if r.startswith("insufficient_obs"):
+        return "insufficient_obs"
+    if r.startswith("confirmed_progress"):
+        return "confirmed_progress"
+    if r.startswith("forced_expire"):
+        return "forced_expire"
+    return "other"
+
+
+def _metric_decision(mode: str, decision: str, reason: str) -> None:
+    if _confirmation_barrier_decision_class_total is None:
+        return
+    try:
+        _confirmation_barrier_decision_class_total.labels(
+            mode=mode, result=decision, reason_class=_reason_class(reason)
+        ).inc()
+    except Exception:
+        pass
+
+
+def _metric_latency(mode: str, decision: str, latency_ms: float) -> None:
+    if _confirmation_barrier_resolution_latency_ms is None:
+        return
+    try:
+        _confirmation_barrier_resolution_latency_ms.labels(
+            mode=mode, result=decision
+        ).observe(max(0.0, latency_ms))
+    except Exception:
+        pass
+
+
+def _metric_submit(mode: str, outcome: str) -> None:
+    if _confirmation_barrier_submit_total is None:
+        return
+    try:
+        _confirmation_barrier_submit_total.labels(mode=mode, outcome=outcome).inc()
+    except Exception:
+        pass
+
+
+# ---------------------------------------------------------------------------
 # Config
 # ---------------------------------------------------------------------------
 
@@ -193,14 +272,18 @@ class ConfirmationBarrier:
         :meth:`poll` later".
         """
         if self._mode == "off":
+            _metric_submit(self._mode, "fail_open")
             return "ALLOW"
         side_u = str(side or "").strip().upper()
         if side_u not in ("LONG", "SHORT"):
             # Unknown side — fail-open: do not gate.
+            _metric_submit(self._mode, "fail_open")
             return "ALLOW"
         if trigger_price <= 0:
+            _metric_submit(self._mode, "fail_open")
             return "ALLOW"
         if not signal_id:
+            _metric_submit(self._mode, "fail_open")
             return "ALLOW"
         if signal_id in self._pending:
             # Duplicate submit — replace silently (keep latest trigger).
@@ -219,6 +302,7 @@ class ConfirmationBarrier:
         )
         self._pending[signal_id] = rec
         self._by_symbol.setdefault(symbol, set()).add(signal_id)
+        _metric_submit(self._mode, "queued")
         return None
 
     # ------------------------------------------------------------------
@@ -278,12 +362,18 @@ class ConfirmationBarrier:
             if rec.early_decision is not None:
                 dec, reason = rec.early_decision
                 out.append((sid, dec, reason, rec.payload))
+                latency_ms = (time.monotonic() - rec.submitted_at_monotonic) * 1000.0
+                _metric_decision(self._mode, dec, reason)
+                _metric_latency(self._mode, dec, latency_ms)
                 self._drop(sid)
                 continue
             if now_ms < rec.deadline_ms:
                 continue
             dec, reason = self._evaluate_at_deadline(rec)
             out.append((sid, dec, reason, rec.payload))
+            latency_ms = (time.monotonic() - rec.submitted_at_monotonic) * 1000.0
+            _metric_decision(self._mode, dec, reason)
+            _metric_latency(self._mode, dec, latency_ms)
             self._drop(sid)
         return out
 
@@ -339,6 +429,11 @@ class ConfirmationBarrier:
             rec = self._pending.get(sid)
             if rec is None:
                 continue
-            out.append((sid, self._decision_drop(), f"forced_expire:{reason}", rec.payload))
+            dec = self._decision_drop()
+            expire_reason = f"forced_expire:{reason}"
+            latency_ms = (time.monotonic() - rec.submitted_at_monotonic) * 1000.0
+            _metric_decision(self._mode, dec, expire_reason)
+            _metric_latency(self._mode, dec, latency_ms)
+            out.append((sid, dec, expire_reason, rec.payload))
             self._drop(sid)
         return out

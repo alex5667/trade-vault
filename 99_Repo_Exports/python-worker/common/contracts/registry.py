@@ -8,11 +8,11 @@ from common.enums.trading import Direction, Side
 
 
 class ContractBase(BaseModel):
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="ignore", protected_namespaces=())
 
 class ExecutionContractBase(BaseModel):
     """Strict base for execution-path contracts — rejects unknown fields."""
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", protected_namespaces=())
 
 class SignalV1(ContractBase):
     schema_version: str = "v1"

@@ -836,6 +836,16 @@ class RedisTradeRepository:
         #   - close pipeline can attach entry_regime to TradeClosed deterministically
         entry_regime = _extract_entry_regime_from_obj(pos)
 
+        _sp = getattr(pos, "signal_payload", None) or {}
+        if isinstance(_sp, str):
+            try:
+                _sp = json.loads(_sp)
+            except Exception:
+                _sp = {}
+        atr_used_for_levels = _sp.get("atr_used_for_levels")
+        if atr_used_for_levels is None:
+            atr_used_for_levels = getattr(pos, "atr", 0.0)
+
         mapping: dict[str, Any] = {
             "schema_version": "1",
             "id": pos.id,
@@ -923,7 +933,7 @@ class RedisTradeRepository:
             "baseline_tp2": _to_str(getattr(pos, "baseline_tp2", 0.0)),
             "baseline_tp3": _to_str(getattr(pos, "baseline_tp3", 0.0)),
             "atr": _to_str(getattr(pos, "atr", 0.0)),
-            "atr_used_for_levels": _to_str(getattr(pos, "atr", 0.0)),
+            "atr_used_for_levels": _to_str(atr_used_for_levels),
 
             # Conditional trailing flags (debuggable in Redis order:{id}).
             # Stored as "0/1" strings for consistent reading in recovery.
@@ -1124,6 +1134,16 @@ class RedisTradeRepository:
         # position object wasn't available to that consumer.
         entry_regime = _extract_entry_regime_from_obj(closed)
 
+        _sp = getattr(closed, "signal_payload", None) or {}
+        if isinstance(_sp, str):
+            try:
+                _sp = json.loads(_sp)
+            except Exception:
+                _sp = {}
+        atr_used_for_levels = _sp.get("atr_used_for_levels")
+        if atr_used_for_levels is None:
+            atr_used_for_levels = getattr(closed, "atr", 0.0)
+
         mapping = {
             "status": "closed",
             "closed_time": str(closed.exit_ts_ms),
@@ -1186,7 +1206,7 @@ class RedisTradeRepository:
             "max_favorable_ts": str(closed.max_favorable_ts),
             "schema_version": str(closed.schema_version),
             "atr": f"{getattr(closed, 'atr', 0.0)}",
-            "atr_used_for_levels": f"{getattr(closed, 'atr', 0.0)}",
+            "atr_used_for_levels": f"{atr_used_for_levels}",
             "sl_price": f"{getattr(closed, 'sl', 0.0)}",
             "tp1_price": f"{getattr(closed, 'tp1_price', 0.0)}",
 
@@ -1310,6 +1330,8 @@ class RedisTradeRepository:
             if prof:
                 d.setdefault("trailing_profile", prof)
                 d.setdefault("trail_profile", prof)
+
+        d["atr_used_for_levels"] = atr_used_for_levels
 
         # Normalize sid to canonical format: crypto-of:{symbol}:{ts_ms}
         # This is critical for join: metrics:ml_confirm ↔ trades:closed
@@ -1483,6 +1505,16 @@ class RedisTradeRepository:
         tf_canon = canon_tf(getattr(pos, "tf", None))
         entry_regime = _extract_entry_regime_from_obj(pos)
 
+        _sp = getattr(pos, "signal_payload", None) or {}
+        if isinstance(_sp, str):
+            try:
+                _sp = json.loads(_sp)
+            except Exception:
+                _sp = {}
+        atr_used_for_levels = _sp.get("atr_used_for_levels")
+        if atr_used_for_levels is None:
+            atr_used_for_levels = getattr(pos, "atr", 0.0)
+
         mapping: dict[str, Any] = {
             "schema_version": "1",
             "id": pos.id,
@@ -1540,6 +1572,7 @@ class RedisTradeRepository:
             "baseline_tp2": _to_str(getattr(pos, "baseline_tp2", 0.0)),
             "baseline_tp3": _to_str(getattr(pos, "baseline_tp3", 0.0)),
             "atr": _to_str(getattr(pos, "atr", 0.0)),
+            "atr_used_for_levels": _to_str(atr_used_for_levels),
         }
 
         # Phase 0.3: horizon scalar fields

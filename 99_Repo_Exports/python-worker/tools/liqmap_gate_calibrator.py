@@ -301,7 +301,7 @@ def compute_stats(
         "pass_r_median": round(_median(pass_r), 3),
         "veto_reasons":  dict(veto_reasons.most_common()),
         "by_symbol":     by_sym_flat,
-    },
+    }
 
 
 # ---------------------------------------------------------------------------

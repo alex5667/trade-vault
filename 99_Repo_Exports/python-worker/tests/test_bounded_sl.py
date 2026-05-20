@@ -1,0 +1,256 @@
+"""Unit tests for signals/bounded_sl.py and its wiring into compute_levels.
+
+Plan 2.4: bounded SL = max(k*ATR, p75(MAE_30d_bps)) to mitigate
+microstructure-noise SL hits.
+"""
+from __future__ import annotations
+
+from typing import Any
+from unittest.mock import patch
+
+import pytest
+
+from signals.bounded_sl import (
+    _reset_cache_for_tests,
+    apply_bounded_sl_floor,
+    resolve_mae_floor_bps,
+)
+from signals.risk_levels import compute_levels
+
+
+@pytest.fixture(autouse=True)
+def _wipe_cache():
+    _reset_cache_for_tests()
+    yield
+    _reset_cache_for_tests()
+
+
+# ---------------------------------------------------------------------------
+# resolve_mae_floor_bps — pure logic, percentile/cap/k math
+# ---------------------------------------------------------------------------
+
+class TestResolveMaeFloor:
+    def test_no_data_returns_zero(self):
+        # No cfg override, redis returns nothing (mocked via patch).
+        with patch("signals.bounded_sl._read_priors_from_redis", return_value={}):
+            floor, meta = resolve_mae_floor_bps("BTCUSDT", {})
+        assert floor == 0.0
+        assert meta["source"] == 0.0
+
+    def test_cfg_injection_used_first(self):
+        # cfg injection takes precedence over Redis.
+        cfg = {"mae_p75_bps_30d": 50.0, "mae_sample_count_30d": 200.0}
+        with patch("signals.bounded_sl._read_priors_from_redis") as mock_r:
+            floor, meta = resolve_mae_floor_bps("BTCUSDT", cfg)
+            mock_r.assert_not_called()
+        assert floor == 50.0
+        assert meta["source"] == 1.0
+        assert meta["sample_count"] == 200.0
+
+    def test_min_samples_gate(self, monkeypatch):
+        # Below BOUNDED_SL_MIN_SAMPLES → returns 0 even with non-zero p75.
+        monkeypatch.setenv("BOUNDED_SL_MIN_SAMPLES", "100")
+        priors = {"p75_mae_bps_30d": 80.0, "sample_count": 50.0}
+        with patch("signals.bounded_sl._read_priors_from_redis", return_value=priors):
+            floor, meta = resolve_mae_floor_bps("BTCUSDT", {})
+        assert floor == 0.0
+        assert meta["sample_count"] == 50.0
+
+    def test_k_multiplier(self, monkeypatch):
+        monkeypatch.setenv("BOUNDED_SL_MIN_SAMPLES", "0")
+        monkeypatch.setenv("BOUNDED_SL_MAE_K", "1.5")
+        monkeypatch.setenv("BOUNDED_SL_MAE_P75_CAP_BPS", "1000")
+        priors = {"p75_mae_bps_30d": 40.0, "sample_count": 200.0}
+        with patch("signals.bounded_sl._read_priors_from_redis", return_value=priors):
+            floor, _ = resolve_mae_floor_bps("BTCUSDT", {})
+        assert floor == pytest.approx(60.0)
+
+    def test_cap_enforced(self, monkeypatch):
+        monkeypatch.setenv("BOUNDED_SL_MIN_SAMPLES", "0")
+        monkeypatch.setenv("BOUNDED_SL_MAE_K", "1.0")
+        monkeypatch.setenv("BOUNDED_SL_MAE_P75_CAP_BPS", "100")
+        priors = {"p75_mae_bps_30d": 300.0, "sample_count": 200.0}
+        with patch("signals.bounded_sl._read_priors_from_redis", return_value=priors):
+            floor, meta = resolve_mae_floor_bps("BTCUSDT", {})
+        assert floor == 100.0  # capped
+        assert meta["mae_p75_bps"] == 300.0  # raw preserved
+
+
+# ---------------------------------------------------------------------------
+# apply_bounded_sl_floor — env gating + apply/shadow behavior
+# ---------------------------------------------------------------------------
+
+class TestApplyBoundedSL:
+    def test_disabled_passes_through(self, monkeypatch):
+        monkeypatch.setenv("BOUNDED_SL_ENABLED", "0")
+        new_dist, telem = apply_bounded_sl_floor(
+            "BTCUSDT", 100.0, 0.10, {"mae_p75_bps_30d": 200.0, "mae_sample_count_30d": 200.0},
+        )
+        assert new_dist == 0.10
+        assert telem["enabled"] == 0
+        assert telem["applied"] == 0
+
+    def test_shadow_mode_observes_without_applying(self, monkeypatch):
+        monkeypatch.setenv("BOUNDED_SL_ENABLED", "1")
+        monkeypatch.setenv("BOUNDED_SL_SHADOW", "1")
+        monkeypatch.setenv("BOUNDED_SL_MAE_K", "1.0")
+        monkeypatch.setenv("BOUNDED_SL_MAE_P75_CAP_BPS", "1000")
+        # entry=100, stop_dist=0.10 → 10 bps. p75=50 bps → floor=0.5 in price.
+        new_dist, telem = apply_bounded_sl_floor(
+            "BTCUSDT", 100.0, 0.10,
+            {"mae_p75_bps_30d": 50.0, "mae_sample_count_30d": 200.0},
+        )
+        assert new_dist == 0.10  # NOT applied
+        assert telem["enabled"] == 1
+        assert telem["shadow"] == 1
+        assert telem["applied"] == 0
+        assert telem["would_apply"] == 1
+        assert telem["mae_floor_bps"] == pytest.approx(50.0)
+        assert telem["delta_dist"] == pytest.approx(0.40, rel=1e-3)
+
+    def test_enforce_mode_applies_floor(self, monkeypatch):
+        monkeypatch.setenv("BOUNDED_SL_ENABLED", "1")
+        monkeypatch.setenv("BOUNDED_SL_SHADOW", "0")
+        monkeypatch.setenv("BOUNDED_SL_MAE_K", "1.0")
+        monkeypatch.setenv("BOUNDED_SL_MAE_P75_CAP_BPS", "1000")
+        new_dist, telem = apply_bounded_sl_floor(
+            "BTCUSDT", 100.0, 0.10,
+            {"mae_p75_bps_30d": 50.0, "mae_sample_count_30d": 200.0},
+        )
+        assert new_dist == pytest.approx(0.50)
+        assert telem["applied"] == 1
+        assert telem["final_dist"] == pytest.approx(0.50)
+        assert telem["base_dist"] == 0.10
+
+    def test_no_op_when_atr_already_wider(self, monkeypatch):
+        monkeypatch.setenv("BOUNDED_SL_ENABLED", "1")
+        monkeypatch.setenv("BOUNDED_SL_SHADOW", "0")
+        monkeypatch.setenv("BOUNDED_SL_MAE_K", "1.0")
+        # entry=100, stop_dist=2.0 (200 bps). p75=50 bps → floor=0.5.
+        new_dist, telem = apply_bounded_sl_floor(
+            "BTCUSDT", 100.0, 2.0,
+            {"mae_p75_bps_30d": 50.0, "mae_sample_count_30d": 200.0},
+        )
+        assert new_dist == 2.0  # ATR-based stop already exceeds the floor
+        assert telem["applied"] == 0
+        assert telem["would_apply"] == 0
+
+    def test_fail_open_on_invalid_input(self, monkeypatch):
+        monkeypatch.setenv("BOUNDED_SL_ENABLED", "1")
+        monkeypatch.setenv("BOUNDED_SL_SHADOW", "0")
+        # entry<=0 → return original
+        new_dist, telem = apply_bounded_sl_floor(
+            "BTCUSDT", 0.0, 0.10, {"mae_p75_bps_30d": 50.0, "mae_sample_count_30d": 200.0},
+        )
+        assert new_dist == 0.10
+        assert telem["applied"] == 0
+
+
+# ---------------------------------------------------------------------------
+# compute_levels integration — SL widened when feature ON+ENFORCE
+# ---------------------------------------------------------------------------
+
+class TestComputeLevelsBounded:
+    def _cfg_atr(self, mae_p75: float, sample_count: float = 200.0) -> dict[str, Any]:
+        return {
+            "STOP_MODE": "ATR",
+            "STOP_ATR_MULT": 0.6,
+            "TP_MODE": "RR",
+            "TP_RR": "1,2,3",
+            # Disable adaptive hard-floor so we test the MAE floor in isolation.
+            "SL_FLOOR_DEFAULT_BPS": "0",
+            "spread_bps": 0.0,
+            "slippage_ema_bps": 0.0,
+            "mae_p75_bps_30d": mae_p75,
+            "mae_sample_count_30d": sample_count,
+        }
+
+    def test_disabled_default_no_widening(self, monkeypatch):
+        monkeypatch.delenv("BOUNDED_SL_ENABLED", raising=False)
+        monkeypatch.setenv("SL_FLOOR_DEFAULT_BPS", "0")
+        monkeypatch.setenv("SL_FLOOR_SPREAD_MULT", "0")
+        monkeypatch.setenv("SL_FLOOR_SLIPPAGE_MULT", "0")
+        monkeypatch.setenv("SL_FLOOR_ATR_MULT", "0")
+        cfg = self._cfg_atr(mae_p75=500.0)  # huge would-be floor
+        levels = compute_levels(entry=100.0, atr=1.0, side="LONG", cfg=cfg, symbol="BTCUSDT")
+        # ATR stop: 0.6 * 1.0 = 0.6 → sl=99.4; floor would push to 5.0 but feature is OFF.
+        assert levels["stop_dist"] == pytest.approx(0.6)
+        assert levels["sl"] == pytest.approx(99.4)
+
+    def test_enforce_widens_sl(self, monkeypatch):
+        monkeypatch.setenv("BOUNDED_SL_ENABLED", "1")
+        monkeypatch.setenv("BOUNDED_SL_SHADOW", "0")
+        monkeypatch.setenv("BOUNDED_SL_MAE_K", "1.0")
+        monkeypatch.setenv("BOUNDED_SL_MAE_P75_CAP_BPS", "1000")
+        monkeypatch.setenv("SL_FLOOR_DEFAULT_BPS", "0")
+        monkeypatch.setenv("SL_FLOOR_SPREAD_MULT", "0")
+        monkeypatch.setenv("SL_FLOOR_SLIPPAGE_MULT", "0")
+        monkeypatch.setenv("SL_FLOOR_ATR_MULT", "0")
+        # mae_p75=80 bps → 100 * 80/10000 = 0.8 in price. ATR-based = 0.6.
+        cfg = self._cfg_atr(mae_p75=80.0)
+        levels = compute_levels(entry=100.0, atr=1.0, side="LONG", cfg=cfg, symbol="BTCUSDT")
+        assert levels["stop_dist"] == pytest.approx(0.8)
+        assert levels["sl"] == pytest.approx(99.2)
+
+    def test_shadow_no_widening(self, monkeypatch):
+        monkeypatch.setenv("BOUNDED_SL_ENABLED", "1")
+        monkeypatch.setenv("BOUNDED_SL_SHADOW", "1")  # shadow → observe only
+        monkeypatch.setenv("BOUNDED_SL_MAE_K", "1.0")
+        monkeypatch.setenv("SL_FLOOR_DEFAULT_BPS", "0")
+        monkeypatch.setenv("SL_FLOOR_SPREAD_MULT", "0")
+        monkeypatch.setenv("SL_FLOOR_SLIPPAGE_MULT", "0")
+        monkeypatch.setenv("SL_FLOOR_ATR_MULT", "0")
+        cfg = self._cfg_atr(mae_p75=80.0)
+        levels = compute_levels(entry=100.0, atr=1.0, side="LONG", cfg=cfg, symbol="BTCUSDT")
+        # Shadow leaves stop_dist at the original 0.6.
+        assert levels["stop_dist"] == pytest.approx(0.6)
+
+    def test_enforce_no_op_when_atr_wider(self, monkeypatch):
+        monkeypatch.setenv("BOUNDED_SL_ENABLED", "1")
+        monkeypatch.setenv("BOUNDED_SL_SHADOW", "0")
+        monkeypatch.setenv("BOUNDED_SL_MAE_K", "1.0")
+        monkeypatch.setenv("SL_FLOOR_DEFAULT_BPS", "0")
+        monkeypatch.setenv("SL_FLOOR_SPREAD_MULT", "0")
+        monkeypatch.setenv("SL_FLOOR_SLIPPAGE_MULT", "0")
+        monkeypatch.setenv("SL_FLOOR_ATR_MULT", "0")
+        # mae_p75=10 bps → floor=0.1; ATR stop=0.6 wins.
+        cfg = self._cfg_atr(mae_p75=10.0)
+        levels = compute_levels(entry=100.0, atr=1.0, side="LONG", cfg=cfg, symbol="BTCUSDT")
+        assert levels["stop_dist"] == pytest.approx(0.6)
+
+
+# ---------------------------------------------------------------------------
+# pit_priors_rolling_v1 — p75/p50/p90 MAE bps emission
+# ---------------------------------------------------------------------------
+
+class TestPitPriorsMaeBps:
+    def test_p75_mae_bps_emitted(self):
+        from orderflow_services.pit_priors_rolling_v1 import compute_rolling_priors
+
+        now_ms = 30 * 86_400_000 + 5_000_000_000  # well after embargo
+        # Build 30 trades with monotonic mae_bps so percentiles are deterministic.
+        ts_close = now_ms - 7_200_000  # 2h ago (past embargo of 1h)
+        trades = []
+        for i in range(1, 31):  # i=1..30, mae_bps=10..300
+            trades.append({
+                "symbol": "BTCUSDT",
+                "scenario": "default",
+                "session": "us_main",
+                "ts_close": str(ts_close - i * 1_000),
+                "result": "LOSS" if i % 2 == 0 else "WIN",
+                "r_multiple": str(-1.0 if i % 2 == 0 else 1.5),
+                "mae_r": "0.5",
+                "mfe_r": "1.2",
+                "mae_bps": str(i * 10.0),
+            })
+        _, p30 = compute_rolling_priors(trades, now_ms)
+        key = ("BTCUSDT", "default", "all")
+        assert key in p30
+        agg = p30[key]
+        assert "p75_mae_bps_30d" in agg
+        assert "p50_mae_bps_30d" in agg
+        assert "p90_mae_bps_30d" in agg
+        # mae_bps values are 10,20,...,300 — p50≈150-160, p75≈230, p90≈270.
+        assert agg["p50_mae_bps_30d"] > 0.0
+        assert agg["p75_mae_bps_30d"] >= agg["p50_mae_bps_30d"]
+        assert agg["p90_mae_bps_30d"] >= agg["p75_mae_bps_30d"]

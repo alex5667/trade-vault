@@ -77,6 +77,7 @@ from core.adverse_cross_calibrator import (
     DEFAULT_ADVERSE_CROSS_HARD_BPS,
 )
 from core.burst_c2t_calibrator import BurstC2TCalibrator
+from core.btc_drop_reader import get_btc_ret_5m
 
 try:
     from prometheus_client import Counter, Gauge
@@ -105,9 +106,32 @@ try:
         "Total VETO_TRADE_ADVERSE_CROSS decisions (hard profile)",
         ["symbol", "src"],
     )
+    _btc_drop_block_long_total = Counter(
+        "entry_btc_drop_block_long_total",
+        "Cross-asset BTC-drop LONG-block decisions (Plan 3.4)",
+        ["symbol", "mode", "decision"],
+    )
+    _btc_drop_block_long_ret_g = Gauge(
+        "entry_btc_drop_block_long_btc_ret_5m",
+        "Last observed BTC 5m fractional return at gate evaluation time",
+    )
+    _daily_dd_veto_total = Counter(
+        "entry_daily_dd_killswitch_veto_total",
+        "Total VETO_DAILY_DD_KILLSWITCH decisions emitted by EntryPolicyGate",
+        ["symbol"],
+    )
+    _htf_long_bias_total = Counter(
+        "entry_htf_long_bias_total",
+        "HTF LONG bias gate decisions — Plan 1.2",
+        ["symbol", "mode", "decision"],
+    )
 except Exception:
     Counter = Gauge = None  # type: ignore[assignment,misc]
     _ac_cal_soft_bps = _ac_cal_hard_bps = _ac_cal_n = _ac_cal_loss_floor = _ac_veto_total = None  # type: ignore[assignment]
+    _btc_drop_block_long_total = None  # type: ignore[assignment]
+    _btc_drop_block_long_ret_g = None  # type: ignore[assignment]
+    _daily_dd_veto_total = None  # type: ignore[assignment]
+    _htf_long_bias_total = None  # type: ignore[assignment]
 
 
 @dataclass(frozen=True)
@@ -244,6 +268,61 @@ class EntryPolicyGate:
             auto_enforce=_env_bool("BURST_C2T_CAL_AUTO_ENFORCE", True),
         )
 
+        # ── Plan 1.2: HTF LONG bias gate ─────────────────────────────────────
+        # Block LONG when macro indicators signal a bear regime. Uses v14_of OE
+        # keys: cg_rel_strength_btc_1h / btc_ret_1m / symbol_rel_strength_vs_btc_1m
+        # / market_breadth_ret_5m. Requires HTF_LONG_BIAS_REQUIRE_N or more of
+        # these to be negative to fire.
+        #
+        # Auto-promoter: if HTF_LONG_BIAS_MODE=shadow, flips to enforce-equivalent
+        # once min_hours + min_hits + min_evals criteria are met (6h / 50 hits /
+        # 200 evals by default). Manual rollback: HDEL autocal:htf_long_bias:state global.
+        #
+        # ENV knobs:
+        #   HTF_LONG_BIAS_ENABLED            master switch                (default 0)
+        #   HTF_LONG_BIAS_MODE               shadow|enforce               (default shadow)
+        #   HTF_LONG_BIAS_REQUIRE_N          min bear indicators to fire  (default 2)
+        #   HTF_LONG_BIAS_AUTO_PROMOTE       enable auto-promoter         (default 1)
+        #   HTF_LONG_BIAS_AUTO_PROMOTE_MIN_HOURS   (default 6)
+        #   HTF_LONG_BIAS_AUTO_PROMOTE_MIN_HITS    (default 50)
+        #   HTF_LONG_BIAS_AUTO_PROMOTE_MIN_EVALS   (default 200)
+        self.htf_long_bias_enabled = _env_bool("HTF_LONG_BIAS_ENABLED", False)
+        self.htf_long_bias_mode = (
+            os.getenv("HTF_LONG_BIAS_MODE", "shadow") or "shadow"
+        ).strip().lower()
+        self.htf_long_bias_require_n = max(1, int(os.getenv("HTF_LONG_BIAS_REQUIRE_N", "2") or "2"))
+        _ap_enabled = _env_bool("HTF_LONG_BIAS_AUTO_PROMOTE", True) and self.htf_long_bias_enabled
+        from core.htf_long_bias_autopromoter import HtfLongBiasAutoPromoter
+        self._htf_long_bias_promoter = HtfLongBiasAutoPromoter(
+            enabled=_ap_enabled,
+            min_hours=float(os.getenv("HTF_LONG_BIAS_AUTO_PROMOTE_MIN_HOURS", "6") or "6"),
+            min_hits=int(os.getenv("HTF_LONG_BIAS_AUTO_PROMOTE_MIN_HITS", "50") or "50"),
+            min_evals=int(os.getenv("HTF_LONG_BIAS_AUTO_PROMOTE_MIN_EVALS", "200") or "200"),
+        )
+
+        # ── Plan 3.4 Cross-asset correlation gate ─────────────────────────────
+        # Block LONG on alts (ETH/SOL/...) when BTC drops ≥ |threshold| over the
+        # last 5 min. Primary source: ctx.indicators["btc_ret_5m"] (v14_of OE);
+        # fallback: tick-stream reader (core.btc_drop_reader). BTCUSDT itself is
+        # exempt by default — a BTC crash is a different setup, not an alt-block.
+        #
+        # ENV knobs:
+        #   BTC_DROP_BLOCK_LONG_ENABLED  master switch                (default 0)
+        #   BTC_DROP_BLOCK_LONG_MODE     shadow|enforce               (default enforce)
+        #   BTC_DROP_BLOCK_LONG_PCT_5M   fractional drop threshold    (default -0.01 = -1%)
+        #   BTC_DROP_BLOCK_LONG_EXEMPT   csv of symbols never blocked (default BTCUSDT)
+        self.btc_drop_block_long_enabled = _env_bool("BTC_DROP_BLOCK_LONG_ENABLED", False)
+        self.btc_drop_block_long_mode = (
+            os.getenv("BTC_DROP_BLOCK_LONG_MODE", "enforce") or "enforce"
+        ).strip().lower()
+        self.btc_drop_block_long_pct_5m = _safe_float(
+            os.getenv("BTC_DROP_BLOCK_LONG_PCT_5M", "-0.01"), -0.01
+        )
+        _exempt_raw = (os.getenv("BTC_DROP_BLOCK_LONG_EXEMPT", "BTCUSDT") or "").strip()
+        self.btc_drop_block_long_exempt: frozenset[str] = frozenset(
+            s.strip().upper() for s in _exempt_raw.split(",") if s.strip()
+        )
+
     # ── adverse-cross calibrator persistence ──────────────────────────────────
 
     def snapshot_to_redis(self, redis: Any, now_ms: int) -> None:
@@ -274,6 +353,12 @@ class EntryPolicyGate:
                     symbol=sym_part, regime=regime_key, updated_ts_ms=now_ms,
                 )
                 redis.hset(RK.AUTOCAL_BURST_C2T, regime_key, json.dumps(state))
+        except Exception:
+            pass
+        try:
+            mapping = self._htf_long_bias_promoter.dump_all()
+            if mapping:
+                redis.hset(RK.AUTOCAL_HTF_LONG_BIAS, mapping=mapping)
         except Exception:
             pass
 
@@ -317,8 +402,129 @@ class EntryPolicyGate:
                         self._burst_c2t_calib.load_regime_state(state)
         except Exception:
             pass
+        try:
+            raw_map = redis.hgetall(RK.AUTOCAL_HTF_LONG_BIAS)
+            if raw_map:
+                self._htf_long_bias_promoter.load_mapping(raw_map)
+        except Exception:
+            pass
 
-    def evaluate(self, *, ctx: Any, symbol: str, kind: str) -> GateDecision:
+    def _resolve_side(self, *, ctx: Any, side: Any) -> str:
+        """Normalize side/direction → 'LONG' | 'SHORT' | ''. Reads ctx fallback when arg empty."""
+        cand: Any = side
+        if cand is None or (isinstance(cand, str) and not cand.strip()):
+            cand = (
+                getattr(ctx, "direction", None)
+                or getattr(ctx, "side", None)
+                or getattr(ctx, "side_str", None)
+            )
+        if isinstance(cand, str):
+            s = cand.strip().upper()
+            if s in {"LONG", "BUY"}:
+                return "LONG"
+            if s in {"SHORT", "SELL"}:
+                return "SHORT"
+            return ""
+        if isinstance(cand, (int, float)):
+            try:
+                v = float(cand)
+            except Exception:
+                return ""
+            if v > 0:
+                return "LONG"
+            if v < 0:
+                return "SHORT"
+        return ""
+
+    def _eval_btc_drop_block_long(
+        self, *, ctx: Any, symbol: str, side_norm: str,
+    ) -> tuple[bool, float | None, str]:
+        """Plan 3.4: block LONG on alts when BTC fell ≥ |threshold| over last 5m.
+
+        Returns (hit, btc_ret_5m, notes). hit=True only when side_norm == "LONG",
+        symbol is not in the exempt list, and a valid btc_ret_5m sample is
+        available and ≤ threshold. Reads ctx.indicators first (treats exact 0.0
+        as missing), then falls back to core.btc_drop_reader. Fail-open on any
+        exception.
+        """
+        if not self.btc_drop_block_long_enabled or side_norm != "LONG":
+            return False, None, ""
+        sym_u = (symbol or "").strip().upper()
+        if sym_u in self.btc_drop_block_long_exempt:
+            return False, None, ""
+
+        # Primary: v14_of OE indicator (already in ctx). Treat exact 0.0 as
+        # "missing" (warm-up / not yet populated) to avoid false negatives.
+        btc_ret: float | None = None
+        ind = getattr(ctx, "indicators", None)
+        if isinstance(ind, dict):
+            raw = ind.get("btc_ret_5m")
+            if raw is not None:
+                try:
+                    v = float(raw)
+                    if math.isfinite(v) and v != 0.0:
+                        btc_ret = v
+                except Exception:
+                    btc_ret = None
+
+        src = "ctx"
+        if btc_ret is None:
+            try:
+                btc_ret = get_btc_ret_5m()
+                src = "reader"
+            except Exception:
+                btc_ret = None
+
+        if btc_ret is None or not math.isfinite(btc_ret):
+            return False, None, ""
+
+        hit = btc_ret <= self.btc_drop_block_long_pct_5m
+        if not hit:
+            return False, btc_ret, ""
+        notes = (
+            f"btc_ret_5m={btc_ret:.5f}<=thr={self.btc_drop_block_long_pct_5m:.5f} "
+            f"src={src}"
+        )
+        return True, btc_ret, notes[:256]
+
+    def _eval_htf_long_bias(
+        self, *, ctx: Any, side_norm: str,
+    ) -> tuple[bool, str]:
+        """Plan 1.2: block LONG in macro-bear via v14_of OE rel_strength indicators.
+
+        Returns (hit, notes). hit=True only when side_norm == 'LONG', the gate is
+        enabled, and HTF_LONG_BIAS_REQUIRE_N or more bear indicators are negative.
+        Fail-open on any exception.
+        """
+        if not self.htf_long_bias_enabled or side_norm != "LONG":
+            return False, ""
+        try:
+            ind = getattr(ctx, "indicators", None) or {}
+            BEAR_CHECKS = [
+                ("cg_rel_strength_btc_1h", "cg_rel_str<0"),
+                ("btc_ret_1m", "btc_ret_1m<0"),
+                ("symbol_rel_strength_vs_btc_1m", "sym_rel_str<0"),
+                ("market_breadth_ret_5m", "breadth<0"),
+            ]
+            fired = []
+            for key, label in BEAR_CHECKS:
+                raw = ind.get(key)
+                if raw is None:
+                    continue
+                try:
+                    v = float(raw)
+                    if math.isfinite(v) and v < 0:
+                        fired.append(label)
+                except Exception:
+                    pass
+            if len(fired) < self.htf_long_bias_require_n:
+                return False, ""
+            notes = f"n={len(fired)}/{self.htf_long_bias_require_n} fired={','.join(fired)}"
+            return True, notes[:256]
+        except Exception:
+            return False, ""
+
+    def evaluate(self, *, ctx: Any, symbol: str, kind: str, side: Any = "") -> GateDecision:
         if not self.enabled:
             return GateDecision(False, False, "OK", "disabled")
 
@@ -336,6 +542,21 @@ class EntryPolicyGate:
         is_frozen, freeze_reason = _check_freeze_active(ctx, symbol.upper(), ab_group, scenario)
         if is_frozen:
             return GateDecision(True, True, "VETO_FREEZE_ACTIVE", freeze_reason)
+
+        # P0: Daily equity-drawdown kill-switch. Account-wide (NOT symbol-scoped).
+        # Reader is fail-open; vetoes only when daily-dd service has kill_armed=1 AND mode=enforce.
+        try:
+            from services.daily_dd_reader import is_armed as _daily_dd_is_armed
+            dd_armed, dd_reason = _daily_dd_is_armed(ctx)
+        except Exception:
+            dd_armed, dd_reason = False, ""
+        if dd_armed:
+            try:
+                if _daily_dd_veto_total is not None:
+                    _daily_dd_veto_total.labels(symbol=symbol.upper()).inc()
+            except Exception:
+                pass
+            return GateDecision(True, True, "VETO_DAILY_DD_KILLSWITCH", dd_reason or "daily_dd_breach")
 
         profile = (os.getenv("GATE_PROFILE", "") or "").strip().lower()
         if profile in {"", "normal"}:
@@ -388,6 +609,27 @@ class EntryPolicyGate:
             soft_flags.append(f"burst_flip={burst_flip:.3f}")
         if c2t > 0 and c2t >= _bct.c2t_max:
             soft_flags.append(f"c2t={c2t:.3f}")
+
+        # Plan 3.4: Cross-asset BTC-drop LONG-block on alts.
+        side_norm = self._resolve_side(ctx=ctx, side=side)
+        btc_drop_hit, btc_drop_ret, btc_drop_notes = self._eval_btc_drop_block_long(
+            ctx=ctx, symbol=symbol, side_norm=side_norm,
+        )
+        try:
+            if _btc_drop_block_long_ret_g is not None and btc_drop_ret is not None:
+                _btc_drop_block_long_ret_g.set(btc_drop_ret)  # type: ignore[union-attr]
+        except Exception:
+            pass
+        if btc_drop_hit:
+            soft_flags.append(f"btc_drop_block_long:{btc_drop_notes}")
+
+        # Plan 1.2: evaluate + observe early so state is captured in the throttled
+        # Redis snapshot that runs below (before the veto decision path).
+        htf_hit, htf_notes = self._eval_htf_long_bias(ctx=ctx, side_norm=side_norm)
+        htf_promoted = False
+        if side_norm == "LONG" and self.htf_long_bias_enabled:
+            self._htf_long_bias_promoter.observe(symbol=None, hit=htf_hit, now_ms=tsm)
+            htf_promoted = self._htf_long_bias_promoter.is_promoted(symbol=None, now_ms=tsm)
 
         # Feature drift alarm (fail-open): reads pre-computed result from FeatureDriftAlarm.
         drift_hit = False
@@ -528,6 +770,13 @@ class EntryPolicyGate:
             ctx.ss_cal_stale_hard = ss_stale_hard
             ctx.ss_cal_src = ss_src
             ctx.ss_cal_n = ss_n
+            # Plan 3.4: cross-asset BTC-drop block-LONG observability.
+            if btc_drop_hit:
+                ctx.btc_drop_block_long_alarm = 1
+                ctx.btc_drop_block_long_notes = btc_drop_notes
+                ctx.btc_drop_block_long_mode = self.btc_drop_block_long_mode
+                if btc_drop_ret is not None:
+                    ctx.btc_drop_block_long_btc_ret_5m = btc_drop_ret
         except Exception:
             pass
 
@@ -561,6 +810,51 @@ class EntryPolicyGate:
                     redis_client.xadd(self.diag_stream, {"data": json.dumps(ev, ensure_ascii=False)}, maxlen=50000, approximate=True)
             except Exception:
                 pass
+
+        # Plan 3.4: Cross-asset BTC-drop LONG-block path (runs BEFORE profile-based
+        # gating so it can veto even when GATE_PROFILE=default/soft). Single ENV
+        # switch shadow|enforce — no auto-promoter.
+        if btc_drop_hit:
+            mode = self.btc_drop_block_long_mode
+            if mode == "enforce":
+                try:
+                    if _btc_drop_block_long_total is not None:
+                        _btc_drop_block_long_total.labels(
+                            symbol=symbol, mode=mode, decision="VETO",
+                        ).inc()
+                except Exception:
+                    pass
+                return GateDecision(True, True, "VETO_BTC_DROP_BLOCK_LONG", btc_drop_notes)
+            else:
+                try:
+                    if _btc_drop_block_long_total is not None:
+                        _btc_drop_block_long_total.labels(
+                            symbol=symbol, mode=mode, decision="SHADOW",
+                        ).inc()
+                except Exception:
+                    pass
+
+        # Plan 1.2: HTF LONG bias veto (evaluate + observe already ran above the
+        # snapshot block; htf_hit / htf_promoted are already computed).
+        if htf_hit:
+            try:
+                ctx.htf_long_bias_alarm = 1
+                ctx.htf_long_bias_notes = htf_notes
+                ctx.htf_long_bias_promoted = htf_promoted
+            except Exception:
+                pass
+            htf_enforce = self.htf_long_bias_mode == "enforce" or htf_promoted
+            try:
+                if _htf_long_bias_total is not None:
+                    _htf_long_bias_total.labels(
+                        symbol=symbol,
+                        mode=self.htf_long_bias_mode,
+                        decision="VETO" if htf_enforce else "SHADOW",
+                    ).inc()
+            except Exception:
+                pass
+            if htf_enforce:
+                return GateDecision(True, True, "VETO_HTF_LONG_BIAS_BEAR", htf_notes)
 
         # Decision policy:
         #   default/soft: do not veto (не режем поток)

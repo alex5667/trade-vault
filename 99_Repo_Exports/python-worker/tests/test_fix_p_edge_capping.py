@@ -45,20 +45,20 @@ class TestFixPEdgeCapping:
         assert gate._calibrator is None
 
         # 3. Simulate prediction
-        # indicators -> feature row -> model -> p_edge
-        # We mock _build_feature_row to return specific feature vector [0.08]
+        # indicators is passed directly to predict_proba (raw feature names, no f_ prefix stripping)
+        # _build_feature_row is still called for critical-feature checks / missing list only
         with patch.object(gate, "_build_feature_row", return_value=([0.08], [])):
             dec = gate._decide_meta_lr(
-                symbol="BTCUSDT", ts_ms=1000, direction="buy", scenario="trend", indicators={}
+                symbol="BTCUSDT", ts_ms=1000, direction="buy", scenario="trend",
+                indicators={"f1": 0.08},  # value must be in indicators for predict_proba
             )
 
         # 4. Assertions
         assert dec.kind == "meta_lr"
         # Raw probability should be sigmoid(0.08) ~= 0.52
-        assert 0.51 < dec.p_edge_raw < 0.53
-        # Calibrated/Final p_edge should MATCH raw (cap remains)
+        assert 0.51 < dec.p_edge_raw < 0.53, f"Expected 0.51-0.53, got {dec.p_edge_raw}"
+        # Calibrated/Final p_edge should MATCH raw (no calibrator)
         assert dec.p_edge == dec.p_edge_raw
-        # This confirms that without fix, we are "capped" at model's raw output
 
     def test_meta_lr_with_manual_calibration(self, gate):
         """Verify that we CAN still fix it via configuration if we want."""
@@ -77,8 +77,9 @@ class TestFixPEdgeCapping:
 
         with patch.object(gate, "_build_feature_row", return_value=([0.08], [])):
             dec = gate._decide_meta_lr(
-                symbol="BTCUSDT", ts_ms=1000, direction="buy", scenario="trend", indicators={}
+                symbol="BTCUSDT", ts_ms=1000, direction="buy", scenario="trend",
+                indicators={"f1": 0.08},  # value must be in indicators for predict_proba
             )
 
         # Should be scaled: sigmoid(0.08 * 2.5 + 0) = sigmoid(0.2) ~= 0.5498
-        assert dec.p_edge > 0.54
+        assert dec.p_edge > 0.54, f"Expected >0.54 with calibration, got {dec.p_edge}"

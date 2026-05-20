@@ -14,7 +14,7 @@ def _policy():
         "max_pending_total": 10,
         "max_comparator_age_ms": 1800000,
         "rollback_cooldown_sec": 21600,
-    },
+    }
 
 
 def test_hold_when_not_in_mirror():

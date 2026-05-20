@@ -53,6 +53,24 @@ def _default_tau_grid() -> list[float]:
     return [round(TAU_FLOOR + 0.02 * i, 4) for i in range(0, 21)]
 
 
+def _norm_direction(d: str | None) -> str:
+    """Normalize direction to one of {"long","short","*"}.
+
+    Accepts common variants from upstream (LONG/SHORT/BUY/SELL/1/-1) and
+    falls back to "*" for anything else — including empty/None — so legacy
+    callers that don't pass `direction` keep behaving exactly as before
+    Phase B.
+    """
+    s = (d or "*").strip().lower()
+    if s in ("long", "buy", "bull", "1", "+1"):
+        return "long"
+    if s in ("short", "sell", "bear", "-1"):
+        return "short"
+    if s in ("*", "", "na", "none", "null"):
+        return "*"
+    return "*"
+
+
 def _quantile(xs: list[float], q: float) -> float:
     """Linear-interpolated quantile on a sorted copy (no numpy)."""
     if not xs:
@@ -79,8 +97,14 @@ class _Sample:
     ts_ms: int
 
 
-# (symbol, regime, kind) — '*' is the aggregated wildcard
-Key = tuple[str, str, str]
+# (symbol, regime, kind, direction) — '*' is the aggregated wildcard.
+# `direction` ∈ {"long","short","*"} added in Phase B (2026-05-19) to enable
+# per-direction calibration of p_edge cutoffs — captures asymmetric regimes
+# where, e.g., counter-trend LONGs need a tighter threshold than the symmetric
+# aggregate would suggest. Back-compat preserved via the direction="*" bins
+# which receive every sample regardless of side and behave identically to the
+# legacy 3D key.
+Key = tuple[str, str, str, str]
 
 
 @dataclass
@@ -111,12 +135,13 @@ class PEdgeThresholdCalibrator:
         p_min = c.p_min_for(symbol="BTCUSDT", regime="trend", kind="breakout")
 
     Fallback hierarchy (when a finer bin is cold or below `min_kept_trades`):
-        1. (symbol, regime, kind)
-        2. (symbol, regime, "*")
-        3. (symbol, "*",    "*")
-        4. ("*",    regime, "*")
-        5. ("*",    "*",    "*")
-        6. `default_p_min`
+        1. (symbol, regime, kind, direction)         # finest grain (Phase B)
+        2. (symbol, regime, kind, "*")               # symbol×regime×kind aggregated
+        3. (symbol, regime, "*",  "*")
+        4. (symbol, "*",    "*",  "*")
+        5. ("*",    regime, "*",  "*")
+        6. ("*",    "*",    "*",  "*")
+        7. `default_p_min`
     """
 
     # ----- target & grid -------------------------------------------------
@@ -160,11 +185,16 @@ class PEdgeThresholdCalibrator:
         r_multiple: float,
         result: str,
         ts_ms: int,
+        direction: str = "*",
     ) -> None:
         """Append a closed-trade outcome to all relevant aggregated bins.
 
         `result` must be one of {"WIN","LOSS","BE"} (case-insensitive). BE is
         recorded for sample-count purposes but excluded from EV math.
+        `direction` (Phase B) ∈ {"long","short","*"} — when concrete, the
+        sample is recorded BOTH in the direction-specific bin AND in the
+        direction="*" aggregate bin so the legacy 3D-fallback path keeps
+        working unchanged.
 
         Boundary cast — any non-finite or out-of-domain input is silently
         dropped; calibrator must not crash on dirty inputs from upstream.
@@ -186,16 +216,24 @@ class PEdgeThresholdCalibrator:
         sym = (symbol or "*").upper()
         reg = (regime or "*").lower()
         knd = (kind or "*").lower()
+        dir_norm = _norm_direction(direction)
 
         sample = _Sample(p=p, r=r, win=win, ts_ms=int(ts_ms))
 
-        keys: tuple[Key, ...] = (
-            (sym, reg, knd),
-            (sym, reg, "*"),
-            (sym, "*", "*"),
-            ("*", reg, "*"),
-            ("*", "*", "*"),
-        )
+        # Wildcard-direction bins — always populated regardless of side, so the
+        # legacy 3D fallback path (direction="*") receives every sample.
+        keys: list[Key] = [
+            (sym, reg, knd, "*"),
+            (sym, reg, "*", "*"),
+            (sym, "*", "*", "*"),
+            ("*", reg, "*", "*"),
+            ("*", "*", "*", "*"),
+        ]
+        # Direction-specific finest-grain bin (Phase B). Only populated when
+        # caller supplied a real side; "*" → already covered by index 0 above.
+        if dir_norm in ("long", "short"):
+            keys.append((sym, reg, knd, dir_norm))
+
         for k in keys:
             b = self.bins.get(k)
             if b is None:
@@ -205,10 +243,27 @@ class PEdgeThresholdCalibrator:
             b.n_observed += 1
 
         # Recompute thresholds on every level — observe is called per closed
-        # trade (low frequency), so the cost of touching 5 bins is negligible
+        # trade (low frequency), so the cost of touching 6 bins is negligible
         # and the fallback hierarchy actually yields populated parents.
         for k in keys:
             self._maybe_recompute(k, now_ms=int(ts_ms))
+
+    def _fallback_keys(self, sym: str, reg: str, knd: str, dir_norm: str) -> tuple[Key, ...]:
+        """Build the read-side fallback hierarchy (finest grain → broadest).
+
+        Phase B: the direction-specific bin sits at the top — when it's been
+        warmed up it overrides the direction-agnostic aggregate. Each level
+        below progressively widens the bin until the cross-asset anchor
+        ("*","*","*","*") is reached.
+        """
+        return (
+            (sym, reg, knd, dir_norm),       # 1. finest grain (Phase B)
+            (sym, reg, knd, "*"),            # 2. legacy 3D-equivalent (per kind)
+            (sym, reg, "*", "*"),            # 3. per regime
+            (sym, "*", "*", "*"),            # 4. per symbol
+            ("*", reg, "*", "*"),            # 5. cross-symbol per regime
+            ("*", "*", "*", "*"),            # 6. cross-asset anchor
+        )
 
     def p_min_for(
         self,
@@ -216,24 +271,25 @@ class PEdgeThresholdCalibrator:
         symbol: str,
         regime: str,
         kind: str,
+        direction: str = "*",
     ) -> float:
         """Committed cutoff with hierarchical fallback.
 
         Returns `default_p_min` whenever `enforce` is False — preserves prod
         behavior during warm-up / shadow phase.
+
+        `direction` (Phase B): when concrete ("long"/"short") the lookup
+        first checks the direction-specific bin and falls back to the
+        direction-agnostic aggregate if it hasn't warmed up yet. Default
+        "*" preserves pre-Phase-B behaviour exactly.
         """
         if not self.enforce:
             return self.default_p_min
         sym = (symbol or "*").upper()
         reg = (regime or "*").lower()
         knd = (kind or "*").lower()
-        for k in (
-            (sym, reg, knd),
-            (sym, reg, "*"),
-            (sym, "*", "*"),
-            ("*", reg, "*"),
-            ("*", "*", "*"),
-        ):
+        dir_norm = _norm_direction(direction)
+        for k in self._fallback_keys(sym, reg, knd, dir_norm):
             b = self.bins.get(k)
             if b is None or b.p_min <= 0.0:
                 continue
@@ -246,19 +302,15 @@ class PEdgeThresholdCalibrator:
         symbol: str,
         regime: str,
         kind: str,
+        direction: str = "*",
     ) -> float:
         """Latest proposed cutoff regardless of enforce flag (for counterfactual
         reports). Returns 0.0 when no proposal exists yet."""
         sym = (symbol or "*").upper()
         reg = (regime or "*").lower()
         knd = (kind or "*").lower()
-        for k in (
-            (sym, reg, knd),
-            (sym, reg, "*"),
-            (sym, "*", "*"),
-            ("*", reg, "*"),
-            ("*", "*", "*"),
-        ):
+        dir_norm = _norm_direction(direction)
+        for k in self._fallback_keys(sym, reg, knd, dir_norm):
             b = self.bins.get(k)
             if b is None:
                 continue
@@ -269,13 +321,18 @@ class PEdgeThresholdCalibrator:
     def snapshot(self) -> dict[str, Any]:
         """Compact dict for Redis publish / counterfactual reports.
 
+        Phase B: each row now carries a `direction` field; readers of legacy
+        snapshots (pre-Phase B) treat missing direction as "*" — see
+        `load_state` for the back-compat path.
+
         Schema:
             {
               "enforce": bool,
               "target_ev_r": float,
               "default_p_min": float,
+              "schema_version": int,         # 2 since Phase B (was 1)
               "bins": [
-                {"symbol","regime","kind","n",
+                {"symbol","regime","kind","direction","n",
                  "p_min","shadow_p_min","shadow_ev_at_pin","shadow_n_kept",
                  "last_apply_ms","last_recompute_ms"},
                 ...
@@ -283,11 +340,12 @@ class PEdgeThresholdCalibrator:
             }
         """
         rows: list[dict[str, Any]] = []
-        for (sym, reg, knd), b in self.bins.items():
+        for (sym, reg, knd, drc), b in self.bins.items():
             rows.append({
                 "symbol": sym,
                 "regime": reg,
                 "kind": knd,
+                "direction": drc,
                 "n": len(b.buf),
                 "p_min": b.p_min,
                 "shadow_p_min": b.shadow_p_min,
@@ -300,6 +358,7 @@ class PEdgeThresholdCalibrator:
             "enforce": self.enforce,
             "target_ev_r": self.target_ev_r,
             "default_p_min": self.default_p_min,
+            "schema_version": 2,
             "bins": rows,
         }
 
@@ -325,10 +384,13 @@ class PEdgeThresholdCalibrator:
 
         for row in state.get("bins", []) or []:
             try:
+                # Back-compat: legacy snapshots (pre-Phase B) had no direction
+                # field — treat missing as "*" so old snapshots load cleanly.
                 k: Key = (
                     str(row["symbol"]).upper(),
                     str(row.get("regime", "*")).lower(),
                     str(row.get("kind", "*")).lower(),
+                    _norm_direction(row.get("direction", "*")),
                 )
                 b = self.bins.get(k) or _Bin(buf=deque(maxlen=self.max_buf))
                 b.p_min = float(row.get("p_min", 0.0) or 0.0)

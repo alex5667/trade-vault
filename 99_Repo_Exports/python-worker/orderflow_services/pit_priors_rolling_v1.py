@@ -15,7 +15,8 @@ HASH fields (7d):
 
 HASH fields (30d, additional):
   median_mae_r_winners, p90_mae_r_winners, median_mfe_r,
-  giveback_p75, sample_count, ts_ms
+  giveback_p75, sample_count, ts_ms,
+  p50_mae_bps_30d, p75_mae_bps_30d, p90_mae_bps_30d  # all-samples MAE in bps (for bounded SL floor)
 
 ENV
   PIT_ROLLING_INTERVAL_S          (default 3600)
@@ -237,11 +238,19 @@ def compute_rolling_priors(
             for mfe, r in zip(mfe_wins, r_wins)
             if math.isfinite(mfe) and math.isfinite(r)
         ]
+        # MAE in bps across ALL samples (winners + losers) — used as a floor for
+        # bounded SL = max(k*ATR, p75(MAE_30d_bps)). Includes losers because
+        # the floor must account for noise that *was* taken out historically.
+        mae_bps_all = [_f(s.get("mae_bps")) for s in samples]
+        mae_bps_all = [v for v in mae_bps_all if math.isfinite(v) and v >= 0.0]
         return {
             "median_mae_r_winners": _median(mae_winners),
             "p90_mae_r_winners": _percentile(mae_winners, 90),
             "median_mfe_r": _median(mfe_all),
             "giveback_p75": _percentile(givebacks, 75),
+            "p50_mae_bps_30d": _median(mae_bps_all),
+            "p75_mae_bps_30d": _percentile(mae_bps_all, 75),
+            "p90_mae_bps_30d": _percentile(mae_bps_all, 90),
             "sample_count": float(n),
             "ts_ms": float(now_ms),
         }

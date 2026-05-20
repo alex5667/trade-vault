@@ -147,7 +147,7 @@ class PromotionPolicy:
             brier_delta_min=_float("META_MODEL_PROMOTE_BRIER_DELTA", 0.005),
             auto_promote=_bool("META_MODEL_AUTO_PROMOTE", False),
             shadow_enforce_challenger=_bool("META_MODEL_SHADOW_ENFORCE_CHALLENGER", True),
-        ),
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -189,7 +189,7 @@ class MetaModelRegistry:
             champion_path=os.getenv("META_MODEL_PATH", ""),
             challenger_path=os.getenv("META_MODEL_CHALLENGER_PATH", ""),
             policy=PromotionPolicy.from_env(),
-        ),
+        )
 
     # ------------------------------------------------------------------
     # Shadow-first enforcement
@@ -282,7 +282,7 @@ class MetaModelRegistry:
                 False,
                 f"insufficient_shadow_samples:{n_ch}<{self.policy.min_shadow_samples}",
                 stats,
-            ),
+            )
 
         b_ch = ch_snap["brier"]
         b_champ = champ_snap["brier"]
@@ -300,7 +300,7 @@ class MetaModelRegistry:
                 False,
                 f"challenger_not_better_enough:delta={delta:.5f}<{self.policy.brier_delta_min}",
                 stats,
-            ),
+            )
 
         return True, "criteria_passed", stats
 

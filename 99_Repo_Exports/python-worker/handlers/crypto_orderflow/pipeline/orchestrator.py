@@ -233,7 +233,6 @@ def _normalize_ts_ms(raw_ts: Any, now_ms: int, source: str = "orchestrator") -> 
 
 from core.redis_keys import RS
 from core.redis_keys import STREAM_RETENTION as _STREAM_RETENTION
-from core.retention import MAXLEN_GLOBAL
 from handlers.crypto_orderflow.components.gates import CryptoSignalGates
 from handlers.crypto_orderflow.components.liquidity import CryptoLiquidity
 from handlers.crypto_orderflow.components.observability import CryptoObservability
@@ -786,13 +785,6 @@ class SignalOrchestrator:
             )
             audit.record_stage("edge_cost", _t_edge)
 
-            # Publish Edge Gate diagnostics (async/fire-and-forget)
-            try:
-                self._maybe_publish_edge_event(ctx, cand, cost_decision, kind_key)
-            except Exception as e:
-                sym = str(getattr(ctx, "symbol", getattr(self.cfg, "symbol", "unknown")))
-                self._emit_build_failed(kind_key, e, symbol=sym)
-
             _cost_dec = getattr(cost_decision, "decision", "DENY" if getattr(cost_decision, "veto", False) else "ALLOW")
             if cost_decision and _cost_dec in ("DENY", "SHADOW_DENY"):
                 rc = getattr(cost_decision, "reason_code", getattr(cost_decision, "reason", VetoReason.VETO_COST))
@@ -1277,109 +1269,4 @@ class SignalOrchestrator:
 
         return payload, parts, envelope_kwargs
 
-    def _maybe_publish_edge_event(self, ctx: Any, cand: Any, cost_decision: Any, kind: str) -> None:
-        """
-        Publishes EdgeGateEvent to Redis Stream for ingestion into Postgres.
-        Ref: D1-A Architecture.
-        """
-        if not cost_decision:
-            return
-
-        mode = os.getenv("EDGE_GATE_EVENTS_MODE", "off").lower()
-        if mode not in {"redis_stream", "stream", "on", "1", "true"}:
-            return
-
-        # EdgeCostGateDecision: veto + passed property
-        veto = bool(getattr(cost_decision, "veto", False))
-        passed = not veto
-
-        # Sampling
-        if not passed:
-            # VETO: 100% sample by default
-            sample_rate = float(os.getenv("EDGE_GATE_SAMPLE_VETO", "1.0"))
-        else:
-            # PASS: 1-5% sample by default
-            sample_rate = float(os.getenv("EDGE_GATE_SAMPLE_PASS", "0.02"))
-
-        if sample_rate < 1.0 and random.random() > sample_rate:
-            return
-
-        redis_client = getattr(ctx, "redis", None)
-        if not redis_client:
-            return
-
-        stream_key = os.getenv("EDGE_GATE_EVENTS_STREAM", RS.EDGE_GATE_EVENTS)
-
-        # Build event with robust field mapping
-        try:
-            # Normalize ts_ms (handle seconds, missing values)
-            ts_ms = getattr(ctx, "ts_ms", 0)
-
-            # Direct field mapping from EdgeCostGateDecision
-            exp_bps = float(getattr(cost_decision, "expected_move_bps", 0.0))
-            req_bps = float(getattr(cost_decision, "threshold_bps", 0.0))
-            k = float(getattr(cost_decision, "k", 0.0))
-
-            fees_bps = float(getattr(cost_decision, "fees_bps", 0.0))
-            slip_bps = float(getattr(cost_decision, "slippage_bps", 0.0))
-            buf_bps = float(getattr(cost_decision, "buffer_bps", 0.0))
-
-            # #17: Use total_costs_bps from cost_decision directly to avoid drift.
-            # Recompute only as fallback if the field is missing (e.g. older gate version).
-            _tcd = getattr(cost_decision, "total_costs_bps", None)
-            total_costs_bps = float(_tcd) if _tcd is not None else fees_bps + slip_bps + buf_bps
-
-            edge_source = str(getattr(cost_decision, "edge_source",
-                            getattr(cost_decision, "mode", "none")) or "none")
-
-            # Short veto code (reason_code)
-            veto_code = None
-            if not passed:
-                veto_code = str(getattr(cost_decision, "reason_code", "edge_cost:veto") or "edge_cost:veto")
-
-            # Compute margin and edge_ratio
-            margin_bps = exp_bps - req_bps
-
-            # Edge ratio with safe division
-            if req_bps > 0:
-                edge_ratio = exp_bps / req_bps
-            else:
-                edge_ratio = float("inf") if exp_bps > 0 else 0.0
-
-            evt = {
-                "signal_id": str(getattr(cand, "signal_id", "") or ""),
-                "symbol": str(getattr(ctx, "symbol", "") or self.cfg.symbol or "").upper(),
-                "ts_ms": int(ts_ms),
-                "gate_name": "edge_cost",
-                "gate_version": 3,
-                "stage": "pre_emit",
-                "passed": 1 if passed else 0,
-                "veto_code": veto_code,
-                "edge_source": edge_source,
-
-                # Metrics
-                "exp_bps": exp_bps,
-                "req_bps": req_bps,
-                "margin_bps": margin_bps,
-                "edge_ratio": edge_ratio,
-
-                "k": k,
-                "fees_bps": fees_bps,
-                "slip_bps": slip_bps,
-                "buf_bps": buf_bps,
-                "total_costs_bps": total_costs_bps,
-
-                "ctx": json.dumps({"kind": kind})
-            }
-
-            # Fire and forget
-            try:
-                redis_client.xadd(stream_key, {k: str(v) if v is not None else "" for k, v in evt.items()}, maxlen=MAXLEN_GLOBAL, approximate=True)
-            except Exception as e:
-                sym = str(getattr(ctx, "symbol", getattr(self.cfg, "symbol", "unknown")))
-                logger.warning("orchestrator edge gate event xadd failed symbol=%s kind=%s: %r", sym, kind, e)
-
-        except Exception as e:
-            sym = str(getattr(ctx, "symbol", getattr(self.cfg, "symbol", "unknown")))
-            self._emit_build_failed(kind, e, symbol=sym)
 

@@ -84,7 +84,7 @@ from services.orderflow.metrics import (
     signals_total,
 )
 try:
-    from prometheus_client import Histogram, Counter
+    from prometheus_client import Histogram, Counter, Gauge
     _FEATURE_TO_DECISION_MS = Histogram(
         "trading_feature_to_decision_ms",
         "Latency from feature calc to gate decision",
@@ -115,6 +115,15 @@ try:
         "Signals where confidence was absent (fallback to 0.3); likely a contract bug upstream",
         ["symbol"]
     )
+    _BARRIER_DECISION_TOTAL = Counter(
+        "confirmation_barrier_total",
+        "Confirmation barrier decisions (ALLOW/DROP/SHADOW_ALLOW/SHADOW_DROP)",
+        ["symbol", "decision", "reason_code"],
+    )
+    _BARRIER_PENDING = Gauge(
+        "confirmation_barrier_pending",
+        "Signals currently held in confirmation barrier awaiting deadline",
+    )
 except ImportError:
     _FEATURE_TO_DECISION_MS = None
     _DECISION_TO_OUTBOX_MS = None
@@ -122,6 +131,8 @@ except ImportError:
     _PRE_PUBLISH_GATE_EVAL_TOTAL = None
     _INVALID_ENVELOPE_TOTAL = None
     _G9_CONFIDENCE_MISSING_TOTAL = None
+    _BARRIER_DECISION_TOTAL = None
+    _BARRIER_PENDING = None
 
 # Signal Pipeline Logger
 logger = logging.getLogger("of_signal_pipeline")
@@ -173,7 +184,8 @@ class SignalPipeline:
         self.of_inputs_stream_maxlen = int(os.getenv("OF_INPUTS_STREAM_MAXLEN", "5000") or 5000)
 
         self._rejected_signal_stream = os.getenv("CRYPTO_REJECTED_SIGNAL_STREAM", RS.CRYPTO_REJECTED)
-        
+        self._rejected_signal_maxlen = int(os.getenv("CRYPTO_REJECTED_MAXLEN", "5000"))
+
         # Unified Orchestrator (P1)
         # EntryPolicyGate: enabled by default — drives autocal:adverse_cross / spread_staleness /
         # burst_c2t accumulation and freeze enforcement. Toggle via ENTRY_POLICY_ENABLED=0 env.
@@ -342,6 +354,33 @@ class SignalPipeline:
         self._cached_binance_trail_atr_mult = os.getenv("BINANCE_TRAIL_ATR_MULT", "1.0")
         self._cached_range_tp_rr = os.getenv("RANGE_TP_RR", "1.0,1.5")
         self._cached_tp1_min_rr_floor = float(os.getenv("TP1_MIN_RR_FLOOR", "1.0") or 1.0)
+        # ── TP1 target R override (2026-05-19) ────────────────────────────
+        # Цель: TP1 на 0.5R при avg_MFE/avg_SL≈0.78 (вместо текущего ~1.0R).
+        # Поведение:
+        #   TP1_TARGET_R=0.0 (default)         — disabled (текущее поведение).
+        #   TP1_TARGET_R>0 + ENFORCE=0 (SHADOW) — пишет counterfactual поля
+        #                                        tp1_target_r_dist/price в
+        #                                        indicators, payload НЕ меняется.
+        #   TP1_TARGET_R>0 + ENFORCE=1         — применяет как первый TP-level
+        #                                        в range (через RANGE_TP_RR prepend)
+        #                                        и через TP1_MIN_RR_FLOOR override.
+        # Quantify через replay перед ENFORCE.
+        # autocal runtime override > ENV (`tp1_target_r`, `tp1_target_r_enforce`).
+        _env_tp1_target_r = float(os.getenv("TP1_TARGET_R", "0.0") or 0.0)
+        _env_tp1_target_r_enforce = os.getenv(
+            "TP1_TARGET_R_ENFORCE", "0"
+        ).lower() in ("1", "true", "yes", "on")
+        try:
+            from services.tp_sl_trailing_runtime_overrides import get_override
+            self._cached_tp1_target_r = float(
+                get_override("tp1_target_r", _env_tp1_target_r)
+            )
+            self._cached_tp1_target_r_enforce = bool(
+                get_override("tp1_target_r_enforce", _env_tp1_target_r_enforce)
+            )
+        except Exception:
+            self._cached_tp1_target_r = _env_tp1_target_r
+            self._cached_tp1_target_r_enforce = _env_tp1_target_r_enforce
 
         # Exec Health
         self._cached_exec_health_auto_freeze_enabled = os.getenv("EXEC_HEALTH_AUTO_FREEZE", "0").lower() in {"1", "true", "yes", "on"}
@@ -520,7 +559,7 @@ class SignalPipeline:
                             "ts_ms": str(ts_ms),
                             "payload": json.dumps(signal, ensure_ascii=False),
                         },
-                        maxlen=1000000,
+                        maxlen=self._rejected_signal_maxlen,
                     ),
                     name=f"reject_{symbol}_{ts_ms}"
                 )
@@ -594,6 +633,176 @@ class SignalPipeline:
             )
         except Exception as e:
             logger.debug("⚠️ _handle_pipeline_veto error: %s", e)
+
+    @staticmethod
+    def _resolve_vol_regime_label(
+        *,
+        indicators: dict[str, Any],
+        runtime: Any | None = None,
+    ) -> str:
+        """Resolve canonical vol regime label for regime-exec engine.
+
+        Source priority:
+          1. ``indicators["vol_regime_label"]`` / ``["vol_regime"]`` if present.
+          2. ``runtime.dynamic_cfg[DK.VOL_REGIME_LABEL]`` (set by bar_processor
+             on every closed bar via ``VolRegimeTracker.update``).
+          3. Fallback ``"na"``.
+
+        Side effect: copies resolved value into ``indicators["vol_regime_label"]``
+        so downstream consumers (audit stream, ML feature emitters) see it too.
+        Also mirrors ``vol_ratio_z`` and ``vol_ratio`` when available.
+        """
+        label = (
+            indicators.get("vol_regime_label")
+            or indicators.get("vol_regime")
+        )
+        if not label and runtime is not None:
+            try:
+                dcfg = getattr(runtime, "dynamic_cfg", {}) or {}
+                label = dcfg.get(DK.VOL_REGIME_LABEL)
+                # Mirror raw vol stats for audit/ML — only if missing.
+                indicators.setdefault(
+                    "vol_ratio_z",
+                    float(dcfg.get(DK.VOL_RATIO_Z, 0.0) or 0.0),
+                )
+                indicators.setdefault(
+                    "vol_ratio",
+                    float(dcfg.get(DK.VOL_RATIO, 0.0) or 0.0),
+                )
+                indicators.setdefault(
+                    "vol_fast_bps",
+                    float(dcfg.get(DK.VOL_FAST_BPS, 0.0) or 0.0),
+                )
+                indicators.setdefault(
+                    "vol_slow_bps",
+                    float(dcfg.get(DK.VOL_SLOW_BPS, 0.0) or 0.0),
+                )
+            except Exception:
+                pass
+        norm = str(label or "na").strip().lower() or "na"
+        indicators["vol_regime_label"] = norm
+        return norm
+
+    def _evaluate_regime_exec_engine(
+        self,
+        *,
+        indicators: dict[str, Any],
+        signal: dict[str, Any],
+        symbol: str,
+        kind: str,
+        runtime: Any,
+        trend_regime: str,
+        current_trail_profile: str | None,
+        sig_ts: int,
+    ) -> dict[str, Any]:
+        """Run regime-conditional execution engine (Task 3.1).
+
+        Returns a dict with applied overrides:
+          - ``trail_profile`` (str | None)
+          - ``tp_ratios`` (list[float] | None)
+          - ``veto_decision`` (GateDecisionV1 | None)
+
+        Writes ``regime_exec_*`` audit keys into ``indicators``. Always
+        fail-open: any exception leaves caller state untouched.
+        """
+        result: dict[str, Any] = {
+            "trail_profile": None,
+            "tp_ratios": None,
+            "veto_decision": None,
+        }
+        try:
+            from core.regime_conditional_execution import (
+                get_engine as _get_regime_exec_engine,
+                record_shadow_diff as _regime_exec_record_diff,
+                emit_veto_metric as _regime_exec_emit_veto,
+            )
+        except Exception as e:
+            logger.debug("regime_exec_engine: import fail (fail-open): %s", e)
+            return result
+        try:
+            engine = _get_regime_exec_engine(
+                redis_client=getattr(self.publisher, "r", None)
+            )
+            if engine is None:
+                return result
+            vol_reg = self._resolve_vol_regime_label(
+                indicators=indicators, runtime=runtime
+            )
+            trend_reg = trend_regime or "na"
+            policy = engine.select_policy(
+                vol_regime=vol_reg,
+                trend_regime=trend_reg,
+                symbol=getattr(runtime, "symbol", "") or symbol,
+            )
+            enforce_effective = engine.effective_enforce(policy)
+
+            indicators["regime_exec_bucket"] = policy.bucket
+            indicators["regime_exec_vol"] = vol_reg
+            indicators["regime_exec_trend"] = trend_reg
+            indicators["regime_exec_mode"] = (
+                "enforce" if enforce_effective else "shadow"
+            )
+            indicators["regime_exec_skip_proposed"] = int(policy.skip)
+            indicators["regime_exec_reason"] = policy.reason
+            if policy.trail_profile:
+                indicators["regime_exec_trail_profile_proposed"] = policy.trail_profile
+            if policy.tp1_target_r is not None:
+                indicators["regime_exec_tp1_target_r_proposed"] = policy.tp1_target_r
+            if policy.tp_ratios:
+                indicators["regime_exec_tp_ratios_proposed"] = list(policy.tp_ratios)
+
+            shadow_diff = _regime_exec_record_diff(
+                policy,
+                actual_trail_profile=current_trail_profile,
+                actual_tp_ratios=None,
+                actual_tp1_target_r=self._cached_tp1_target_r,
+            )
+            if shadow_diff:
+                indicators["regime_exec_shadow_diff"] = shadow_diff
+
+            if not enforce_effective:
+                return result
+
+            if engine.should_skip(policy):
+                indicators["regime_exec_skip_applied"] = 1
+                _regime_exec_emit_veto(policy, symbol=symbol, kind=kind)
+                result["veto_decision"] = GateDecisionV1(
+                    stage="regime_exec",
+                    gate="regime_conditional_execution",
+                    decision="DENY",
+                    reason_code="VETO_REGIME_CHOPPY",
+                    severity="INFO",
+                    profile=policy.bucket,
+                    fail_policy="OPEN",
+                    ts_event_ms=sig_ts,
+                    ts_decision_ms=int(time.time() * 1000),
+                    latency_us=0,
+                    inputs_hash="",
+                    notes={
+                        "vol_regime": vol_reg,
+                        "trend_regime": trend_reg,
+                        "bucket": policy.bucket,
+                        "reason": policy.reason,
+                    },
+                )
+                return result
+
+            if policy.trail_profile:
+                result["trail_profile"] = policy.trail_profile
+                indicators["regime_exec_trail_profile_applied"] = policy.trail_profile
+                signal.setdefault("trail_after_tp1", True)
+            if policy.tp1_target_r is not None and policy.tp1_target_r > 0:
+                self._cached_tp1_target_r = policy.tp1_target_r
+                self._cached_tp1_target_r_enforce = True
+                indicators["regime_exec_tp1_target_r_applied"] = (
+                    self._cached_tp1_target_r
+                )
+            if policy.tp_ratios:
+                result["tp_ratios"] = list(policy.tp_ratios)
+                indicators["regime_exec_tp_ratios_applied"] = result["tp_ratios"]
+        except Exception as e:
+            logger.debug("regime_exec_engine: fail-open: %s", e)
+        return result
 
     @property
     def TP_BPS_BUFFER(self) -> float:
@@ -1000,9 +1209,13 @@ class SignalPipeline:
                 self._liq_wall_calib.observe(symbol=sym, size_z=float(wall_size_z), dist_bps=float(wall_dist_bps))
         except Exception:
             pass
-        # throttled snap
+        # throttled snap – offload Redis hset to thread pool so event loop is not blocked
         try:
-            self._pipeline_calib_snap(now_ms)
+            import asyncio
+            safe_create_task(
+                asyncio.to_thread(self._pipeline_calib_snap, now_ms),
+                name="calib_snap",
+            )
         except Exception:
             pass
 
@@ -1094,16 +1307,35 @@ class SignalPipeline:
             logger.exception("barrier_poll failed")
             return 0
         if not resolved:
+            if _BARRIER_PENDING is not None:
+                try:
+                    _BARRIER_PENDING.set(len(self._barrier))
+                except Exception:
+                    pass
             return 0
         processed = 0
         for sid, decision, reason, payload in resolved:
             processed += 1
+            sym = str((payload or {}).get("symbol") or "") if isinstance(payload, dict) else ""
+            # Normalise reason → reason_code for Prometheus (strip numeric suffix).
+            reason_code = str(reason or "unknown").split("=")[0].split("<")[0].rstrip("_")
+            if _BARRIER_DECISION_TOTAL is not None:
+                try:
+                    _BARRIER_DECISION_TOTAL.labels(
+                        symbol=sym or "unknown",
+                        decision=decision,
+                        reason_code=reason_code,
+                    ).inc()
+                except Exception:
+                    pass
             if decision in ("ALLOW",):
                 if not isinstance(payload, dict):
                     logger.warning("barrier_poll: signal %s ALLOW but payload is not dict — skip", sid)
                     continue
-                sym = str(payload.get("symbol") or "")
-                runtime = runtime_resolver(sym) if sym else None
+                if not sym:
+                    logger.warning("barrier_poll: signal %s ALLOW but runtime for %s not found — skip", sid, sym)
+                    continue
+                runtime = runtime_resolver(sym)
                 if runtime is None:
                     logger.warning("barrier_poll: signal %s ALLOW but runtime for %s not found — skip", sid, sym)
                     continue
@@ -1119,6 +1351,11 @@ class SignalPipeline:
                     "🪤 [BARRIER] sid=%s decision=%s reason=%s — not republished",
                     sid, decision, reason,
                 )
+        if _BARRIER_PENDING is not None:
+            try:
+                _BARRIER_PENDING.set(len(self._barrier))
+            except Exception:
+                pass
         return processed
 
     async def publish_signal(self, runtime: SymbolRuntime, signal: dict[str, Any]) -> None:
@@ -1126,6 +1363,147 @@ class SignalPipeline:
         Публикация сигнала в необходимые каналы.
         """
         symbol = runtime.symbol
+
+        # last_trade_outcome_raw via trades:closed Redis read (audit 2026-05-19
+        # Phase 4). TTL-cached per symbol (60s) to keep cost negligible.
+        # Wrapped in asyncio.to_thread to avoid blocking the event loop on
+        # cache miss (sync redis.Redis.xrevrange, up to 2s socket timeout).
+        try:
+            _ind = signal.get("indicators")
+            if isinstance(_ind, dict):
+                import asyncio
+                from core.last_trade_outcome_reader import get_last_trade_outcome_bps
+                v = await asyncio.to_thread(get_last_trade_outcome_bps, symbol)
+                if v not in (None, 0, 0.0):
+                    _ind["last_trade_outcome_raw"] = float(v)
+        except Exception:
+            pass
+
+        # eth_btc_corr_5m via Python tick-stream poller (audit 2026-05-19
+        # Phase 5). go-worker REST polling into runtime:crossasset doesn't
+        # exist in prod — compute directly from stream:tick_BTCUSDT/ETHUSDT
+        # on redis-ticks. TTL 30s; cost ≈ 1ms warm. asyncio.to_thread to keep
+        # event loop free on cache miss (redis xrevrange + math).
+        try:
+            _ind = signal.get("indicators")
+            if isinstance(_ind, dict):
+                import asyncio
+                from core.cross_asset_corr_reader import get_eth_btc_corr_5m
+                v = await asyncio.to_thread(get_eth_btc_corr_5m)
+                if v not in (None, 0, 0.0):
+                    _ind["eth_btc_corr_5m"] = float(v)
+        except Exception:
+            pass
+
+        # Group MA trade stats (large_trade_ratio, trade_size_entropy) —
+        # TickProcessor in reference/ would maintain these rolling. Reader
+        # computes from stream:tick_{SYMBOL} on redis-ticks instead.
+        # TTL 10s + 5min rolling window; ~1ms warm via asyncio.to_thread.
+        try:
+            _ind = signal.get("indicators")
+            if isinstance(_ind, dict):
+                import asyncio
+                from core.trade_stats_reader import get_trade_stats
+                large_ratio, entropy = await asyncio.to_thread(get_trade_stats, symbol)
+                if large_ratio not in (None, 0, 0.0):
+                    _ind["large_trade_ratio"] = float(large_ratio)
+                if entropy not in (None, 0, 0.0):
+                    _ind["trade_size_entropy"] = float(entropy)
+        except Exception:
+            pass
+
+        # Group MB book stats — depth_migration_bps only (audit 2026-05-19
+        # Phase 6 + rollback). quote_stuffing_score path REMOVED: reader
+        # produced OOD values ~65-90 (intended scale [0,1] as cancel/quote
+        # ratio); fed ManipulationGate VETO_QUOTE_STUFFING triggers in prod.
+        # depth_migration_bps stays — small bps values, safe distribution.
+        try:
+            _ind = signal.get("indicators")
+            if isinstance(_ind, dict):
+                import asyncio
+                from core.book_stats_reader import get_book_stats
+                dm, _qs = await asyncio.to_thread(get_book_stats, symbol)
+                if dm not in (None, 0, 0.0):
+                    _ind["depth_migration_bps"] = float(dm)
+                # quote_stuffing_score intentionally NOT written — wait for
+                # proper cancel/quote split tracker (BookProcessor migration).
+        except Exception:
+            pass
+
+        # tick_direction_run per-symbol direction-sign counter (audit 2026-05-19
+        # Phase 7). Original schema semantic: max consecutive same-sign TICK
+        # runs in rolling tick window (TickProcessor in reference/). Defensible
+        # proxy at signal granularity: count consecutive same-direction signals
+        # per symbol. Cap at 50 to avoid OOD outliers in long streaks. Natural
+        # distribution typically 1-5 → safely inside expected schema range [1,20].
+        try:
+            _ind = signal.get("indicators")
+            _direction = str(signal.get("direction") or signal.get("side") or "").upper()
+            if isinstance(_ind, dict) and _direction in ("LONG", "SHORT", "BUY", "SELL"):
+                if not hasattr(self, "_tick_dir_run_state"):
+                    # symbol -> (last_norm_dir, current_run_length)
+                    self._tick_dir_run_state = {}  # type: ignore[attr-defined]
+                tdr_state = self._tick_dir_run_state  # type: ignore[attr-defined]
+                _norm_dir = "LONG" if _direction in ("LONG", "BUY") else "SHORT"
+                prev = tdr_state.get(symbol)
+                if prev is None or prev[0] != _norm_dir:
+                    run = 1
+                else:
+                    run = min(50, int(prev[1]) + 1)
+                tdr_state[symbol] = (_norm_dir, run)
+                _ind["tick_direction_run"] = float(run)
+        except Exception:
+            pass
+
+        # signal_frequency_1h per-symbol counter (audit 2026-05-19 Phase 3).
+        # Runtime trackers live in reference/ — runtime.signal_count_1h never
+        # populates. Maintain in-instance deque of recent publish timestamps,
+        # prune > 1h. Runs BEFORE the v12_of inject below so compute_group_me
+        # sees the populated indicators[signal_frequency_1h] value.
+        try:
+            _ind = signal.get("indicators")
+            _ts = int(signal.get("ts_ms", 0) or 0)
+            if isinstance(_ind, dict) and _ts > 0:
+                if not hasattr(self, "_signal_freq_1h_state"):
+                    self._signal_freq_1h_state = {}  # type: ignore[attr-defined]
+                state = self._signal_freq_1h_state  # type: ignore[attr-defined]
+                from collections import deque as _deque
+                q = state.get(symbol)
+                if q is None:
+                    q = _deque(maxlen=10000)
+                    state[symbol] = q
+                cutoff = _ts - 3_600_000
+                while q and q[0] < cutoff:
+                    q.popleft()
+                q.append(_ts)
+                _ind["signal_frequency_1h"] = float(len(q))
+        except Exception:
+            pass
+
+        # v12_of new groups (MA/MB/MC/MD/ME/MX, 21 keys): inject_v12_of_features
+        # is dead code in active pipeline (only reference/tick_processor.py imports
+        # it). Without this wiring those 21 v13_of base keys are ABSENT in the
+        # outbound signals:of:inputs payload — verified empirically on golden
+        # fixture 2026-05-19 (`audit_v12_of_inject_dead_code_2026_05_19`).
+        # signal["indicators"] is the dict that ships in enriched_signal →
+        # _publish_of_inputs → signals:of:inputs.
+        # Defense-in-depth: of_confirm_engine.build() already injects 21 v12_of
+        # MA/MB/MC/MD/ME/MX keys into signal["indicators"]. This second inject
+        # covers any code path that bypasses build() (barrier replay, future
+        # alternative producers). setdefault semantics — never overwrites
+        # populated values. See audit_v12_of_inject_dead_code_2026_05_19.
+        try:
+            _ind = signal.get("indicators")
+            if isinstance(_ind, dict):
+                from core.v12_of_features import inject_v12_of_features
+                inject_v12_of_features(
+                    runtime=runtime,
+                    now_ms=int(signal.get("ts_ms", 0) or 0),
+                    indicators=_ind,
+                )
+        except Exception:
+            pass
+
         side_norm = normalize_side_3_safe(signal.get("direction") or signal.get("side") or "")
         if side_norm is None:
             logger.warning("⚠️ (%s) publish_signal: unknown direction=%r side=%r (skip)",
@@ -1256,9 +1634,9 @@ class SignalPipeline:
         if _apply_decision(self.orchestrator.check_quality(ctx, kind)): return  # type: ignore
         if _apply_decision(self.orchestrator.check_atr_floor(ctx, kind)): return  # type: ignore
 
-        # 4. Entry Policy (spread shock / burst flip / c2t / freeze + adaptive calibrators).
-        # Drives autocal:adverse_cross / spread_staleness / burst_c2t accumulation.
-        if _apply_decision(self.orchestrator.check_entry_policy(ctx, kind)): return  # type: ignore
+        # 4. Entry Policy (spread shock / burst flip / c2t / freeze + adaptive calibrators
+        # + HTF LONG bias gate). Drives autocal:adverse_cross / spread_staleness / burst_c2t.
+        if _apply_decision(self.orchestrator.check_entry_policy(ctx, kind, side=direction)): return  # type: ignore
 
         # ------------------------------------------------------------------
         # STAGE 2: CONTEXT & MARKET GATES (Fail-Open / Tighten / Veto)
@@ -1363,6 +1741,26 @@ class SignalPipeline:
             return
         confirmations = signal.get("confirmations", [])
         indicators = signal.get("indicators") or {}  # sync to ensure mutations from gate ctx are reflected
+
+        # Propagate SMT audit fields from ctx → indicators so they survive into
+        # order:{id}.signal_payload.indicators (consumed by reporter SMT VETO sim
+        # and reliability calibrators). pre_publish_gates.SmtCoherenceGate writes
+        # them onto ctx; without this copy they never reach the payload.
+        for _k, _default in (
+            ("smt_leader_dir", "NA"),
+            ("smt_leader_confirm", 0),
+            ("smt_coh", float("nan")),
+            ("smt_align", 0),
+            ("smt_state_stale", 1),
+            ("smt_bundle_id", ""),
+        ):
+            if _k in indicators:
+                continue
+            _v = getattr(ctx, _k, None)
+            if _v is None:
+                continue
+            indicators[_k] = _v
+
         # Extract delta values from indicators (where they're actually stored)
         delta = float(indicators.get("delta", 0.0))
         delta_z = float(indicators.get("delta_z", 0.0))
@@ -1653,12 +2051,14 @@ class SignalPipeline:
         ctx.sl_price = sl
         ctx.tp1_price = tp_levels[0] if tp_levels else None
         with contextlib.suppress(Exception):
-            # runtime.redis_client is aioredis (async); ev_tp1_stats needs a sync client.
+            # ev_tp1_stats uses a sync Redis client; run in thread pool to avoid blocking event loop.
             _ev_rc = getattr(self, "_ev_sync_redis", None)
             if _ev_rc is None:
                 from handlers.crypto_orderflow.config.handler_config import _get_sync_redis
                 self._ev_sync_redis = _ev_rc = _get_sync_redis()
-            attach_tp1_hit_prob_to_ctx(
+            import asyncio
+            await asyncio.to_thread(
+                attach_tp1_hit_prob_to_ctx,
                 ctx,
                 redis_client=_ev_rc,
                 kind=kind,
@@ -1711,10 +2111,77 @@ class SignalPipeline:
                 _range_rr = [float(x.strip()) for x in _range_rr_str.split(",") if x.strip()][:2]
                 _stop_dist = abs(entry - sl)
                 if _stop_dist > 0 and len(_range_rr) >= 1:
+                    # ── TP1_TARGET_R override (2026-05-19) ────────────────
+                    # SHADOW (ENFORCE=0): только counterfactual индикаторы.
+                    # ENFORCE=1: prepend как первый TP, существующие RR сдвигаем.
+                    _tp1_tgt = self._cached_tp1_target_r
+                    # ── Plan 3.3: Path-based TP via Triple-Barrier CDF ────
+                    # Per-(symbol×regime×direction) median MFE among past
+                    # winners — distribution-aware override over the static
+                    # `_cached_tp1_target_r`. Always emit shadow indicator
+                    # for replay; only swap `_tp1_tgt` when reader returns
+                    # an enforced bucket value.
+                    try:
+                        from services.path_based_tp_runtime_overrides import (
+                            get_bucket_for_inspection,
+                            get_path_based_tp1_r,
+                        )
+                        _sym_pb = str(getattr(signal, "symbol", "") or "").upper()
+                        _dir_pb = str(getattr(direction, "value", direction) or "").upper()
+                        _rg_pb = rg_for_overrides or "na"
+                        _shadow_bucket = get_bucket_for_inspection(
+                            _sym_pb, _rg_pb, _dir_pb,
+                        )
+                        if _shadow_bucket:
+                            indicators["tp1_target_r_path_shadow"] = round(
+                                float(_shadow_bucket.get("tp1_r") or 0.0), 4
+                            )
+                            indicators["tp1_target_r_path_p50"] = round(
+                                float(_shadow_bucket.get("p50") or 0.0), 4
+                            )
+                            indicators["tp1_target_r_path_n_winners"] = int(
+                                _shadow_bucket.get("n_winners") or 0
+                            )
+                            indicators["tp1_target_r_path_bucket"] = (
+                                _shadow_bucket.get("key") or ""
+                            )
+                        _path_tp1 = get_path_based_tp1_r(
+                            _sym_pb, _rg_pb, _dir_pb,
+                            default=(_tp1_tgt or 0.0),
+                            require_enforce=True,
+                        )
+                        if _path_tp1 > 0 and _path_tp1 != _tp1_tgt:
+                            _tp1_tgt = _path_tp1
+                            indicators["tp1_target_r_path_enforce_applied"] = 1
+                    except Exception:
+                        pass
+                    if _tp1_tgt > 0:
+                        _shadow_tp1_dist = _stop_dist * _tp1_tgt
+                        if getattr(direction, 'value', (direction or '')).upper() == "LONG":
+                            indicators["tp1_target_r_shadow_price"] = round(
+                                entry + _shadow_tp1_dist, 6
+                            )
+                        else:
+                            indicators["tp1_target_r_shadow_price"] = round(
+                                entry - _shadow_tp1_dist, 6
+                            )
+                        indicators["tp1_target_r_shadow_r"] = round(_tp1_tgt, 3)
+                        if self._cached_tp1_target_r_enforce:
+                            _range_rr = [_tp1_tgt] + [
+                                r for r in _range_rr if r > _tp1_tgt
+                            ]
+                            _range_rr = _range_rr[:2]
+                            indicators["tp1_target_r_enforce_applied"] = 1
+
                     # Apply TP1_MIN_RR_FLOOR so the range override doesn't undercut the global floor
                     # (range branch bypasses compute_levels(), where the floor lives).
+                    # NOTE: при TP1_TARGET_R_ENFORCE=1 — floor НЕ применяется (target R
+                    # сознательно опускается ниже текущего floor).
                     _floor = self._cached_tp1_min_rr_floor
-                    if _floor > 0 and _range_rr[0] < _floor:
+                    if _floor > 0 and _range_rr[0] < _floor and not (
+                        self._cached_tp1_target_r_enforce
+                        and self._cached_tp1_target_r > 0
+                    ):
                         _range_rr[0] = _floor
                         indicators["range_tp1_floor_applied"] = round(_floor, 3)
                     if getattr(direction, 'value', (direction or '')).upper() == "LONG":
@@ -1866,6 +2333,31 @@ class SignalPipeline:
             pass
 
         # ------------------------------------------------------------------
+        # 3.1 · Regime-Conditional Execution Engine (vol × trend buckets)
+        # ------------------------------------------------------------------
+        # Maps (vol_regime × trend_regime) → ExecutionPolicy with overrides for
+        # tp1_target_r / tp_ratios / trail_profile / atr_mult, or veto when
+        # bucket says skip (choppy/squeeze/mixed). SHADOW by default — writes
+        # counterfactual `regime_exec_*` indicators without overriding execution.
+        # Enable enforce via REGIME_EXEC_ENGINE_ENFORCE=1 after replay-quantify.
+        _regime_exec_result = self._evaluate_regime_exec_engine(
+            indicators=indicators,
+            signal=signal,
+            symbol=symbol,
+            kind=kind,
+            runtime=runtime,
+            trend_regime=rg_for_overrides,
+            current_trail_profile=trail_profile,
+            sig_ts=sig_ts,
+        )
+        _regime_exec_tp_ratios: list[float] | None = _regime_exec_result.get("tp_ratios")
+        if _regime_exec_result.get("trail_profile"):
+            trail_profile = _regime_exec_result["trail_profile"]
+        if _regime_exec_result.get("veto_decision") is not None:
+            if _apply_decision(_regime_exec_result["veto_decision"]):
+                return  # type: ignore
+
+        # ------------------------------------------------------------------
         # Construction Phase using Typed SignalPayload
         # ------------------------------------------------------------------
 
@@ -1931,12 +2423,14 @@ class SignalPipeline:
             "indicators": indicators,
         }
 
-        # TP ratio: driven by TradeProfile (no hardcoded regime fallback)
-        # Profile meta is populated by build_signal_profile_meta() upstream
+        # TP ratio resolution (precedence: TradeProfile → regime_exec engine →
+        # legacy regime flag fallback).
         _profile_meta = signal.get("meta", {})
         _profile_tp_ratios = _profile_meta.get("tp_ratios")
         if _profile_tp_ratios and isinstance(_profile_tp_ratios, (list, tuple)):
             payload["tp_ratio"] = list(_profile_tp_ratios)
+        elif _regime_exec_tp_ratios:
+            payload["tp_ratio"] = list(_regime_exec_tp_ratios)
         elif is_range_regime_flag:
             payload["tp_ratio"] = [0.80, 0.20]
         elif is_expansion_regime_flag:
@@ -2123,6 +2617,19 @@ class SignalPipeline:
         # Stage: build enriched_signal (raw stream payload)
         # ------------------------------------------------------------------
         enriched_signal = dict(signal)
+        # trace_id propagation: ensure raw-stream payload carries trace_id so
+        # downstream consumers (trade-monitor runner, ML dataset, of:inputs)
+        # populate `trace=` in logs and join keys. Fallback to sid for parity
+        # with envelope_builder (env.trace_id or sid).
+        enriched_signal.setdefault(
+            "trace_id",
+            str(
+                signal.get("trace_id")
+                or signal.get("sid")
+                or signal.get("signal_id")
+                or ""
+            ),
+        )
         enriched_signal.update(
             {
                 "strategy": enriched_signal.get("strategy", "cryptoorderflow"),
@@ -3329,15 +3836,16 @@ class SignalPipeline:
 
 
 
-    async def send_telegram_report(self, text: str, source: str = "report", symbol: str = "") -> None:
+    async def send_telegram_report(self, text: str, source: str = "report", symbol: str = "", runtime: Any = None) -> None:
         """Send arbitrary report text to Telegram via notify stream (type=report)."""
         try:
             ts_ms = str(get_ny_time_millis())
+            resolved_symbol = symbol or (getattr(runtime, "symbol", "") if runtime else "") or ""
             fields = {
                 "type": "report",
                 "text": (text or ""),
                 "source": (source or "report"),
-                "symbol": (symbol or ""),
+                "symbol": resolved_symbol,
                 "ts_ms": ts_ms,
             }
             # notify_worker.py handles type=report with priority
@@ -3463,7 +3971,9 @@ class SignalPipeline:
                 cfg["tp_rr"] = str(_p_tp_rr)
             if _p_tp1 is not None:
                 cfg["tp1_atr_mult"] = float(_p_tp1)
-        atr = float(indicators.get("atr", 0.0) or 0.0)
+        _raw_signal_atr = float(indicators.get("atr", 0.0) or 0.0)
+        indicators["atr_signal_raw"] = _raw_signal_atr
+        atr = 0.0  # Force load from canonical HTF cache
         atr_meta: dict[str, Any] = {}
         atr_ts_ms = 0
         # Use canonical TF resolver (single source of truth)
@@ -3513,16 +4023,22 @@ class SignalPipeline:
 
         # Final ATR fallback (absolute last resort)
         if atr <= 0:
-            symbol_fallbacks = {
-                "BTCUSDT": 30.0,
-                "ETHUSDT": 4.0,
-                "BNBUSDT": 0.5,
-                "SOLUSDT": 0.3,
-            }
-            atr = symbol_fallbacks.get(runtime.symbol, entry * 0.0003)
-            indicators["atr_src"] = "fallback-symbol"
-            indicators["atr_sanity_reason"] = "no_valid_atr_found"
-            indicators["atr_sanity_ok"] = 1
+            if _raw_signal_atr > 0:
+                atr = _raw_signal_atr
+                indicators["atr_src"] = "fallback-signal-raw"
+                indicators["atr_sanity_reason"] = "cache_miss_used_raw"
+                indicators["atr_sanity_ok"] = 1
+            else:
+                symbol_fallbacks = {
+                    "BTCUSDT": 30.0,
+                    "ETHUSDT": 4.0,
+                    "BNBUSDT": 0.5,
+                    "SOLUSDT": 0.3,
+                }
+                atr = symbol_fallbacks.get(runtime.symbol, entry * 0.0003)
+                indicators["atr_src"] = "fallback-symbol"
+                indicators["atr_sanity_reason"] = "no_valid_atr_found"
+                indicators["atr_sanity_ok"] = 1
 
         # Persist the final ATR used for SL/TP level calculation.
         # This is the ATR TF value (e.g. 5m/15m), NOT the 1m ATR from tick stream.

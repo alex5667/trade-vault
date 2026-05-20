@@ -138,6 +138,127 @@ def _get_ts_ms(ctx: Any) -> int:
     except Exception:
         return 0
 
+
+# Resolved sync Redis client cache (module-level, lazy init).
+# orchestrator.py:726 documents ctx.redis is None in prod; use _get_sync_redis().
+_EDGE_EVT_REDIS = None
+_EDGE_EVT_STREAM_KEY = None
+_EDGE_EVT_INIT_FAILED = False
+
+
+def _maybe_publish_edge_event_from_gate(
+    ctx: Any, res: Any, *, kind: str, symbol: str, side: Any
+) -> None:
+    """
+    Publish EdgeCostGate decision to Redis Stream for ingest into TimescaleDB.
+    Fire-and-forget. Wired into the active SignalPipeline path
+    (services/orderflow/signal_pipeline.py:2069 -> edge_cost_cached).
+
+    Twin of orchestrator._maybe_publish_edge_event (which lives in the
+    legacy SignalOrchestrator path that prod CryptoOrderflowService does
+    not exercise). Keep producer fields aligned with edge_gate_ingestor.py
+    field parser.
+    """
+    global _EDGE_EVT_REDIS, _EDGE_EVT_STREAM_KEY, _EDGE_EVT_INIT_FAILED
+
+    if res is None:
+        return
+
+    mode = os.getenv("EDGE_GATE_EVENTS_MODE", "off").lower()
+    if mode not in {"redis_stream", "stream", "on", "1", "true"}:
+        return
+
+    veto = bool(getattr(res, "veto", False))
+    passed = not veto
+
+    # Sampling: 100% VETO, low rate for PASS.
+    import random as _rand
+    if passed:
+        rate = float(os.getenv("EDGE_GATE_SAMPLE_PASS", "0.05") or 0.05)
+    else:
+        rate = float(os.getenv("EDGE_GATE_SAMPLE_VETO", "1.0") or 1.0)
+    if rate < 1.0 and _rand.random() > rate:
+        return
+
+    if _EDGE_EVT_INIT_FAILED:
+        return
+
+    redis_client = _EDGE_EVT_REDIS
+    if redis_client is None:
+        try:
+            from handlers.crypto_orderflow.config.handler_config import _get_sync_redis
+            redis_client = _get_sync_redis()
+            _EDGE_EVT_REDIS = redis_client
+            _EDGE_EVT_STREAM_KEY = os.getenv(
+                "EDGE_GATE_EVENTS_STREAM", "stream:diag:edge_gate_events"
+            )
+        except Exception:
+            _EDGE_EVT_INIT_FAILED = True
+            return
+    if redis_client is None:
+        _EDGE_EVT_INIT_FAILED = True
+        return
+
+    try:
+        ts_ms = _get_ts_ms(ctx) or int(time.time() * 1000)
+
+        exp_bps = float(getattr(res, "expected_move_bps", 0.0) or 0.0)
+        req_bps = float(getattr(res, "threshold_bps", 0.0) or 0.0)
+        k_val = float(getattr(res, "k", 0.0) or 0.0)
+        fees_bps = float(getattr(res, "fees_bps", 0.0) or 0.0)
+        slip_bps = float(getattr(res, "slippage_bps", 0.0) or 0.0)
+        buf_bps = float(getattr(res, "buffer_bps", 0.0) or 0.0)
+        tcd = getattr(res, "total_costs_bps", None)
+        total_costs_bps = float(tcd) if tcd is not None else (fees_bps + slip_bps + buf_bps)
+        edge_source = str(getattr(res, "edge_source", getattr(res, "mode", "none")) or "none")
+        margin_bps = exp_bps - req_bps
+        if req_bps > 0:
+            ratio = exp_bps / req_bps
+        else:
+            ratio = float("inf") if exp_bps > 0 else 0.0
+        ratio_cap = float(os.getenv("EDGE_GATE_RATIO_CAP", "1000000.0") or 1000000.0)
+        if ratio == float("inf") or ratio > ratio_cap:
+            ratio = ratio_cap
+
+        side_str = str(getattr(side, "value", side) or "").upper()
+        sid = (
+            getattr(ctx, "signal_id", None)
+            or getattr(ctx, "sid", None)
+            or f"{symbol}:{kind}:{ts_ms}:{side_str}"
+        )
+
+        veto_code = None
+        if veto:
+            veto_code = str(getattr(res, "reason_code", "edge_cost:veto") or "edge_cost:veto")
+
+        fields = {
+            "signal_id": str(sid),
+            "symbol": str(symbol or "").upper(),
+            "ts_ms": int(ts_ms),
+            "gate_name": "edge_cost",
+            "gate_version": 3,
+            "stage": "pre_emit",
+            "passed": 1 if passed else 0,
+            "veto_code": veto_code or "",
+            "edge_source": edge_source,
+            "exp_bps": exp_bps,
+            "req_bps": req_bps,
+            "margin_bps": margin_bps,
+            "edge_ratio": ratio,
+            "k": k_val,
+            "fees_bps": fees_bps,
+            "slip_bps": slip_bps,
+            "buf_bps": buf_bps,
+            "total_costs_bps": total_costs_bps,
+        }
+
+        stream_key = _EDGE_EVT_STREAM_KEY or "stream:diag:edge_gate_events"
+        maxlen = int(os.getenv("EDGE_GATE_EVENTS_MAXLEN", "500000") or 500000)
+        redis_client.xadd(stream_key, fields, maxlen=maxlen, approximate=True)
+    except Exception as exc:
+        log.debug("edge_gate_event publish failed: %s", exc)
+
+
 class GateOrchestrator:
     """
     Manages signal validation gates and returns unified GateDecisionV1.
@@ -352,7 +473,7 @@ class GateOrchestrator:
                 ts_decision_ms=ts_dec_ms, latency_us=latency_us, inputs_hash=inp_hash, notes={"error": str(exc)}
             )
 
-    def check_entry_policy(self, ctx: Any, kind: str) -> GateDecisionV1:
+    def check_entry_policy(self, ctx: Any, kind: str, side: Any = "") -> GateDecisionV1:
         t0 = time.monotonic()
         ts_dec_ms = int(time.time() * 1000)
         ts_ev_ms = _get_ts_ms(ctx)
@@ -369,7 +490,7 @@ class GateOrchestrator:
                 latency_us=latency_us, inputs_hash=inp_hash, notes={"msg": "no_gate"}
             )
         try:
-            res = self._entry_policy.evaluate(ctx=ctx, symbol=sym, kind=kind)
+            res = self._entry_policy.evaluate(ctx=ctx, symbol=sym, kind=kind, side=side)
             veto = getattr(res, "veto", False)
             rc = str(getattr(res, "reason_code", getattr(res, "reason", "OK")))
             notes = {"msg": str(getattr(res, "notes", ""))}
@@ -453,6 +574,12 @@ class GateOrchestrator:
 
             try:
                 res = self._cost_gate.evaluate(ctx=ctx, kind=kind, symbol=symbol)
+                # Fire-and-forget telemetry → stream:diag:edge_gate_events
+                # → edge-gate-ingestor → Timescale edge_gate_events table.
+                with contextlib.suppress(Exception):
+                    _maybe_publish_edge_event_from_gate(
+                        ctx, res, kind=kind, symbol=symbol, side=side
+                    )
                 veto = getattr(res, "veto", False)
                 rc = getattr(res, "reason_code", getattr(res, "reason", "OK"))
                 notes = {"msg": getattr(res, "notes", "")}

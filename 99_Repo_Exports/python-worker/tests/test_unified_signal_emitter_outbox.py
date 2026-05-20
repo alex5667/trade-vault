@@ -22,7 +22,7 @@ class FakeRedis:
         self.kv.pop(key, None)
         return 1
 
-    def xadd(self, stream, fields):
+    def xadd(self, stream, fields, maxlen=None, approximate=None, **kwargs):
         self._seq += 1
         eid = f"{self._seq}-0"
         self.streams.setdefault(stream, []).append((eid, dict(fields)))

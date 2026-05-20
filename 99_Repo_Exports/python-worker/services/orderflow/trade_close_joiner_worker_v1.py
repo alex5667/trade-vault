@@ -71,6 +71,7 @@ from services.orderflow.metrics import (
     trade_close_joiner_prob_missing_total,
     trade_close_joiner_prob_source_total,
     trade_close_joiner_seen_total,
+    trade_close_joiner_skipped_no_decision_total,
     trade_close_joiner_written_total,
 )
 from services.orderflow.probability_utils_v1 import extract_prob_with_source
@@ -78,6 +79,23 @@ from services.orderflow.utils import _fields_to_dict, _normalize_epoch_ms
 import contextlib
 
 logger = logging.getLogger("trade_close_joiner")
+
+
+def _load_decisionless_kinds() -> frozenset[str]:
+    """Sid-kind prefixes whose producers don't publish events:decision_snapshot.
+
+    Closes with these kinds are skipped early in process_close_event:
+    no close_wait XADD, no missing_decision_total noise, no backfill rescans.
+    Override via env JOINER_DECISIONLESS_KINDS=kind1,kind2 (empty disables skip).
+    """
+    raw = os.getenv(
+        "JOINER_DECISIONLESS_KINDS",
+        "iceberg,weak_progress,delta_spike,absorption,weak_recent",
+    )
+    return frozenset(p.strip().lower() for p in raw.split(",") if p.strip())
+
+
+DECISIONLESS_KINDS: frozenset[str] = _load_decisionless_kinds()
 
 
 def _env_int(name: str, default: str) -> int:
@@ -259,6 +277,34 @@ def _extract_prob(decision: dict[str, Any]) -> float | None:
     return p
 
 
+def _compute_pnl_bps_from_extra(extra: dict[str, Any]) -> float | None:
+    """Best-effort pnl_bps from joiner `extra` dict.
+
+    Preference order:
+      1. extra["pnl_pct"] × 100 (if pre-computed by upstream)
+      2. (exit_px - entry_px) / entry_px × 10_000 × side_sign
+
+    Returns None on any failure. Used by JOINER_WRITE_LAST_OUTCOME=1 hash
+    writer; never raises (caller wraps in try/except).
+    """
+    try:
+        pct = extra.get("pnl_pct")
+        if pct not in (None, ""):
+            return float(pct) * 100.0
+    except Exception:
+        pass
+    try:
+        entry = float(extra.get("entry_px", 0) or 0)
+        exit_ = float(extra.get("exit_px", 0) or 0)
+        if entry <= 0 or exit_ <= 0:
+            return None
+        side = str(extra.get("side", "")).upper()
+        sign = 1.0 if side in ("LONG", "BUY") else -1.0
+        return sign * (exit_ - entry) / entry * 10_000.0
+    except Exception:
+        return None
+
+
 def label_to_calib_result(y: int | None) -> str:
     """Map outcome label to p_edge calibrator's result whitelist.
 
@@ -331,17 +377,26 @@ async def _write_outputs(
     ml_maxlen = _env_int("ML_REPLAY_INPUTS_MAXLEN", str(STREAM_RETENTION[RS.ML_REPLAY_INPUTS]))
 
     sid, symbol, close_ts_ms, r_mult, extra = extract_close_info(close_ev)
-    decision_ts_ms = int(decision.get("ts_ms") or 0)
+    # Decision timestamp: legacy DecisionRecord uses "ts_ms"; new flat
+    # decision_snapshot payload uses "decision_ts_ms". Try both.
+    decision_ts_ms = int(decision.get("ts_ms") or decision.get("decision_ts_ms") or 0)
 
-    # prefer bucket from close payload, fallback to decision meta
+    # prefer bucket from close payload, fallback to decision (nested legacy or flat snapshot).
     bucket = str(
         close_ev.get(MetaKeys.ENFORCE_COV_BUCKET)
         or close_ev.get("meta_enforce_bucket")
         or (decision.get("meta", {}) or {}).get("meta_enforce_bucket")
+        or decision.get("meta_enforce_bucket")
+        or decision.get("meta_enforce_cov_bucket")
         or ""
     )
 
-    model_ver = str((decision.get("ml", {}) or {}).get("model_ver") or "")
+    model_ver = str(
+        (decision.get("ml", {}) or {}).get("model_ver")
+        or decision.get("ml_model_ver")
+        or decision.get("model_ver")
+        or ""
+    )
 
     out_trades = {
         "version": 1,
@@ -394,7 +449,9 @@ async def _write_outputs(
     _result = label_to_calib_result(_y)
     _market_regime = str(
         close_ev.get("entry_regime") or close_ev.get("market_regime")
-        or decision.get("market_regime") or "*"
+        or decision.get("market_regime")
+        or decision.get("session")  # snapshot fallback (best available approximation)
+        or "*"
     )
     _kind = str(decision.get("kind") or decision.get("signal_kind") or "*")
     calib_fields: dict[str, str] = {
@@ -449,6 +506,26 @@ async def _write_outputs(
             maxlen=ml_maxlen,
             approximate=True,
         )
+        # Optional O(1) last-outcome write-through for last_trade_outcome_raw
+        # fast path (audit 2026-05-19 Phase 4 follow-up). Off by default;
+        # operator enables via JOINER_WRITE_LAST_OUTCOME=1. core.last_trade_outcome_reader
+        # checks `trades:last_outcome:{symbol}.pnl_bps` first, falls back to
+        # XREVRANGE scan otherwise.
+        if os.getenv("JOINER_WRITE_LAST_OUTCOME", "0").lower() in {"1", "true", "yes", "on"}:
+            try:
+                _pnl_bps = _compute_pnl_bps_from_extra(extra)
+                if _pnl_bps is not None:
+                    pipe.hset(
+                        f"trades:last_outcome:{symbol}",
+                        mapping={
+                            "pnl_bps": f"{_pnl_bps:.6f}",
+                            "ts_ms": str(close_ts_ms),
+                            "sid": sid,
+                        },
+                    )
+                    pipe.expire(f"trades:last_outcome:{symbol}", 86400)  # 24h TTL
+            except Exception:
+                pass  # never block close write on outcome hash failure
         await pipe.execute()
     except Exception:
         # Serialize decision as signal_payload for reporters
@@ -511,6 +588,15 @@ async def process_close_event(
     if not sid:
         # no sid => can't join
         return False
+
+    # Kind-aware skip: producers for these kinds don't emit events:decision_snapshot,
+    # so decision:{sid} will never appear. Avoid blowing up missing_decision_total
+    # and close_wait backlog. See JOINER_DECISIONLESS_KINDS env.
+    if DECISIONLESS_KINDS:
+        sid_kind = sid.split(":", 1)[0].lower() if ":" in sid else ""
+        if sid_kind in DECISIONLESS_KINDS:
+            trade_close_joiner_skipped_no_decision_total.labels(symbol=symbol, kind=sid_kind).inc()
+            return False
 
     # Dedup keys
     dedup_ttl = _env_int("JOIN_DEDUP_TTL_SEC", "604800")
@@ -631,6 +717,16 @@ async def backfill_wait_stream(r: Any) -> None:
                 await r.xdel(wait_stream, msg_id)
                 trade_close_joiner_backfill_drop_total.labels(symbol=symbol, reason="too_old").inc()
                 continue
+
+            # Drop entries whose sid kind is known to have no decision_snapshot
+            # producer — they would skip in process_close_event but stay in the
+            # wait stream and get re-scanned every backfill cycle (noise).
+            if DECISIONLESS_KINDS:
+                sid_kind = sid.split(":", 1)[0].lower() if ":" in sid else ""
+                if sid_kind in DECISIONLESS_KINDS:
+                    await r.xdel(wait_stream, msg_id)
+                    trade_close_joiner_backfill_drop_total.labels(symbol=symbol, reason=f"decisionless_kind:{sid_kind}").inc()
+                    continue
 
             ok = await process_close_event(r, close_ev=close_ev, from_backfill=True)
             if ok:

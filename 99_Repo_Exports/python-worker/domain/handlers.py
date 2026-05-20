@@ -500,52 +500,41 @@ def maybe_arm_trailing_after_tp1(pos, *, spec, ts_ms: int) -> TradeEvent | None:
 
     # --------------------------------------------------------------------------
     # SECURE PROFIT: Move SL to BreakEven + Fees + Slippage immediately
-    # User Request: "After TP1 move stop to BE + (fees+slip)"
+    # BE_AFTER_TP1_MODE: ENFORCE (default) = apply; SHADOW = log only; OFF = skip
     # --------------------------------------------------------------------------
+    be_mode = (os.environ.get("BE_AFTER_TP1_MODE", "ENFORCE") or "ENFORCE").upper().strip()
     current_sl = float(getattr(pos, "sl", 0.0) or 0.0)
     secured_sl = current_sl
 
-    try:
-        # 1. Estimate costs (Fees + Slippage)
-        # Commission: default to 4bps roundtrip (0.0004) if not set
-        comm_rate = getattr(spec, "commission_rate", None)
-        if comm_rate is None:
-            comm_rate = 0.0005 # conservative default for crypto maker/taker mix
+    if be_mode != "OFF":
+        try:
+            comm_rate = getattr(spec, "commission_rate", None)
+            if comm_rate is None:
+                comm_rate = 0.0005
 
-        # Roundtrip fees = rate * 2
-        fees_bps = comm_rate * 2.0
+            fees_bps = comm_rate * 2.0
+            slip_bps = 0.0005
+            total_verify_bps = fees_bps + slip_bps
+            entry_price = float(pos.entry_price or 0.0)
 
-        # Slippage buffer: conservative 2 bps
-        slip_bps = 0.0005
+            if entry_price > 0:
+                buffer_price = entry_price * total_verify_bps
+                is_long = (pos.direction == "LONG")
 
-        total_verify_bps = fees_bps + slip_bps
-        entry_price = float(pos.entry_price or 0.0)
+                if is_long:
+                    be_plus = entry_price + buffer_price
+                    if be_plus > current_sl:
+                        secured_sl = be_plus
+                else:
+                    be_minus = entry_price - buffer_price
+                    if be_minus < current_sl:
+                        secured_sl = be_minus
+        except Exception:
+            secured_sl = current_sl
 
-        if entry_price > 0:
-            buffer_price = entry_price * total_verify_bps
-            is_long = (pos.direction == "LONG")
-
-            # Calculate BE+ level
-            if is_long:
-                be_plus = entry_price + buffer_price
-                # Move SL up if better
-                if be_plus > current_sl:
-                    secured_sl = be_plus
-            else:
-                be_minus = entry_price - buffer_price
-                # Move SL down if better (SL < current) works for short?
-                # For SHORT: SL is above price. We lower it to lock profit?
-                # No, for SHORT, Entry is high. Profit is low.
-                # SL must be LOWER than Entry to be in profit (Wait, SL for Short is ABOVE price usually)
-                # Correct: SHORT SL is STOP LOSS.
-                # Initial SL > Entry.
-                # Profitable price < Entry.
-                # To lock profit (BE+), SL must be < Entry.
-                # So we want SL = Entry - Buffer.
-                if be_minus < current_sl:
-                    secured_sl = be_minus
-    except Exception:
-        # Fallback to current behavior if calc fails
+    # In SHADOW mode compute the would-be level but revert to current_sl for actual apply.
+    shadow_secured_sl = secured_sl
+    if be_mode == "SHADOW":
         secured_sl = current_sl
 
     ev = apply_trailing_update(
@@ -559,10 +548,13 @@ def maybe_arm_trailing_after_tp1(pos, *, spec, ts_ms: int) -> TradeEvent | None:
     if ev is not None:
         try:
             ev.payload["armed_after_tp1"] = 1
+            ev.payload["be_after_tp1_mode"] = be_mode
             ev.payload["start_reason"] = str(getattr(pos, "trail_after_tp1_reason", "") or "")
-            if abs(secured_sl - current_sl) > 1e-9:
-                 ev.payload["secure_sl_applied"] = 1
-                 ev.payload["secured_sl"] = secured_sl
+            if be_mode == "ENFORCE" and abs(secured_sl - current_sl) > 1e-9:
+                ev.payload["secure_sl_applied"] = 1
+                ev.payload["secured_sl"] = secured_sl
+            elif be_mode == "SHADOW" and abs(shadow_secured_sl - current_sl) > 1e-9:
+                ev.payload["secure_sl_would_be"] = shadow_secured_sl
         except Exception:
             pass
     return ev

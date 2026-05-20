@@ -85,6 +85,15 @@ def main():
     3. Исполняет сигналы согласно планам
     4. Обрабатывает сигнал завершения
     """
+    # MT5 kill switch (2026-05-19): refuse to start unless MT5_ENABLED=1.
+    # Whole module preserved for re-enable; set MT5_ENABLED=1 to restore.
+    from core.mt5_kill_switch import mt5_enabled
+    if not mt5_enabled():
+        sys.stderr.write(
+            "mt5_bridge: MT5_ENABLED=0 (default) — refusing to start.\n"
+            "  Set MT5_ENABLED=1 to re-enable the MT5 bridge.\n"
+        )
+        sys.exit(0)
     print("[mt5_bridge] Starting MT5 Bridge...")
 
     # Конфигурация из environment

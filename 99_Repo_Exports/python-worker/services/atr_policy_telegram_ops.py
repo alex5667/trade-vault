@@ -59,11 +59,11 @@ def _buttons(proposal_id: str) -> list[list[dict[str, str]]]:
         [
             {"text": "✅ Approve", "callback": f"atrpol:approve:{proposal_id}"},  # type: ignore
             {"text": "❌ Reject", "callback": f"atrpol:reject:{proposal_id}"},
-        ]
+        ],
         [
             {"text": "↩️ Revoke", "callback": f"atrpol:revoke:{proposal_id}"},
             {"text": "🔎 Show", "callback": f"atrpol:show:{proposal_id}"},
-        ]
+        ],
     ]
 
 

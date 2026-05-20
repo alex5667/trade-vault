@@ -6,12 +6,25 @@ Verifies field encoding for side/direction in the orders queue payload:
   - side_int  : 1 | -1           (NormalizedSide.side_int)
 
 Also verifies routing: MT5 → xadd, Binance → lpush.
+
+NOTE (2026-05-19): MT5 publish path is gated by core.mt5_kill_switch.
+The autouse fixture below forces MT5_ENABLED=1 for the whole module so the
+MT5 contract stays exercised even though the venue is disabled in
+production. See tests/test_mt5_kill_switch.py for the disabled-default
+invariants.
 """
 from __future__ import annotations
 
 import asyncio
 import json
 from unittest.mock import AsyncMock, MagicMock, patch, call
+
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def _force_mt5_enabled(monkeypatch):
+    monkeypatch.setenv("MT5_ENABLED", "1")
 
 
 def _run(coro):

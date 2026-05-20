@@ -29,22 +29,29 @@ def compute_group_ma(runtime: Any, now_ms: int, indicators: dict[str, Any]) -> d
 
     Runtime attributes consumed (all fail-open to 0.0 if absent):
       - trade_arrival_rate_hz : float — trades/second in rolling window
+                                fallback indicators[book_rate_hz] (event rate
+                                Hz — semantically closest signal in payload)
       - large_trade_ratio     : float — share of notional > 3σ in window
-      - tick_direction_run    : int   — max consecutive same-sign tick runs
-      - trade_size_entropy    : float — Shannon entropy of trade size distribution
-
-    These attributes are populated by the runtime's rolling trackers
-    (see SymbolRuntime tick sequence counters + rolling stats).
+                                (no fallback — needs raw trade tracker;
+                                vectorizes to 0.0)
+      - tick_direction_run    : int   — max consecutive same-sign tick runs;
+                                fallback obi_stable_secs * book_rate_hz
+                                (≈ ticks during direction-stable window)
+      - trade_size_entropy    : float — Shannon entropy of trade size
+                                distribution (no fallback)
     """
     out: dict[str, float] = {}
 
+    # trade_arrival_rate_hz — runtime → book_rate_hz fallback
     try:
-        out["trade_arrival_rate_hz"] = float(
-            getattr(runtime, "trade_arrival_rate_hz", 0.0) or 0.0
-        )
+        v = float(getattr(runtime, "trade_arrival_rate_hz", 0.0) or 0.0)
+        if v == 0.0:
+            v = float(indicators.get("book_rate_hz", 0.0) or 0.0)
+        out["trade_arrival_rate_hz"] = v
     except Exception:
         out["trade_arrival_rate_hz"] = 0.0
 
+    # large_trade_ratio — runtime only (raw trade tracker required)
     try:
         out["large_trade_ratio"] = float(
             getattr(runtime, "large_trade_ratio", 0.0) or 0.0
@@ -52,13 +59,21 @@ def compute_group_ma(runtime: Any, now_ms: int, indicators: dict[str, Any]) -> d
     except Exception:
         out["large_trade_ratio"] = 0.0
 
+    # tick_direction_run — runtime → indicators-fallback (audit 2026-05-19
+    # Phase 7). signal_pipeline.publish_signal pre-populates this with a
+    # per-symbol signal-direction-run counter (capped at 50). It's a
+    # signal-granularity proxy (vs original tick-granularity) — values
+    # naturally land in expected [1, 20] range. Old obi_stable_secs×book_rate_hz
+    # proxy removed: produced 25-1200 (OOD for ML inputs).
     try:
-        out["tick_direction_run"] = float(
-            getattr(runtime, "tick_direction_run", 0) or 0
-        )
+        v = float(getattr(runtime, "tick_direction_run", 0) or 0)
+        if v == 0.0:
+            v = float(indicators.get("tick_direction_run", 0.0) or 0.0)
+        out["tick_direction_run"] = v
     except Exception:
         out["tick_direction_run"] = 0.0
 
+    # trade_size_entropy — runtime only (raw trade tracker required)
     try:
         out["trade_size_entropy"] = float(
             getattr(runtime, "trade_size_entropy", 0.0) or 0.0
@@ -83,11 +98,13 @@ def compute_group_mb(runtime: Any, now_ms: int, indicators: dict[str, Any]) -> d
     """
     Group MB: order book dynamics.
 
-    Runtime attributes:
+    Runtime attributes (primary) + indicators-fallback (audit 2026-05-19):
       - quote_stuffing_score   : float — cancel_50ms / quote_50ms
       - depth_migration_bps    : float — best bid/ask shift velocity (bps/tick)
-      - level2_wap_divergence  : float — WAP(5L) - mid_price in bps
-      - bid_ask_queue_imbalance: float — (best_bid_qty - best_ask_qty) / total_best_qty
+      - level2_wap_divergence  : float — WAP(5L) - mid_price in bps;
+                                  fallback indicators[micro_mid_shift_vel_bps_s]
+      - bid_ask_queue_imbalance: float — (best_bid_qty - best_ask_qty) / total_best_qty;
+                                  fallback indicators[depth_imbalance_5] (top-5 imbalance)
     """
     out: dict[str, float] = {}
 
@@ -101,6 +118,23 @@ def compute_group_mb(runtime: Any, now_ms: int, indicators: dict[str, Any]) -> d
             out[key] = float(getattr(runtime, key, 0.0) or 0.0)
         except Exception:
             out[key] = 0.0
+
+    # Indicators-fallback when runtime trackers are unwired (TickProcessor lives
+    # in reference/ — BookProcessor in prod doesn't update these runtime attrs).
+    if out["bid_ask_queue_imbalance"] == 0.0:
+        try:
+            v = indicators.get("depth_imbalance_5")
+            if v is not None:
+                out["bid_ask_queue_imbalance"] = float(v)
+        except Exception:
+            pass
+    if out["level2_wap_divergence"] == 0.0:
+        try:
+            v = indicators.get("micro_mid_shift_vel_bps_s")
+            if v is not None:
+                out["level2_wap_divergence"] = float(v)
+        except Exception:
+            pass
 
     return out
 
@@ -139,13 +173,17 @@ def _is_session_overlap(now_ms: int) -> float:
     return 0.0
 
 
+_LIQ_STALE_SENTINEL_MS = 100_000_000  # 100M ms = ~28h → producer's "never seen" sentinel
+
+
 def compute_group_mc(runtime: Any, now_ms: int, indicators: dict[str, Any]) -> dict[str, float]:
     """
     Group MC: temporal/seasonality features.
 
     minutes_to_funding  — derived deterministically from now_ms (Train==Serve ✓)
     session_overlap_flag— derived from UTC hour (Train==Serve ✓)
-    time_since_last_liq_ms — runtime.liq_last_ts_ms (updated when liq_usd>0)
+    time_since_last_liq_ms — runtime.liq_last_ts_ms (updated when liq_usd>0);
+                             fallback indicators[liq_book_stale_ms] when < sentinel
     """
     out: dict[str, float] = {}
 
@@ -162,13 +200,20 @@ def compute_group_mc(runtime: Any, now_ms: int, indicators: dict[str, Any]) -> d
     except Exception:
         out["session_overlap_flag"] = 0.0
 
-    # time_since_last_liq_ms
+    # time_since_last_liq_ms — runtime first, then indicators fallback
     try:
         liq_last_ts = int(getattr(runtime, "liq_last_ts_ms", 0) or 0)
         if liq_last_ts > 0:
             out["time_since_last_liq_ms"] = float(max(0.0, now_ms - liq_last_ts))
         else:
-            out["time_since_last_liq_ms"] = 0.0
+            # Indicators-fallback (audit 2026-05-19): liq_book_stale_ms reflects
+            # book staleness vs last liquidation update; clip 1e8 sentinel
+            # ("never seen") to 0 so ML doesn't get a magic-number outlier.
+            try:
+                raw = float(indicators.get("liq_book_stale_ms", 0.0) or 0.0)
+                out["time_since_last_liq_ms"] = raw if 0.0 < raw < _LIQ_STALE_SENTINEL_MS else 0.0
+            except Exception:
+                out["time_since_last_liq_ms"] = 0.0
     except Exception:
         out["time_since_last_liq_ms"] = 0.0
 
@@ -187,6 +232,10 @@ def compute_group_md(runtime: Any, now_ms: int, indicators: dict[str, Any]) -> d
     """
     Group MD: cross-asset macro features loaded from go-worker → Redis hash.
     SymbolRuntime.maybe_load_crossasset() populates the runtime attributes every ~5s.
+
+    Indicators-fallback (audit 2026-05-19):
+      - perp_spot_basis_bps falls back to indicators[basis_bps] (canonical
+        alias from derivatives_context_collector_v1).
     """
     out: dict[str, float] = {}
 
@@ -200,6 +249,14 @@ def compute_group_md(runtime: Any, now_ms: int, indicators: dict[str, Any]) -> d
         except Exception:
             out[key] = 0.0
 
+    if out["perp_spot_basis_bps"] == 0.0:
+        try:
+            v = indicators.get("basis_bps")
+            if v is not None:
+                out["perp_spot_basis_bps"] = float(v)
+        except Exception:
+            pass
+
     return out
 
 
@@ -212,35 +269,61 @@ def compute_group_me(runtime: Any, now_ms: int, indicators: dict[str, Any]) -> d
     """
     Group ME: meta-signal / self-referential features.
 
-    signal_frequency_1h   — runtime.signal_count_1h (rolling counter, reset hourly)
-    last_trade_outcome_raw— runtime.last_trade_pnl_bps (last closed trade P&L in bps)
-    calibration_age_ms    — now_ms - runtime.abs_lvl_calib_last_ts_ms
+    Indicators-fallback (audit 2026-05-19) used when runtime trackers are
+    unwired:
+      signal_frequency_1h   — indicators['signal_frequency_1h'] (populated by
+                              signal_pipeline.publish_signal counter), then
+                              runtime.signal_count_1h
+      last_trade_outcome_raw— runtime.last_trade_pnl_bps
+                              (no indicator equivalent; needs trade_close hook)
+      calibration_age_ms    — runtime.abs_lvl_calib_last_ts_ms → fallback
+                              indicators['atr_age_ms'] (ATR is also a
+                              periodic calibrator; same age semantics)
     """
     out: dict[str, float] = {}
 
-    # signal_frequency_1h
+    # signal_frequency_1h — prefer indicators (populated by signal_pipeline counter)
     try:
-        out["signal_frequency_1h"] = float(
-            getattr(runtime, "signal_count_1h", 0) or 0
-        )
+        v = indicators.get("signal_frequency_1h")
+        if v not in (None, 0, 0.0):
+            out["signal_frequency_1h"] = float(v)
+        else:
+            out["signal_frequency_1h"] = float(
+                getattr(runtime, "signal_count_1h", 0) or 0
+            )
     except Exception:
         out["signal_frequency_1h"] = 0.0
 
-    # last_trade_outcome_raw
+    # last_trade_outcome_raw — runtime → indicators fallback (audit 2026-05-19
+    # Phase 4: trade-close pipeline writes to Redis trades:closed, not to
+    # runtime. signal_pipeline.publish_signal() reads it from there and
+    # injects into indicators before compute_group_me runs.
     try:
-        out["last_trade_outcome_raw"] = float(
-            getattr(runtime, "last_trade_pnl_bps", 0.0) or 0.0
-        )
+        v_rt = float(getattr(runtime, "last_trade_pnl_bps", 0.0) or 0.0)
+        if v_rt != 0.0:
+            out["last_trade_outcome_raw"] = v_rt
+        else:
+            try:
+                v_ind = float(indicators.get("last_trade_outcome_raw", 0.0) or 0.0)
+                out["last_trade_outcome_raw"] = v_ind
+            except Exception:
+                out["last_trade_outcome_raw"] = 0.0
     except Exception:
         out["last_trade_outcome_raw"] = 0.0
 
-    # calibration_age_ms
+    # calibration_age_ms — runtime → indicators fallback (atr_age_ms)
     try:
         calib_ts = int(getattr(runtime, "abs_lvl_calib_last_ts_ms", 0) or 0)
         if calib_ts > 0:
             out["calibration_age_ms"] = float(max(0.0, now_ms - calib_ts))
         else:
-            out["calibration_age_ms"] = 0.0
+            # ATR is recomputed each bar; its age is a reasonable calibration
+            # freshness proxy on the same ms scale.
+            try:
+                v = float(indicators.get("atr_age_ms", 0.0) or 0.0)
+                out["calibration_age_ms"] = v if v > 0 else 0.0
+            except Exception:
+                out["calibration_age_ms"] = 0.0
     except Exception:
         out["calibration_age_ms"] = 0.0
 
@@ -264,18 +347,36 @@ def compute_group_mx(runtime: Any, now_ms: int, indicators: dict[str, Any]) -> d
     """
     out: dict[str, float] = {}
 
-    # spread_percentile_rank_1d
+    # spread_percentile_rank_1d — runtime tracker first; indicators-fallback
+    # (audit 2026-05-19): if v15_of TCA rolling p95 is published, approximate
+    # rank as clamp(spread_bps / p95_threshold) → ~0.95 at p95, scales linearly
+    # below; clamped at 1.0 above. NOT a true rank but bounded [0, 1] proxy
+    # on the same scale (informative for ML, train==serve via same formula).
     try:
-        out["spread_percentile_rank_1d"] = float(
-            getattr(runtime, "spread_bps_rank_1d", 0.0) or 0.0
-        )
+        rank = float(getattr(runtime, "spread_bps_rank_1d", 0.0) or 0.0)
+        if rank == 0.0:
+            cur = float(indicators.get("spread_bps", 0.0) or 0.0)
+            p95 = float(
+                indicators.get("spread_p95_bps_symbol_kind_session", 0.0)
+                or 0.0
+            )
+            if cur > 0.0 and p95 > 0.0:
+                rank = min(1.0, (cur / p95) * 0.95)
+        out["spread_percentile_rank_1d"] = rank
     except Exception:
         out["spread_percentile_rank_1d"] = 0.0
 
-    # cvd_divergence_from_price: 1.0 if sign(cvd_slope) ≠ sign(momentum_10s)
+    # cvd_divergence_from_price: 1.0 if sign(cvd_slope/ema_delta) ≠ sign(price momentum)
+    # Indicators-fallback (audit 2026-05-19): cvd_slope/momentum_10s absent in
+    # active producer; substitute cvd_ema sign × delta_z sign — same intent
+    # (cumulative volume direction vs short-term price direction).
     try:
         cvd_slope = float(indicators.get("cvd_slope", 0.0) or 0.0)
         mom = float(indicators.get("momentum_10s", 0.0) or 0.0)
+        if cvd_slope == 0.0:
+            cvd_slope = float(indicators.get("cvd_ema", 0.0) or 0.0)
+        if mom == 0.0:
+            mom = float(indicators.get("delta_z", 0.0) or 0.0)
         if cvd_slope != 0.0 and mom != 0.0:
             diverge = 1.0 if (cvd_slope > 0) != (mom > 0) else 0.0
         else:
@@ -285,8 +386,12 @@ def compute_group_mx(runtime: Any, now_ms: int, indicators: dict[str, Any]) -> d
         out["cvd_divergence_from_price"] = 0.0
 
     # order_imbalance_momentum: Δofi (current - previous ofi in runtime)
+    # Indicators-fallback (audit 2026-05-19): canonical `ofi` absent in
+    # producer naming; fall back to `ofi_ml_norm` (normalized OFI for ML).
     try:
-        ofi_now = float(indicators.get("ofi", 0.0) or 0.0)
+        ofi_now = float(
+            indicators.get("ofi", indicators.get("ofi_ml_norm", 0.0)) or 0.0
+        )
         ofi_prev = float(getattr(runtime, "ofi_prev_tick", 0.0) or 0.0)
         out["order_imbalance_momentum"] = ofi_now - ofi_prev
         # Update runtime for next tick (best-effort, fail-silent)
@@ -295,11 +400,18 @@ def compute_group_mx(runtime: Any, now_ms: int, indicators: dict[str, Any]) -> d
     except Exception:
         out["order_imbalance_momentum"] = 0.0
 
-    # atr_percentile_rank_30d
+    # atr_percentile_rank_30d — runtime tracker first; indicators-fallback
+    # (audit 2026-05-19): atr_bps_th is the regime-floor threshold (~p50-p75
+    # in practice). Use clamp(atr_bps / (2 * atr_bps_th)) so threshold-level
+    # atr lands at ~0.5 and elevated regimes saturate to 1.0. Bounded [0, 1].
     try:
-        out["atr_percentile_rank_30d"] = float(
-            getattr(runtime, "atr_bps_rank_30d", 0.0) or 0.0
-        )
+        rank = float(getattr(runtime, "atr_bps_rank_30d", 0.0) or 0.0)
+        if rank == 0.0:
+            atr = float(indicators.get("atr_bps", 0.0) or 0.0)
+            atr_th = float(indicators.get("atr_bps_th", 0.0) or 0.0)
+            if atr > 0.0 and atr_th > 0.0:
+                rank = min(1.0, atr / (2.0 * atr_th))
+        out["atr_percentile_rank_30d"] = rank
     except Exception:
         out["atr_percentile_rank_30d"] = 0.0
 

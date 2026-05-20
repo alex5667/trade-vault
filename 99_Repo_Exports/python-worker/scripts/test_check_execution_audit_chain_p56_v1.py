@@ -15,16 +15,16 @@ sys.modules[spec.name] = mod
 spec.loader.exec_module(mod)
 
 
-AuditRow = mod.AuditRow,
-analyze_chain_rows = mod.analyze_chain_rows,
-render_textfile_metrics = mod.render_textfile_metrics,
+AuditRow = mod.AuditRow
+analyze_chain_rows = mod.analyze_chain_rows
+render_textfile_metrics = mod.render_textfile_metrics
 
 
 def test_analyze_chain_rows_detects_broken_links() -> None:
     """All 6 linkage types must be captured; total_broken and breakdown must match."""
     rows = [
         AuditRow(sid="sid-1", signal_id="sig-1", closed_trade_id="ct-1", symbol="BTCUSDT", source_ts=1700000000.0),
-        AuditRow(sid="sid-2", signal_id="sig-2", closed_trade_id="ct-2", symbol="ETHUSDT", source_ts=1700000001.0)],
+        AuditRow(sid="sid-2", signal_id="sig-2", closed_trade_id="ct-2", symbol="ETHUSDT", source_ts=1700000001.0)]
     report = analyze_chain_rows(
         rows,
         signal_keys={"sid-1|sig-1"},           # sid-2 has no signal,

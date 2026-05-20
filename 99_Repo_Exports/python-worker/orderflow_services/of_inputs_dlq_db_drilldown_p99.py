@@ -78,16 +78,16 @@ def _query_top_reasons(conn, lookback_h: int, kind: str, top_n: int) -> list[tup
     use_view = _has_view(conn, "public.v_of_inputs_dlq_events_reason_24h")
     with conn.cursor() as cur:
         if use_view and lookback_h == 24:
-            sql = """,
+            sql = """
             SELECT reason, n_events, last_ts
             FROM v_of_inputs_dlq_events_reason_24h
             WHERE (%s = 'all' OR kind = %s)
             ORDER BY n_events DESC
-            LIMIT %s,
-            """,
+            LIMIT %s
+            """
             cur.execute(sql, (kind, kind, top_n))
         else:
-            sql = """,
+            sql = """
             WITH parsed AS (
               SELECT
                 ts,
@@ -109,8 +109,8 @@ def _query_top_reasons(conn, lookback_h: int, kind: str, top_n: int) -> list[tup
             WHERE (%s = 'all' OR kind = %s)
             GROUP BY 1
             ORDER BY n_events DESC
-            LIMIT %s,
-            """,
+            LIMIT %s
+            """
             cur.execute(sql, (int(lookback_h), kind, kind, top_n))
         rows = cur.fetchall() or []
     out: list[tuple[str, int, datetime]] = []
@@ -121,7 +121,7 @@ def _query_top_reasons(conn, lookback_h: int, kind: str, top_n: int) -> list[tup
 
 def _query_last_event(conn, kind: str) -> datetime | None:
     with conn.cursor() as cur:
-        sql = """,
+        sql = """
         SELECT MAX(ts)
         FROM of_inputs_dlq_events
         WHERE (%s = 'all'
@@ -129,7 +129,7 @@ def _query_last_event(conn, kind: str) -> datetime | None:
           OR (%s='quarantine' AND stream LIKE 'quarantine:%')
           OR (%s='other' AND stream NOT LIKE 'stream:dlq:%' AND stream NOT LIKE 'quarantine:%')
         )
-        """,
+        """
         cur.execute(sql, (kind, kind, kind, kind))
         row = cur.fetchone()
         if row and row[0]:
@@ -141,17 +141,17 @@ def _query_samples(conn, reason: str, kind: str, limit: int) -> list[dict[str, A
     use_view = _has_view(conn, "public.v_of_inputs_dlq_events_parsed")
     with conn.cursor() as cur:
         if use_view:
-            sql = """,
+            sql = """
             SELECT ts, kind, reason, symbol, stream, dlq_id, err, dq_code, attempt_version, published_version, missing_fields
             FROM v_of_inputs_dlq_events_parsed
             WHERE reason = %s
               AND (%s='all' OR kind=%s)
             ORDER BY ts DESC
-            LIMIT %s,
-            """,
+            LIMIT %s
+            """
             cur.execute(sql, (reason, kind, kind, limit))
         else:
-            sql = """,
+            sql = """
             WITH parsed AS (
               SELECT
                 ts,
@@ -179,8 +179,8 @@ def _query_samples(conn, reason: str, kind: str, limit: int) -> list[dict[str, A
             FROM parsed
             WHERE reason=%s AND (%s='all' OR kind=%s)
             ORDER BY ts DESC
-            LIMIT %s,
-            """,
+            LIMIT %s
+            """
             cur.execute(sql, (reason, kind, kind, limit))
         cols = [d[0] for d in cur.description]
         rows = cur.fetchall() or []

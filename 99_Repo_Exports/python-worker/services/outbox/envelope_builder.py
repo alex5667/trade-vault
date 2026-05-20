@@ -73,8 +73,17 @@ def build_outbox_envelope(
       - envelope contains only trace_id + trace_summary (short)
       - full trace stored in sidecar OUTBOX_META_PREFIX+sid (written by OutboxWriter)
     """
+    # Protocol-level schema_version is read by SignalDispatcher._handle_one
+    # from the parsed envelope (env["schema_version"]), NOT from XADD fields.
+    # Producers that go through atomic_xadd_async (e.g. orderflow signal_pipeline)
+    # bypass SignalOutboxPublisher.publish — so the builder must stamp the
+    # protocol version, otherwise dispatcher rejects every signal as
+    # `unsupported_schema_version:unknown` → DLQ.
+    from core.outbox_envelope import SCHEMA_VERSION as _PROTO_SV
+
     sid_s = (sid or "").strip()
     env: dict[str, Any] = {
+        "schema_version": int(_PROTO_SV),
         "sid": sid_s,
         "ts_ms": get_ny_time_millis(),
         "targets": {},
@@ -333,6 +342,11 @@ def build_envelope(
     env.setdefault("ts_event_ms", env["ts_ms"])
     env.setdefault("ts_publish_ms", env["ts_ms"])
     env.setdefault("mono_ms", monotonic_ms())
+    # Protocol-level schema_version (gated by SignalDispatcher.ACCEPTED_SCHEMA_VERSIONS).
+    # See twin stamp in build_outbox_envelope() above for rationale.
+    from core.outbox_envelope import SCHEMA_VERSION as _PROTO_SV
+
+    env.setdefault("schema_version", int(_PROTO_SV))
 
     t_obj: dict[str, Any] = targets_obj if isinstance(targets_obj, dict) else {}
     m_obj: dict[str, Any] = meta if isinstance(meta, dict) else {}

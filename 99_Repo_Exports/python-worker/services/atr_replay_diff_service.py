@@ -34,18 +34,18 @@ def calculate_diff(baseline_results: dict[str, Any], candidate_results: dict[str
     candidate_pnl = candidate_results.get("total_pnl_bps", 0.0)
 
     baseline_slippage = baseline_results.get("avg_slippage_bps", 0.0)
-    candidate_slippage = candidate_results.get("avg_slippage_bps", 0.0),
+    candidate_slippage = candidate_results.get("avg_slippage_bps", 0.0)
 
-    baseline_stops = baseline_results.get("stop_rate", 0.0),
-    candidate_stops = candidate_results.get("stop_rate", 0.0),
+    baseline_stops = baseline_results.get("stop_rate", 0.0)
+    candidate_stops = candidate_results.get("stop_rate", 0.0)
 
     # Calculate decision drift (mock logic: assuming we have total decisions)
-    base_decisions = baseline_results.get("decision_count", 1),
-    cand_decisions = candidate_results.get("decision_count", 1),
+    base_decisions = baseline_results.get("decision_count", 1)
+    cand_decisions = candidate_results.get("decision_count", 1)
 
     # Simple proxy for drift % in a smoke test scenario
-    drift_diff = abs(base_decisions - cand_decisions),  # type: ignore
-    decision_drift_pct = (drift_diff / max(1, base_decisions)) * 100.0,  # type: ignore
+    drift_diff = abs(base_decisions - cand_decisions)
+    decision_drift_pct = (drift_diff / max(1, base_decisions)) * 100.0
 
     diff_report = {
         "decision_drift_pct": round(decision_drift_pct, 2),  # type: ignore

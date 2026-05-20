@@ -149,7 +149,7 @@ def _metrics_health(rows: list[dict]) -> dict:
         "exec_p90": exec_p90,
         "scenario_max_share": max_share,
         "scenario_top": sorted([(k, v / n) for k, v in scen.items()], key=lambda x: -x[1])[:6],
-    },
+    }
 
 
 def export_inputs(r: redis.Redis, *, stream: str, field: str, symbols: set[str], out_path: str, max_scan: int, max_write: int) -> int:

@@ -16,7 +16,7 @@ def _policy():
         "rollback_mttr_p95_crit_sec": 900.0,
         "escalation_rate_crit": 0.20,
         "max_bundle_bytes": 196608,
-    },
+    }
 
 
 def test_build_summary_collects_reason_codes():

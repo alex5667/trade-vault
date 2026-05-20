@@ -1175,11 +1175,13 @@ class OrderFlowStrategy:
                 )
                 if hasattr(_ctx, "smt_leader_confirm"):
                     indicators["smt_leader_confirm"] = int(getattr(_ctx, "smt_leader_confirm", 0))
-                    indicators["smt_coh"] = float(getattr(_ctx, "smt_coh", 0.0))
+                    _smt_coh = getattr(_ctx, "smt_coh", None)
+                    indicators["smt_coh"] = float(_smt_coh) if (_smt_coh is not None and math.isfinite(float(_smt_coh))) else None
                     indicators["smt_leader_dir"] = str(getattr(_ctx, "smt_leader_dir", "NA"))
                     indicators["smt_align"] = int(getattr(_ctx, "smt_align", 0))
                     indicators["smt_blocked"] = int(getattr(_ctx, "smt_blocked", 0))
-                    indicators["smt_leader_conf_score"] = float(getattr(_ctx, "smt_leader_conf_score", float("nan")) or float("nan"))
+                    _smt_lcs = getattr(_ctx, "smt_leader_conf_score", None)
+                    indicators["smt_leader_conf_score"] = float(_smt_lcs) if (_smt_lcs is not None and math.isfinite(float(_smt_lcs))) else None
             except Exception as e:
                 self.logger.error("Failed to inject SMT Coherence state: %s", e)
 

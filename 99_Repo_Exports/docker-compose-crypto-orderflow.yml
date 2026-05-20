@@ -263,7 +263,7 @@ services:
     - ML_CFG_CHALLENGER_KEY=cfg:ml_confirm:challenger
     - ML_CFG_CHAMPION_KINDS=meta_lr,edge_stack_v1,util_mh_v1
     - ML_MODEL_CACHE_TTL_MS=120000
-    - ML_FEATURE_SCHEMA_VER=v13_of
+    - ML_FEATURE_SCHEMA_VER=${ML_FEATURE_SCHEMA_VER:-v13_of}
     - ML_CONFIRM_CHECK_FEATURE_NAMES=1
     - OFC_CTX_ENABLE=1
     - OFC_CTX_MODE=shadow
@@ -916,7 +916,7 @@ services:
     - ML_CFG_CHAMPION_KEY=cfg:ml_confirm:champion
     - ML_CFG_CHALLENGER_KEY=cfg:ml_confirm:challenger
     - ML_MODEL_CACHE_TTL_MS=120000
-    - ML_FEATURE_SCHEMA_VER=v13_of
+    - ML_FEATURE_SCHEMA_VER=${ML_FEATURE_SCHEMA_VER:-v13_of}
     - ML_CONFIRM_CHECK_FEATURE_NAMES=1
     - ML_MODEL_FALLBACK_ENABLE=1
     - ML_REPLAY_CAPTURE_ENABLE=1
@@ -1634,7 +1634,7 @@ services:
     - ML_CFG_CHAMPION_KEY=cfg:ml_confirm:champion
     - ML_CFG_CHALLENGER_KEY=cfg:ml_confirm:challenger
     - ML_MODEL_CACHE_TTL_MS=120000
-    - ML_FEATURE_SCHEMA_VER=v13_of
+    - ML_FEATURE_SCHEMA_VER=${ML_FEATURE_SCHEMA_VER:-v13_of}
     - ML_CONFIRM_CHECK_FEATURE_NAMES=1
     - ML_MODEL_FALLBACK_ENABLE=1
     - ML_REPLAY_CAPTURE_ENABLE=1
@@ -1799,7 +1799,7 @@ services:
     - ML_CFG_CHAMPION_KEY=cfg:ml_confirm:champion
     - ML_CFG_CHALLENGER_KEY=cfg:ml_confirm:challenger
     - ML_MODEL_CACHE_TTL_MS=120000
-    - ML_FEATURE_SCHEMA_VER=v13_of
+    - ML_FEATURE_SCHEMA_VER=${ML_FEATURE_SCHEMA_VER:-v13_of}
     - ML_CONFIRM_CHECK_FEATURE_NAMES=1
     - ML_MODEL_FALLBACK_ENABLE=1
     - ML_REPLAY_CAPTURE_ENABLE=1
@@ -2447,6 +2447,7 @@ services:
     - services.gated_out_outcome_tracker.main
     environment:
     - REDIS_URL=redis://redis-worker-1:6379/0
+    - REDIS_TICKS_URL=redis://redis-ticks:6379/0
     - PYTHONUNBUFFERED=1
     - LOG_LEVEL=INFO
     - GATED_OUT_TRACKER_PROMETHEUS_PORT=9137
@@ -3566,6 +3567,83 @@ services:
           memory: 1G
         reservations:
           memory: 64M
+  v15-of-train-timer:
+    # Nightly retrain bundle for v15_of (515-feature schema).
+    # Thin wrapper: gates on tools/check_v15_of_readiness.evaluate_readiness()
+    # then invokes nightly_v14_of_train_bundle with V14_FEATURE_SCHEMA_VER=v15_of.
+    # Writes metrics:v15_of_train:last (skip status -2 when not ready, else
+    # standard train summary). Default V15_TRAIN_ENABLED=0 to keep this dark
+    # until v15_of upstream producers are confirmed live (Hawkes, Bybit,
+    # CG/CMC/DefiLlama, breadth-v2, sector-agg) — see
+    # [[audit-v15-of-producer-readiness-2026-05-18]].
+    # Override `V15_FORCE_TRAIN=1` for incident response to bypass readiness gate.
+    build: *id001
+    container_name: scanner-v15-of-train-timer
+    restart: unless-stopped
+    environment:
+    - REDIS_URL=redis://redis-worker-1:6379/0
+    - PYTHONPATH=.:/app
+    - PYTHONUNBUFFERED=1
+    - V15_TRAIN_ENABLED=${V15_TRAIN_ENABLED:-0}
+    - V15_TRAIN_INTERVAL_SEC=${V15_TRAIN_INTERVAL_SEC:-21600}
+    - V15_FORCE_TRAIN=${V15_FORCE_TRAIN:-0}
+    # The underlying v14 bundle reads V14_* env vars; v15 wrapper sets
+    # V14_FEATURE_SCHEMA_VER=v15_of + work-dir + metrics-key overrides. Other
+    # V14_* knobs flow through unchanged.
+    - V14_INPUTS_STREAM=${V14_INPUTS_STREAM:-signals:of:inputs}
+    - V14_LABELS_STREAM=${V14_LABELS_STREAM:-labels:tb}
+    - V14_INPUTS_MAX_RECORDS=${V14_INPUTS_MAX_RECORDS:-5000}
+    - V14_LABELS_MAX_RECORDS=${V14_LABELS_MAX_RECORDS:-5000}
+    - V14_FEES_BPS_ONE_SIDE=${V14_FEES_BPS_ONE_SIDE:-2.0}
+    - V14_MIN_DATASET_ROWS=${V14_MIN_DATASET_ROWS:-500}
+    - V14_Y_LABEL_COL=${V14_Y_LABEL_COL:-y_edge_cost_aware}
+    - V15_WORK_DIR=${V15_WORK_DIR:-/var/lib/trade/of_reports/v15_of_train_work}
+    - V14_OUT_DIR=${V14_OUT_DIR:-/var/lib/trade/of_reports/models}
+    - V14_PROMOTE_AUTO=${V15_PROMOTE_AUTO:-0}
+    - V14_PROMOTE_BRIER_MAX=${V14_PROMOTE_BRIER_MAX:-0.20}
+    - V14_PROMOTE_ECE_MAX=${V14_PROMOTE_ECE_MAX:-0.10}
+    # Champion/challenger cfg keys: v15 candidate goes into its own namespace
+    # to avoid clobbering v14_of canary cfgs while v15_of is in shadow.
+    - V14_CHAMPION_KEY=${V15_CHAMPION_KEY:-cfg:ml_confirm:champion}
+    - V14_CHALLENGER_KEY=${V15_CHALLENGER_KEY:-cfg:ml_confirm:challenger}
+    - V15_TRAIN_METRICS_KEY=${V15_TRAIN_METRICS_KEY:-metrics:v15_of_train:last}
+    - NOTIFY_STREAM=${NOTIFY_STREAM:-notify:telegram}
+    - SCANNER_CONSUMER_NAME=scanner-v15-of-train-timer
+    - TZ=UTC
+    depends_on: *id002
+    networks: *id003
+    volumes:
+    - ./python-worker:/app
+    - /var/lib/trade/of_reports:/var/lib/trade/of_reports
+    working_dir: /app
+    command:
+    - bash
+    - -c
+    - |
+      sleep 180
+      while true; do
+        if [ "$${V15_TRAIN_ENABLED:-0}" = "0" ]; then
+          echo "[v15-of-train-timer] disabled (V15_TRAIN_ENABLED=0), sleeping..."
+          sleep $${V15_TRAIN_INTERVAL_SEC:-21600}
+          continue
+        fi
+        echo "[v15-of-train-timer] $$(date -u) — starting v15_of retrain (gated by readiness)"
+        T0=$$(date +%s)
+        python3 -m tools.nightly_v15_of_train_bundle \
+          && echo "[v15-of-train-timer] $$(date -u) — done in $$(( $$(date +%s) - $$T0 ))s" \
+          || echo "[v15-of-train-timer] $$(date -u) — FAILED (see logs)"
+        echo "[v15-of-train-timer] sleeping $${V15_TRAIN_INTERVAL_SEC:-21600}s..."
+        sleep $${V15_TRAIN_INTERVAL_SEC:-21600}
+      done
+    profiles:
+    - default
+    deploy:
+      resources:
+        limits:
+          cpus: '1.00'
+          memory: 1G
+        reservations:
+          memory: 64M
   v5-of-train-timer:
     # Nightly retrain bundle for v5_of (300-feature full-coverage GBDT/LR challenger).
     # See python-worker/tools/nightly_v5_of_train_bundle.py.
@@ -3799,7 +3877,7 @@ services:
     - REDIS_URL=redis://redis-worker-1:6379/0
     - PYTHONPATH=.:/app
     - PYTHONUNBUFFERED=1
-    - V14_AUTO_PROMOTE_ENABLED=${V14_AUTO_PROMOTE_ENABLED:-0}
+    - V14_AUTO_PROMOTE_ENABLED=${V14_AUTO_PROMOTE_ENABLED:-1}
     - V14_AUTO_INTERVAL_SEC=${V14_AUTO_INTERVAL_SEC:-3600}
     - V14_AUTO_FRESHNESS_HOURS=${V14_AUTO_FRESHNESS_HOURS:-12}
     - V14_TRAIN_METRICS_KEY=${V14_TRAIN_METRICS_KEY:-metrics:v14_of_train:last}
@@ -3812,6 +3890,11 @@ services:
     - V14_AUTO_STATE_KEY=${V14_AUTO_STATE_KEY:-state:v14_of_auto_promote}
     - PROMETHEUS_URL=${PROMETHEUS_URL:-http://scanner-prometheus:9090}
     - NOTIFY_STREAM=${NOTIFY_STREAM:-notify:telegram}
+    # Runtime-schema guard (audit 2026-05-19): candidate.feature_schema_ver
+    # must match this env, else apply forced to dry_run. Prevents promoting
+    # a cfg whose model the scoring services cannot vectorize.
+    - ML_FEATURE_SCHEMA_VER=${ML_FEATURE_SCHEMA_VER:-v13_of}
+    - V14_REQUIRE_RUNTIME_MATCH=${V14_REQUIRE_RUNTIME_MATCH:-1}
     - TZ=UTC
     depends_on: *id002
     networks: *id003

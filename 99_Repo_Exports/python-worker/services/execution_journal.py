@@ -34,9 +34,24 @@ ENV:
 """
 
 import json
+import math
 import os
 from dataclasses import dataclass
 from typing import Any
+
+def _sanitize_floats(obj: Any) -> Any:
+    """Recursively replace NaN/Infinity with None so json.dumps produces valid JSON.
+
+    PostgreSQL jsonb rejects the `NaN` token (non-standard JSON extension).
+    """
+    if isinstance(obj, float):
+        return None if not math.isfinite(obj) else obj
+    if isinstance(obj, dict):
+        return {k: _sanitize_floats(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        sanitized = [_sanitize_floats(v) for v in obj]
+        return sanitized if isinstance(obj, list) else tuple(sanitized)
+    return obj
 
 try:
     from prometheus_client import REGISTRY, Counter
@@ -217,7 +232,7 @@ class ExecutionJournalSink:
         """
         if not self.enabled:
             return False
-        payload = dict(event or {})
+        payload = _sanitize_floats(dict(event or {}))
         payload_json = json.dumps(payload, ensure_ascii=False, default=str)
 
         # -- Async batch path (high-frequency optimisation) -------------------
@@ -298,7 +313,7 @@ class ExecutionJournalSink:
             "venue = EXCLUDED.venue, position_mode = EXCLUDED.position_mode, position_side = EXCLUDED.position_side, "
             "working_type_policy = EXCLUDED.working_type_policy, state_jsonb = EXCLUDED.state_jsonb, updated_at_ms = EXCLUDED.updated_at_ms"
         )
-        doc = dict(state or {})
+        doc = _sanitize_floats(dict(state or {}))
         now_ms = _i(doc.get('ts_ms') or get_ny_time_millis())
         try:
             with self._get_conn_ctx() as conn:
@@ -395,7 +410,7 @@ class ExecutionJournalSink:
             "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb) "
             "ON CONFLICT DO NOTHING"
         )
-        payload = dict(event or {})
+        payload = _sanitize_floats(dict(event or {}))
         try:
             with self._get_conn_ctx() as conn:
                 with conn.cursor() as cur:

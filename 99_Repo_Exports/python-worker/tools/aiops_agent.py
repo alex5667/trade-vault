@@ -833,6 +833,7 @@ def run_cycle() -> None:
             except OllamaGpuLockTimeout as lte:
                 llm_report = f"⚠️ GPU-лок таймаут: {lte}"
                 agent_name = "[GPU Lock Timeout]"
+                print(f"❌ {llm_report}")
             except Exception as e:
                 # Catch urllib HTTPError separately if we want to print body
                 if hasattr(e, 'read'):
@@ -841,6 +842,7 @@ def run_cycle() -> None:
                 else:
                     llm_report = f"Ollama ошибка: {e}"
                 agent_name = "[Ollama Error]"
+                print(f"❌ {llm_report}")
 
     if success:
         # Strip <think> tags for reasoning models

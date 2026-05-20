@@ -1000,7 +1000,7 @@ class XAUOrderFlowHandler:
             "TP_RR": CFG["tp_rr"],
             "TP_ATR_MULTS": "0.78",  # TP1 = 0.78 ATR для rocket_v1,
             "trail_profile": trail_profile,  # Передаем профиль для правильного расчета,
-        }),
+        })
 
         # ✅ ИСПОЛЬЗУЕМ ЕДИНЫЙ ФОРМАТИРОВЩИК XAUUSD
         xauusd_signal = XAUUSDSignal(

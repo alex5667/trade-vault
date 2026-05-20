@@ -723,6 +723,7 @@ class SmtCoherenceGate:
         
         try:
             ctx.smt_leader_dir = leader_dir
+            ctx.smt_leader_confirm = int(leader_confirm) if leader_confirm in (0, 1) else 0
             ctx.smt_coh = coh
             ctx.smt_state_stale = stale
         except Exception: pass

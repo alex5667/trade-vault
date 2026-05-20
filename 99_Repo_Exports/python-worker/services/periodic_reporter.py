@@ -844,6 +844,7 @@ class PeriodicReporter:
                 self.tm.finalize(m_smt_passed)
                 self.tm.finalize(m_all_gates)
                 self.tm.finalize(m_v_all)
+                self.tm.update_exit_quality_gauges(m_real)
 
                 # Inject shadow buckets into main metrics
                 m_real["shadow_passed"] = m_passed
@@ -3631,6 +3632,16 @@ def main():
     logger.info(f"Window: {RECENT_WINDOW_SECONDS}s ({RECENT_WINDOW_SECONDS // 60} мин)")
     logger.info(f"Trigger count: {REPORT_TRIGGER_COUNT} (Interval: {os.getenv('PERIODIC_REPORT_CHECK_INTERVAL_SEC', '0')})")
     logger.info("=" * 70)
+
+    try:
+        prom_port = int(os.getenv("PERIODIC_REPORTER_METRICS_PORT", "9860") or 0)
+        if prom_port > 0:
+            from prometheus_client import start_http_server
+            import services.observability.metrics_registry  # noqa: F401 — pre-register gauges
+            start_http_server(prom_port)
+            logger.info(f"📈 Prometheus metrics server started on :{prom_port}")
+    except Exception as e:
+        logger.warning(f"⚠️ Prometheus metrics server start failed: {e}")
 
     reporter = PeriodicReporter()
 

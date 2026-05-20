@@ -137,13 +137,13 @@ async def _ensure_group(r: Redis) -> None:
             log.warning("xgroup_create note: %s", e)
 
 
-async def _fetch_ticks(r: Redis, symbol: str, ts_lo: int, ts_hi: int) -> list[tuple[int, float]]:
+async def _fetch_ticks(r_ticks: Redis, symbol: str, ts_lo: int, ts_hi: int) -> list[tuple[int, float]]:
     """Returns sorted [(ts_ms, price)] in [ts_lo, ts_hi] from stream:tick_{symbol}."""
     stream = TICK_STREAM_TPL.format(symbol=symbol)
     out: list[tuple[int, float]] = []
     try:
-        # XRANGE accepts {ts_ms} as id-prefix
-        chunks = await r.xrange(stream, min=f"{ts_lo}-0", max=f"{ts_hi}-+", count=10000)
+        # XRANGE: incomplete id для max → Redis подставляет max-seq автоматически ("ts-+" невалидно)
+        chunks = await r_ticks.xrange(stream, min=f"{ts_lo}-0", max=str(ts_hi), count=10000)
     except Exception as e:
         log.warning("xrange %s [%d..%d] failed: %s", stream, ts_lo, ts_hi, e)
         return out
@@ -322,7 +322,7 @@ async def _ingest_loop(r: Redis, pending: dict[str, PendingSignal]) -> None:
             await asyncio.sleep(1.0)
 
 
-async def _eval_loop(r: Redis, pending: dict[str, PendingSignal]) -> None:
+async def _eval_loop(r: Redis, r_ticks: Redis, pending: dict[str, PendingSignal]) -> None:
     """Periodically process pending signals whose horizon has expired."""
     while True:
         await asyncio.sleep(EVAL_INTERVAL_SEC)
@@ -334,7 +334,7 @@ async def _eval_loop(r: Redis, pending: dict[str, PendingSignal]) -> None:
             g_input_lag_seconds.set(max(0.0, (now_ms - oldest) / 1000.0))
         for msg_id, sig in ready:
             try:
-                path = await _fetch_ticks(r, sig.symbol, sig.ts_ms, sig.expire_ms)
+                path = await _fetch_ticks(r_ticks, sig.symbol, sig.ts_ms, sig.expire_ms)
                 payload = _evaluate_path(sig, path)
                 if payload is None:
                     g_skipped_total.labels(reason="no_ticks").inc()
@@ -355,6 +355,10 @@ async def _eval_loop(r: Redis, pending: dict[str, PendingSignal]) -> None:
 
 async def run(redis_url: str) -> None:
     r = Redis.from_url(redis_url, decode_responses=True)
+    ticks_url = os.getenv("REDIS_TICKS_URL", redis_url)
+    r_ticks = Redis.from_url(ticks_url, decode_responses=True) if ticks_url != redis_url else r
+    if r_ticks is not r:
+        log.info("ticks redis: %s (signals redis: %s)", ticks_url, redis_url)
     await _ensure_group(r)
     pending: dict[str, PendingSignal] = {}
     await _replay_pel(r, pending)
@@ -362,5 +366,5 @@ async def run(redis_url: str) -> None:
              HORIZON_MS, EVAL_INTERVAL_SEC)
     await asyncio.gather(
         _ingest_loop(r, pending),
-        _eval_loop(r, pending),
+        _eval_loop(r, r_ticks, pending),
     )

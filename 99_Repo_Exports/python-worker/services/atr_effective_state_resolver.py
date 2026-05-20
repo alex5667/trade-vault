@@ -178,17 +178,17 @@ class EffectiveStateResolver:
             scope_value, rollout_stage, effective_level,
             "blocked" if release_blocked else "allowed",
             freeze_state, override_state,
-        ),
+        )
 
     @staticmethod
     def _build_output(scope_val, rollout, eff_state, release, freeze, override) -> dict[str, Any]:
 
         # Constraints logic
-        new_entries_allowed = True,
+        new_entries_allowed = True
         if EffectiveStateResolver._get_precedence(eff_state) >= 20: # no_new_risk or higher,
-            new_entries_allowed = False,
+            new_entries_allowed = False
 
-        release_allowed = (release != "blocked"),
+        release_allowed = (release != "blocked")
 
         return {
             "scope": EffectiveStateResolver._parse_scope(scope_val),

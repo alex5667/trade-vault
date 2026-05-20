@@ -57,7 +57,7 @@ services:
     # off | shadow | enforce — default OFF
     - LAYER_D_HOOK_ENABLED=${LAYER_D_HOOK_ENABLED:-0}
     - OF_LAYER_D_EARLY_ARM_MODE=${OF_LAYER_D_EARLY_ARM_MODE:-off}
-    - OF_LAYER_D_ARM_THRESHOLD_R=${OF_LAYER_D_ARM_THRESHOLD_R:-0.5}
+    - OF_LAYER_D_ARM_THRESHOLD_R=${OF_LAYER_D_ARM_THRESHOLD_R:-0.25}
     - LAYER_D_HMAC_SECRET=${LAYER_D_HMAC_SECRET:-${LAYERS_CAL_HMAC_SECRET:-${RECS_HMAC_SECRET:-CHANGE_ME}}}
     - LAYER_D_GATES_KEY_PREFIX=${LAYER_D_GATES_KEY_PREFIX:-of_gate}
     - LAYER_D_CONFIG_CACHE_TTL_SEC=${LAYER_D_CONFIG_CACHE_TTL_SEC:-5}
@@ -159,6 +159,19 @@ services:
     - ATR_HORIZON_EMIT_CANDIDATES=1
     - ATR_HORIZON_CANDIDATE_WRITER_ENABLE=1
     - ATR_HORIZON_DQ_SHADOW_ENABLE=1
+    # ATR_HORIZON_GATE_MODE=enforce — intentional production default after
+    # shadow→canary cycle completion. From this point forward
+    # pre_publish_gates.py:188 may emit DENY when horizon-aware DQ shadow
+    # logic disallows the signal (canary.should_enforce=True AND
+    # shadow.allow_shadow=False). Code default in atr_horizon_canary.py is
+    # "shadow"; this compose entry forces enforce by override.
+    # Rollback (instant, no code deploy, no migration):
+    #   ATR_HORIZON_GATE_MODE=shadow docker compose up -d scanner-python-worker
+    # Observability:
+    #   horizon_gate_canary_total{mode="enforce",reason_code="HZ_GATE_ENFORCE_ALL"}
+    # NOTE: running scanner-python-worker (started 2026-05-18) does NOT yet
+    # have this ENV — first restart activates enforce path. Verify shadow→canary
+    # evidence (EV/R, DENY rate, slippage proxy) before that restart.
     - ATR_HORIZON_GATE_MODE=${ATR_HORIZON_GATE_MODE:-enforce}
     - ATR_HORIZON_SHADOW_RISK_SURFACE_ENABLE=0
     - ATR_HORIZON_USE_FOR_EXECUTION=0
@@ -182,7 +195,7 @@ services:
     - MIN_TP_DIST_BPS=18
     - MIN_SL_DIST_BPS=12
     - FEE_RISK_RATIO_LIMIT=0.5
-    - ROCKET_TP1_ATR_MULT=2.0
+    - ROCKET_TP1_ATR_MULT=${ROCKET_TP1_ATR_MULT:-1.0}
     - XAU_CONTRACT_SIZE=100
     - XAU_LOT_STEP=0.01
     - STOP_MODE=ATR
@@ -370,7 +383,7 @@ services:
     - BAD_TIME_RECOVERY_FAIL_QUARANTINE_MS=20000
     - BAD_TIME_RECOVERY_FAIL_STATE_FREEZE_MS=5000
     - EMP_TIME_SNAPSHOTS_READ=1
-    - CRYPTO_OF_STRONG_GATE_SHADOW=${CRYPTO_OF_STRONG_GATE_SHADOW}
+    - CRYPTO_OF_STRONG_GATE_SHADOW=${CRYPTO_OF_STRONG_GATE_SHADOW:-1}
     - CRYPTO_OF_REQUIRE_STRONG_CONFIRMATION=${CRYPTO_OF_REQUIRE_STRONG_CONFIRMATION}
     - EMP_TIME_SNAPSHOT_BUF_MAX=300
     - EMP_TIME_SNAPSHOT_BUF_TTL_SEC=0
@@ -536,11 +549,17 @@ services:
     - AUTOCAL_P_EDGE_READ_ENABLED=${AUTOCAL_P_EDGE_READ_ENABLED:-1}
     - AUTOCAL_P_EDGE_REFRESH_MS=${AUTOCAL_P_EDGE_REFRESH_MS:-60000}
     - AUTOCAL_P_EDGE_STALE_MS=${AUTOCAL_P_EDGE_STALE_MS:-1800000}
+    # Path-based TP autocal reader (Plan 3.3). Reader ENABLED by default,
+    # but signal_pipeline only swaps the TP when the bucket has enforce=1,
+    # which requires PATH_TP_AUTOCAL_ENFORCE=1 + dwell on the writer side.
+    # Until then the only effect is shadow indicators tp1_target_r_path_*.
+    - AUTOCAL_PATH_TP_READ_ENABLED=${AUTOCAL_PATH_TP_READ_ENABLED:-1}
+    - AUTOCAL_PATH_TP_REFRESH_MS=${AUTOCAL_PATH_TP_REFRESH_MS:-30000}
+    - AUTOCAL_PATH_TP_STALE_MS=${AUTOCAL_PATH_TP_STALE_MS:-21600000}
     # ── Confirmation Barrier (audit 2026-05-18) ─────────────────────────────
-    # Start in shadow to collect telemetry. Switch to enforce when drop-rate
-    # converges (expect ~25-30% of signals dropped — chop without follow-through).
-    # Rollback: set CONFIRMATION_BARRIER_MODE=off and restart.
-    - CONFIRMATION_BARRIER_MODE=${CONFIRMATION_BARRIER_MODE:-shadow}
+    # enforce: 7 SHADOW_DROPs/h validated (2026-05-19) — chop without follow-through.
+    # Rollback: set CONFIRMATION_BARRIER_MODE=off (or shadow) and restart.
+    - CONFIRMATION_BARRIER_MODE=${CONFIRMATION_BARRIER_MODE:-enforce}
     - CONFIRMATION_BARRIER_TIMEOUT_MS=${CONFIRMATION_BARRIER_TIMEOUT_MS:-5000}
     - CONFIRMATION_BARRIER_MIN_PROGRESS_BPS=${CONFIRMATION_BARRIER_MIN_PROGRESS_BPS:-10}
     - CONFIRMATION_BARRIER_MAX_ADVERSE_BPS=${CONFIRMATION_BARRIER_MAX_ADVERSE_BPS:-20}
@@ -556,6 +575,20 @@ services:
     # ── weak_progress as confirmation (disabled by audit) ───────────────────
     # Set to 1 only if you want weak_progress to appear in confirmations list.
     - WEAK_PROGRESS_AS_CONFIRMATION=${WEAK_PROGRESS_AS_CONFIRMATION:-0}
+    # ── TP1 target level override (Plan 1.1, 2026-05-19) ───────────────────
+    # TP1_TARGET_R=0.5: first TP at 0.5R (was 0.0=disabled). Autocal autocal:tp_sl_trailing:state
+    # will maintain this once 200+ trades accumulated; manual override until then.
+    - TP1_TARGET_R=${TP1_TARGET_R:-0.5}
+    - TP1_TARGET_R_ENFORCE=${TP1_TARGET_R_ENFORCE:-1}
+    # ── HTF Long Bias gate (Plan 1.2, 2026-05-19) ──────────────────────────
+    # Blocks LONG entries in bearish HTF conditions (LONG WR=33% today).
+    # shadow → metrics only; switch to enforce after ≥6h shadow validation.
+    - HTF_LONG_BIAS_ENABLED=${HTF_LONG_BIAS_ENABLED:-1}
+    - HTF_LONG_BIAS_MODE=${HTF_LONG_BIAS_MODE:-shadow}
+    # ── BTC Drop Cross-Asset LONG Block (Plan 2.2, 2026-05-19) ────────────
+    # Blocks LONG if BTC drops ≥1% in 5m. shadow → metrics only.
+    - BTC_DROP_BLOCK_LONG_ENABLED=${BTC_DROP_BLOCK_LONG_ENABLED:-1}
+    - BTC_DROP_BLOCK_LONG_MODE=${BTC_DROP_BLOCK_LONG_MODE:-shadow}
     - TZ=UTC
     depends_on:
       postgres:
@@ -637,7 +670,7 @@ services:
     # off | shadow | enforce — default OFF
     - LAYER_D_HOOK_ENABLED=${LAYER_D_HOOK_ENABLED:-0}
     - OF_LAYER_D_EARLY_ARM_MODE=${OF_LAYER_D_EARLY_ARM_MODE:-off}
-    - OF_LAYER_D_ARM_THRESHOLD_R=${OF_LAYER_D_ARM_THRESHOLD_R:-0.5}
+    - OF_LAYER_D_ARM_THRESHOLD_R=${OF_LAYER_D_ARM_THRESHOLD_R:-0.25}
     - LAYER_D_HMAC_SECRET=${LAYER_D_HMAC_SECRET:-${LAYERS_CAL_HMAC_SECRET:-${RECS_HMAC_SECRET:-CHANGE_ME}}}
     - LAYER_D_GATES_KEY_PREFIX=${LAYER_D_GATES_KEY_PREFIX:-of_gate}
     - LAYER_D_CONFIG_CACHE_TTL_SEC=${LAYER_D_CONFIG_CACHE_TTL_SEC:-5}
@@ -798,7 +831,7 @@ services:
     - OF_INPUTS_STREAM=signals:of:inputs
     - OF_INPUTS_STREAM_MAXLEN=5000
     # ── Confirmation Barrier (audit 2026-05-18) ─────────────────────────────
-    - CONFIRMATION_BARRIER_MODE=${CONFIRMATION_BARRIER_MODE:-shadow}
+    - CONFIRMATION_BARRIER_MODE=${CONFIRMATION_BARRIER_MODE:-enforce}
     - CONFIRMATION_BARRIER_TIMEOUT_MS=${CONFIRMATION_BARRIER_TIMEOUT_MS:-5000}
     - CONFIRMATION_BARRIER_MIN_PROGRESS_BPS=${CONFIRMATION_BARRIER_MIN_PROGRESS_BPS:-10}
     - CONFIRMATION_BARRIER_MAX_ADVERSE_BPS=${CONFIRMATION_BARRIER_MAX_ADVERSE_BPS:-20}
@@ -809,6 +842,15 @@ services:
     # ── Entry-tag confidence floors ─────────────────────────────────────────
     - MIN_CONF_BY_TAG=${MIN_CONF_BY_TAG:-weak_progress:95,absorption:85,ok:75}
     - WEAK_PROGRESS_AS_CONFIRMATION=${WEAK_PROGRESS_AS_CONFIRMATION:-0}
+    # ── TP1 target level override (Plan 1.1, 2026-05-19) ───────────────────
+    - TP1_TARGET_R=${TP1_TARGET_R:-0.5}
+    - TP1_TARGET_R_ENFORCE=${TP1_TARGET_R_ENFORCE:-1}
+    # ── HTF Long Bias gate (Plan 1.2, 2026-05-19) ──────────────────────────
+    - HTF_LONG_BIAS_ENABLED=${HTF_LONG_BIAS_ENABLED:-1}
+    - HTF_LONG_BIAS_MODE=${HTF_LONG_BIAS_MODE:-shadow}
+    # ── BTC Drop Cross-Asset LONG Block (Plan 2.2, 2026-05-19) ────────────
+    - BTC_DROP_BLOCK_LONG_ENABLED=${BTC_DROP_BLOCK_LONG_ENABLED:-1}
+    - BTC_DROP_BLOCK_LONG_MODE=${BTC_DROP_BLOCK_LONG_MODE:-shadow}
     depends_on:
       postgres:
         condition: service_healthy
@@ -1616,7 +1658,7 @@ services:
     # off | shadow | enforce — default OFF
     - LAYER_D_HOOK_ENABLED=${LAYER_D_HOOK_ENABLED:-0}
     - OF_LAYER_D_EARLY_ARM_MODE=${OF_LAYER_D_EARLY_ARM_MODE:-off}
-    - OF_LAYER_D_ARM_THRESHOLD_R=${OF_LAYER_D_ARM_THRESHOLD_R:-0.5}
+    - OF_LAYER_D_ARM_THRESHOLD_R=${OF_LAYER_D_ARM_THRESHOLD_R:-0.25}
     - LAYER_D_HMAC_SECRET=${LAYER_D_HMAC_SECRET:-${LAYERS_CAL_HMAC_SECRET:-${RECS_HMAC_SECRET:-CHANGE_ME}}}
     - LAYER_D_GATES_KEY_PREFIX=${LAYER_D_GATES_KEY_PREFIX:-of_gate}
     - LAYER_D_CONFIG_CACHE_TTL_SEC=${LAYER_D_CONFIG_CACHE_TTL_SEC:-5}
@@ -1661,6 +1703,11 @@ services:
     - AUTOCAL_P_EDGE_READ_ENABLED=${AUTOCAL_P_EDGE_READ_ENABLED:-1}
     - AUTOCAL_P_EDGE_REFRESH_MS=${AUTOCAL_P_EDGE_REFRESH_MS:-60000}
     - AUTOCAL_P_EDGE_STALE_MS=${AUTOCAL_P_EDGE_STALE_MS:-1800000}
+    # Path-based TP autocal reader (Plan 3.3) — shadow indicators only until
+    # writer publishes enforce=1 buckets (PATH_TP_AUTOCAL_ENFORCE=1 + dwell).
+    - AUTOCAL_PATH_TP_READ_ENABLED=${AUTOCAL_PATH_TP_READ_ENABLED:-1}
+    - AUTOCAL_PATH_TP_REFRESH_MS=${AUTOCAL_PATH_TP_REFRESH_MS:-30000}
+    - AUTOCAL_PATH_TP_STALE_MS=${AUTOCAL_PATH_TP_STALE_MS:-21600000}
     - EDGE_COST_K_BTCUSDT=3.0
     - EDGE_COST_K_ETHUSDT=3.0
     - EDGE_COST_K_SOLUSDT=3.5
@@ -2791,6 +2838,11 @@ services:
     - EXEC_STREAM=${EXEC_STREAM:-orders:exec}
     - NOTIFY_TELEGRAM_STREAM=${NOTIFY_TELEGRAM_STREAM:-notify:telegram}
     - ACCOUNT_LEVERAGE=${ACCOUNT_LEVERAGE:-10}
+    # G6: Live triple-barrier exit gate
+    - TB_EXIT_ENABLED=1
+    - TB_EXIT_MODE=shadow
+    - TB_COST_BPS=${TB_COST_BPS:-7.0}
+    - TB_HORIZON_H=${TB_HORIZON_H:-4}
     - BINANCE_DEMO_DEFAULT_LEVERAGE=${BINANCE_DEMO_DEFAULT_LEVERAGE:-5}
     - TM_MAX_OPEN_POSITIONS=${TM_MAX_OPEN_POSITIONS:-500}
     - TM_MAX_SIGNAL_AGE_MS=${TM_MAX_SIGNAL_AGE_MS:-300000}
@@ -2806,6 +2858,9 @@ services:
     # 2026-05-14: partial-close TP1 canary (ENFORCE = log intent + still SHADOW
     # until binance_executor wiring lands; degrades gracefully with warning)
     - PARTIAL_CLOSE_TP1_MODE=${PARTIAL_CLOSE_TP1_MODE:-ENFORCE}
+    # 2026-05-19 (G5): BE-after-TP1 mode for maybe_arm_trailing_after_tp1.
+    # ENFORCE=apply SL→BE+fees; SHADOW=log secure_sl_would_be only; OFF=skip.
+    - BE_AFTER_TP1_MODE=${BE_AFTER_TP1_MODE:-ENFORCE}
     - TZ=UTC
     depends_on:
       redis-worker-1:
@@ -2873,6 +2928,11 @@ services:
     - EXEC_STREAM=${EXEC_STREAM:-orders:exec}
     - NOTIFY_TELEGRAM_STREAM=${NOTIFY_TELEGRAM_STREAM:-notify:telegram}
     - ACCOUNT_LEVERAGE=${ACCOUNT_LEVERAGE:-10}
+    # G6: Live triple-barrier exit gate
+    - TB_EXIT_ENABLED=1
+    - TB_EXIT_MODE=shadow
+    - TB_COST_BPS=${TB_COST_BPS:-7.0}
+    - TB_HORIZON_H=${TB_HORIZON_H:-4}
     - BINANCE_DEMO_DEFAULT_LEVERAGE=${BINANCE_DEMO_DEFAULT_LEVERAGE:-5}
     - TM_MAX_OPEN_POSITIONS=${TM_MAX_OPEN_POSITIONS:-500}
     - TM_MAX_SIGNAL_AGE_MS=${TM_MAX_SIGNAL_AGE_MS:-300000}
@@ -2890,6 +2950,9 @@ services:
     # 2026-05-14: partial-close TP1 canary (ENFORCE = log intent + still SHADOW
     # until binance_executor wiring lands; degrades gracefully with warning)
     - PARTIAL_CLOSE_TP1_MODE=${PARTIAL_CLOSE_TP1_MODE:-ENFORCE}
+    # 2026-05-19 (G5): BE-after-TP1 mode for maybe_arm_trailing_after_tp1.
+    # ENFORCE=apply SL→BE+fees; SHADOW=log secure_sl_would_be only; OFF=skip.
+    - BE_AFTER_TP1_MODE=${BE_AFTER_TP1_MODE:-ENFORCE}
     - TZ=UTC
     depends_on:
       redis-worker-1:
@@ -3681,6 +3744,42 @@ services:
           cpus: '0.4'
         reservations:
           memory: 128M
+  daily-dd-killswitch:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    container_name: scanner-daily-dd-killswitch
+    environment:
+    - REDIS_URL=${REDIS_URL}
+    - PG_DSN=postgresql://trading:${TRADING_PASSWORD}@scanner-postgres:5432/trade
+    - DAILY_DD_KILLSWITCH_ENABLED=${DAILY_DD_KILLSWITCH_ENABLED:-1}
+    - DAILY_DD_KILLSWITCH_MODE=${DAILY_DD_KILLSWITCH_MODE:-shadow}
+    - KILL_DAILY_R_LIMIT=${KILL_DAILY_R_LIMIT:-15}
+    - KILL_DAILY_PCT_LIMIT=${KILL_DAILY_PCT_LIMIT:-20}
+    - DAILY_DD_CHECK_INTERVAL_SEC=${DAILY_DD_CHECK_INTERVAL_SEC:-60}
+    - DAILY_DD_PROM_PORT=9700
+    - TZ=UTC
+    ports:
+    - "9700:9700"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis-worker-1:
+        condition: service_healthy
+      migration-runner-trade:
+        condition: service_completed_successfully
+    networks:
+    - scanner-core
+    - scanner-infra
+    restart: unless-stopped
+    command: python -m services.daily_dd_kill_switch_v1
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.2'
+        reservations:
+          memory: 64M
   atr-policy-budget-telegram-digest:
     build:
       context: .
@@ -4379,7 +4478,7 @@ services:
       - OF_LAYER_D_SHADOW_STREAM=trades:closed
       - OF_LAYER_D_SHADOW_SINCE_HOURS=${OF_LAYER_D_SHADOW_SINCE_HOURS:-72}
       - OF_LAYER_D_SHADOW_INTERVAL_SEC=${OF_LAYER_D_SHADOW_INTERVAL_SEC:-300}
-      - OF_LAYER_D_ARM_THRESHOLD_R=${OF_LAYER_D_ARM_THRESHOLD_R:-0.5}
+      - OF_LAYER_D_ARM_THRESHOLD_R=${OF_LAYER_D_ARM_THRESHOLD_R:-0.25}
       - OF_LAYER_D_KEEP_FRACTION=${OF_LAYER_D_KEEP_FRACTION:-0.5}
       - OF_LAYER_D_EXIT_FEE_USD=${OF_LAYER_D_EXIT_FEE_USD:-0.5}
       - OF_LAYER_D_REPORT_PATH=/var/lib/trade/of_reports/of_layer_d_shadow.json

@@ -233,12 +233,66 @@ def stage_build_dataset(*, inputs_path: Path, tb_labels_path: Path,
 
 
 # ---------------------------------------------------------------------------
-# Feature set: full v14_of schema (339 numeric keys)
+# Feature set: full feature schema (v14_of by default; v15_of via env-override).
+# Count is sourced live from core.ml_feature_schema_v{14,15}_of so totals
+# never drift in this file. Env `V14_FEATURE_SCHEMA_VER` opens the door to
+# train v15_of via the same pipeline (see python-worker/tools/nightly_v15_of_train_bundle.py).
 # ---------------------------------------------------------------------------
 
+# Schema version actually trained. Default 'v14_of'; override
+# `V14_FEATURE_SCHEMA_VER=v15_of` to retrain on v15_of (515 keys). Other
+# values fall back to v14_of with a warning.
+_FEATURE_SCHEMA_VER: str = (os.environ.get("V14_FEATURE_SCHEMA_VER") or "v14_of").strip() or "v14_of"
+
+
 def _get_feature_cols() -> list[str]:
+    if _FEATURE_SCHEMA_VER == "v15_of":
+        from core.ml_feature_schema_v15_of import get_v15_of_numeric_keys
+        return get_v15_of_numeric_keys()
+    if _FEATURE_SCHEMA_VER != "v14_of":
+        logger.warning(
+            "V14_FEATURE_SCHEMA_VER=%s unrecognized — falling back to v14_of",
+            _FEATURE_SCHEMA_VER,
+        )
     from core.ml_feature_schema_v14_of import get_v14_of_numeric_keys
     return get_v14_of_numeric_keys()
+
+
+def _get_canonical_schema_hash() -> str:
+    """Canonical schema_hash for the active schema, matching the Feature Registry
+    contract-check pin (cfg:feature_registry:edge_stack:<schema_ver>). Computed
+    from the live feature_registry so the trained artifact stays aligned across
+    schema bumps without manual label edits."""
+    try:
+        from core.feature_registry import get_schema_info
+        return get_schema_info(_FEATURE_SCHEMA_VER).schema_hash
+    except Exception:
+        return ""
+
+
+def _feature_schema_version_int() -> int:
+    if _FEATURE_SCHEMA_VER == "v15_of":
+        return 15
+    return 14
+
+
+def _schema_label(role: str) -> str:
+    """Generate schema_name label for serialized models, e.g.
+    'v14_of_baseline_lr' / 'v15_of_baseline_stack'."""
+    return f"{_FEATURE_SCHEMA_VER}_baseline_{role}"
+
+
+def _run_id(role: str, ts_str: str) -> str:
+    """Generate run_id with the active schema_ver baked in."""
+    if role == "lr":
+        return f"{_FEATURE_SCHEMA_VER}_baseline_{ts_str}"
+    return f"edge_stack_{_FEATURE_SCHEMA_VER}_challenger_{ts_str}"
+
+
+def _model_filename(role: str, ts_str: str) -> str:
+    if role == "lr":
+        return f"meta_lr_{_FEATURE_SCHEMA_VER}_baseline_{ts_str}.json"
+    return f"edge_stack_{_FEATURE_SCHEMA_VER}_challenger_{ts_str}.joblib"
 
 
 # Module-level cache — loaded once per process.
@@ -341,15 +395,22 @@ def stage_train_lr(*, dataset_path: Path, out_dir: Path, ts_str: str) -> dict[st
         "threshold": 0.5,
         "transforms": {},
         "robust_scaler": robust_scaler_params,
-        "schema_name": "v14_of_baseline_lr",
-        "schema_version": 1,
-        "schema_hash": "v14of_full_339_2026_05_17",
+        "schema_name": _schema_label("lr"),
+        # Model artifact's schema_version IS the feature_schema_version
+        # (MetaModelLR.load reads schema_version OR feature_schema_version).
+        # Distinct from the cfg envelope's schema_version=1 in stage_publish
+        # below — that one is the Redis cfg shape version validated by
+        # services/ml_confirm/champion_cfg.py.
+        "schema_version": _feature_schema_version_int(),
+        "schema_hash": _get_canonical_schema_hash(),
         "feature_cols_hash": hashlib.sha256(",".join(V14_BASE_FEATURES).encode("utf-8")).hexdigest()[:16],
         "created_ms": int(time.time() * 1000),
         "model_signature": "",
         "metrics": cv_metrics,
         "kind": "meta_lr",
-        "run_id": f"v14_of_baseline_{ts_str}",
+        "run_id": _run_id("lr", ts_str),
+        "feature_schema_ver": _FEATURE_SCHEMA_VER,
+        "feature_schema_version": _feature_schema_version_int(),
     }
     sig_in = dict(pack)
     sig_in.pop("model_signature", None)
@@ -357,7 +418,7 @@ def stage_train_lr(*, dataset_path: Path, out_dir: Path, ts_str: str) -> dict[st
         json.dumps(sig_in, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
     ).hexdigest()[:16]
 
-    out_path = out_dir / f"meta_lr_v14_of_baseline_{ts_str}.json"
+    out_path = out_dir / _model_filename("lr", ts_str)
     with out_path.open("w") as f:
         json.dump(pack, f, indent=2, ensure_ascii=False)
     logger.info("train_lr: wrote %s (cv_metrics=%s)", out_path, cv_metrics)
@@ -450,15 +511,15 @@ def stage_train_gbdt(*, dataset_path: Path, out_dir: Path, ts_str: str) -> dict[
         "feature_cols": list(V14_BASE_FEATURES),
         "feature_cols_hash": feature_cols_hash,
         "n_features_expected": len(V14_BASE_FEATURES),
-        "feature_schema_version": 14,
-        "feature_schema_ver": "v14_of",
-        "schema_name": "v14_of_baseline_stack",
+        "feature_schema_version": _feature_schema_version_int(),
+        "feature_schema_ver": _FEATURE_SCHEMA_VER,
+        "schema_name": _schema_label("stack"),
         "created_ms": int(time.time() * 1000),
-        "run_id": f"edge_stack_v14_of_challenger_{ts_str}",
+        "run_id": _run_id("stack", ts_str),
         "metrics": metrics,
     }
 
-    out_path = out_dir / f"edge_stack_v14_of_challenger_{ts_str}.joblib"
+    out_path = out_dir / _model_filename("stack", ts_str)
     joblib.dump(pack, out_path)
     logger.info("train_gbdt: wrote %s (metrics=%s)", out_path, metrics)
 
@@ -499,13 +560,14 @@ def stage_publish(*, redis_url: str, lr_info: dict | None, gbdt_info: dict | Non
             "mode": "SHADOW",
             "enforce_share": 0.0,
             "p_min": 0.5,
-            "feature_schema_ver": "v14_of",
+            "feature_schema_ver": _FEATURE_SCHEMA_VER,
             "fail_policy": "OPEN",
             "model_signature": lr_info.get("signature", ""),
             "metrics": lr_info.get("metrics", {}),
         }
-        r.set("cfg:ml_confirm:v14_of:lr_candidate", json.dumps(cand_lr, separators=(",", ":")))
-        result["candidate_keys"].append("cfg:ml_confirm:v14_of:lr_candidate")
+        _lr_cand_key = f"cfg:ml_confirm:{_FEATURE_SCHEMA_VER}:lr_candidate"
+        r.set(_lr_cand_key, json.dumps(cand_lr, separators=(",", ":")))
+        result["candidate_keys"].append(_lr_cand_key)
 
     if gbdt_info:
         cand_gbdt = {
@@ -517,12 +579,13 @@ def stage_publish(*, redis_url: str, lr_info: dict | None, gbdt_info: dict | Non
             "mode": "SHADOW",
             "enforce_share": 0.0,
             "p_min": 0.5,
-            "feature_schema_ver": "v14_of",
+            "feature_schema_ver": _FEATURE_SCHEMA_VER,
             "fail_policy": "OPEN",
             "metrics": gbdt_info.get("metrics", {}),
         }
-        r.set("cfg:ml_confirm:v14_of:gbdt_candidate", json.dumps(cand_gbdt, separators=(",", ":")))
-        result["candidate_keys"].append("cfg:ml_confirm:v14_of:gbdt_candidate")
+        _gbdt_cand_key = f"cfg:ml_confirm:{_FEATURE_SCHEMA_VER}:gbdt_candidate"
+        r.set(_gbdt_cand_key, json.dumps(cand_gbdt, separators=(",", ":")))
+        result["candidate_keys"].append(_gbdt_cand_key)
 
     if not auto_promote:
         result["promoted"] = []
@@ -567,7 +630,7 @@ def stage_publish(*, redis_url: str, lr_info: dict | None, gbdt_info: dict | Non
                 "mode": "SHADOW",   # auto-promote keeps SHADOW; human flips to ENFORCE
                 "enforce_share": 0.0,
                 "p_min": 0.5,
-                "feature_schema_ver": "v14_of",
+                "feature_schema_ver": _FEATURE_SCHEMA_VER,
                 "fail_policy": "OPEN",
                 "model_signature": lr_info.get("signature", ""),
             }
@@ -594,7 +657,7 @@ def stage_publish(*, redis_url: str, lr_info: dict | None, gbdt_info: dict | Non
                 "mode": "SHADOW",
                 "enforce_share": 0.0,
                 "p_min": 0.5,
-                "feature_schema_ver": "v14_of",
+                "feature_schema_ver": _FEATURE_SCHEMA_VER,
                 "fail_policy": "OPEN",
             }
             r.set(challenger_key, json.dumps(cfg, separators=(",", ":")))

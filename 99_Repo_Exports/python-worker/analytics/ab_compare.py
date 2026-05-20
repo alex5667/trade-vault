@@ -225,7 +225,7 @@ def summarize_orders(orders: list[Order]) -> dict[str, Any]:
         "median_pnl": med,
         "std_pnl": std,
         "sharpe_like": sharpe
-    },
+    }
 
 
 def publish_to_redis(r: redis.Redis, symbol: str, summary: dict[str, dict]):

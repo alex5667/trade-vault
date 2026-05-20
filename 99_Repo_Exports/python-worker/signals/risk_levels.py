@@ -178,6 +178,34 @@ def compute_levels(
         if stop_dist < min_stop_dist:
             stop_dist = min_stop_dist
 
+    # Plan 2.4: bounded SL = max(k*ATR, p75(MAE_30d_bps)).
+    # k*ATR is already in stop_dist; here we apply the MAE-percentile floor read
+    # from `pit_priors:rolling:30d:{sym}:default:all`. Gated by BOUNDED_SL_ENABLED
+    # (default off); BOUNDED_SL_SHADOW=1 logs without applying.
+    try:
+        from signals.bounded_sl import apply_bounded_sl_floor
+        _new_stop_dist, _bsl_telem = apply_bounded_sl_floor(symbol, abs(entry), stop_dist, cfg)
+        if _bsl_telem.get("enabled"):
+            _would = int(_bsl_telem.get("would_apply", 0))
+            _mode = "apply" if _bsl_telem.get("applied") else ("shadow" if _bsl_telem.get("shadow") else "noop")
+            if _would or (_COMPUTE_LEVELS_N % 100 == 1):
+                logger.info(
+                    "bounded_sl: sym=%s mode=%s base_bps=%.2f mae_p75_bps=%.2f floor_bps=%.2f "
+                    "would_apply=%d delta=%.6f samples=%.0f src=%.0f",
+                    symbol, _mode,
+                    float(_bsl_telem.get("base_dist_bps", 0.0)),
+                    float(_bsl_telem.get("mae_p75_bps", 0.0)),
+                    float(_bsl_telem.get("mae_floor_bps", 0.0)),
+                    _would,
+                    float(_bsl_telem.get("delta_dist", 0.0)),
+                    float(_bsl_telem.get("mae_sample_count", 0.0)),
+                    float(_bsl_telem.get("mae_floor_source", 0.0)),
+                )
+            if _bsl_telem.get("applied"):
+                stop_dist = _new_stop_dist
+    except Exception as _bsl_e:  # fail-open
+        logger.debug("bounded_sl: skipped (%s)", _bsl_e)
+
     # Цена SL
     sl = entry - sgn * stop_dist
 

@@ -561,3 +561,38 @@ fatal: Could not read from remote repository.
 Please make sure you have the correct access rights
 and the repository exists.
 2026-05-18 05:45:02 - Синхронизация завершена успешно.
+[main 223696ae] Auto-sync vault notes 2026-05-19 05:45:02
+ 134 files changed, 6492 insertions(+), 730 deletions(-)
+ create mode 100644 99_Automation/logs/update_2026-05-19_03-37-12.log
+ create mode 100644 99_Repo_Exports/python-worker/core/confirmation_barrier.py
+ create mode 100644 99_Repo_Exports/python-worker/core/ml_feature_schema_v15_of.py
+ create mode 100644 99_Repo_Exports/python-worker/core/notify_filters.py
+ create mode 100644 99_Repo_Exports/python-worker/core/per_tag_conf_floor.py
+ create mode 100644 99_Repo_Exports/python-worker/core/primary_reason_resolver.py
+ create mode 100644 99_Repo_Exports/python-worker/orderflow_services/exec_health_freeze_reconnect_nightly_smoke_v1.py
+ create mode 100644 99_Repo_Exports/python-worker/services/migrations/phase_2_8_trades_closed_policy_atr_cols.sql
+ create mode 100644 99_Repo_Exports/python-worker/tests/contracts/conftest.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/core/test_ml_feature_schema_v15_of.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/fixtures/outbox/README.md
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_burst_gate_env_mode_contract.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_confidence_scores_contract.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_confirmation_barrier.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_create_position_atr_fallback.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_external_features_v15of_contract.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_gated_out_shadow_contract.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_gates_regime_direction.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_notify_filters_virtual_gate.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_order_payload_builder_contract.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_outbox_envelope_golden.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_outbox_legacy_writer_guard.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_per_tag_conf_floor.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_pre_publish_gate_eval_counter.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_primary_reason_resolver.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_signal_pipeline_barrier.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_trade_close_joiner_label_mapping.py
+git@github.com: Permission denied (publickey).
+fatal: Could not read from remote repository.
+
+Please make sure you have the correct access rights
+and the repository exists.
+2026-05-19 05:45:03 - Синхронизация завершена успешно.

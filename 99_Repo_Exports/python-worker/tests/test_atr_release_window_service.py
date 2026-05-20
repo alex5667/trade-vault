@@ -41,14 +41,19 @@ def test_build_pre_release_checklist(mock_get_db):
     assert res["change_id"] == "test_chg"
     assert res["change_class"] == "HIGH_GOVERNANCE"
 
+@patch("services.atr_model_config_drift_service.get_db_connection")
 @patch("services.atr_disaster_recovery_service.ATRDisasterRecoveryService.is_release_blocked_by_dr")
 @patch("services.atr_release_quarantine_service.ATRReleaseQuarantineService.is_release_blocked_by_quarantine")
 @patch("services.atr_replay_certification_service.ATRReplayCertificationService.get_cert_status_for_change")
+@patch("services.atr_replay_certification_service.ATRReplayCertificationService.select_required_datasets")
 @patch("services.atr_release_window_service.get_db_connection")
-def test_evaluate_release_blockers_clean(mock_get_db, mock_cert, mock_quar, mock_dr):
+def test_evaluate_release_blockers_clean(mock_get_db, mock_select_ds, mock_cert, mock_quar, mock_dr, mock_drift_db):
     mock_cert.return_value = "passed"
     mock_quar.return_value = False
     mock_dr.return_value = False
+    mock_select_ds.return_value = []
+    _setup_drift_db_mock(mock_drift_db)
+
     mock_conn = MagicMock()
     mock_cur = MagicMock()
     mock_get_db.return_value.__enter__.return_value = mock_conn
@@ -63,38 +68,56 @@ def test_evaluate_release_blockers_clean(mock_get_db, mock_cert, mock_quar, mock
     mock_cur.fetchone.return_value = {
         "checks_json": checks,
         "change_class": "CRITICAL_RUNTIME_GATING",
-        "change_id": "test_chg"
+        "change_id": "test_chg",
+        "target_scope": "test_scope",
     }
 
     blockers = evaluate_release_blockers("test_chk")
     assert len(blockers) == 0
 
+
+@patch("services.atr_model_config_drift_service.get_db_connection")
 @patch("services.atr_disaster_recovery_service.ATRDisasterRecoveryService.is_release_blocked_by_dr")
 @patch("services.atr_release_quarantine_service.ATRReleaseQuarantineService.is_release_blocked_by_quarantine")
 @patch("services.atr_replay_certification_service.ATRReplayCertificationService.get_cert_status_for_change")
+@patch("services.atr_replay_certification_service.ATRReplayCertificationService.select_required_datasets")
 @patch("services.atr_release_window_service.get_db_connection")
-def test_evaluate_release_blockers_dirty(mock_get_db, mock_cert, mock_quar, mock_dr):
+def test_evaluate_release_blockers_dirty(mock_get_db, mock_select_ds, mock_cert, mock_quar, mock_dr, mock_drift_db):
     mock_cert.return_value = "passed"
     mock_quar.return_value = False
     mock_dr.return_value = False
+    mock_select_ds.return_value = []
+    _setup_drift_db_mock(mock_drift_db)
+
     mock_conn = MagicMock()
     mock_cur = MagicMock()
     mock_get_db.return_value.__enter__.return_value = mock_conn
     mock_conn.cursor.return_value.__enter__.return_value = mock_cur
 
     checks = {
-        "control_plane": {"open_critical_drifts": 1}, # Blocker
+        "control_plane": {"open_critical_drifts": 1},  # Blocker
         "protective": {"open_protective_critical_drift": 0},
-        "rollback_ready": {"rollback_bundle_prepared": False} # Blocker
+        "rollback_ready": {"rollback_bundle_prepared": False}  # Blocker
     }
 
     mock_cur.fetchone.return_value = {
         "checks_json": checks,
         "change_class": "CRITICAL_RUNTIME_GATING",
-        "change_id": "test_chg"
+        "change_id": "test_chg",
+        "target_scope": "test_scope",
     }
 
     blockers = evaluate_release_blockers("test_chk")
     assert len(blockers) == 2
     assert "control plane critical drift open" in blockers
     assert "rollback bundle not prepared for critical change" in blockers
+
+
+def _setup_drift_db_mock(mock_drift_db):
+    """Configure ATRModelConfigDriftService DB mock to return empty results."""
+    mock_drift_conn = MagicMock()
+    mock_drift_cur = MagicMock()
+    mock_drift_db.return_value.__enter__.return_value = mock_drift_conn
+    mock_drift_conn.cursor.return_value.__enter__.return_value = mock_drift_cur
+    mock_drift_cur.fetchall.return_value = []
+    mock_drift_cur.fetchone.return_value = None

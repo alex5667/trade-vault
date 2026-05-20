@@ -58,6 +58,7 @@ class WriterMetrics:
     claim_fail_total: Any      # XAUTOCLAIM/XCLAIM error counter
     pending_count: Any         # Gauge: current PEL size (polled every N seconds)
     redis_lag_ms: Any
+    decision_redis_set_total: Any   # Counter with label 'result' (ok|fail|skipped)
 
 
 _METRICS: WriterMetrics | None = None
@@ -113,6 +114,12 @@ def build_metrics() -> WriterMetrics:
             buckets=(50, 100, 250, 500, 1000, 2000, 5000, 10_000, 30_000, 60_000, 120_000),
         )
 
+        decision_redis_set_total = Counter(
+            "decision_snapshot_writer_decision_redis_set_total",
+            "Outcome of mirroring decision_snapshot payload to redis key decision:{sid} for trade_close_joiner.",
+            ["result"],
+        )
+
         _METRICS = WriterMetrics(
             written_total=written_total,
             db_fail_total=db_fail_total,
@@ -123,6 +130,7 @@ def build_metrics() -> WriterMetrics:
             claim_fail_total=claim_fail_total,
             pending_count=pending_count,
             redis_lag_ms=redis_lag_ms,
+            decision_redis_set_total=decision_redis_set_total,
         )
         return _METRICS
 
@@ -139,6 +147,7 @@ def build_metrics() -> WriterMetrics:
             claim_fail_total=noop,
             pending_count=noop,
             redis_lag_ms=noop,
+            decision_redis_set_total=noop,
         )
         return _METRICS
 

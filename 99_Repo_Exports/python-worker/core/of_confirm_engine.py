@@ -377,6 +377,18 @@ from core.meta_features_v13_of import (
     META_FEAT_V13_OF_VERSION,
     build_meta_features_v13_of,
 )
+from core.meta_features_v14_of import (
+    META_FEAT_V14_OF_HASH,
+    META_FEAT_V14_OF_NAME,
+    META_FEAT_V14_OF_VERSION,
+    build_meta_features_v14_of,
+)
+from core.meta_features_v15_of import (
+    META_FEAT_V15_OF_HASH,
+    META_FEAT_V15_OF_NAME,
+    META_FEAT_V15_OF_VERSION,
+    build_meta_features_v15_of,
+)
 from core.meta_model_lr import MetaModelLR
 from core.of_confirm_contract import OFConfirmV3
 from core.of_evidence import compute_absorption_flags, compute_reclaim_recent, compute_sweep_recent
@@ -431,9 +443,16 @@ META_SCHEMA_REGISTRY: dict[str, tuple[int, str]] = {
     META_FEAT_V9_NAME: (META_FEAT_V9_VERSION, META_FEAT_V9_HASH),
     META_FEAT_V10_NAME: (META_FEAT_V10_VERSION, META_FEAT_V10_HASH),
     META_FEAT_V13_OF_NAME: (META_FEAT_V13_OF_VERSION, META_FEAT_V13_OF_HASH),
+    META_FEAT_V14_OF_NAME: (META_FEAT_V14_OF_VERSION, META_FEAT_V14_OF_HASH),
+    META_FEAT_V15_OF_NAME: (META_FEAT_V15_OF_VERSION, META_FEAT_V15_OF_HASH),
 }
 
-META_SCHEMA_V2P = (META_FEAT_V2_NAME, META_FEAT_V3_NAME, META_FEAT_V4_NAME, META_FEAT_V5_NAME, META_FEAT_V6_NAME, META_FEAT_V7_NAME, META_FEAT_V8_NAME, META_FEAT_V9_NAME, META_FEAT_V10_NAME, META_FEAT_V13_OF_NAME)
+META_SCHEMA_V2P = (
+    META_FEAT_V2_NAME, META_FEAT_V3_NAME, META_FEAT_V4_NAME, META_FEAT_V5_NAME,
+    META_FEAT_V6_NAME, META_FEAT_V7_NAME, META_FEAT_V8_NAME, META_FEAT_V9_NAME,
+    META_FEAT_V10_NAME, META_FEAT_V13_OF_NAME, META_FEAT_V14_OF_NAME,
+    META_FEAT_V15_OF_NAME,
+)
 
 def _get_attr_or_key(obj: Any, name: str, default: Any = None) -> Any:
     if obj is None:
@@ -5159,6 +5178,8 @@ class OFConfirmEngine:
                         META_FEAT_V9_NAME: dict(name=META_FEAT_V9_NAME, version=META_FEAT_V9_VERSION, hash=META_FEAT_V9_HASH, builder=build_meta_features_v9),
                         META_FEAT_V10_NAME: dict(name=META_FEAT_V10_NAME, version=META_FEAT_V10_VERSION, hash=META_FEAT_V10_HASH, builder=build_meta_features_v10),
                         META_FEAT_V13_OF_NAME: dict(name=META_FEAT_V13_OF_NAME, version=META_FEAT_V13_OF_VERSION, hash=META_FEAT_V13_OF_HASH, builder=build_meta_features_v13_of),
+                        META_FEAT_V14_OF_NAME: dict(name=META_FEAT_V14_OF_NAME, version=META_FEAT_V14_OF_VERSION, hash=META_FEAT_V14_OF_HASH, builder=build_meta_features_v14_of),
+                        META_FEAT_V15_OF_NAME: dict(name=META_FEAT_V15_OF_NAME, version=META_FEAT_V15_OF_VERSION, hash=META_FEAT_V15_OF_HASH, builder=build_meta_features_v15_of),
                     }
 
                     schema_cfg = SCHEMAS.get(model_schema_name)
@@ -5547,6 +5568,14 @@ class OFConfirmEngine:
                 ok = 1 if ctx_allow else 0
                 final_reason = f"ctx_replace:{getattr(ctx_decision, 'reason', 'deny')}"
 
+        # Final safeguard: critical vetoes must never be bypassed by late-stage
+        # ok-rewrites (e.g. ctx_replace_score_veto at ~5547 can flip ok=1 even
+        # when burst_veto/hard_veto/gate_vetoed already fired). Mirror the
+        # earlier guard at the scenario_v4 boundary so ofc.ok is consistent
+        # with what downstream readers expect.
+        if burst_veto == 1 or hard_veto or gate_vetoed:
+            ok = 0
+
         ofc = OFConfirmV3(
             v=3,
             symbol=symbol,
@@ -5609,6 +5638,19 @@ class OFConfirmEngine:
             except Exception:
                 with contextlib.suppress(Exception):
                     _ext_fail("build_raised")
+
+        # v12_of new groups (MA/MB/MC/MD/ME/MX, 21 keys): tick_processor lives
+        # in reference/ — its inject_v12_of_features call is dead code in prod.
+        # Without this wiring those 21 v13_of-base keys are ABSENT in the
+        # outbound payload (audit 2026-05-19) → vectorizer fail-opens to 0.0,
+        # but per-key missing counter never increments because the key never
+        # arrives. Insert here so v13_tracker.compute_interactions() below
+        # can read populated v12 keys for NX cross-products.
+        try:
+            from core.v12_of_features import inject_v12_of_features
+            inject_v12_of_features(runtime=runtime, now_ms=now_ts, indicators=indicators)
+        except Exception:
+            pass
 
         # v13_of Groups NA/NB/NC/NE/NF + NX interactions: merge V13RuntimeTracker
         # snapshot into outbound `indicators` so the registry vectorizer sees

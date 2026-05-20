@@ -3,6 +3,7 @@ import logging
 from typing import Any
 
 from common.normalization import generate_signal_id, normalize_side_3
+from core.mt5_kill_switch import mt5_enabled
 from core.redis_keys import RedisStreams as RS
 from redis.exceptions import RedisError
 
@@ -34,7 +35,11 @@ class OrderPayloadBuilder:
                            symbol, signal.get("direction"), signal.get("side"))
             return
         direction = side_norm.side.value.lower()  # buy/sell
-        venue = (signal.get("venue") or "mt5").lower()
+        # Default venue switched mt5→binance (2026-05-19): no MT5 consumer is
+        # deployed; signals without explicit venue were piling into
+        # orders:queue:mt5 unread (PEL/maxlen growth). MT5 path remains
+        # available behind MT5_ENABLED=1 — see core/mt5_kill_switch.py.
+        venue = (signal.get("venue") or "binance").lower()
 
         reason = signal.get("reason") or "delta_spike"
 
@@ -67,6 +72,15 @@ class OrderPayloadBuilder:
 
         try:
             if venue == "mt5":
+                if not mt5_enabled():
+                    # MT5 path is disabled (MT5_ENABLED=0 — default).  Silently
+                    # drop the publish; the code path itself is preserved so
+                    # `MT5_ENABLED=1` restores the original behaviour.
+                    logger.info(
+                        "ℹ️ (%s) MT5 venue requested but MT5_ENABLED=0 — order publish skipped (sid=%s)",
+                        runtime.symbol, signal_id,
+                    )
+                    return
                 if not self.orders_queue_mt5:
                     logger.warning("⚠️ (%s) orders_queue_mt5 не задан, пропуск", runtime.symbol)
                     return

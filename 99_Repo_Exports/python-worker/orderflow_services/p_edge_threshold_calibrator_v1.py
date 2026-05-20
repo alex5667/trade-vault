@@ -162,7 +162,7 @@ def _build_counterfactual_report(
 ) -> dict[str, Any]:
     """Compare committed vs shadow vs default cutoff EV per bin."""
     out_bins: list[dict[str, Any]] = []
-    for (sym, reg, knd), b in cal.bins.items():
+    for (sym, reg, knd, drc), b in cal.bins.items():
         # Snapshot eligible samples (exclude BE — same rule as calibrator).
         eligible = [
             (s.p, s.r, s.win) for s in b.buf if s.win != -1
@@ -175,6 +175,7 @@ def _build_counterfactual_report(
             "symbol": sym,
             "regime": reg,
             "kind": knd,
+            "direction": drc,
             "n_total": len(b.buf),
             "n_eligible": len(eligible),
             "committed_tau": b.p_min,
@@ -246,17 +247,17 @@ def main() -> None:  # pragma: no cover — integration entrypoint
     g_state = _gauge(
         "p_edge_cal_threshold",
         "p_edge cutoff per bin and source (committed/shadow/default)",
-        ["symbol", "regime", "kind", "source"],
+        ["symbol", "regime", "kind", "direction", "source"],
     )
     g_n_eligible = _gauge(
         "p_edge_cal_n_eligible",
         "Eligible (non-BE) samples per bin",
-        ["symbol", "regime", "kind"],
+        ["symbol", "regime", "kind", "direction"],
     )
     g_last_apply = _gauge(
         "p_edge_cal_last_apply_ms",
         "Last apply timestamp (ms) per bin",
-        ["symbol", "regime", "kind"],
+        ["symbol", "regime", "kind", "direction"],
     )
     g_enforce = _gauge("p_edge_cal_enforce", "Enforce flag (1=enforce, 0=shadow)", [])
     g_snap_lag = _gauge("p_edge_cal_snapshot_age_ms", "Wall-clock since last snapshot publish", [])
@@ -356,6 +357,15 @@ def main() -> None:  # pragma: no cover — integration entrypoint
                         symbol = fields.get("symbol", "") or ""
                         regime = fields.get("market_regime", "") or fields.get("regime", "") or "*"
                         kind = fields.get("kind", "") or fields.get("signal_kind", "") or "*"
+                        # Phase B: direction-specific bins. trade_close_joiner
+                        # writes `side` as LONG/SHORT in trades:closed; legacy
+                        # producers may use "direction" or be missing entirely
+                        # (→ "*", which preserves pre-Phase-B aggregation).
+                        direction = (
+                            fields.get("side", "")
+                            or fields.get("direction", "")
+                            or "*"
+                        )
                         ts_close = int(_safe_float(fields.get("ts_close"), default=now_ms))
 
                         cal.observe(
@@ -366,6 +376,7 @@ def main() -> None:  # pragma: no cover — integration entrypoint
                             r_multiple=r_mult,
                             result=result,
                             ts_ms=ts_close,
+                            direction=direction,
                         )
                         c_obs.labels(result=result).inc()
                     except Exception as e:  # noqa: BLE001
@@ -419,8 +430,8 @@ def _publish_bin_metrics(
     g_last_apply: Gauge,
     default_p_min: float,
 ) -> None:
-    for (sym, reg, knd), b in cal.bins.items():
-        labels = {"symbol": sym, "regime": reg, "kind": knd}
+    for (sym, reg, knd, drc), b in cal.bins.items():
+        labels = {"symbol": sym, "regime": reg, "kind": knd, "direction": drc}
         n_elig = sum(1 for s in b.buf if s.win != -1)
         g_n_eligible.labels(**labels).set(float(n_elig))
         g_last_apply.labels(**labels).set(float(b.last_apply_ms))

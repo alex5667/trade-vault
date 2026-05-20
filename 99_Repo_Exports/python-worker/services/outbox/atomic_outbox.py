@@ -213,6 +213,16 @@ def _prepare_contract_payload(
     payload.setdefault("sid", str(signal_id))
     payload.setdefault("kind", str(kind or payload.get("kind") or ""))
     payload.setdefault("symbol", str(symbol or payload.get("symbol") or ""))
+    # Defense-in-depth: SignalDispatcher gates on payload["schema_version"]
+    # (protocol-level int). Even if a producer calls atomic_xadd_async with a
+    # raw payload that skipped build_outbox_envelope, the proto stamp must be
+    # present or the message gets silently DLQ'd as `unsupported_schema_version:unknown`.
+    # Distinct from `schema_ver` below — that one is a string contract tag
+    # (execution_intent:v1) for the execution-intent payload, not the outbox
+    # protocol version.
+    from core.outbox_envelope import SCHEMA_VERSION as _PROTO_SV
+
+    payload.setdefault("schema_version", int(_PROTO_SV))
     payload.setdefault(
         "schema_ver",
         str(payload.get("schema_ver") or meta.get("schema_ver") or _CACHED_OUTBOX_SCHEMA_VER),

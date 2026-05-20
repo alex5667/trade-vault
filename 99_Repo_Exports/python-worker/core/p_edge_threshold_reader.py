@@ -83,10 +83,15 @@ class PEdgeThresholdReader:
         regime: str,
         kind: str,
         default: float = DEFAULT_P_MIN,
+        direction: str = "*",
     ) -> float:
         """Return calibrated cutoff with fail-open semantics.
 
         When snapshot unavailable / stale / disabled → returns `default`.
+
+        `direction` (Phase B, default "*") is forwarded to the calibrator's
+        fallback hierarchy. Callers that haven't been upgraded keep getting
+        the direction-agnostic aggregate bin exactly as before.
         """
         now_ms = int(time.time() * 1000)
         self._maybe_refresh(now_ms)
@@ -102,7 +107,9 @@ class PEdgeThresholdReader:
         # PEdgeThresholdCalibrator.p_min_for returns default_p_min when no
         # bin matches in the fallback chain — we override that with the
         # caller's default so the gate's per-kind ENV value remains the floor.
-        val = cal.p_min_for(symbol=symbol, regime=regime, kind=kind)
+        val = cal.p_min_for(
+            symbol=symbol, regime=regime, kind=kind, direction=direction,
+        )
         if val is None or val <= 0.0:
             return default
         # If the calibrator returned its OWN default_p_min (i.e. no real
@@ -117,13 +124,16 @@ class PEdgeThresholdReader:
         symbol: str,
         regime: str,
         kind: str,
+        direction: str = "*",
     ) -> float:
         """Latest proposed cutoff regardless of enforce — for reports/metrics."""
         self._maybe_refresh(int(time.time() * 1000))
         cal = self._calibrator
         if cal is None:
             return 0.0
-        return cal.shadow_p_min(symbol=symbol, regime=regime, kind=kind)
+        return cal.shadow_p_min(
+            symbol=symbol, regime=regime, kind=kind, direction=direction,
+        )
 
     def is_healthy(self) -> bool:
         """True iff we have a fresh, parsed snapshot."""

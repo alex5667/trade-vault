@@ -2,13 +2,24 @@
 """
 Orders HTTP Bridge - REST API for MT5 OrderExecutor.
 
+⚠️  DEPRECATED / NOT DEPLOYED (audit 2026-05-19)
+    No docker-compose file references this service; no container runs it;
+    port 8088 is currently bound by scanner-py-obi. Kept in the repo for
+    potential MT5 execution path reactivation. If you re-enable this:
+
+      1. Wire into docker-compose-python-workers.yml with an `uvicorn
+         services.orders_http_bridge:app` command.
+      2. Bind to an INTERNAL network only — endpoints have no auth.
+      3. Add a bearer-token middleware before exposing externally — POST
+         /orders/queue can inject orders, /orders/confirm can ACK them.
+
 Provides REST endpoints for MT5 Expert Advisor to poll orders and
 confirm executions.
 
 Endpoints:
     GET /healthz - Health check
     GET /orders/poll?symbol= - Poll next order from queue
-    POST /orders/queue - Manually add order to queue
+    POST /orders/queue - Manually add order to queue (admin, validated)
     POST /orders/confirm - Confirm order execution
 
 Usage:
@@ -70,12 +81,49 @@ def health():
 def queue_order(payload: dict):
     """
     Manually add order to queue (as a Stream).
+
+    NOTE: this endpoint has no auth and is intended for internal/admin use
+    only. Do not expose externally. Validates basic payload shape so a
+    malformed manual POST cannot wedge the MT5 EA on read.
     """
     sid = (payload.get("sid") or "").strip()
     if not sid:
         return JSONResponse({"error": "sid_required"}, status_code=400)
 
+    symbol = str(payload.get("symbol") or "").strip().upper()
+    if not symbol:
+        return JSONResponse({"error": "symbol_required"}, status_code=400)
+
+    # Direction sanity (accept legacy LONG/SHORT and unified BUY/SELL).
+    direction = str(payload.get("direction") or payload.get("side") or "").strip().upper()
+    if direction not in {"LONG", "SHORT", "BUY", "SELL"}:
+        return JSONResponse(
+            {"error": "direction_invalid", "got": direction or None,
+             "expected": ["LONG", "SHORT", "BUY", "SELL"]},
+            status_code=400,
+        )
+
+    # Numeric sanity — entry/sl must be positive finite floats if present.
+    for fld in ("entry", "entry_price", "price", "sl", "lot", "qty"):
+        if fld in payload and payload[fld] is not None:
+            raw = payload[fld]
+            try:
+                v = float(raw)
+            except (TypeError, ValueError):
+                return JSONResponse(
+                    {"error": "numeric_field_invalid", "field": fld, "got": str(raw)},
+                    status_code=400,
+                )
+            # NaN/±Inf/negative — out of range. Stringify v for the JSON body
+            # because NaN/Inf are not representable in standard JSON.
+            if not (v == v) or v in (float("inf"), float("-inf")) or v < 0:
+                return JSONResponse(
+                    {"error": "numeric_field_out_of_range", "field": fld, "got": str(v)},
+                    status_code=400,
+                )
+
     payload["sid"] = sid
+    payload["symbol"] = symbol
     if "tp_levels" in payload and isinstance(payload["tp_levels"], list):
         payload["tp_levels"] = json.dumps(payload["tp_levels"])
 
@@ -116,11 +164,16 @@ def poll_orders(symbol: str | None = Query(None)):
 
         # Symbol filter
         if symbol and payload.get("symbol") and payload["symbol"] != symbol:
-            # We can't easily "push back" to a stream in a group,
-            # but we can leave it un-ACKed and it will be re-read by others or on timeout.
-            # However, for simplicity with single-EA setups, we just return it or ignore.
-            # In MT5 context, usually one EA handles one symbol or all symbols.
-            pass
+            # We cannot push back into a consumer-group stream cheaply. Leaving
+            # the message un-ACKed grows the Pending Entries List (PEL)
+            # unbounded if no other consumer claims it — long-tail memory bug.
+            # For the single-EA-per-symbol setup this code drops the message
+            # by ACKing it after the symbol mismatch.  If you run N EAs per
+            # symbol, switch to distinct consumer groups instead and remove
+            # the symbol filter here.
+            with contextlib.suppress(Exception):
+                r.xack(ORDERS_QUEUE, GROUP_NAME, msg_id)
+            return Response(status_code=204)
 
         return payload
     except Exception as e:
@@ -164,6 +217,17 @@ def get_stats():
 
 
 if __name__ == "__main__":
+    # MT5 kill switch (2026-05-19): refuse to start unless MT5_ENABLED=1.
+    # This service publishes to/reads from `orders:queue:mt5` — running it
+    # while MT5 is disabled would create writes nobody consumes.
+    from core.mt5_kill_switch import mt5_enabled
+    if not mt5_enabled():
+        import sys
+        sys.stderr.write(
+            "orders_http_bridge: MT5_ENABLED=0 (default) — refusing to start.\n"
+            "  Set MT5_ENABLED=1 to re-enable the MT5 execution bridge.\n"
+        )
+        sys.exit(0)
     import uvicorn
     port = int(os.getenv("ORDERS_HTTP_PORT", "8088"))
     uvicorn.run(app, host="0.0.0.0", port=port)

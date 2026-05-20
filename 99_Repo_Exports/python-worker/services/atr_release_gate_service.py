@@ -176,20 +176,20 @@ def build_scorecard(change_id: str) -> dict[str, Any]:
             WHERE status = 'active' AND override_class = 'TEMP_RELEASE_OVERRIDE'
               AND scope_kind IN ('global', %s)
             ORDER BY created_at DESC LIMIT 1
-        """, (scope_kind,)),
-        active_rel_override = cur.fetchone(),
+        """, (scope_kind,))
+        active_rel_override = cur.fetchone()
 
         # Determine Decision
         if len(blockers) > 0:
             if active_rel_override and "INV_UNRESOLVED_CRITICAL_INVARIANTS_ON_SCOPE" not in blockers and "INV_NO_LIVE_SCOPE_WITH_OPEN_CRITICAL_INCIDENT" not in blockers:
-                decision = "allow_with_override",
-                infos.append(f"blockers_bypassed_via_override_{active_rel_override['override_id']}"),  # type: ignore
+                decision = "allow_with_override"
+                infos.append(f"blockers_bypassed_via_override_{active_rel_override['override_id']}")  # type: ignore
             else:
-                decision = "deny",
+                decision = "deny"
         elif len(warnings) > 0:
-            decision = "allow_with_override",
+            decision = "allow_with_override"
         else:
-            decision = "allow",
+            decision = "allow"
 
         scorecard = {
             "scorecard_id": _generate_id("sc"),

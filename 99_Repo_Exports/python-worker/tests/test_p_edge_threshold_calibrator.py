@@ -161,7 +161,7 @@ def test_be_excluded_from_ev_math_but_counted() -> None:
     _feed(c, symbol="X", regime="trend", kind="breakout", samples=samples)
     assert c.p_min_for(symbol="X", regime="trend", kind="breakout") == DEFAULT_P_MIN
     # Bin still recorded the observations.
-    assert c.bins[("X", "trend", "breakout")].n_observed == 100
+    assert c.bins[("X", "trend", "breakout", "*")].n_observed == 100
 
 
 # ---------------------------------------------------------------------------
@@ -367,7 +367,7 @@ def test_window_prune_drops_stale_samples() -> None:
     _feed(c, symbol="X", regime="trend", kind="breakout",
           samples=new, base_ms=last_old + 100_000, step_ms=10)
     # Buffer must contain only the new batch (old beyond window).
-    b = c.bins[("X", "trend", "breakout")]
+    b = c.bins[("X", "trend", "breakout", "*")]
     assert len(b.buf) == len(new)
     # And the committed τ must be ≤ 0.55 (good signal at low τ).
     tau = c.p_min_for(symbol="X", regime="trend", kind="breakout")

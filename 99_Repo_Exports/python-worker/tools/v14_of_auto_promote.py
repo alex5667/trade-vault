@@ -166,6 +166,10 @@ def _eval_champion(
         reasons.append("live_pr_auc_unavailable")
 
     candidate_cfg = {
+        # cfg envelope shape version (Redis cfg:ml_confirm:* DTO). Validated
+        # strictly by services/ml_confirm/champion_cfg.py:_as_int(schema_version)
+        # — must remain 1. NOT the model-file `schema_version`
+        # (= feature_schema_version, 14/15) read by MetaModelLR.load.
         "schema_version": 1,
         "kind": "meta_lr",
         "run_id": lr_info.get("run_id"),
@@ -231,6 +235,7 @@ def _eval_challenger(
         reasons.append("live_ece_unavailable")
 
     candidate_cfg = {
+        # cfg envelope shape version (see champion_cfg.py:_as_int validator).
         "schema_version": 1,
         "kind": "edge_stack_v1",
         "run_id": gbdt_info.get("run_id"),
@@ -389,6 +394,15 @@ def run_once(*, dry_run: bool | None = None) -> dict[str, Any]:
             )
             dry_run = True
 
+    # Runtime-schema guard (audit 2026-05-19): candidate feature_schema_ver
+    # must match runtime ML_FEATURE_SCHEMA_VER. Otherwise the freshly-promoted
+    # champion cfg references a model whose features the scoring services
+    # cannot vectorize → forced SHADOW via of_confirm_engine schema_guard,
+    # while the auto-promote run looks "successful" (silent ML enforce dropout).
+    runtime_schema_ver = _env("ML_FEATURE_SCHEMA_VER", "").strip()
+    require_runtime_match = _env_bool("V14_REQUIRE_RUNTIME_MATCH", True)
+    runtime_mismatch_reasons: list[str] = []
+
     brier_max = _env_float("V14_PROMOTE_BRIER_MAX", 0.20)
     ece_max = _env_float("V14_PROMOTE_ECE_MAX", 0.10)
     pr_auc_eps = _env_float("V14_PROMOTE_PR_AUC_EPSILON", 0.02)
@@ -422,6 +436,32 @@ def run_once(*, dry_run: bool | None = None) -> dict[str, Any]:
         brier_max=brier_max, ece_max=ece_max, pr_auc_epsilon=pr_auc_eps,
     )
     decisions = [decision_champ, decision_chal]
+
+    # Apply runtime-schema guard to decisions.
+    if runtime_schema_ver:
+        for dec in decisions:
+            cand_ver = ""
+            if dec.candidate_cfg:
+                cand_ver = str(dec.candidate_cfg.get("feature_schema_ver", "")).strip()
+            if cand_ver and cand_ver != runtime_schema_ver:
+                reason = (
+                    f"runtime_schema_mismatch(runtime={runtime_schema_ver},"
+                    f" candidate={cand_ver})"
+                )
+                dec.reasons.append(reason)
+                if require_runtime_match:
+                    dec.apply = False
+                runtime_mismatch_reasons.append(f"{dec.role}:{reason}")
+        if runtime_mismatch_reasons and require_runtime_match:
+            log.warning(
+                "Runtime schema mismatch — forcing dry_run: %s",
+                "; ".join(runtime_mismatch_reasons),
+            )
+            dry_run = True
+    else:
+        log.warning(
+            "ML_FEATURE_SCHEMA_VER env not set; runtime-schema guard disabled."
+        )
 
     applied: dict[str, str | None] = {}
     if not dry_run:
@@ -466,6 +506,11 @@ def run_once(*, dry_run: bool | None = None) -> dict[str, Any]:
             "coverage": oe_status.get("coverage"),
             "span_days": oe_status.get("span_days"),
             "reasons": oe_status.get("reasons", []),
+        },
+        "runtime_schema": {
+            "runtime_ver": runtime_schema_ver,
+            "require_match": require_runtime_match,
+            "mismatches": runtime_mismatch_reasons,
         },
         "decisions": [
             {"role": d.role, "kind": d.kind, "apply": d.apply, "reasons": d.reasons}

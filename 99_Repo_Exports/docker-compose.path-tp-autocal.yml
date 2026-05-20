@@ -1,0 +1,71 @@
+services:
+  path-tp-autocal:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    image: scanner-python-worker:latest
+    container_name: scanner-path-tp-autocal
+    restart: unless-stopped
+    environment:
+      - PYTHONUNBUFFERED=1
+      # Main loop gate. ENABLED by default — service publishes bucket
+      # recommendations with enforce=0 (shadow). Auto-promote is controlled
+      # by PATH_TP_AUTOCAL_ENFORCE separately.
+      - PATH_TP_AUTOCAL_ENABLE=${PATH_TP_AUTOCAL_ENABLE:-1}
+      # Auto-promote allow flag. DEFAULT 0 — every bucket stays enforce=0
+      # regardless of dwell. Flip to 1 only after replay-quantify of the
+      # shadow indicators (`tp1_target_r_path_*`) emitted by signal_pipeline.
+      - PATH_TP_AUTOCAL_ENFORCE=${PATH_TP_AUTOCAL_ENFORCE:-0}
+      # Analysis window + thresholds.
+      - PATH_TP_AUTOCAL_INTERVAL=${PATH_TP_AUTOCAL_INTERVAL:-900}
+      - PATH_TP_AUTOCAL_WINDOW_H=${PATH_TP_AUTOCAL_WINDOW_H:-168.0}
+      - PATH_TP_AUTOCAL_MIN_WINNERS=${PATH_TP_AUTOCAL_MIN_WINNERS:-30}
+      - PATH_TP_AUTOCAL_QUANTILE=${PATH_TP_AUTOCAL_QUANTILE:-0.5}
+      - PATH_TP_AUTOCAL_TP1_MIN_R=${PATH_TP_AUTOCAL_TP1_MIN_R:-0.20}
+      - PATH_TP_AUTOCAL_TP1_MAX_R=${PATH_TP_AUTOCAL_TP1_MAX_R:-1.50}
+      - PATH_TP_AUTOCAL_DWELL_H=${PATH_TP_AUTOCAL_DWELL_H:-24.0}
+      - PATH_TP_AUTOCAL_INCLUDE_VIRTUAL=${PATH_TP_AUTOCAL_INCLUDE_VIRTUAL:-1}
+      - PATH_TP_AUTOCAL_STREAM=trades:closed
+      - PATH_TP_AUTOCAL_REDIS_URL=redis://redis-worker-1:6379/0
+      - PATH_TP_AUTOCAL_HMAC_SECRET=${PATH_TP_AUTOCAL_HMAC_SECRET:-${RECS_HMAC_SECRET:-}}
+      - PATH_TP_AUTOCAL_PROM_PORT=9862
+      - TZ=UTC
+    ports:
+      - "9862:9862"
+    depends_on:
+      redis-worker-1:
+        condition: service_healthy
+    networks:
+      - scanner-core
+      - scanner-infra
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.1'
+        reservations:
+          memory: 64M
+    command:
+      - sh
+      - -c
+      - |
+        sleep 15
+        if [ "$${PATH_TP_AUTOCAL_ENABLE:-1}" = "0" ]; then
+          echo "PATH_TP_AUTOCAL_ENABLE=0 — idle (set =1 to start)"
+          while true; do sleep 3600; done
+        fi
+        python -m orderflow_services.path_based_tp_autocal_v1
+    labels:
+      - com.scanner.service=path-tp-autocal
+      - com.scanner.description=Distribution-aware TP1 autocalibrator (MFE CDF, Plan 3.3)
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '3'
+
+networks:
+  scanner-core:
+    external: true
+  scanner-infra:
+    external: true

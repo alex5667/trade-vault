@@ -190,7 +190,7 @@ class UnifiedSignalGenerator:
             'macd_histogram': histogram,
             'atr': atr,
             'atr_pct': (atr / price * 100) if price > 0 else 0
-        },
+        }
 
     def _evaluate_signal(
         self,

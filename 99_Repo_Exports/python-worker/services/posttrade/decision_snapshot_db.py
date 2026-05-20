@@ -57,9 +57,24 @@ def _to_text_array(v: Any) -> list[str]:
     return [x.strip() for x in s.split(",") if x.strip()]
 
 
+def _sanitize_nan(v: Any) -> Any:
+    """Recursively replace float NaN/Inf with None so json.dumps produces valid JSON.
+
+    Postgres json/jsonb rejects the NaN and Infinity tokens that Python's json.dumps
+    (and orjson without special options) emit for IEEE-754 special values.
+    """
+    if isinstance(v, float):
+        return None if not (v == v and v != float("inf") and v != float("-inf")) else v
+    if isinstance(v, dict):
+        return {k: _sanitize_nan(val) for k, val in v.items()}
+    if isinstance(v, (list, tuple)):
+        return [_sanitize_nan(x) for x in v]
+    return v
+
+
 def _json_dumps(v: Any) -> str:
     try:
-        return json.dumps(v, ensure_ascii=False, separators=(",", ":"))
+        return json.dumps(_sanitize_nan(v), ensure_ascii=False, separators=(",", ":"))
     except Exception:
         return "{}"
 

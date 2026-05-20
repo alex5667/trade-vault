@@ -19,8 +19,8 @@ def simulate_l3_events():
 
         # Отмены
         L3LiteEvent(ts_ms=get_ny_time_millis() + 200, kind="cancel", side="bid", price=49999.0, qty=0.2),
-        L3LiteEvent(ts_ms=get_ny_time_millis() + 300, kind="cancel", side="ask", price=50002.0, qty=0.15)],
-    return events,
+        L3LiteEvent(ts_ms=get_ny_time_millis() + 300, kind="cancel", side="ask", price=50002.0, qty=0.15)]
+    return events
 
 
 def simulate_book_snapshot():

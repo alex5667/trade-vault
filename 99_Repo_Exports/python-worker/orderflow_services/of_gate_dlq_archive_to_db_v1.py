@@ -119,7 +119,7 @@ class PgWriter:
         return psycopg2.connect(self.cfg.dsn)
 
     def ensure_tables(self) -> None:
-        ddl = """,
+        ddl = """
         CREATE TABLE IF NOT EXISTS of_gate_dlq_events (
           stream TEXT NOT NULL,
           dlq_id TEXT NOT NULL,
@@ -138,7 +138,7 @@ class PgWriter:
         CREATE INDEX IF NOT EXISTS of_gate_dlq_events_ts_idx ON of_gate_dlq_events (ts DESC);
         CREATE INDEX IF NOT EXISTS of_gate_dlq_events_dq_idx ON of_gate_dlq_events (dq_code, ts DESC);
         CREATE INDEX IF NOT EXISTS of_gate_dlq_events_reason_idx ON of_gate_dlq_events (reason_code, ts DESC);
-        """,
+        """
         with self._conn() as conn:
             with conn.cursor() as cur:
                 cur.execute(ddl)

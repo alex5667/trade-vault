@@ -1,0 +1,55 @@
+# One-shot container for outbox v2 propagation check.
+#
+# Fires ~1h after producer-side schema_version fix (see project memory:
+# project_v14_of_canary_active_2026_05_17 and conversation transcript
+# 2026-05-19 03:20 UTC). Sleeps DELAY_SEC, then runs check.sh and exits.
+# `restart: no` keeps the exited container around so logs/exit-code stay
+# inspectable via `docker logs scanner-outbox-v2-check`.
+#
+# Launch:
+#   docker compose -f docker-compose.outbox-v2-check.yml up -d
+#
+# Inspect after firing:
+#   docker logs scanner-outbox-v2-check
+#   docker inspect scanner-outbox-v2-check --format '{{.State.ExitCode}}'
+#
+# Cancel before firing:
+#   docker compose -f docker-compose.outbox-v2-check.yml down
+#
+# Re-arm with a different delay:
+#   DELAY_SEC=900 docker compose -f docker-compose.outbox-v2-check.yml up -d --force-recreate
+
+services:
+  outbox-v2-check:
+    image: redis:7-alpine
+    container_name: scanner-outbox-v2-check
+    restart: "no"
+    environment:
+      - DELAY_SEC=${DELAY_SEC:-3600}
+      - PROM_URL=http://scanner-prometheus:9090
+      - NOTIFY_REDIS_HOST=redis-worker-1
+      - NOTIFY_REDIS_PORT=6379
+      - DLQ_BASELINE=49
+      - REJ_BASELINE=20
+      - TZ=UTC
+    networks:
+      - scanner-infra
+    volumes:
+      - ./tasks/check_outbox_v2_propagation:/app:ro
+    working_dir: /app
+    command:
+      - sh
+      - -c
+      - |
+        set -e
+        echo "Installing curl + jq..."
+        apk add --no-cache curl jq >/dev/null
+        echo "Scheduled fire at $$(date -u -d "@$$(( $$(date +%s) + $${DELAY_SEC} ))" +%Y-%m-%dT%H:%M:%SZ) ($${DELAY_SEC}s from now)"
+        sleep "$${DELAY_SEC}"
+        echo "Firing check..."
+        sh /app/check.sh
+
+networks:
+  scanner-infra:
+    external: true
+    name: scanner-infra

@@ -365,4 +365,21 @@ def preprocess_signal_for_publish(signal: dict[str, Any], symbol: str, source: s
     except Exception:
         pass
 
+    # Ensure all NaN and Infinity float values are replaced with None (JSON null)
+    # to guarantee compatibility with PostgreSQL JSONB types downstream.
+    def _sanitize_floats(obj: Any) -> Any:
+        if isinstance(obj, float):
+            return None if not math.isfinite(obj) else obj
+        if isinstance(obj, dict):
+            return {k: _sanitize_floats(v) for k, v in obj.items()}
+        if isinstance(obj, (list, tuple)):
+            sanitized = [_sanitize_floats(v) for v in obj]
+            return sanitized if isinstance(obj, list) else tuple(sanitized)
+        return obj
+
+    try:
+        signal = _sanitize_floats(signal)
+    except Exception:
+        pass
+
     return signal

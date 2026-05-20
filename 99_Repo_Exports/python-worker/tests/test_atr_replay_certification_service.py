@@ -81,9 +81,11 @@ def test_compare_replay_outputs_detects_decision_mismatch(tmp_path):
     assert by_name["S2_allow_clip_deny"]["status"] == "failed"
 
 
+@patch("services.atr_model_config_drift_service.ATRModelConfigDriftService.check_dataset_validity")
 @patch("services.atr_replay_certification_service.get_db_connection")
-def test_run_replay_certification_enabled(mock_get_db):
-    # Setup mock
+def test_run_replay_certification_enabled(mock_get_db, mock_check_validity):
+    mock_check_validity.return_value = ("valid", None)
+
     mock_conn = MagicMock()
     mock_cur = MagicMock()
     mock_get_db.return_value.__enter__.return_value = mock_conn
@@ -100,8 +102,11 @@ def test_run_replay_certification_enabled(mock_get_db):
         assert len(run_ids) == 1
 
 
+@patch("services.atr_model_config_drift_service.ATRModelConfigDriftService.check_dataset_validity")
 @patch("services.atr_replay_certification_service.get_db_connection")
-def test_run_replay_certification_defects(mock_get_db):
+def test_run_replay_certification_defects(mock_get_db, mock_check_validity):
+    mock_check_validity.return_value = ("valid", None)
+
     mock_conn = MagicMock()
     mock_cur = MagicMock()
     mock_get_db.return_value.__enter__.return_value = mock_conn

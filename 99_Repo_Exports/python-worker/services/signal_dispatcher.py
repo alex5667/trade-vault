@@ -100,7 +100,7 @@ class SignalDispatcher:
             self.lua_scripts = LuaScriptManager(self.redis, logger=self.logger)
             # Preload scripts for better performance
             if self.redis:
-                self.lua_scripts.preload_all()  # type: ignore
+                self.lua_scripts.preload_all_sync()  # type: ignore
         except Exception as e:
             if self.logger:
                 self.logger.warning(f"Failed to initialize LuaScriptManager: {e}")
@@ -1091,7 +1091,7 @@ class SignalDispatcher:
         self._last_retry_drain = now
         try:
             now_ms = get_ny_time_millis()
-            items = self.lua_scripts.execute("zpop_due", keys=[self.retry_zset], args=[str(now_ms), str(self.retry_pop_limit)])  # type: ignore
+            items = self.lua_scripts.execute_sync("zpop_due", keys=[self.retry_zset], args=[str(now_ms), str(self.retry_pop_limit)])  # type: ignore
         except Exception:
             return
         if not items:
@@ -1212,7 +1212,7 @@ class SignalDispatcher:
 
     def _release_sid_lease(self, sid: str, token: str) -> None:
         with contextlib.suppress(Exception):
-            self.lua_scripts.execute("release_lease", keys=[self._sid_lease_key(sid)], args=[token])  # type: ignore
+            self.lua_scripts.execute_sync("release_lease", keys=[self._sid_lease_key(sid)], args=[token])  # type: ignore
     def _maybe_extend_sid_lease(self, sid: str, token: str, last_extend_ms: int) -> int:
         """
         Продлеваем lease каждые sid_lease_extend_every_ms (best-effort).
@@ -1221,7 +1221,7 @@ class SignalDispatcher:
         if now_ms - int(last_extend_ms) < int(self.sid_lease_extend_every_ms):
             return last_extend_ms
         try:
-            ok = self.lua_scripts.execute(  # type: ignore
+            ok = self.lua_scripts.execute_sync(  # type: ignore
                 "extend_lease",
                 keys=[self._sid_lease_key(sid)],
                 args=[token, str(int(self.sid_lease_ttl_ms))],
@@ -1248,7 +1248,7 @@ class SignalDispatcher:
         for k, v in fields.items():
             argv.append(str(k))
             argv.append(v if isinstance(v, str) else json.dumps(v, ensure_ascii=False))
-        res = self.lua_scripts.execute("xadd_and_mark", keys=[marker, stream], args=argv, client=client)  # type: ignore
+        res = self.lua_scripts.execute_sync("xadd_and_mark", keys=[marker, stream], args=argv, client=client)  # type: ignore
         if not res:
             return False
         code = int(res[0])  # type: ignore
@@ -1264,7 +1264,7 @@ class SignalDispatcher:
         if not key:
             return True
         marker = self._marker_key(target, sid)
-        res = self.lua_scripts.execute(  # type: ignore
+        res = self.lua_scripts.execute_sync(  # type: ignore
             "setex_and_mark",
             keys=[marker, key],
             args=[str(self.delivery_marker_ttl_sec), str(int(ttl_sec)), value_json],
@@ -1587,7 +1587,7 @@ class SignalDispatcher:
         for k, v in (fields or {}).items():
             fv.append(str(k))
             fv.append(v if isinstance(v, str) else json.dumps(v, ensure_ascii=False))
-        res = self.lua_scripts.execute(  # type: ignore
+        res = self.lua_scripts.execute_sync(  # type: ignore
             "xadd_fields_then_mark",
             keys=[self._marker_key(target, sid), stream],
             args=[str(self.delivery_marker_ttl_sec), str(maxlen)] + fv,
@@ -1595,7 +1595,7 @@ class SignalDispatcher:
         return bool(res and int(res[0]) in (0, 1))  # type: ignore
 
     def _setex_idempotent(self, client: Any, *, target: str, sid: str, key: str, value_json: str, ttl_sec: int) -> bool:
-        res = self.lua_scripts.execute(  # type: ignore
+        res = self.lua_scripts.execute_sync(  # type: ignore
             "setex_then_mark",
             keys=[self._marker_key(target, sid), key],
             args=[str(self.delivery_marker_ttl_sec), str(int(ttl_sec)), value_json],
@@ -1608,7 +1608,7 @@ class SignalDispatcher:
         for k, v in (payload or {}).items():
             fv.append(str(k))
             fv.append(v if isinstance(v, str) else json.dumps(v, ensure_ascii=False))
-        res = self.lua_scripts.execute(  # type: ignore
+        res = self.lua_scripts.execute_sync(  # type: ignore
             "notify_gate",
             keys=[self._marker_key("notify", sid), self.notify_stream, self.notify_signal_counter_key],
             args=[str(self.delivery_marker_ttl_sec), str(500000), str(self.notify_signal_every_n)] + fv,

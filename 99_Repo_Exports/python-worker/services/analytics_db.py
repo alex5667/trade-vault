@@ -11,6 +11,7 @@ Usage:
 
 import json
 import logging
+import math
 import os
 from typing import Any
 
@@ -18,6 +19,17 @@ import psycopg2
 from psycopg2.extras import Json, RealDictCursor
 
 logger = logging.getLogger("analytics_db")
+
+def _sanitize_floats(obj: Any) -> Any:
+    """Recursively replace NaN/Infinity with None so json.dumps produces valid JSON."""
+    if isinstance(obj, float):
+        return None if not math.isfinite(obj) else obj
+    if isinstance(obj, dict):
+        return {k: _sanitize_floats(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        sanitized = [_sanitize_floats(v) for v in obj]
+        return sanitized if isinstance(obj, list) else tuple(sanitized)
+    return obj
 
 try:
     from prometheus_client import REGISTRY as _PREG
@@ -560,6 +572,9 @@ def save_trade_closed(closed: TradeClosed) -> None:  # type: ignore
     except Exception:
         pass
 
+    config_snapshot = _sanitize_floats(config_snapshot)
+    horizon_contract = _sanitize_floats(horizon_contract)
+
     params = (
         closed.order_id, closed.sid, closed.strategy, closed.source, closed.symbol, closed.tf, closed.direction,
         closed.entry_ts_ms, closed.exit_ts_ms, closed.entry_price, closed.exit_price, closed.lot, closed.notional_usd,
@@ -613,7 +628,7 @@ def save_trade_closed(closed: TradeClosed) -> None:  # type: ignore
         getattr(closed, "atr_recovery_run_id", ""),
         getattr(closed, "atr_restore_cert_id", ""),
         getattr(closed, "atr_restore_cert_status", ""),
-        Json(getattr(closed, "atr_policy_snapshot_json", {})) if Json is not None else getattr(closed, "atr_policy_snapshot_json", {})
+        Json(_sanitize_floats(getattr(closed, "atr_policy_snapshot_json", {}))) if Json is not None else _sanitize_floats(getattr(closed, "atr_policy_snapshot_json", {}))
     )
 
     # ---- P0 extraction (robust fallbacks) ----
@@ -661,7 +676,7 @@ def save_trade_closed(closed: TradeClosed) -> None:  # type: ignore
         "taker_flow_gate_soft",
         "taker_flow_gate_reason",
     }
-    features = {k: features[k] for k in ALLOW if k in features}
+    features = _sanitize_floats({k: features[k] for k in ALLOW if k in features})
 
     # cap: если риск раздувания JSON — урезаем
     features_json_str = json.dumps(features, ensure_ascii=False)
@@ -836,7 +851,7 @@ def save_trade_closed_async(closed: TradeClosed) -> bool:  # type: ignore[name-d
             "health_signal_emit_rate": getattr(closed, "health_signal_emit_rate", 0.0),
             "health_dlq_rate": getattr(closed, "health_dlq_rate", 0.0),
             "config_json": json.dumps(
-                _enrich_config_snapshot(closed)
+                _sanitize_floats(_enrich_config_snapshot(closed))
             ),
             "is_virtual": getattr(closed, "is_virtual", False),
             "meta_enforce_cov_bucket": getattr(closed, "meta_enforce_cov_bucket", ""),
@@ -852,7 +867,7 @@ def save_trade_closed_async(closed: TradeClosed) -> bool:  # type: ignore[name-d
             "atr_recovery_run_id": getattr(closed, "atr_recovery_run_id", ""),
             "atr_restore_cert_id": getattr(closed, "atr_restore_cert_id", ""),
             "atr_restore_cert_status": getattr(closed, "atr_restore_cert_status", ""),
-            "atr_policy_snapshot_json": json.dumps(getattr(closed, "atr_policy_snapshot_json", {})),
+            "atr_policy_snapshot_json": json.dumps(_sanitize_floats(getattr(closed, "atr_policy_snapshot_json", {}))),
         })
 
         if _trade_p0_batch_writer is not None and ANALYTICS_P0_ENABLED:
@@ -894,7 +909,7 @@ def save_trade_closed_async(closed: TradeClosed) -> bool:  # type: ignore[name-d
                 "taker_flow_gate_veto", "taker_flow_gate_shadow_veto",
                 "taker_flow_gate_soft", "taker_flow_gate_reason",
             }
-            features = {k: features[k] for k in ALLOW if k in features}
+            features = _sanitize_floats({k: features[k] for k in ALLOW if k in features})
             features_json_str = json.dumps(features, ensure_ascii=False)
             if len(features_json_str) > 8000:
                 PRIORITY = ["adverse_bps_t","delta_z","dn_usd","obi","weak_progress","absorption_score","confidence"]

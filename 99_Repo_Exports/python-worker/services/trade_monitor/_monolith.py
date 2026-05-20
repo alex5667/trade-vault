@@ -56,7 +56,7 @@ def _log_future_exception(fut):
             logger.error("Async DB task failed: %s\nTraceback:\n%s", exc, tb_str)
     except Exception:
         pass
-from domain.handlers import apply_trailing_update, create_position, finalize_trade, process_tick
+from domain.handlers import apply_trailing_update, create_position, finalize_trade, maybe_arm_trailing_after_tp1, process_tick
 from domain.normalizers import canon_source, canon_strategy, canon_symbol, canon_tf
 from domain.position_fsm import PositionFSM, PositionStatus, fsm_from_position
 from domain.tick_price import build_tick
@@ -4948,7 +4948,7 @@ class TradeMonitorService:
         timestamp = _pick("timestamp", _pick("ts", _pick("ts_ms", None)))
         event_id = _pick("event_id", _pick("external_event_id", None))
         tp_level = _pick("tp_level", _pick("level", None))
-        _pick("closed_qty", _pick("qty", _pick("filled_qty", None)))
+        closed_qty_arg = _pick("closed_qty", _pick("qty", _pick("filled_qty", None)))
 
         # if positional args were used, map by existing signature (best-effort)
         if signal_id is None and len(args) >= 1:
@@ -4979,12 +4979,18 @@ class TradeMonitorService:
             tp_level_i = 3
         tp_level_i = 1 if tp_level_i < 1 else (3 if tp_level_i > 3 else tp_level_i)
 
+        try:
+            closed_qty_f = float(closed_qty_arg) if closed_qty_arg is not None else 0.0
+        except Exception:
+            closed_qty_f = 0.0
+
         return self._apply_external_tp_hit_impl(
             signal_id=str(signal_id),
             tp_level=tp_level_i,
             price=float(price),
             ts_ms=int(ts),
             event_id=(event_id or ""),
+            closed_qty=closed_qty_f,
         )
 
     def _apply_external_tp_hit_impl(
@@ -4995,6 +5001,7 @@ class TradeMonitorService:
         price: float,
         ts_ms: int,
         event_id: str,
+        closed_qty: float = 0.0,
     ) -> bool:
         """
         External TP fill event (authoritative).
@@ -5003,6 +5010,12 @@ class TradeMonitorService:
           - under self._lock: only in-memory index ops
           - repo/DB I/O outside self._lock
           - idempotent across restarts via closed_sid_done:{sid}
+
+        Partial-close branch (opt-in via PARTIAL_CLOSE_TP1_MODE=ENFORCE):
+          - When tp_level == 1 AND caller provided closed_qty AND
+            closed_qty < remaining_qty, treat as partial TP1 fill:
+            reduce remaining_qty, arm trailing + move SL→BE on remainder,
+            keep position open. Default (mode=OFF) preserves full-close.
         """
         if not signal_id:
             return False
@@ -5027,6 +5040,104 @@ class TradeMonitorService:
                     return True
 
             spec = self._get_spec(pos.symbol)
+
+            try:
+                remaining_before = float(getattr(pos, "remaining_qty", 0.0) or 0.0)
+            except Exception:
+                remaining_before = 0.0
+
+            partial_mode = (os.environ.get("PARTIAL_CLOSE_TP1_MODE", "OFF") or "OFF").upper().strip()
+            try:
+                cq = float(closed_qty)
+            except Exception:
+                cq = 0.0
+            is_partial_tp1 = bool(
+                tp_level == 1
+                and partial_mode == "ENFORCE"
+                and cq > 1e-9
+                and cq < remaining_before - 1e-9
+                and not getattr(pos, "_pnl_finalized", False)
+            )
+
+            if is_partial_tp1:
+                pnl_part = 0.0
+                try:
+                    pnl_part = float(spec.pnl_money(pos.entry_price, float(price), cq, pos.direction, symbol=pos.symbol))
+                    pos.realized_pnl_gross += pnl_part
+                except Exception:
+                    pnl_part = 0.0
+
+                try:
+                    pos.tp_hits = max(int(getattr(pos, "tp_hits", 0) or 0), 1)
+                    pos.tp1_hit = True
+                    pos.tp_before_sl = int(getattr(pos, "tp_hits", 0) or 1)  # type: ignore
+                    pos.remaining_qty = remaining_before - cq
+                    try:
+                        pos.tp_fill_prices[1] = float(price)
+                        pos.tp_fill_times[1] = int(ts_ms)
+                    except Exception:
+                        pass
+                    fsm_now = getattr(self._fsm_map.get(getattr(pos, "id", "")), "status", None)
+                    _fsm_sv = getattr(fsm_now, "value", "") if fsm_now else ""
+                    if _fsm_sv not in ("TP1_HIT", "TRAILING_ARMED", "TRAILING_ACTIVE"):
+                        self._fsm_transition(
+                            pos, "TP1_HIT",
+                            trigger="tp1_hit_partial",
+                            reason="TP1 partial fill",
+                            price=float(price),
+                            ts_ms=int(ts_ms),
+                        )
+                except Exception:
+                    pass
+
+                ev_arm = None
+                try:
+                    ev_arm = maybe_arm_trailing_after_tp1(pos, spec=spec, ts_ms=int(ts_ms))
+                except Exception:
+                    ev_arm = None
+
+                from domain.models import TradeEvent
+                tp_event = TradeEvent(
+                    event_type="TP_HIT",
+                    order_id=pos.id,
+                    sid=pos.sid,
+                    strategy=pos.strategy,
+                    source=pos.source,
+                    symbol=pos.symbol,
+                    tf=pos.tf,
+                    direction=pos.direction,
+                    ts_ms=int(ts_ms),
+                    payload={
+                        "tp_level": 1,
+                        "tp_price": float(price),
+                        "fill_price": float(price),
+                        "closed_qty": float(cq),
+                        "remaining_qty": float(pos.remaining_qty),
+                        "pnl_part_gross": float(pnl_part),
+                        "tp_hits": int(getattr(pos, "tp_hits", 1)),
+                        "external_event_id": event_id,
+                        "partial_close_tp1_mode": partial_mode,
+                    },
+                )
+
+                self.repo.append_event(tp_event)
+                if ev_arm is not None:
+                    self.repo.append_event(ev_arm)
+                    if ev_arm.event_type == "TRAILING_SYNC":
+                        with contextlib.suppress(Exception):
+                            self._io_save_trailing_move(
+                                pos,
+                                previous_sl=float(ev_arm.payload.get("previous_sl", 0.0)),
+                                new_sl=float(ev_arm.payload.get("new_sl", 0.0)),
+                                ts_ms=int(ts_ms),
+                            )
+
+                logger.info(
+                    "✅ External TP1 PARTIAL: sid=%s closed_qty=%.6f remaining=%.6f BE-armed=%s",
+                    signal_id, float(cq), float(pos.remaining_qty),
+                    "yes" if ev_arm is not None and ev_arm.event_type == "TRAILING_SYNC" else "no",
+                )
+                return True
 
             # Close ALL remaining qty on external TP_HIT (final close)
             try:

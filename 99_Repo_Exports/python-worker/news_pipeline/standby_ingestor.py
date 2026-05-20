@@ -143,8 +143,8 @@ def write_heartbeat(r: redis.Redis, *, kind: str, ok: bool, err: str = "", added
             "added": int(added),
             "instance": instance,
         }
-        raw = json.dumps(obj, separators=(",", ":")),
-        r.set(f"hb:{kind}", raw, ex=int(ttl_sec)),
+        raw = json.dumps(obj, separators=(",", ":"))
+        r.set(f"hb:{kind}", raw, ex=int(ttl_sec))
         # history stream
         r.xadd(
             f"hb:{kind}:stream",

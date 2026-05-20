@@ -76,6 +76,24 @@ def _decode(v: Any) -> Any:
             return str(v)
     return v
 
+
+def _sanitize_floats(obj: Any) -> Any:
+    """Recursively replace NaN/Infinity with None so json.dumps produces valid JSON.
+
+    PostgreSQL jsonb rejects the `NaN` token (non-standard JSON extension).
+    Python's json.dumps emits `NaN` / `Infinity` / `-Infinity` by default when
+    the value is a non-finite float — this function converts them to null.
+    """
+    import math
+    if isinstance(obj, float):
+        return None if not math.isfinite(obj) else obj
+    if isinstance(obj, dict):
+        return {k: _sanitize_floats(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        sanitized = [_sanitize_floats(v) for v in obj]
+        return sanitized if isinstance(obj, list) else tuple(sanitized)
+    return obj
+
 def _loads_json(v: Any) -> dict | None:
     if v is None:
         return None
@@ -144,7 +162,7 @@ def _normalize_row(evt: dict[str, Any]) -> tuple[dict[str, Any] | None, str]:
         "decision_exec_risk_norm": _to_float(evt.get("decision_exec_risk_norm")),
         "book_sanity_flags": json.dumps(flags, ensure_ascii=False),
         "tca_ready": bool(evt.get("tca_ready", False)),
-        "payload_jsonb": json.dumps(evt, ensure_ascii=False),
+        "payload_jsonb": json.dumps(_sanitize_floats(evt), ensure_ascii=False),
     }
     return row, ""
 

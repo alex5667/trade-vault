@@ -162,7 +162,7 @@ def _scan_block_keys(
             return keys
 
 
-def _read_block_state(r: redis.Redis, key: bytes, existence_blocks: bool) -> tuple[bool, str, str]:
+def _read_block_state(r: redis.Redis, key: bytes, existence_blocks: bool = True) -> tuple[bool, str, str]:
     """
     Returns (blocked, reason, raw_repr).
 

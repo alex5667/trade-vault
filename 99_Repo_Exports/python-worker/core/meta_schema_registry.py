@@ -91,6 +91,22 @@ from core.meta_features_v13_of import (
     META_FEAT_V13_OF_VERSION,
     build_meta_features_v13_of,
 )
+from core.meta_features_v14_of import (
+    META_FEAT_V14_OF_COLS,
+    META_FEAT_V14_OF_HASH,
+    META_FEAT_V14_OF_NAME,
+    META_FEAT_V14_OF_TRANSFORMS,
+    META_FEAT_V14_OF_VERSION,
+    build_meta_features_v14_of,
+)
+from core.meta_features_v15_of import (
+    META_FEAT_V15_OF_COLS,
+    META_FEAT_V15_OF_HASH,
+    META_FEAT_V15_OF_NAME,
+    META_FEAT_V15_OF_TRANSFORMS,
+    META_FEAT_V15_OF_VERSION,
+    build_meta_features_v15_of,
+)
 
 
 @dataclass(frozen=True)
@@ -191,6 +207,20 @@ META_SCHEMA_REGISTRY: dict[str, MetaSchemaSpec] = {
         hash=META_FEAT_V13_OF_HASH,
         builder=build_meta_features_v13_of,
     ),
+    META_FEAT_V14_OF_NAME: MetaSchemaSpec(
+        name=META_FEAT_V14_OF_NAME,
+        version=META_FEAT_V14_OF_VERSION,
+        cols=tuple(META_FEAT_V14_OF_COLS),
+        hash=META_FEAT_V14_OF_HASH,
+        builder=build_meta_features_v14_of,
+    ),
+    META_FEAT_V15_OF_NAME: MetaSchemaSpec(
+        name=META_FEAT_V15_OF_NAME,
+        version=META_FEAT_V15_OF_VERSION,
+        cols=tuple(META_FEAT_V15_OF_COLS),
+        hash=META_FEAT_V15_OF_HASH,
+        builder=build_meta_features_v15_of,
+    ),
 }
 
 # Backward-compat flat lookups (derive from registry to stay in sync).
@@ -210,6 +240,8 @@ META_SCHEMA_TRANSFORMS: dict[str, dict[str, Any]] = {
     META_FEAT_V9_NAME: dict(META_FEAT_V9_TRANSFORMS),
     META_FEAT_V10_NAME: dict(META_FEAT_V10_TRANSFORMS),
     META_FEAT_V13_OF_NAME: dict(META_FEAT_V13_OF_TRANSFORMS),
+    META_FEAT_V14_OF_NAME: dict(META_FEAT_V14_OF_TRANSFORMS),
+    META_FEAT_V15_OF_NAME: dict(META_FEAT_V15_OF_TRANSFORMS),
 }
 
 

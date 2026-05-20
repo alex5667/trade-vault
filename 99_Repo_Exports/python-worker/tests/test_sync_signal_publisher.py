@@ -31,7 +31,8 @@ def test_sync_publisher_writes_json_and_contract_mirrors():
     obj = json.loads(ser)
     assert obj["symbol"] == "BTCUSDT"
     assert int(obj["ts_ms"]) > 0
-    assert obj["side"] in ("LONG", "SHORT")
+    assert obj["direction"] in ("LONG", "SHORT")
+    assert obj["side"] in ("BUY", "SELL")
     assert int(obj["side_int"]) in (1, -1)
     assert "signal_id" in obj and "sid" in obj
     assert 0.0 <= float(obj["confidence01"]) <= 1.0

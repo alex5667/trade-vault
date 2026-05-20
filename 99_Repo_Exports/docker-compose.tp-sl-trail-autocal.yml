@@ -1,0 +1,64 @@
+services:
+  tp-sl-trail-autocal:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    image: scanner-python-worker:latest
+    container_name: scanner-tp-sl-trail-autocal
+    restart: unless-stopped
+    environment:
+      - PYTHONUNBUFFERED=1
+      # Main loop gate + auto-promote allow flag.
+      - TP_SL_TRAIL_AUTOCAL_ENABLE=${TP_SL_TRAIL_AUTOCAL_ENABLE:-1}
+      - TP_SL_TRAIL_AUTOCAL_ENFORCE=${TP_SL_TRAIL_AUTOCAL_ENFORCE:-1}
+      # Analysis window + thresholds.
+      - TP_SL_TRAIL_AUTOCAL_INTERVAL=${TP_SL_TRAIL_AUTOCAL_INTERVAL:-600}
+      - TP_SL_TRAIL_AUTOCAL_WINDOW_H=${TP_SL_TRAIL_AUTOCAL_WINDOW_H:-72.0}
+      - TP_SL_TRAIL_AUTOCAL_MIN_TRADES=${TP_SL_TRAIL_AUTOCAL_MIN_TRADES:-200}
+      - TP_SL_TRAIL_AUTOCAL_LIFT_R=${TP_SL_TRAIL_AUTOCAL_LIFT_R:-0.05}
+      - TP_SL_TRAIL_AUTOCAL_TOL_R=${TP_SL_TRAIL_AUTOCAL_TOL_R:-0.10}
+      - TP_SL_TRAIL_AUTOCAL_DWELL_H=${TP_SL_TRAIL_AUTOCAL_DWELL_H:-24.0}
+      - TP_SL_TRAIL_AUTOCAL_STREAM=trades:closed
+      - TP_SL_TRAIL_AUTOCAL_REDIS_URL=redis://redis-worker-1:6379/0
+      - TP_SL_TRAIL_AUTOCAL_HMAC_SECRET=${TP_SL_TRAIL_AUTOCAL_HMAC_SECRET:-${RECS_HMAC_SECRET:-}}
+      - TP_SL_TRAIL_AUTOCAL_PROM_PORT=9861
+      - TZ=UTC
+    ports:
+      - "9861:9861"
+    depends_on:
+      redis-worker-1:
+        condition: service_healthy
+    networks:
+      - scanner-core
+      - scanner-infra
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.1'
+        reservations:
+          memory: 64M
+    command:
+      - sh
+      - -c
+      - |
+        sleep 15
+        if [ "$${TP_SL_TRAIL_AUTOCAL_ENABLE:-1}" = "0" ]; then
+          echo "TP_SL_TRAIL_AUTOCAL_ENABLE=0 — idle (set =1 to start)"
+          while true; do sleep 3600; done
+        fi
+        python -m orderflow_services.tp_sl_trailing_autocal_v1
+    labels:
+      - com.scanner.service=tp-sl-trail-autocal
+      - com.scanner.description=TP/SL/trailing autocalibrator with auto-promote
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '3'
+
+networks:
+  scanner-core:
+    external: true
+  scanner-infra:
+    external: true

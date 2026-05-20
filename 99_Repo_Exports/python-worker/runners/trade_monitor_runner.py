@@ -275,7 +275,11 @@ def _process_one(r: redis.Redis, monitor: TradeMonitorService, m: StreamMsg, is_
                 meta = raw_sig.get("meta")
                 if isinstance(meta, dict):
                     trace_id = str(meta.get("trace_id", "")).strip()
-            
+            # Last-line defense: fall back to sid/signal_id so legacy producers
+            # (or any payload without trace_id) still get correlated logs.
+            if not trace_id:
+                trace_id = str(raw_sig.get("sid") or raw_sig.get("signal_id") or "").strip()
+
             if trace_id:
                 set_trace_id(trace_id)
             if "entry_audit" in m.stream:

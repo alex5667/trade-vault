@@ -33,19 +33,19 @@ def simulate_l3_stream(symbol: str = "BTCUSDT"):
     Симуляция L3-Lite потока для демонстрации.
     В реальности данные приходят из Redis/MQTT/Kafka стримов.
     """
-    logger.info(f"🚀 Starting L3-Lite stream simulation for {symbol}"),
+    logger.info(f"🚀 Starting L3-Lite stream simulation for {symbol}")
 
     # Инициализация компонентов
     l3_agg = L3LiteMetricsAggregator(
         microprice_horizon_sec=20,
         obi_persistence_sec=30,
-    ),
+    )
 
     # Конфигурация для BTCUSDT (ужесточенная)
-    l3_cfg = CryptoConfScorerConfig(),
-    conf_scorer = CryptoConfScorer(l3_cfg),
+    l3_cfg = CryptoConfScorerConfig()
+    conf_scorer = CryptoConfScorer(l3_cfg)
 
-    quality_monitor = SignalQualityMonitor(max_history_days=7),
+    quality_monitor = SignalQualityMonitor(max_history_days=7)
 
     # Базовая книга для симуляции
     base_book = BookSnapshot(

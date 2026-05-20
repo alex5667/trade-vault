@@ -1,0 +1,72 @@
+services:
+  # Phase 0 pre-Phase 1 — nightly backfill trades_closed_p0.regime from regime_snapshot.
+  # Bounded scope (24h window), idempotent SQL.
+  # Rollback: docker compose -f docker-compose-pre-phase1.yml down
+  trades-p0-regime-backfill-timer:
+    image: postgres:15-alpine
+    container_name: scanner-trades-p0-regime-backfill-timer
+    restart: always
+    deploy:
+      resources:
+        limits:
+          cpus: '0.10'
+          memory: 64M
+        reservations:
+          memory: 16M
+    environment:
+    - PGHOST=${PGHOST:-scanner-postgres}
+    - PGPORT=${PGPORT:-5432}
+    - PGUSER=${PGUSER:-postgres}
+    - PGDATABASE=${PGDATABASE:-scanner_analytics}
+    - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+    - P0_REGIME_BACKFILL_INTERVAL_SEC=${P0_REGIME_BACKFILL_INTERVAL_SEC:-600}
+    - TZ=UTC
+    volumes:
+    - ./tasks/p0_regime_backfill/run.sh:/app/run.sh:ro
+    - ./tasks/p0_regime_backfill/backfill.sql:/app/backfill.sql:ro
+    entrypoint:
+    - sh
+    - /app/run.sh
+    networks:
+    - scanner-infra
+
+  # Phase 0 pre-Phase 1 — refresh bad_signal_buckets materialized view.
+  # MV is read by analysts only; no consumer relies on it.
+  bad-buckets-refresh-timer:
+    image: postgres:15-alpine
+    container_name: scanner-bad-buckets-refresh-timer
+    restart: always
+    deploy:
+      resources:
+        limits:
+          cpus: '0.10'
+          memory: 64M
+        reservations:
+          memory: 16M
+    environment:
+    - PGHOST=${PGHOST:-scanner-postgres}
+    - PGPORT=${PGPORT:-5432}
+    - PGUSER=${PGUSER:-postgres}
+    - PGDATABASE=${PGDATABASE:-scanner_analytics}
+    - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+    - BAD_BUCKETS_REFRESH_INTERVAL_SEC=${BAD_BUCKETS_REFRESH_INTERVAL_SEC:-1800}
+    - TZ=UTC
+    entrypoint:
+    - sh
+    - -c
+    - |
+      set -eu
+      while true; do
+        rows=$$(PGPASSWORD="$$POSTGRES_PASSWORD" psql -h "$$PGHOST" -U "$$PGUSER" -d "$$PGDATABASE" \
+                  -v ON_ERROR_STOP=1 -At \
+                  -c "REFRESH MATERIALIZED VIEW bad_signal_buckets; SELECT COUNT(*) FROM bad_signal_buckets;" \
+                  2>/dev/null | tail -1)
+        echo "[$$(date -u +%FT%TZ)] bad_signal_buckets: rows=$$rows"
+        sleep "$$BAD_BUCKETS_REFRESH_INTERVAL_SEC"
+      done
+    networks:
+    - scanner-infra
+
+networks:
+  scanner-infra:
+    external: true

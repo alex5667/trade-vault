@@ -201,7 +201,7 @@ async def _xadd_event(r: Any, *, stream: str, fields: dict[str, Any], maxlen: in
 
 async def _fetch_bucket_stats(conn: Any, *, since_ts_ms: int, lookback_h: int) -> dict[str, BucketStats]:
     # We include a lookback cap to limit scans.
-    q = f""",
+    q = f"""
     SELECT
       exec_regime_bucket,
       count(*) as n,
@@ -210,8 +210,8 @@ async def _fetch_bucket_stats(conn: Any, *, since_ts_ms: int, lookback_h: int) -
       avg(case when edge_minus_expected_bps < 0 then 1 else 0 end) as edge_neg_share
     FROM v_exec_slippage_eval
     WHERE ts >= greatest(to_timestamp($1::double precision/1000.0), now() - interval '{int(lookback_h)} hours')
-    GROUP BY exec_regime_bucket,
-    """,
+    GROUP BY exec_regime_bucket
+    """
     rows = await conn.fetch(q, float(since_ts_ms))
     out: dict[str, BucketStats] = {}
     for r in rows:

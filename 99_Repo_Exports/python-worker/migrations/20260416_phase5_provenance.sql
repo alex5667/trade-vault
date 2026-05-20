@@ -47,7 +47,11 @@ ADD COLUMN IF NOT EXISTS atr_policy_snapshot_json JSONB DEFAULT '{}'::jsonb;
 -- 4. Создание индексов для быстрой склейки атрибуции
 CREATE INDEX IF NOT EXISTS idx_trades_closed_atr_policy_tag ON trades_closed(atr_policy_tag, exit_ts_ms);
 CREATE INDEX IF NOT EXISTS idx_trades_closed_atr_policy_ver ON trades_closed(atr_policy_ver, exit_ts_ms);
-CREATE INDEX IF NOT EXISTS idx_paper_trades_atr_policy_tag ON paper_trades(atr_policy_tag, exit_ts_ms);
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'paper_trades' AND table_schema = current_schema()) THEN
+    CREATE INDEX IF NOT EXISTS idx_paper_trades_atr_policy_tag ON paper_trades(atr_policy_tag, exit_ts_ms);
+  END IF;
+END $$;
 
 -- 5. Базовый View для агрегации по версии полиси
 CREATE OR REPLACE VIEW v_closed_trades_by_atr_policy AS

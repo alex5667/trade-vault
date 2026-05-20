@@ -78,7 +78,7 @@ class _Config:
     def __init__(self) -> None:
         self.mode: str = "off"
         self.canary_symbols: set[str] = set()
-        self.arm_threshold_r: float = _env_f("OF_LAYER_D_ARM_THRESHOLD_R", 0.5)
+        self.arm_threshold_r: float = _env_f("OF_LAYER_D_ARM_THRESHOLD_R", 0.25)
         self.cache_ts: float = 0.0
         self.ttl: float = _env_f("LAYER_D_CONFIG_CACHE_TTL_SEC", 5.0)
 
@@ -149,7 +149,7 @@ class _Config:
 
         self.canary_symbols = {s.strip().upper()
                                for s in str(symbols).split(",") if s.strip()}
-        self.arm_threshold_r = _env_f("OF_LAYER_D_ARM_THRESHOLD_R", 0.5)
+        self.arm_threshold_r = _env_f("OF_LAYER_D_ARM_THRESHOLD_R", 0.25)
 
 
 _CFG = _Config()

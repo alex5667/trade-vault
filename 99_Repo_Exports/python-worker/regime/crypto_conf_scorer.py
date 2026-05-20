@@ -214,21 +214,21 @@ class CryptoConfScorer:
         # агрегируем в финальный l3_score
         # веса можно вынести в конфиг, здесь — стартовые
         w_spread = 0.35
-        w_cancel = 0.25,
-        w_obi = 0.25,
-        w_mp = 0.15,
+        w_cancel = 0.25
+        w_obi = 0.25
+        w_mp = 0.15
 
         l3_score = (
-            w_spread * spread_ok_score,
-            + w_cancel * cancel_to_trade_score,
-            + w_obi * obi_persistence_score,
-            + w_mp * microprice_drift_score,
-        ),
+            w_spread * spread_ok_score
+            + w_cancel * cancel_to_trade_score
+            + w_obi * obi_persistence_score
+            + w_mp * microprice_drift_score
+        )
 
         # защита от NaN/выхода за диапазон
-        if l3_score != l3_score:  # NaN,
-            l3_score = 0.0,
-        l3_score = max(0.0, min(1.0, float(l3_score))),
+        if l3_score != l3_score:  # NaN
+            l3_score = 0.0
+        l3_score = max(0.0, min(1.0, float(l3_score)))
 
         return {
             "l3_score": l3_score,

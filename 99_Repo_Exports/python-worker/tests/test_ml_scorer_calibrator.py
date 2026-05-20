@@ -122,7 +122,7 @@ def _good_stats(
         "pnl_impact_r": pnl_impact,
         "pass_count": 80,
         "pass_r_sum": 5.0,
-    },
+    }
 
 
 class TestShouldPropose:

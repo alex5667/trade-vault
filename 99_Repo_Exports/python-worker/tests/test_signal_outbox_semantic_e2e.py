@@ -112,34 +112,68 @@ class FakeSignalOutboxPublisher:
         return {"ok": True, "written": True, "duplicate": False, "entry_id": entry_id}
 
 
+# --------------------------------------------------------------------
+# _FakeWriter — bridges UnifiedSignalEmitter._writer.write() to FakeSignalOutboxPublisher.
+#
+# OutboxWriter._atomic_xadd uses redis.eval(Lua) which FakeRedis doesn't support.
+# This writer bypasses Lua entirely: builds OutboxEnvelope and calls publish_envelope().
+# --------------------------------------------------------------------
+class _FakeWriter:
+    def __init__(self, pub: FakeSignalOutboxPublisher) -> None:
+        self._pub = pub
+
+    def write(self, *, payload: dict, signal_id: str, dedup: bool, meta: Any = None) -> bool:
+        from core.outbox_envelope import OutboxEnvelope
+        ts_ms = int(payload.get("ts_event_ms") or payload.get("entry_ts_ms") or 0)
+        env = OutboxEnvelope(
+            signal_id=signal_id,
+            ts_ms=ts_ms,
+            kind=str(payload.get("kind", "touch")),
+            symbol=str(payload.get("symbol", "")),
+            payload=dict(payload),
+        )
+        result = self._pub.publish_envelope(env)
+        return bool(result.get("written", True))
+
+
 def _mk_trade_monitor_like() -> TradeMonitorService:
     """
     We only need _normalize_signal() and _get_spec().
-    Avoid full init (repo, loops).
+    Avoid full init (repo, loops); patch only the attributes accessed by _normalize_signal.
     """
     class _SpecStub:
         trailing_profile_default = "rocket_v1"
 
-    def risk_money(self, entry, sl, lot, direction):
-        return abs(entry - sl) * lot
-
     mon = TradeMonitorService.__new__(TradeMonitorService)
-    mon._get_spec = lambda symbol: _SpecStub()
-    mon.logger = SimpleNamespace(
+    mon._get_spec = lambda symbol: _SpecStub()  # type: ignore[attr-defined]
+    mon.logger = SimpleNamespace(  # type: ignore[attr-defined]
         debug=lambda *a, **k: None,
         info=lambda *a, **k: None,
         warning=lambda *a, **k: None,
         exception=lambda *a, **k: None,
     )
+    # Attributes accessed by _normalize_signal (missing from __new__):
+    mon._max_tick_ts_ms = 0  # type: ignore[attr-defined]
+    mon._crypto_suffixes = ("USDT", "USDC", "BTC", "ETH", "BNB")  # type: ignore[attr-defined]
+    mon._crypto_exclude_prefixes = ()  # type: ignore[attr-defined]
+    mon._margin_fx_symbols: frozenset = frozenset()  # type: ignore[attr-defined]
+    mon.default_lot = 1.0  # type: ignore[attr-defined]
+    mon.stop_atr_mult = 1.0  # type: ignore[attr-defined]
+    mon.rr_levels = [1.0, 2.0, 3.0]  # type: ignore[attr-defined]
     return mon
 
 
-def _mk_handlers_outbox_writer(fake_pub: FakeSignalOutboxPublisher):
+def _mk_unified_emitter_with_outbox(fake_pub: FakeSignalOutboxPublisher):
     """
-    Real class: python-worker/handlers/emitter/outbox_writer.py
-    We wire it to our FakeSignalOutboxPublisher dependency.
+    Creates handlers.emitter.UnifiedSignalEmitter wired to FakeSignalOutboxPublisher.
+
+    We bypass __init__ (which creates OutboxWriter internally that uses Lua) and inject
+    _FakeWriter directly, which routes to FakeSignalOutboxPublisher.publish_envelope().
     """
-    from handlers.emitter.outbox_writer import OutboxWriter
+    import handlers.emitter.unified_signal_emitter as ue
+
+    EmitterCls = getattr(ue, "UnifiedSignalEmitter", None)
+    assert EmitterCls is not None, "UnifiedSignalEmitter not found"
 
     logger = SimpleNamespace(
         debug=lambda *a, **k: None,
@@ -148,60 +182,32 @@ def _mk_handlers_outbox_writer(fake_pub: FakeSignalOutboxPublisher):
         exception=lambda *a, **k: None,
     )
 
-    # NOTE:
-    # We set stream_key explicitly to avoid relying on publisher.stream_name attribute name.
-    w = OutboxWriter(
-        publisher=fake_pub,
-        logger=logger,
-        retries=0,
-        retry_sleep_ms=0,
-        dedup_ttl_ms=60000,
-        dedup_pending_ttl_ms=10000,
-        stream_key=fake_pub.stream_name,
-        sem_enabled=False,
-        sem_ttl_ms=0,
-        sem_pending_ttl_ms=0,
-        sem_bucket_ms=0,
-        sem_level_decimals=0,
-    )
-    return w
-
-
-def _mk_unified_emitter_with_outbox(outbox_writer):
-    """
-    Real class: python-worker/handlers/emitter/unified_signal_emitter.py
-    We inject the outbox writer directly (no constructor coupling).
-    """
-    import handlers.emitter.unified_signal_emitter as ue
-
-    EmitterCls = getattr(ue, "UnifiedSignalEmitter", None)
-    assert EmitterCls is not None, "UnifiedSignalEmitter not found"
-
     em = EmitterCls.__new__(EmitterCls)
-    em._outbox = outbox_writer
-    em.metrics = None
-    em._m_inc = lambda *a, **k: None
+    em._logger = logger
+    em._metrics = ue._NoopMetrics()
+    em._analytics = SimpleNamespace(record_sem_dedup=lambda **k: None)
+    em._retries = 0
+    em._retry_sleep_ms = 0
+    em._dedup_ttl_ms = 60000
+    em._dedup_pending_ttl_ms = 10000
+    em._hot_dedup = ue._DedupTTL(ttl_ms=60000, max_items=1000)
+    em._sem_cfg = ue._SemDedupCfg(
+        enabled=False, bucket_ms=0, ttl_ms=0, level_decimals=0, level_key_kinds=set()
+    )
+    em._sem_dedup = ue._DedupTTL(ttl_ms=0, max_items=1000)
+    em._sem_counts = {}
+    writer = _FakeWriter(fake_pub)
+    em._writer = writer
+    em._writer_labels = writer
     return em
-
-
-def _call_outbox_write(outbox_writer: Any, env: Any):
-    """
-    Make the test resilient if the writer uses a different method name.
-    """
-    for name in ("write", "emit", "publish"):
-        fn = getattr(outbox_writer, name, None)
-        if callable(fn):
-            return fn(env)
-    raise AssertionError("OutboxWriter has no write/emit/publish method")
 
 
 def test_handlers_outbox_writer_unified_emitter_to_trade_monitor_position_trailing_flag():
     """
     End-to-end (behavior) path:
       UnifiedSignalEmitter.emit()
-        -> handlers/emitter OutboxWriter
-        -> SignalOutboxPublisher-like dependency (dedup + XADD)
-        -> stream fields (payload_json)
+        -> _FakeWriter (no Lua) -> FakeSignalOutboxPublisher (dedup + XADD)
+        -> OutboxEnvelope.to_stream_fields() -> payload_json in stream
         -> TradeMonitorRunner._parse_signal()
         -> TradeMonitorService._normalize_signal()
         -> create_position()
@@ -209,15 +215,21 @@ def test_handlers_outbox_writer_unified_emitter_to_trade_monitor_position_traili
     """
     r = FakeRedis()
     pub = FakeSignalOutboxPublisher(r)
-    outbox = _mk_handlers_outbox_writer(pub)
-    emitter = _mk_unified_emitter_with_outbox(outbox)
+    emitter = _mk_unified_emitter_with_outbox(pub)
 
     payload = {
+        "signal_id": "sig-777",
         "sid": "sig-777",
+        "kind": "touch",
+        "symbol": "BTCUSDT",
+        "side": "LONG",
+        "direction": "LONG",
+        "ts": 1700000000000,
+        "ts_event_ms": 1700000000000,
         "strategy": "CryptoOrderFlow",
         "source": "CryptoOrderFlow",
         "timeframe": "1m",
-        "direction": "LONG",
+        "entry": 100.0,        # _normalize_signal reads "entry" or "price", not "entry_price"
         "entry_price": 100.0,
         "entry_ts_ms": 1700000000000,
         "lot": 1.0,
@@ -228,19 +240,8 @@ def test_handlers_outbox_writer_unified_emitter_to_trade_monitor_position_traili
         "trail_after_tp1_reason": "LOW_MOMO",
     }
 
-    res = emitter.emit(
-        signal_id="sig-777",
-        kind="touch",
-        symbol="BTCUSDT",
-        side="LONG",
-        raw_score=1.0,
-        final_score=1.0,
-        confidence_pct=50.0,
-        payload=payload,
-        labels=None,
-        ts_event_ms=1700000000000,
-    )
-    assert getattr(res, "ok", True) is True
+    res = emitter.emit(payload)
+    assert res is True
 
     fields = r.last_stream_fields(RS.SIGNAL_OUTBOX)
     assert "payload_json" in fields
@@ -254,7 +255,9 @@ def test_handlers_outbox_writer_unified_emitter_to_trade_monitor_position_traili
     assert sig is not None
 
     # Position must carry the policy flag:
-    from test_outbox_emit_trade_monitor_e2e import _SpecStub
+    class _SpecStub:
+        trailing_profile_default = "rocket_v1"
+
     pos = create_position(sig, _SpecStub())
     assert bool(getattr(pos, "trail_after_tp1", True)) is False
     assert str(getattr(pos, "trail_after_tp1_reason", "")) == "LOW_MOMO"
@@ -266,14 +269,22 @@ def test_handlers_outbox_writer_unified_emitter_to_trade_monitor_position_traili
 def test_handlers_outbox_writer_dedup_bucketed():
     r = FakeRedis()
     pub = FakeSignalOutboxPublisher(r, dedup_bucket_ms=60000)
-    outbox = _mk_handlers_outbox_writer(pub)
-    emitter = _mk_unified_emitter_with_outbox(outbox)
+    emitter = _mk_unified_emitter_with_outbox(pub)
 
-    payload = {"sid": "sig-dup2", "strategy": "CryptoOrderFlow", "source": "CryptoOrderFlow", "timeframe": "1m"}
+    payload = {
+        "signal_id": "sig-dup2",
+        "sid": "sig-dup2",
+        "symbol": "BTCUSDT",
+        "kind": "touch",
+        "ts_event_ms": 1700000000000,
+        "strategy": "CryptoOrderFlow",
+        "source": "CryptoOrderFlow",
+        "timeframe": "1m",
+    }
 
-    res1 = emitter.emit(signal_id="sig-dup2", kind="touch", symbol="BTCUSDT", payload=payload, ts_event_ms=1700000000000)
-    res2 = emitter.emit(signal_id="sig-dup2", kind="touch", symbol="BTCUSDT", payload=payload, ts_event_ms=1700000000000)
+    res1 = emitter.emit(payload)
+    res2 = emitter.emit(payload)
 
-    assert getattr(res1, "ok", True) is True
-    assert getattr(res2, "ok", True) is True
+    assert res1 is True
+    assert res2 is False  # dedup hit (hot_dedup in emitter)
     assert len(r.streams.get(RS.SIGNAL_OUTBOX) or []) == 1

@@ -170,3 +170,36 @@ burst_gate_would_veto_total = _metric(
     "Burst gate would-veto events (shadow telemetry, all modes)",
     ["symbol", "reason", "mode"],
 )
+
+# ------------------------------------------------------------
+# Exit Quality Metrics (G4)
+# ------------------------------------------------------------
+exit_quality_giveback_ratio = _metric(
+    Gauge, "exit_quality_giveback_ratio",
+    "Average giveback ratio on winners (peak gain surrendered / peak gain) — real trades"
+)
+exit_quality_tp1_hit_ratio = _metric(
+    Gauge, "exit_quality_tp1_hit_ratio",
+    "Fraction of real trades that hit TP1"
+)
+exit_quality_timeout_share = _metric(
+    Gauge, "exit_quality_timeout_share",
+    "Fraction of real trades closed by timeout/orphan (TIMEOUT bucket)"
+)
+
+# ------------------------------------------------------------
+# Exit Quality Distribution Metrics (G6 / TB-exit)
+# ------------------------------------------------------------
+trades_giveback_pct = _metric(
+    Histogram, "trades_giveback_pct",
+    "Per-trade giveback ratio on winners: (peak_gain - exit_gain) / peak_gain in [0, 1]",
+    buckets=[0.05, 0.10, 0.20, 0.30, 0.40, 0.50, 0.60, 0.70, 0.80, 0.90, 1.0],
+)
+trades_tp1_hit_ratio = _metric(
+    Gauge, "trades_tp1_hit_ratio",
+    "Rolling fraction of real trades that reached TP1 (window defined by reporter)"
+)
+trades_timeout_share = _metric(
+    Gauge, "trades_timeout_share",
+    "Rolling fraction of real trades closed via timeout / max-duration exit (G6)"
+)

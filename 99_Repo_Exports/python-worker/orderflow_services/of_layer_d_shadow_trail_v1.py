@@ -31,7 +31,7 @@ ENV:
   OF_LAYER_D_SHADOW_STREAM          trades:closed
   OF_LAYER_D_SHADOW_SINCE_HOURS     72.0
   OF_LAYER_D_SHADOW_INTERVAL_SEC    300
-  OF_LAYER_D_ARM_THRESHOLD_R        0.5     # армить при MFE >= 0.5R
+  OF_LAYER_D_ARM_THRESHOLD_R        0.25    # армить при MFE >= 0.25R
   OF_LAYER_D_KEEP_FRACTION          0.5     # удерживаем 50% от MFE
   OF_LAYER_D_EXIT_FEE_USD           0.5     # доп.fees на exit (round-trip)
   OF_LAYER_D_REPORT_PATH            /var/lib/trade/of_reports/of_layer_d_shadow.json
@@ -97,7 +97,7 @@ def load_cfg() -> Cfg:
         stream          = _env("OF_LAYER_D_SHADOW_STREAM", "trades:closed"),
         since_hours     = _env_float("OF_LAYER_D_SHADOW_SINCE_HOURS", 72.0),
         interval_sec    = _env_int("OF_LAYER_D_SHADOW_INTERVAL_SEC", 300),
-        arm_threshold_r = _env_float("OF_LAYER_D_ARM_THRESHOLD_R", 0.5),
+        arm_threshold_r = _env_float("OF_LAYER_D_ARM_THRESHOLD_R", 0.25),
         keep_fraction   = _env_float("OF_LAYER_D_KEEP_FRACTION", 0.5),
         exit_fee_usd    = _env_float("OF_LAYER_D_EXIT_FEE_USD", 0.5),
         report_path     = _env("OF_LAYER_D_REPORT_PATH",

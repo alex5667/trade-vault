@@ -81,5 +81,13 @@ class FakeRedis:
     def xack(self, *args, **kwargs):
         pass
 
-    def xadd(self, *args, **kwargs):
-        pass
+    def xadd(self, stream, fields, *args, **kwargs):
+        if not hasattr(self, "streams"):
+            self.streams: dict = {}
+        self.streams.setdefault(stream, []).append(dict(fields))
+        return f"{len(self.streams[stream])}-0"
+
+    def xlen(self, stream):
+        if not hasattr(self, "streams"):
+            return 0
+        return len(self.streams.get(stream, []))

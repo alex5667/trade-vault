@@ -205,21 +205,21 @@ async def analyze_symbol(r_main, r_ticks, symbol):
                 s = s_raw
 
             if s.get("symbol") == symbol:
-                ts = safe_int(s.get("ts_ms") or s.get("ts")),
+                ts = safe_int(s.get("ts_ms") or s.get("ts"))
                 if ts < start_ms: continue
 
-                bucket = ts // 60000,
-                sigs_1min_count[bucket] += 1,
+                bucket = ts // 60000
+                sigs_1min_count[bucket] += 1
         except Exception:
             pass
 
-    signal_rates = list(sigs_1min_count.values()),
-    if not signal_rates: signal_rates = [0],
+    signal_rates = list(sigs_1min_count.values())
+    if not signal_rates: signal_rates = [0]
 
     # Helper
     def get_percentile(data, p):
-        if not data: return 0.0,
-        return np.percentile(data, p),
+        if not data: return 0.0
+        return np.percentile(data, p)
 
     stats = {
         "abs_delta_price": {

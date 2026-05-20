@@ -383,7 +383,10 @@ services:
     - DAILY_REPORT_UTC_HOUR=17
     - DAILY_REPORT_UTC_MINUTE=0
     - DAILY_REPORT_SOURCE=CryptoOrderFlow
+    - PERIODIC_REPORTER_METRICS_PORT=9860
     - TZ=UTC
+    ports:
+    - 9860:9860
     depends_on:
       redis:
         condition: service_healthy

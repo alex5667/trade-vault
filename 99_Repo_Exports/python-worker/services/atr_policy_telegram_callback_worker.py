@@ -181,9 +181,9 @@ def _parse_golive_callback(cb: str):
     # golive:action:<pkg_id>:<arg>
     parts = (cb or "").split(":")
     if len(parts) < 2 or parts[0] != "golive":
-        return ("", "")
+        return ("", "", "")
     if len(parts) == 2:
-        return (parts[1].lower(), "")
+        return (parts[1].lower(), "", "")
     # Returns (action, pkg_id, optional_arg)
     return (parts[1].lower(), parts[2], parts[3] if len(parts) > 3 else "")
 

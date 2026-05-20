@@ -63,7 +63,7 @@ class GeminiClient:
             "surprise": 0.0,
             "tags": ["macro"],
             "confidence": 0.5,
-        },
+        }
 
 
 def _analysis_key(uid: str) -> str:

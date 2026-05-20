@@ -356,16 +356,16 @@ class ATRProgramClosureService:
             e2e_acceptance_passed=criteria_inputs.get("e2e_acceptance_passed", False),
             go_live_signed=criteria_inputs.get("go_live_signed", False),
             critical_quarantine_active=criteria_inputs.get("critical_quarantine_active", True),
-        ),
+        )
 
-        handoffs = self.build_handoff_matrix(package_id, handoffs_input),
-        backlog = self.classify_residual_backlog(package_id, backlog_input),
+        handoffs = self.build_handoff_matrix(package_id, handoffs_input)
+        backlog = self.classify_residual_backlog(package_id, backlog_input)
 
-        verdict = self.compute_program_closure_verdict(criteria_pass, handoffs, backlog),  # type: ignore
+        verdict = self.compute_program_closure_verdict(criteria_pass, handoffs, backlog)
 
-        status = ProgramClosureStatus.READY,
+        status = ProgramClosureStatus.READY
         if verdict == ProgramClosureVerdict.REJECT_CLOSE:
-            status = ProgramClosureStatus.REJECTED,
+            status = ProgramClosureStatus.REJECTED
 
         package = {
             "package_id": package_id,
@@ -407,11 +407,7 @@ class ATRProgramClosureService:
 
     def _save_package(self, package: dict[str, Any]):
         try:
-            conn = get_conn()
-            if not conn:
-                return
-
-            with conn:
+            with get_conn() as conn:
                 with conn.cursor() as cur:  # type: ignore
                     # Insert package
                     cur.execute(
@@ -483,6 +479,3 @@ class ATRProgramClosureService:
                         )
         except Exception as e:
             logger.error(f"Failed to save closure package: {e}")
-        finally:
-            if conn:
-                conn.close()  # type: ignore

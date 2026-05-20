@@ -158,15 +158,15 @@ def _db_update_family(family: str, ece: float | None, brier: float | None, psi_t
         print(f"Connected to DB for {family}, taking cursor", flush=True)
         cur = conn.cursor()
         ts_from = _now_ms() - LOOKBACK_MIN * 60_000
-        sql = """,
+        sql = """
         UPDATE ml_model_runtime_1m
            SET ece = COALESCE(%s, ece),
                brier = COALESCE(%s, brier),
                psi_top_json = %s,
                ks_top_json = %s
          WHERE ts_ms >= %s
-           AND model_id LIKE %s,
-        """,
+           AND model_id LIKE %s
+        """
         print(f"Executing query for {family}", flush=True)
         cur.execute(
             sql,

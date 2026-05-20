@@ -2562,28 +2562,12 @@ class MLConfirmGate:
             dec.floor = float(dec.p_min)
             return dec
 
-        # Predict
-        # construct feat dict from row? No, predict_proba expects dict?
-        # MetaModelLR.predict_proba expects Dict[str, Any]
-        # BUT _build_feature_row returns List[float] for feature_cols.
-        # This is inefficient: we built list, now need to rebuild dict or unsafe existing methods.
-        # Actually MetaModelLR.predict_proba iterates over self.features and does lookups.
-        # So we can just pass indicators directly?
-        # _build_feature_row handles critical checks and derived features (like spread_bucket).
-        # MetaModelLR *might* depend on derived features.
-        # Let's inspect MetaModelLR.predict_proba again.
-        # It calls _f(feat.get(name, 0.0)).
-
-        # If model.features includes "spread_bucket_..." or "session_...", we need those derived.
-        # _build_feature_row logic is complex and handles derivation.
-        # Ideally we should refactor, but for now let's construct a feat dict from the row we just built.
-
-        feat_dict = {}
-        for i, col in enumerate(model.features):
-            feat_dict[col] = x_row[i]
-
+        # MetaModelLR uses raw feature names (no "f_" prefix) and handles missing features
+        # internally via feat.get(name, 0.0). _build_feature_row returns 0.0 for all
+        # non-prefixed names (else branch), so feat_dict would be all-zero — wrong.
+        # Pass indicators directly; MetaModelLR applies its own robust scaler internally.
         try:
-            p_edge_raw = model.predict_proba(feat_dict)
+            p_edge_raw = model.predict_proba(indicators)
         except Exception as e:
             dec.mode = "ERR"
             dec.allow = self._fail_allow()

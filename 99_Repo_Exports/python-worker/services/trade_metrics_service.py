@@ -213,6 +213,7 @@ class TradeMetricsService:
             "tp1_then_sl": 0, "tp2_then_sl": 0, "tp3_then_sl": 0,
             "trailing_started": 0, "trailing_stop_hits": 0,
             "closed_by_trail": 0,  # requested: 1 ⇔ close_bucket == TRAIL_SL
+            "closed_timeout": 0,  # trades closed by TIMEOUT/ORPHAN/EXPIRED
             "sum_duration_ms": 0.0,
             "reasons": {},
             "neg_pnl_count": 0, "min_pnl": float("inf"), "max_pnl": float("-inf"),
@@ -525,6 +526,9 @@ class TradeMetricsService:
         elif bucket == "TRAILING_STOP": # legacy fallback if normalizer didn't catch it
             m["closed_by_trail"] += 1
             m["trailing_stop_hits"] += 1
+
+        if bucket == "TIMEOUT":
+            m["closed_timeout"] += 1
 
         # ✅ агрегация по trailing_profile
         profile = _to_str(t.get("trailing_profile") or "").strip()
@@ -1430,6 +1434,26 @@ class TradeMetricsService:
             if "ml_condition_stats" in m:
                 m["ml_condition_stats"].pop("_p_edge_values", None)
 
+
+    def update_exit_quality_gauges(self, m: dict[str, Any]) -> None:
+        """Publish exit quality Gauges from a finalized metrics dict (call after finalize())."""
+        try:
+            from services.observability.metrics_registry import (
+                exit_quality_giveback_ratio,
+                exit_quality_tp1_hit_ratio,
+                exit_quality_timeout_share,
+            )
+            n = int(m.get("total_trades") or 0)
+            if n <= 0:
+                return
+            if exit_quality_giveback_ratio:
+                exit_quality_giveback_ratio.set(float(m.get("giveback_ratio_avg_win") or 0.0))
+            if exit_quality_tp1_hit_ratio:
+                exit_quality_tp1_hit_ratio.set(safe_div(int(m.get("tp1_hits") or 0), n))
+            if exit_quality_timeout_share:
+                exit_quality_timeout_share.set(safe_div(int(m.get("closed_timeout") or 0), n))
+        except Exception:
+            pass
 
     # ---------------------------------------------------------------------
     # СЛУЖЕБНЫЙ МЕТОД: ОЧИСТКА ВНУТРЕННИХ МАССИВОВ

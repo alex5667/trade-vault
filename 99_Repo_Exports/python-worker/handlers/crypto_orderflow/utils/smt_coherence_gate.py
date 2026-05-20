@@ -104,48 +104,78 @@ def _sync_get(val: Any) -> Any:
     return val
 
 
+def _resolve_sync_redis() -> Any:
+    """Lazy sync-redis fallback for async-mode callers (running event loop)."""
+    try:
+        from handlers.crypto_orderflow.config.handler_config import _get_sync_redis
+        return _get_sync_redis()
+    except Exception:
+        return None
+
+
 def _redis_read_bundle_state(redis_client: Any, key: str) -> dict[str, Any] | None:
     """
     Read bundle state in best-effort manner:
       - if GET(key) returns JSON -> parse
       - else try HGETALL(key) (hash) -> parse fields
     Fail-open: return None on any error.
+
+    Inside a running asyncio loop _sync_get cannot await coroutines and returns None,
+    which used to leave ctx.smt_* unset for every signal published through async
+    handlers (e.g. orderflow strategy). When that happens, transparently fall back
+    to the sync Redis client used by autocalibrators.
     """
     if redis_client is None:
         return None
 
-    # 1) try GET(JSON)
-    try:
-        v = _sync_get(redis_client.get(key))
-        if v is not None:
-            if isinstance(v, bytes):
-                v = v.decode("utf-8", errors="ignore")
-            if isinstance(v, str):
-                s = v.strip()
-                if s:
-                    obj = json.loads(s)
-                    if isinstance(obj, dict):
-                        return obj
-    except Exception:
-        pass
+    def _b2s(x: Any) -> str:
+        if isinstance(x, bytes):
+            return x.decode("utf-8", errors="ignore")
+        return str(x)
 
-    # 2) try HGETALL(hash)
-    try:
-        d = _sync_get(redis_client.hgetall(key)) or {}
+    def _try_get(rc: Any) -> dict[str, Any] | None:
+        try:
+            v = _sync_get(rc.get(key))
+        except Exception:
+            return None
+        if v is None:
+            return None
+        if isinstance(v, bytes):
+            v = v.decode("utf-8", errors="ignore")
+        if not isinstance(v, str):
+            return None
+        s = v.strip()
+        if not s:
+            return None
+        try:
+            obj = json.loads(s)
+        except Exception:
+            return None
+        return obj if isinstance(obj, dict) and obj else None
+
+    def _try_hgetall(rc: Any) -> dict[str, Any] | None:
+        try:
+            d = _sync_get(rc.hgetall(key))
+        except Exception:
+            return None
         if not isinstance(d, dict) or not d:
             return None
+        out = {_b2s(k): _b2s(v) for k, v in dict(d).items()}
+        return out or None
 
-        def _b2s(x: Any) -> str:
-            if isinstance(x, bytes):
-                return x.decode("utf-8", errors="ignore")
-            return str(x)
+    # 1) Try original client (GET JSON, then HGETALL).
+    res = _try_get(redis_client) or _try_hgetall(redis_client)
+    if res is not None:
+        return res
 
-        out: dict[str, Any] = {}
-        for k, v in dict(d).items():
-            out[_b2s(k)] = _b2s(v)
-        return out if out else None
-    except Exception:
-        return None
+    # 2) Async-loop fail-open: try sync fallback (same logic as pre_publish_gates).
+    sync_rc = _resolve_sync_redis()
+    if sync_rc is not None and sync_rc is not redis_client:
+        res = _try_get(sync_rc) or _try_hgetall(sync_rc)
+        if res is not None:
+            return res
+
+    return None
 
 
 class SmtLeaderCoherenceGate:
@@ -297,7 +327,7 @@ class SmtLeaderCoherenceGate:
             ctx.smt_leader = str(leader)
             ctx.smt_leader_dir = str(leader_dir)
             ctx.smt_leader_confirm = int(leader_confirm)
-            ctx.smt_coh = float(coh) if math.isfinite(coh) else float("nan")
+            ctx.smt_coh = float(coh) if math.isfinite(coh) else None
             ctx.smt_coh_hi = int(coh_hi)
             ctx.smt_align = int(align)
             ctx.smt_mode = str(self.mode)
@@ -305,7 +335,7 @@ class SmtLeaderCoherenceGate:
             ctx.smt_pick = pick
             ctx.smt_news_blocked = int(news_blocked)
             ctx.smt_news_until_ts_ms = int(news_until_ts_ms)
-            ctx.smt_leader_conf_score = float(leader_conf_score) if math.isfinite(leader_conf_score) else float("nan")
+            ctx.smt_leader_conf_score = float(leader_conf_score) if math.isfinite(leader_conf_score) else None
         except Exception:
             pass
 
