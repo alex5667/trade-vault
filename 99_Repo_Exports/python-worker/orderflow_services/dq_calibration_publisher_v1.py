@@ -149,7 +149,11 @@ def main() -> int:
         _log(f"redis connect failed: {exc}")
         return 1
 
-    raw = r.get(args.cal_key)
+    try:
+        raw = r.get(args.cal_key)
+    except Exception as exc:
+        _log(f"redis read failed: {exc}")
+        return 1
     if not raw:
         _log(f"calibration key {args.cal_key} not set — nothing to publish")
         return 0

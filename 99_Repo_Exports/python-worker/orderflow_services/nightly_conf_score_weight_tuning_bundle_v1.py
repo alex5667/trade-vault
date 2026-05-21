@@ -145,6 +145,9 @@ def main() -> None:
     # Inputs
     archive_dir = _env_str("REPLAY_INPUTS_ARCHIVE_DIR", "/var/lib/trade/replay_inputs_archives")
     trades_dsn = _env_str("TRADES_DB_DSN", "")
+    # Use trades_closed directly until position_events is populated by ongoing writer.
+    # Switch to "position_events" once that table is being filled.
+    closed_source_table = _env_str("CLOSED_SOURCE_TABLE", "trades_closed")
 
     out_base = _env_str("CONF_SCORE_TUNING_OUT_DIR", "/var/lib/trade/conf_score_weight_tuning")
     days = _env_int("CONF_SCORE_TUNING_DAYS", 30)
@@ -229,6 +232,7 @@ def main() -> None:
         t0 = time.time()
         cmd = [sys.executable, str(s_export_closed),
                "--dsn", trades_dsn,
+               "--table", closed_source_table,
                "--start-ts-ms", str(start_ms),
                "--end-ts-ms", str(now_ms),
                "--out", paths.closed_ndjson]

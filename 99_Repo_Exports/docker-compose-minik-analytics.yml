@@ -734,6 +734,7 @@ services:
     environment:
     - PYTHONUNBUFFERED=1
     - REDIS_URL=${REDIS_URL}
+    - OF_GATE_METRICS_REDIS_URL=${OF_GATE_METRICS_REDIS_URL:-${REDIS_URL}}
     - OF_GATE_METRICS_STREAM=metrics:of_gate
     - NOTIFY_TELEGRAM_STREAM=notify:telegram
     - OF_INPUTS_STREAM=signals:of:inputs

@@ -52,9 +52,16 @@ def main():
             logger.warning(f"Waiting for Redis connection... ({e})")
             time.sleep(2)
 
-    # 2. Check if baseline already exists
-    if os.path.exists(baseline_inputs_path) and os.path.getsize(baseline_inputs_path) > 0:
-        logger.info(f"Baseline inputs already exist at {baseline_inputs_path}. Skipping export.")
+    # 2. Check if baseline already exists and is fresh enough
+    max_age_days = float(os.getenv("BASELINE_MAX_AGE_DAYS", "30") or 30)
+    force = int(os.getenv("BASELINE_FORCE_REFRESH", "0") or 0)
+    file_exists = os.path.exists(baseline_inputs_path) and os.path.getsize(baseline_inputs_path) > 0
+    file_age_days = 0.0
+    if file_exists:
+        file_age_days = (time.time() - os.path.getmtime(baseline_inputs_path)) / 86400
+    stale = file_exists and file_age_days > max_age_days
+    if file_exists and not stale and not force:
+        logger.info(f"Baseline inputs exist and are fresh ({file_age_days:.1f}d old, max={max_age_days}d). Skipping export.")
     else:
         logger.info("Baseline inputs missing. Exporting from Redis...")
         os.makedirs(baseline_dir, exist_ok=True)
@@ -114,7 +121,8 @@ def main():
                 f.write(json.dumps(x, ensure_ascii=False) + "\n")
 
     # 3. Generate Output (Replay)
-    if os.path.exists(baseline_output_path) and os.path.getsize(baseline_output_path) > 0:
+    out_exists = os.path.exists(baseline_output_path) and os.path.getsize(baseline_output_path) > 0
+    if out_exists and not stale and not force:
         logger.info(f"Baseline output already exists at {baseline_output_path}. Skipping replay.")
     else:
         logger.info(f"Generating baseline output to {baseline_output_path}...")

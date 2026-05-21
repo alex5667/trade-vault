@@ -5,9 +5,9 @@ Aggregates BTC/ETH anchor returns + liquidation/OI/funding signals into
 Redis hashes that of_confirm_engine.py hydrates via one pipelined HMGET
 per signal.
 
-Subscribes to:
-  - stream:tick_BTCUSDT, stream:tick_ETHUSDT  (anchor mid-price ticks)
-  - stream:liq_evt                            (liquidation events, all symbols)
+Reads:
+  - stream:tick_BTCUSDT, stream:tick_ETHUSDT  via periodic XRANGE polling (no consumer group)
+  - stream:liq_evt                            via XREADGROUP (at-least-once delivery)
 
 Publishes (TTL 60s, refreshed continuously):
   ctx:anchor:btc:returns        { ret_30s, ret_1m, ret_5m, ts_ms }
@@ -18,9 +18,15 @@ Publishes (TTL 60s, refreshed continuously):
 OI / funding are sourced from ctx:deriv:{symbol} (REST-polled by derivs handler)
 and re-published as ctx:oi:{symbol}:delta on a 30s refresh cycle.
 
+NOTE on tick consumption pattern:
+  Anchor returns are analytical (not execution-critical), so the service polls
+  tick streams via XRANGE every CROSS_CTX_TICK_POLL_MS instead of using a
+  blocking consumer group. This eliminates a noisy consumer group on redis-ticks
+  (saves ~25% of XREADGROUP wakeups) and removes PEL-leak risk.
+
 ENV
   CROSS_CTX_PORT                  (default 9145)
-  CROSS_CTX_GROUP                 (default "cross-context-aggregator")
+  CROSS_CTX_GROUP                 (default "cross-context-aggregator")  — used ONLY for liq_evt
   CROSS_CTX_BATCH                 (default 500)
   CROSS_CTX_ANCHORS               (default "BTCUSDT,ETHUSDT")
   CROSS_CTX_TTL_SEC               (default 60)
@@ -28,6 +34,11 @@ ENV
   CROSS_CTX_LIQ_SYMBOLS           (default "" = all symbols)
   CROSS_CTX_OI_SYMBOLS            (default same as CROSS_CTX_ANCHORS)
   CROSS_CTX_OI_REFRESH_SEC        (default 30)
+  CROSS_CTX_TICK_POLL_MS          (default 1000 — XRANGE poll interval for anchor ticks)
+  CROSS_CTX_TICK_BATCH            (default 1000 — max entries per XRANGE call)
+  CROSS_CTX_TICKS_REDIS_URL       URL for stream:tick_* (defaults to REDIS_TICKS_URL, else REDIS_URL)
+  CROSS_CTX_LIQ_REDIS_URL         URL for stream:liq_evt (defaults to REDIS_LIQ_URL, else REDIS_URL)
+  REDIS_URL                       Write target for ctx:anchor:*/ctx:liq:*/ctx:oi:* (redis-worker-1)
 """
 from __future__ import annotations
 
@@ -35,16 +46,21 @@ import logging
 import math
 import os
 import signal
-import time
 from collections import deque
 from typing import Any
 
 from prometheus_client import REGISTRY, Counter, Gauge, start_http_server  # type: ignore
+import redis as _redis_lib
 
 from core.redis_client import get_redis
 from utils.time_utils import get_ny_time_millis
 
 logger = logging.getLogger("cross_context_aggregator")
+
+
+def _make_redis(url: str) -> Any:
+    """Create a sync Redis client from a URL string."""
+    return _redis_lib.Redis.from_url(url, decode_responses=True, socket_timeout=5)
 
 
 def _env_int(name: str, default: int) -> int:
@@ -307,27 +323,49 @@ def main() -> None:
 
     tracker = AnchorReturnTracker()
     liq_tracker = LiqImbalanceTracker(track_symbols=liq_track)
+
+    # Write target (redis-worker-1): ctx:anchor:*, ctx:liq:*, ctx:oi:*
     redis_client = get_redis()
 
-    # XREADGROUP from anchor tick streams + liq_evt stream.
+    # Separate read clients so tick/liq streams are consumed from the right Redis instance.
+    # stream:tick_{sym} → redis-ticks;  stream:liq_evt → redis (main)
+    base_url = os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
+    ticks_url = os.getenv("CROSS_CTX_TICKS_REDIS_URL") or os.getenv("REDIS_TICKS_URL") or base_url
+    liq_url   = os.getenv("CROSS_CTX_LIQ_REDIS_URL")   or os.getenv("REDIS_LIQ_URL")   or base_url
+    ticks_redis = _make_redis(ticks_url)
+    liq_redis   = _make_redis(liq_url)
+    logger.info("tick_redis=%s  liq_redis=%s  write_redis=%s",
+                ticks_url.split("@")[-1], liq_url.split("@")[-1], base_url.split("@")[-1])
+
+    # ── Anchor tick streams: polling pattern (no consumer group on redis-ticks) ──
+    # Per-stream last-seen ID; "$" = start from tail (skip backlog on first poll).
     LIQ_STREAM = "stream:liq_evt"
-    streams: dict[str, str] = {}
+    tick_last_id: dict[str, str] = {}
+    tick_stream_keys: list[str] = []
     for sym in anchors:
         stream_key = f"stream:tick_{sym}"
-        streams[stream_key] = ">"
+        tick_stream_keys.append(stream_key)
+        # Initialize cursor to current tail so we only see ticks arriving after startup.
         try:
-            redis_client.xgroup_create(stream_key, group, id="$", mkstream=True)
-        except Exception as e:
-            if "BUSYGROUP" not in str(e):
-                logger.error("xgroup_create failed for %s: %s", stream_key, e)
+            last = ticks_redis.xrevrange(stream_key, count=1)
+            tick_last_id[stream_key] = _decode(last[0][0]) if last else "0-0"
+        except Exception:
+            tick_last_id[stream_key] = "0-0"
 
-    # Subscribe to liq_evt stream
-    streams[LIQ_STREAM] = ">"
+    tick_poll_ms = _env_int("CROSS_CTX_TICK_POLL_MS", 1000)
+    tick_batch = _env_int("CROSS_CTX_TICK_BATCH", 1000)
+    logger.info(
+        "Tick consumption: XRANGE polling every %dms (no consumer group on redis-ticks). streams=%s",
+        tick_poll_ms, tick_stream_keys,
+    )
+
+    # Subscribe to liq_evt stream (main redis) — keeps at-least-once delivery
+    liq_streams: dict[str, str] = {LIQ_STREAM: ">"}
     try:
-        redis_client.xgroup_create(LIQ_STREAM, group, id="$", mkstream=True)
+        liq_redis.xgroup_create(LIQ_STREAM, group, id="$", mkstream=False)
     except Exception as e:
         if "BUSYGROUP" not in str(e):
-            logger.warning("xgroup_create failed for %s: %s", LIQ_STREAM, e)
+            logger.warning("xgroup_create liq %s: %s", LIQ_STREAM, e)
 
     start_http_server(port)
     logger.info("HTTP /metrics on :%d", port)
@@ -343,24 +381,47 @@ def main() -> None:
     consumer = os.getenv("CROSS_CTX_CONSUMER", "cross-context-aggregator-1")
     last_age_refresh = 0
     last_oi_refresh = 0
+    last_tick_poll = 0
 
     while not stop["flag"]:
+        now_loop = get_ny_time_millis()
+
+        # ── Tick streams: XRANGE polling every CROSS_CTX_TICK_POLL_MS ─────────
+        tick_resp: list[tuple[str, list]] = []
+        if now_loop - last_tick_poll >= tick_poll_ms:
+            last_tick_poll = now_loop
+            for stream_key in tick_stream_keys:
+                # XRANGE from (last_id+1) to + — Redis supports exclusive start with "(" prefix.
+                start_id = f"({tick_last_id[stream_key]}" if tick_last_id[stream_key] != "0-0" else "-"
+                try:
+                    entries = ticks_redis.xrange(stream_key, min=start_id, max="+", count=tick_batch)
+                except Exception as e:
+                    logger.debug("XRANGE %s failed: %s", stream_key, e)
+                    continue
+                if entries:
+                    tick_resp.append((stream_key, entries))
+                    # Advance cursor to the last seen ID
+                    tick_last_id[stream_key] = _decode(entries[-1][0])
+
+        # ── Liq stream (main redis) ───────────────────────────────────────────
+        liq_resp = None
         try:
-            resp = redis_client.xreadgroup(
+            liq_resp = liq_redis.xreadgroup(
                 groupname=group,
                 consumername=consumer,
-                streams=streams,  # type: ignore[arg-type]
+                streams=liq_streams,
                 count=batch,
-                block=2000,
+                block=tick_poll_ms,  # block up to poll interval — wakes up at next poll boundary
             )
         except Exception as e:
-            logger.error("XREADGROUP failed: %s", e)
-            time.sleep(1.0)
-            continue
+            logger.debug("XREADGROUP liq failed: %s", e)
+
+        resp = tick_resp + (liq_resp or [])
 
         if resp:
-            for stream_key, messages in resp:  # type: ignore[union-attr]
+            for stream_key, messages in resp:
                 sk = _decode(stream_key)
+                # ack_ids only used for LIQ_STREAM (XREADGROUP); tick streams use XRANGE polling.
                 ack_ids: list[Any] = []
 
                 if sk == LIQ_STREAM:
@@ -400,10 +461,11 @@ def main() -> None:
                     latest_ret_state: dict[str, float] = {}
 
                     for msg_id, fields in messages:
-                        ack_ids.append(msg_id)
+                        # No XACK needed — tick streams use XRANGE polling (cursor tracked in tick_last_id).
                         try:
                             fields = {_decode(k): _decode(v) for k, v in fields.items()}
-                            ts_ms = int(_safe_float(fields.get("ts_ms")) or get_ny_time_millis())
+                            _ts_raw = _safe_float(fields.get("ts_ms"))
+                            ts_ms = int(_ts_raw) if math.isfinite(_ts_raw) else get_ny_time_millis()
                             mid = _safe_float(fields.get("mid") or fields.get("price"))
                             if not math.isfinite(mid):
                                 continue
@@ -433,11 +495,13 @@ def main() -> None:
                         except Exception as e:
                             logger.warning("Redis HSET %s failed: %s", redis_key, e)
 
-                if ack_ids:
+                # XACK only for liq_evt (the sole remaining consumer group).
+                # Don't swallow exceptions — log them so PEL leaks are visible.
+                if ack_ids and sk == LIQ_STREAM:
                     try:
-                        redis_client.xack(sk, group, *ack_ids)
-                    except Exception:
-                        pass
+                        liq_redis.xack(sk, group, *ack_ids)
+                    except Exception as e:
+                        logger.warning("XACK %s failed (%d ids): %s", sk, len(ack_ids), e)
 
         now_ms = get_ny_time_millis()
 

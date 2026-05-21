@@ -475,6 +475,7 @@ class SignalRow:
     direction: str
     scenario: str
     indicators: dict[str, Any]
+    feature_schema_version: str = ""
 
 
 @dataclass(frozen=True)
@@ -690,6 +691,10 @@ def parse_replay_signal(fields: dict[str, Any]) -> SignalRow | None:
             if _sk in payload:
                 indicators[_sk] = _as_int(payload.get(_sk), 0)
 
+    feature_schema_version = str(
+        payload.get("feature_schema_version") or fields.get("feature_schema_version") or ""
+    )
+
     raw_sid = (
         payload.get("sid")
         or indicators.get("sid")
@@ -718,6 +723,7 @@ def parse_replay_signal(fields: dict[str, Any]) -> SignalRow | None:
         direction=direction,
         scenario=str(scenario),
         indicators=indicators,
+        feature_schema_version=feature_schema_version,
     )
 
 
@@ -1706,6 +1712,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     quarantine = QuarantineWriter(args.out_quarantine_jsonl) if args.out_quarantine_jsonl else None
 
     signals: list[SignalRow] = []
+    schema_ver_counts: dict[str, int] = {}
     for msg_id, f in sig_items:
         s = parse_replay_signal(f)
         if s is None:
@@ -1714,6 +1721,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 quarantine.write("signal", "signal_parse_none", stream=str(args.signal_stream), msg_id=msg_id, data=f)
             continue
         signals.append(s)
+        _sv = s.feature_schema_version or "unknown"
+        schema_ver_counts[_sv] = schema_ver_counts.get(_sv, 0) + 1
 
     closes: list[CloseRow] = []
     for msg_id, f in close_items:
@@ -1862,11 +1871,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         sig_index = _build_signal_index_by_symbol(list(diag_smap.values()))
         mismatch = diagnose_unmatched_closes(unmatched, signal_index_by_symbol=sig_index, max_examples=int(args.max_examples))
 
+    if len(schema_ver_counts) > 1:
+        print(f"[WARN] mixed feature_schema_version in signals: {schema_ver_counts}")
+
     stats: dict[str, Any] = {
         "signal_stream": str(args.signal_stream),
         "closed_stream": str(args.closed_stream),
         "signals_raw": int(len(sig_items)),
         "signals_parsed": int(len(signals)),
+        "signal_schema_version_counts": schema_ver_counts,
         "closes_raw": int(len(close_items)),
         "closes_parsed": int(len(closes)),
         "joined": int(len(rows)),

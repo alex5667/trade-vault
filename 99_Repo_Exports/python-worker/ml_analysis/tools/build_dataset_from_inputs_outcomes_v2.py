@@ -500,6 +500,13 @@ def main() -> None:
         )
 
     df = pd.DataFrame(rows)
+    # Serialize object-dtype columns containing dicts/lists to JSON strings
+    # so pyarrow can handle mixed-type nested structures.
+    for col in df.columns:
+        if df[col].dtype == object:
+            first_non_null = next((v for v in df[col] if v is not None and not (isinstance(v, float) and v != v)), None)
+            if isinstance(first_non_null, (dict, list)):
+                df[col] = df[col].apply(lambda x: json.dumps(x, ensure_ascii=False) if x is not None else None)
     out_fmt = str(getattr(args, "out_format", "parquet") or "parquet").strip().lower()
     if out_fmt == "parquet":
         try:

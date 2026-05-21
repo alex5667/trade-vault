@@ -372,11 +372,17 @@ class BatchTradeWriter:
                 atr_recovery_run_id,
                 atr_restore_cert_id,
                 atr_restore_cert_status,
-                atr_policy_snapshot_json
+                atr_policy_snapshot_json,
+                atr_sel_tf, atr_sel_src, atr_sel_age_ms,
+                contract_ver, hold_target_ms, alpha_half_life_ms, max_signal_age_ms,
+                risk_horizon_bucket, horizon_profile_source, horizon_profile_conf, horizon_reason_code,
+                atr_mode, atr_value, atr_window_n, atr_age_ms, atr_source, atr_pct,
+                vol_ratio_fast_slow, vol_ratio_z,
+                atr_regime_value, atr_trail_value, atr_regime_tf_ms, atr_trail_tf_ms
             ) VALUES %s
             ON CONFLICT (order_id) DO NOTHING
         """
-        # NOTE: policy_mode/policy_raw, atr_sel_*, horizon_profile_*, atr_mode/value/window_n,
+        # NOTE: policy_mode/policy_raw come from ml_outcome_joiner (post-close),
         # atr_regime_*/atr_trail_*, и непрификсированные contract_ver/hold_target_ms/.../vol_ratio_z
         # хранятся в JSONB-блоках config_json (indicators/atr_metrics/meta) — отдельных колонок
         # в trades_closed нет. Strategy-contract scalars дублируются в sc_* колонках выше.
@@ -610,11 +616,33 @@ def _build_main_row(closed: Any) -> tuple:
         getattr(closed, "atr_restore_cert_id", ""),
         getattr(closed, "atr_restore_cert_status", ""),
         json.dumps(getattr(closed, "atr_policy_snapshot_json", {}) or {}, ensure_ascii=False) if getattr(closed, "atr_policy_snapshot_json", {}) else None,
+        # ATR selector (set by domain/handlers.py)
+        getattr(closed, "atr_sel_tf", ""),
+        getattr(closed, "atr_sel_src", ""),
+        getattr(closed, "atr_sel_age_ms", 0),
+        # Horizon scalars (stamped from PositionState)
+        getattr(closed, "contract_ver", 0) or 0,
+        getattr(closed, "hold_target_ms", 0) or 0,
+        getattr(closed, "alpha_half_life_ms", 0) or 0,
+        getattr(closed, "max_signal_age_ms", 0) or 0,
+        getattr(closed, "risk_horizon_bucket", "") or "",
+        getattr(closed, "horizon_profile_source", "") or "",
+        getattr(closed, "horizon_profile_conf", 0.0),
+        getattr(closed, "horizon_reason_code", "") or "",
+        getattr(closed, "atr_mode", "") or "",
+        getattr(closed, "atr_value", 0.0) or getattr(closed, "atr", 0.0),
+        getattr(closed, "atr_window_n", 0) or 0,
+        getattr(closed, "atr_age_ms", 0) or 0,
+        getattr(closed, "atr_source", "") or "",
+        getattr(closed, "atr_pct", 0.0),
+        getattr(closed, "vol_ratio_fast_slow", 1.0),
+        getattr(closed, "vol_ratio_z", 0.0),
+        getattr(closed, "atr_regime_value", 0.0),
+        getattr(closed, "atr_trail_value", 0.0),
+        getattr(closed, "atr_regime_tf_ms", 0) or 0,
+        getattr(closed, "atr_trail_tf_ms", 0) or 0,
     )
-    # NOTE: policy_mode/policy_raw, atr_sel_*, horizon_profile_*, atr_mode/value/window_n,
-    # atr_regime_*/atr_trail_*, и непрификсированные contract_ver/hold_target_ms/.../vol_ratio_z
-    # сохраняются в config_json (config_snapshot["indicators"|"atr_metrics"|"meta"]),
-    # выделенных колонок в trades_closed нет (strategy-contract scalars уже дублируются в sc_*).
+    # NOTE: policy_mode/policy_raw come from ml_outcome_joiner (post-close), no slot needed.
     return tuple(None if val == () else val for val in res)
 
 

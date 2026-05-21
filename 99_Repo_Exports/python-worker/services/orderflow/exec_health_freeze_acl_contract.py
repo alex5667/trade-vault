@@ -80,34 +80,43 @@ EXPECTED_ACL_PROFILES: dict[str, list[str]] = {
         "-hset", "-hdel", "-del", "-unlink", "-eval", "-evalsha",
     ],
 
-    # writer: FCALL + read/write on freeze-control surfaces, no direct hash ops
+    # writer: FCALL + read/write on freeze-control surfaces
+    # +hset required for heal_service_identity_sync to write metrics:exec_health:freeze_client_heal:last:*
     "exec_health_freeze_writer": [
         "reset", "on", "%REPLACE_ME_WRITER_PASS",
         "%R~cfg:orderflow:exec_health:*", "%W~cfg:orderflow:exec_health:*",
         "%R~metrics:exec_health:*", "%W~metrics:exec_health:*",
         "%R~ops:exec_health:freeze_*", "%W~ops:exec_health:freeze_*",
         "%W~notify:telegram",
-        "+multi", "+exec", "+discard", "+get", "+set", "+expire", "+pexpire", "+hgetall",
+        "+multi", "+exec", "+discard", "+get", "+set", "+expire", "+pexpire", "+hgetall", "+hset",
         "+xadd", "+xrevrange", "+xrange", "+fcall", "+ping", "+client|setname", "+client|setinfo", "+client|id", "+client|info", "+client|list",
-        "-hset", "-hdel", "-del", "-unlink", "-eval", "-evalsha",
+        "-hdel", "-del", "-unlink", "-eval", "-evalsha",
     ],
 
-    # audit: read-only audit surface — ACL LOG, CLIENT LIST, CONFIG GET aclfile
+    # audit: audit surface — ACL LOG, CLIENT LIST, CONFIG GET aclfile + self-heal writes
+    # Self-healing (P15 heal_service_identity_sync) needs xadd to the freeze-events stream,
+    # hset/expire to write and hgetall to read metrics:exec_health:freeze_client_heal:last:* state.
     "exec_health_freeze_audit": [
         "reset", "on", "%REPLACE_ME_AUDIT_PASS",
         "%R~metrics:exec_health:freeze_acl_*",
-        "+multi", "+exec", "+discard", "+acl|log", "+client|list", "+config|get", "+ping", "+select", "+client|setname", "+client|setinfo", "+client|id", "+client|info",
+        "%R~metrics:exec_health:freeze_client_heal:*", "%W~metrics:exec_health:freeze_client_heal:*",
+        "%R~metrics:latency_contract:*",
+        "%W~ops:exec_health:freeze_*",
+        "+multi", "+exec", "+discard", "+acl|log", "+client|list", "+config|get", "+ping", "+select",
+        "+client|setname", "+client|setinfo", "+client|id", "+client|info",
+        "+xadd", "+hset", "+hgetall", "+expire", "+pexpire",
     ],
 
     # bootstrap: loads Function Libraries, full key access during rollout only
+    # +hset required for heal_service_identity_sync to write heal state
     "exec_health_freeze_bootstrap": [
         "reset", "on", "%REPLACE_ME_BOOTSTRAP_PASS",
         "allkeys",
-        "+multi", "+exec", "+discard", "+fcall", "+function", "+get", "+hgetall",
+        "+multi", "+exec", "+discard", "+fcall", "+function", "+get", "+hgetall", "+hset",
         "+set", "+expire", "+pexpire",
         "+xadd", "+xrevrange", "+xrange", "+ping",
         "+acl|setuser", "+acl|save", "+acl|load", "+acl|list", "+client|setname", "+client|setinfo", "+client|id", "+client|info", "+client|list",
-        "-hset", "-hdel", "-del", "-unlink", "-eval", "-evalsha",
+        "-hdel", "-del", "-unlink", "-eval", "-evalsha",
     ],
 
     # exec_projection: full read/write access for the execution projection cluster.

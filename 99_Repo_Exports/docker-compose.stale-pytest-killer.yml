@@ -1,0 +1,49 @@
+# Stale-pytest-killer: host-PID watchdog that periodically reaps orphaned
+# `python -m pytest` subtrees left behind by claude-code sessions.
+#
+# Why a container: project policy ("Timers must run in containers" — see
+# CLAUDE.md / memory feedback_timers_in_containers). Uses pid:host plus
+# CAP_KILL/SYS_PTRACE to see and signal host processes from inside.
+#
+# Tuning via env (override in shell or .env):
+#   KILLER_INTERVAL_SEC   scan interval (default 1800 = 30 min)
+#   KILLER_MIN_AGE_SEC    age threshold for kill (default 3600 = 1 h)
+#   KILLER_PATTERN        substring match in args (default "python -m pytest")
+#   KILLER_DRY_RUN        set to 1 to log-only without signalling
+#
+# Inspect:
+#   docker logs -f scanner-stale-pytest-killer
+services:
+  stale-pytest-killer:
+    build:
+      context: ./tools/stale_pytest_killer
+      dockerfile: Dockerfile
+    image: scanner-stale-pytest-killer:local
+    container_name: scanner-stale-pytest-killer
+    restart: unless-stopped
+    pid: host
+    cap_drop:
+      - ALL
+    cap_add:
+      - SYS_PTRACE
+      - KILL
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp:size=8M
+    environment:
+      KILLER_INTERVAL_SEC: "${KILLER_INTERVAL_SEC:-1800}"
+      KILLER_MIN_AGE_SEC: "${KILLER_MIN_AGE_SEC:-3600}"
+      KILLER_PATTERN: "${KILLER_PATTERN:-python -m pytest}"
+      KILLER_DRY_RUN: "${KILLER_DRY_RUN:-0}"
+      TZ: UTC
+    volumes:
+      - ./tools/stale_pytest_killer:/app:ro
+    working_dir: /app
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "3"
+    command: ["sh", "/app/killer.sh"]

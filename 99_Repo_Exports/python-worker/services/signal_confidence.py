@@ -25,6 +25,22 @@ except Exception:
 
 _conf_debug_counter = 0
 
+# EMA-smoothed lag tracker for ML_SKIP decision.
+# Prevents single high-lag ticks from blocking ML when the worker is generally healthy.
+# Keyed by symbol so per-symbol lag spikes don't affect other symbols.
+_ML_LAG_EMA: dict[str, float] = {}
+_ML_LAG_EMA_ALPHA: float = 0.15  # ~6-tick window; configurable at runtime via ENV
+
+
+def _update_lag_ema(symbol: str, lag_ms: float) -> float:
+    """Update and return the EMA-smoothed lag for ``symbol``."""
+    import os as _os
+    alpha = float(_os.getenv("ML_LAG_EMA_ALPHA", str(_ML_LAG_EMA_ALPHA)))
+    prev = _ML_LAG_EMA.get(symbol, lag_ms)
+    ema = alpha * lag_ms + (1.0 - alpha) * prev
+    _ML_LAG_EMA[symbol] = ema
+    return ema
+
 def _f(obj: Any, name: str, default: float = 0.0) -> float:
     try:
         v = getattr(obj, name, default)
@@ -347,18 +363,25 @@ class ConfidenceScorer:
         if _use_ml and self._ml_gate is not None:
             _ml_mode = _os.getenv("ML_SCORER_MODE", "shadow").strip().lower()
 
-            # P-LAG-FIX: Skip ML completely if worker lag is dangerously high (>400ms)
+            # P-LAG-FIX: Skip ML when sustained worker lag is dangerously high.
+            # Uses EMA-smoothed lag (not instantaneous) to avoid false skips from
+            # transient spikes.  Default threshold raised to 1000ms to reflect the
+            # structural 400-500ms Redis-stream pipeline lag present at normal operation.
             _worker_lag_ms = float(getattr(ctx, "lag_ms", 0.0))
-            _ml_lag_threshold = float(_os.getenv("ML_LAG_THRESHOLD_MS", "400.0"))
+            _ml_lag_threshold = float(_os.getenv("ML_LAG_THRESHOLD_MS", "1000.0"))
+            _symbol_for_ema = str(getattr(ctx, "symbol", "") or "")
+            _smoothed_lag_ms = _update_lag_ema(_symbol_for_ema, _worker_lag_ms)
 
             ml_conf01 = None
             ml_parts: dict = {}
 
-            if _worker_lag_ms > _ml_lag_threshold:
-                ml_parts = {"ml_status": "skipped_lag", "lag_ms": _worker_lag_ms}
+            if _smoothed_lag_ms > _ml_lag_threshold:
+                ml_parts = {"ml_status": "skipped_lag", "lag_ms": _worker_lag_ms,
+                            "lag_ema_ms": round(_smoothed_lag_ms, 1)}
                 import logging
                 logging.getLogger("crypto_orderflow_service").warning(
-                    f"⚠️ [ML_SKIP] Skipping ML model due to high lag ({_worker_lag_ms:.1f}ms > {_ml_lag_threshold}ms)"
+                    f"⚠️ [ML_SKIP] Skipping ML model due to high lag "
+                    f"(ema={_smoothed_lag_ms:.1f}ms raw={_worker_lag_ms:.1f}ms > {_ml_lag_threshold}ms)"
                 )
             else:
                 # FIX: wrap ML scoring in timeout to prevent Event Loop stall under load.

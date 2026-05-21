@@ -727,6 +727,10 @@ POSITION_HORIZON_SCALAR_KEYS: tuple = (
     "atr_tf_ms",
     "atr_window_n",
     "atr_age_ms",
+    "atr_regime_value",
+    "atr_trail_value",
+    "atr_regime_tf_ms",
+    "atr_trail_tf_ms",
     "atr_source",
     "atr_pct",
     "vol_ratio_fast_slow",
@@ -764,6 +768,10 @@ def extract_position_horizon_scalars(obj: Any) -> dict[str, Any]:
         "atr_pct": _safe_float(getattr(obj, "atr_pct", None), 0.0),
         "vol_ratio_fast_slow": _safe_float(getattr(obj, "vol_ratio_fast_slow", None), 1.0),
         "vol_ratio_z": _safe_float(getattr(obj, "vol_ratio_z", None), 0.0),
+        "atr_regime_value": _safe_float(getattr(obj, "atr_regime_value", None), 0.0),
+        "atr_trail_value": _safe_float(getattr(obj, "atr_trail_value", None), 0.0),
+        "atr_regime_tf_ms": _safe_int(getattr(obj, "atr_regime_tf_ms", None), 0),
+        "atr_trail_tf_ms": _safe_int(getattr(obj, "atr_trail_tf_ms", None), 0),
     }
 
 

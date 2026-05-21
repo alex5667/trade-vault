@@ -860,6 +860,15 @@ class TickDecisionEngine:
             res = "pass" if passed else "veto"
             dn_gate_events_total.labels(symbol=runtime.symbol, tier=str(tier), session=sess, result=res).inc()
 
+            # Feed calibrator with ALL events before gate enforcement to avoid selection bias.
+            # Training only on passed events creates a circular dependency: threshold → sample
+            # → threshold, causing p50 to drift toward ~p75 of the true distribution and
+            # progressively over-reject. Noise floor (dn_calib_min_usd, default=0) is the
+            # only exclusion criterion.
+            _dn_calib_min = float(runtime.config.get("dn_calib_min_usd", 0.0))
+            if delta_usd > _dn_calib_min:
+                runtime.tick_dn_calib.update(regime=rg, dn_usd=delta_usd, ts_ms=tick_ts)
+
             # Enforce Veto
             if not passed:
                  # Log veto
@@ -871,10 +880,6 @@ class TickDecisionEngine:
                           tier, min_tier, dn_tiers_decision.src, sess
                       )
                  return None
-
-            # Feed calibrator only with events that passed the gate (not noise)
-            if delta_usd > 0:
-                runtime.tick_dn_calib.update(regime=rg, dn_usd=delta_usd, ts_ms=tick_ts)
 
             # Add indicators
             indicators["dn_tier"] = tier

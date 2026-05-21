@@ -596,3 +596,69 @@ fatal: Could not read from remote repository.
 Please make sure you have the correct access rights
 and the repository exists.
 2026-05-19 05:45:03 - Синхронизация завершена успешно.
+[main 332c707e] Auto-sync vault notes 2026-05-20 05:45:08
+ 167 files changed, 16102 insertions(+), 874 deletions(-)
+ create mode 100644 80_Research/phase0_baseline_buckets_2026_05_19.psv
+ create mode 100644 99_Automation/logs/update_2026-05-20_03-37-15.log
+ create mode 100644 99_Repo_Exports/docker-compose-pre-phase1.yml
+ create mode 100644 99_Repo_Exports/docker-compose.outbox-v2-check.yml
+ create mode 100644 99_Repo_Exports/docker-compose.path-tp-autocal.yml
+ create mode 100644 99_Repo_Exports/docker-compose.tp-sl-trail-autocal.yml
+ create mode 100644 99_Repo_Exports/python-worker/core/book_stats_reader.py
+ create mode 100644 99_Repo_Exports/python-worker/core/btc_drop_reader.py
+ create mode 100644 99_Repo_Exports/python-worker/core/cross_asset_corr_reader.py
+ create mode 100644 99_Repo_Exports/python-worker/core/htf_long_bias_autopromoter.py
+ create mode 100644 99_Repo_Exports/python-worker/core/last_trade_outcome_reader.py
+ create mode 100644 99_Repo_Exports/python-worker/core/live_triple_barrier.py
+ create mode 100644 99_Repo_Exports/python-worker/core/meta_features_v14_of.py
+ create mode 100644 99_Repo_Exports/python-worker/core/meta_features_v15_of.py
+ create mode 100644 99_Repo_Exports/python-worker/core/mt5_kill_switch.py
+ create mode 100644 99_Repo_Exports/python-worker/core/path_based_tp_cdf.py
+ create mode 100644 99_Repo_Exports/python-worker/core/regime_conditional_execution.py
+ create mode 100644 99_Repo_Exports/python-worker/core/trade_stats_reader.py
+ create mode 100644 99_Repo_Exports/python-worker/migrations/20260519_01_phase0_signal_outcome_join_and_bad_buckets.sql
+ create mode 100644 99_Repo_Exports/python-worker/migrations/20260519_02_classify_timeout_detail.sql
+ create mode 100644 99_Repo_Exports/python-worker/orderflow_services/ml_calibration_drift_monitor_v1.py
+ create mode 100644 99_Repo_Exports/python-worker/orderflow_services/path_based_tp_autocal_v1.py
+ create mode 100644 99_Repo_Exports/python-worker/orderflow_services/tp_sl_trailing_autocal_v1.py
+ create mode 100644 99_Repo_Exports/python-worker/services/daily_dd_kill_switch_v1.py
+ create mode 100644 99_Repo_Exports/python-worker/services/daily_dd_reader.py
+ create mode 100644 99_Repo_Exports/python-worker/services/path_based_tp_runtime_overrides.py
+ create mode 100644 99_Repo_Exports/python-worker/services/tp_sl_trailing_runtime_overrides.py
+ create mode 100644 99_Repo_Exports/python-worker/services/trade_monitor/triple_barrier_exit_policy.py
+ create mode 100644 99_Repo_Exports/python-worker/signals/bounded_sl.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/core/test_live_triple_barrier.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/core/test_meta_features_v14_of.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/core/test_meta_features_v15_of.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/core/test_v12_of_fallback.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_bounded_sl.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_burst_min_gap_floor.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_daily_dd_kill_switch.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_edge_cost_gate_directional_bias.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_entry_policy_gate_btc_drop.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_g10_canary_sample.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_htf_long_bias_autopromoter.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_iceberg_atr_and_sid_alignment.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_lua_script_manager_sync_invariant.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_ml_calibration_drift_monitor.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_ml_confirm_cost_aware_label.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_mt5_kill_switch.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_of_confirm_engine_v12_inject_wiring.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_orders_http_bridge_validation.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_outbox_builders_schema_version_invariant.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_p_edge_threshold_calibrator_phase_b.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_path_based_tp_autocal.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_regime_conditional_execution.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_smt_coherence_gate_reader_contract.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_tp_sl_trailing_autocal.py
+ create mode 100644 99_Repo_Exports/python-worker/tools/check_v15_of_readiness.py
+ create mode 100644 99_Repo_Exports/python-worker/tools/ml_confirm_cost_aware_label_v1.py
+ create mode 100644 99_Repo_Exports/python-worker/tools/nightly_v15_of_train_bundle.py
+ create mode 100644 99_Repo_Exports/python-worker/tools/train_meta_feat_lr.py
+ create mode 100644 99_Repo_Exports/tasks/p0_regime_backfill/backfill.sql
+git@github.com: Permission denied (publickey).
+fatal: Could not read from remote repository.
+
+Please make sure you have the correct access rights
+and the repository exists.
+2026-05-20 05:45:10 - Синхронизация завершена успешно.

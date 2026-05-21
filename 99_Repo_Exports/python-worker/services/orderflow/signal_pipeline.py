@@ -182,6 +182,8 @@ class SignalPipeline:
         self.of_inputs_publish_strict = bool(int(os.getenv("OF_INPUTS_PUBLISH_STRICT", "0") or 0))
         # P1 fix: 100000 → 5000 (при 40KB/entry: 5k * 40KB = 200MB max)
         self.of_inputs_stream_maxlen = int(os.getenv("OF_INPUTS_STREAM_MAXLEN", "5000") or 5000)
+        # ML training metadata — injected into every of:inputs record for dataset filtering
+        self.ml_feature_schema_version = int(os.getenv("ML_FEATURE_SCHEMA_VERSION", "14") or 14)
 
         self._rejected_signal_stream = os.getenv("CRYPTO_REJECTED_SIGNAL_STREAM", RS.CRYPTO_REJECTED)
         self._rejected_signal_maxlen = int(os.getenv("CRYPTO_REJECTED_MAXLEN", "5000"))
@@ -214,6 +216,7 @@ class SignalPipeline:
         from core.vol_z_thr_calibrator import VolZThrCalibrator
         from core.htf_proximity_calibrator import HtfProximityCalibrator
         from core.liquidity_wall_calibrator import LiquidityWallCalibrator
+        from core.dq_microstructure_calibrator import DqMicrostructureCalibrator
 
         self._cooldown_calib = CooldownCalibrator(
             min_signals=int(os.getenv("COOLDOWN_CAL_MIN_SIGNALS", "100") or "100"),
@@ -222,6 +225,14 @@ class SignalPipeline:
         self._vol_z_calib = VolZThrCalibrator()
         self._htf_prox_calib = HtfProximityCalibrator()
         self._liq_wall_calib = LiquidityWallCalibrator()
+        self._dq_micro_cal = DqMicrostructureCalibrator(
+            min_samples=int(os.getenv("DQ_MICRO_CAL_MIN_SAMPLES", "200") or 200),
+            enforce=os.getenv("DQ_MICRO_CAL_ENFORCE", "0").lower() in {"1", "true", "yes", "on"},
+            auto_promote=os.getenv("DQ_MICRO_CAL_AUTO_PROMOTE", "1").lower() not in {"0", "false", "no", "off"},
+            auto_promote_min_hours=float(os.getenv("DQ_MICRO_CAL_AUTO_PROMOTE_MIN_HOURS", "0.5") or 0.5),
+            default_stale_ms=self._cached_dq_book_stale_flag_ms,
+            default_spread_bps=self._cached_dq_spread_wide_flag_bps,
+        )
 
         self._calib_loaded: bool = False
         self._calib_last_snap_ms: int = 0
@@ -310,6 +321,18 @@ class SignalPipeline:
         self._cached_flow_mode_override = os.getenv("FLOW_TOXIC_MODE", os.getenv("FLOW_TOX_MODE", "") or "").strip().lower()
         self._cached_flow_thr_z = float(os.getenv("FLOW_OFI_NORM_Z_MAX", "0") or 0.0)
         self._cached_flow_thr_vpin = float(os.getenv("FLOW_VPIN_CDF_MAX", "0") or 0.0)
+        # Autocalibrator reader (AUTOCAL_FLOW_TOX_READ_ENABLED=1 для включения).
+        # Per-symbol пороги из autocal:flow_toxicity:state перекрывают ENV 0.0 после прогрева.
+        # fail-open: cold/stale → (0.0, 0.0) → gate pass-through.
+        self._flow_tox_autocal_enabled = os.getenv("AUTOCAL_FLOW_TOX_READ_ENABLED", "0").lower() in {"1", "true", "yes", "on"}
+        try:
+            if self._flow_tox_autocal_enabled:
+                from services.flow_toxicity_runtime_overrides import get_reader as _ftox_reader
+                self._flow_tox_reader = _ftox_reader()
+            else:
+                self._flow_tox_reader = None
+        except Exception:
+            self._flow_tox_reader = None
         self._cached_flow_cap = float(os.getenv("FLOW_TOX_TIGHTEN_ADD_CAP_BPS", "6.0") or 6.0)
         self._cached_flow_mult = float(os.getenv("FLOW_TOX_TIGHTEN_ADD_MULT", "1.0") or 1.0)
         self._cached_flow_veto_wo_tca = bool(int(os.getenv("FLOW_TOX_VETO_WITHOUT_TCA", "0") or 0))
@@ -338,6 +361,16 @@ class SignalPipeline:
         self._cached_sentiment_ctx_max_age_ms = int(os.getenv("SENTIMENT_CTX_MAX_AGE_MS", "172800000") or 172800000)
         self._cached_sentiment_ctx_tighten_cap = float(os.getenv("SENTIMENT_CTX_TIGHTEN_CAP_BPS", "2.0") or 2.0)
 
+        # P2 ctx_tighten autocalibrator reader
+        # AUTOCAL_CTX_TIGHTEN_READ_ENABLED=0 by default (shadow phase).
+        # When enabled, overrides _cached_sentiment_ctx_tighten_cap and
+        # _cached_defillama_ctx_tighten_cap from autocal:ctx_tighten:state.
+        self._ctx_tighten_autocal_enabled = os.getenv(
+            "AUTOCAL_CTX_TIGHTEN_READ_ENABLED", "0"
+        ).lower() in {"1", "true", "yes", "on"}
+        self._ctx_tighten_autocal_last_ms: int = 0
+        self._ctx_tighten_autocal_ttl_ms: int = 300_000  # refresh every 5 min
+
         # Cross-venue context gate config (Phase 0: disabled by default)
         self._cached_crossvenue_ctx_enabled = os.getenv("CROSSVENUE_CTX_ENABLED", "0").lower() in {"1", "true", "yes", "on"}
         self._cached_crossvenue_ctx_profile = (os.getenv("CROSSVENUE_CTX_PROFILE", "monitor") or "monitor").strip().lower()
@@ -350,6 +383,14 @@ class SignalPipeline:
         self._cached_crossvenue_ctx_max_stale_count = int(os.getenv("CROSSVENUE_CTX_MAX_STALE_COUNT", "1") or 1)
         self._cached_crossvenue_ctx_tighten_mult = float(os.getenv("CROSSVENUE_CTX_TIGHTEN_ADD_MULT", "1.0") or 1.0)
         self._cached_crossvenue_ctx_tighten_cap = float(os.getenv("CROSSVENUE_CTX_TIGHTEN_ADD_CAP_BPS", "6.0") or 6.0)
+
+        # Cross-venue autocalibrator reader (adaptive disloc_z / min_agree)
+        # Enabled via AUTOCAL_CROSSVENUE_READ_ENABLED=1 after feed service warms up.
+        try:
+            from core.cross_venue_calib_reader import get_reader as _get_cv_calib_reader
+            self._cv_calib_reader = _get_cv_calib_reader()
+        except Exception:
+            self._cv_calib_reader = None
 
         self._cached_binance_trail_atr_mult = os.getenv("BINANCE_TRAIL_ATR_MULT", "1.0")
         self._cached_range_tp_rr = os.getenv("RANGE_TP_RR", "1.0,1.5")
@@ -443,6 +484,30 @@ class SignalPipeline:
 
     async def _publish_of_inputs(self, *, publisher: AsyncSignalPublisher, enriched_signal: dict[str, Any], symbol: str, path: str) -> None:
         try:
+            # Inject ML training metadata so dataset builder can filter/join correctly.
+            # All setdefault — never overwrites values already present in the signal.
+            enriched_signal.setdefault("feature_schema_version", self.ml_feature_schema_version)
+            _inds = enriched_signal.get("indicators")
+            if isinstance(_inds, dict):
+                # vol_ratio bridge: v14_of schema key vol_ratio maps to vol_ratio_fast_slow
+                _inds.setdefault("vol_ratio", float(_inds.get("vol_ratio_fast_slow") or 0.0))
+                _inds.setdefault("vol_ratio_z", float(_inds.get("sc_vol_ratio_z") or 0.0))
+                # obi bridge: v13/v14_of schema key "obi" maps to payload key "obi_avg"
+                _obi = float(_inds.get("obi_avg") or 0.0)
+                _inds.setdefault("obi", _obi)
+                # pressure bridge: v13/v14_of "pressure" maps to pressure_per_min_ema
+                _pressure = float(_inds.get("pressure_per_min_ema") or 0.0)
+                _inds.setdefault("pressure", _pressure)
+                # pressure_x_obi: interaction term (aggressive flow × book structure alignment)
+                _inds.setdefault("pressure_x_obi", _pressure * _obi)
+                # regime bridge: top-level enriched_signal["regime"] → indicators["regime"]
+                # The top-level is correctly set from runtime.last_regime (via rg_for_overrides at
+                # line ~2701), but indicators["regime"] is only set by the earlier write-back if
+                # the try-block completed before enriched_signal was assembled. Bridge here is safe.
+                if not _inds.get("regime") or _inds.get("regime") in ("na", "NA", None):
+                    _top_regime = (enriched_signal.get("regime") or "").lower().strip()
+                    if _top_regime and _top_regime not in ("na", "unknown", ""):
+                        _inds["regime"] = _top_regime
             await publisher.xadd_json(
                 sink=StreamSink(name=self.of_inputs_stream, field="payload", maxlen=self.of_inputs_stream_maxlen),
                 payload=enriched_signal,
@@ -1000,10 +1065,20 @@ class SignalPipeline:
         if isinstance(dq_flags_val, list):
             flags.extend([str(x) for x in dq_flags_val if x is not None])
 
-        # Additional hints available at publish time
+        # Additional hints available at publish time.
+        # Observe unconditionally for DQ micro calibration (ALL signals, not emit-only).
+        _dq_sym = getattr(runtime, "symbol", "") or ""
         try:
             book_stale_ms = int(micro.get("book_stale_ms") or 0)
-            dq_book_stale_flag_ms = self._cached_dq_book_stale_flag_ms
+            _dq_spread_raw = float(micro.get("spread_bps") or 0.0)
+            if _dq_sym:
+                self._dq_micro_cal.observe(
+                    symbol=_dq_sym, book_stale_ms=book_stale_ms, spread_bps=_dq_spread_raw
+                )
+            dq_book_stale_flag_ms = (
+                self._dq_micro_cal.stale_threshold(_dq_sym)
+                if _dq_sym else self._cached_dq_book_stale_flag_ms
+            )
             if book_stale_ms > dq_book_stale_flag_ms:
                 flags.append("stale_l2")
         except Exception:
@@ -1011,7 +1086,10 @@ class SignalPipeline:
 
         try:
             spread_bps = float(micro.get("spread_bps") or 0.0)
-            dq_spread_wide_flag_bps = self._cached_dq_spread_wide_flag_bps
+            dq_spread_wide_flag_bps = (
+                self._dq_micro_cal.spread_threshold(_dq_sym)
+                if _dq_sym else self._cached_dq_spread_wide_flag_bps
+            )
             if spread_bps > dq_spread_wide_flag_bps:
                 flags.append("wide_spread")
         except Exception:
@@ -1117,6 +1195,7 @@ class SignalPipeline:
             (RK.AUTOCAL_VOL_Z_THR,     self._vol_z_calib,     "load_regime_state"),
             (RK.AUTOCAL_HTF_PROXIMITY, self._htf_prox_calib,  "load_symbol_state"),
             (RK.AUTOCAL_LIQ_WALL,      self._liq_wall_calib,  "load_symbol_state"),
+            (RK.AUTOCAL_DQ_MICRO,      self._dq_micro_cal,    "load_symbol_state"),
         ):
             try:
                 raw_map = rc.hgetall(key)
@@ -1166,6 +1245,13 @@ class SignalPipeline:
             for sym_key in list(self._liq_wall_calib._n.keys()):
                 state = self._liq_wall_calib.dump_symbol_state(symbol=sym_key, updated_ts_ms=now_ms)
                 rc.hset(RK.AUTOCAL_LIQ_WALL, sym_key, _json.dumps(state))
+        except Exception:
+            pass
+        # dq_micro (per symbol)
+        try:
+            for sym_key in list(self._dq_micro_cal._n.keys()):
+                state = self._dq_micro_cal.dump_symbol_state(symbol=sym_key, updated_ts_ms=now_ms)
+                rc.hset(RK.AUTOCAL_DQ_MICRO, sym_key, _json.dumps(state))
         except Exception:
             pass
 
@@ -1285,6 +1371,38 @@ class SignalPipeline:
             self._barrier.observe(symbol=symbol, ts_ms=int(ts_ms), price=float(price))
         except Exception:
             pass
+
+    async def _maybe_refresh_ctx_tighten_caps(self, ctx: Any) -> None:
+        """TTL-cached read of autocal:ctx_tighten:state → update sentiment/defillama cap."""
+        import time as _t
+        now_ms = int(_t.time() * 1000)
+        if now_ms - self._ctx_tighten_autocal_last_ms < self._ctx_tighten_autocal_ttl_ms:
+            return
+        try:
+            import json as _json
+            from core.redis_keys import RK as _RK
+            _redis = getattr(ctx, "redis", None)
+            if _redis is None:
+                return
+            raw = await _redis.get(_RK.AUTOCAL_CTX_TIGHTEN_STATE)
+            if not raw:
+                return
+            state = _json.loads(raw.decode("utf-8") if isinstance(raw, bytes) else raw)
+            sv = int(state.get("schema_version", 0) or 0)
+            if sv < 1:
+                return
+            _s = state.get("sentiment") or {}
+            _d = state.get("defillama") or {}
+            _sc = float(_s.get("cap_bps", 0.0) or 0.0)
+            _dc = float(_d.get("cap_bps", 0.0) or 0.0)
+            if _sc > 0.0:
+                self._cached_sentiment_ctx_tighten_cap = _sc
+            if _dc > 0.0:
+                self._cached_defillama_ctx_tighten_cap = _dc
+        except Exception:
+            pass
+        finally:
+            self._ctx_tighten_autocal_last_ms = now_ms
 
     async def barrier_poll_and_publish(
         self,
@@ -1618,7 +1736,17 @@ class SignalPipeline:
                 if tadd > 0:
                     exp0 = float(indicators.get("expected_slippage_bps", 0.0) or 0.0)
                     indicators["expected_slippage_bps"] = exp0 + tadd
-                    logger.info("⚡ [%s] TIGHTEN (%s): +%.2f bps | reason=%s", 
+                    # Per-gate attribution for ctx_tighten calibrator (P2)
+                    _gate = dec.gate
+                    if _gate == "SentimentContextGate":
+                        indicators["ctx_sentiment_tighten_bps"] = (
+                            indicators.get("ctx_sentiment_tighten_bps", 0.0) or 0.0
+                        ) + tadd
+                    elif _gate == "DefiLlamaContextGate":
+                        indicators["ctx_defillama_tighten_bps"] = (
+                            indicators.get("ctx_defillama_tighten_bps", 0.0) or 0.0
+                        ) + tadd
+                    logger.info("⚡ [%s] TIGHTEN (%s): +%.2f bps | reason=%s",
                                 dec.stage.upper(), symbol, tadd, dec.reason_code)
             return False
 
@@ -1656,6 +1784,10 @@ class SignalPipeline:
                 tighten_cap_bps=self._cached_deriv_ctx_tighten_cap,
             )): return
 
+        # Refresh calibrated caps (TTL-cached, fail-open)
+        if self._ctx_tighten_autocal_enabled:
+            await self._maybe_refresh_ctx_tighten_caps(ctx)
+
         if self._cached_defillama_ctx_enabled:
             if _apply_decision(await self.orchestrator.check_defillama_context(  # type: ignore
                 ctx, kind, side=direction,
@@ -1674,12 +1806,23 @@ class SignalPipeline:
             )): return
 
         if self._cached_crossvenue_ctx_enabled:
+            # Resolve adaptive thresholds from autocalibrator (fail-open to ENV)
+            _cv_sym = str(getattr(ctx, "symbol", "") or "")
+            if self._cv_calib_reader is not None:
+                _cv_disloc_z, _cv_min_agree = self._cv_calib_reader.thresholds_for(
+                    _cv_sym,
+                    default_disloc_z=self._cached_crossvenue_ctx_max_dislocation_z,
+                    default_min_agree=self._cached_crossvenue_ctx_min_agree,
+                )
+            else:
+                _cv_disloc_z  = self._cached_crossvenue_ctx_max_dislocation_z
+                _cv_min_agree = self._cached_crossvenue_ctx_min_agree
             if _apply_decision(await self.orchestrator.check_crossvenue_context(  # type: ignore
                 ctx, kind, direction,
                 profile=self._cached_crossvenue_ctx_profile,
                 max_age_ms=self._cached_crossvenue_ctx_max_age_ms,
-                min_agree=self._cached_crossvenue_ctx_min_agree,
-                max_dislocation_z=self._cached_crossvenue_ctx_max_dislocation_z,
+                min_agree=_cv_min_agree,
+                max_dislocation_z=_cv_disloc_z,
                 max_mid_spread_bps=self._cached_crossvenue_ctx_max_mid_spread_bps,
                 max_stale_count=self._cached_crossvenue_ctx_max_stale_count,
                 tighten_mult=self._cached_crossvenue_ctx_tighten_mult,
@@ -1704,11 +1847,25 @@ class SignalPipeline:
             )): return
 
         if self._cached_flow_tox_enabled:
+            # Per-symbol автокалибровка: читаем committed p95-пороги из Redis снапшота.
+            # Если reader disabled/cold/stale → возвращает (0.0, 0.0) → gate проходит.
+            # ENV-дефолты (0.0) остаются fallback при отключённом reader'е.
+            _ftox_thr_z = self._cached_flow_thr_z
+            _ftox_thr_vpin = self._cached_flow_thr_vpin
+            if self._flow_tox_reader is not None:
+                try:
+                    _cal_z, _cal_vpin = self._flow_tox_reader.get_thresholds(symbol)
+                    if _cal_z > 0.0:
+                        _ftox_thr_z = _cal_z
+                    if _cal_vpin > 0.0:
+                        _ftox_thr_vpin = _cal_vpin
+                except Exception:
+                    pass
             if _apply_decision(self.orchestrator.check_flow_toxicity(  # type: ignore
                 ctx, kind,
                 profile=self._cached_flow_tox_profile,
-                thr_z=self._cached_flow_thr_z,
-                thr_vpin=self._cached_flow_thr_vpin,
+                thr_z=_ftox_thr_z,
+                thr_vpin=_ftox_thr_vpin,
                 thr_is=self._cached_flow_thr_is,
                 thr_imp=self._cached_flow_thr_imp,
                 tighten_mult=self._cached_flow_mult,
@@ -1894,6 +2051,9 @@ class SignalPipeline:
                 or getattr(runtime, "last_regime", "")
                 or "na"
             ).strip().lower()
+            # Write resolved regime back so it appears in the published payload
+            if _raw_regime and _raw_regime != "na":
+                indicators["regime"] = _raw_regime
             _profile_regime_bucket = _regime_group(_raw_regime)
             # Bear trend gets its own profile bucket so the router picks bear_trend_follow_v1
             if "trending_bear" in _raw_regime:
@@ -4187,6 +4347,18 @@ class SignalPipeline:
             stop_dist = _baseline_stop_dist
             indicators['adaptive_sl_applied'] = 0
 
+        # Apply bounded SL floor (pit_priors MAE-percentile) — same logic as signals/risk_levels.py.
+        # Prevents ATR-stale / micro-timeframe SLs from falling below the fee+noise floor.
+        # BOUNDED_SL_ENABLED=1, SHADOW=0 → enforce; fail-open on any error.
+        try:
+            from signals.bounded_sl import apply_bounded_sl_floor
+            _bsl_new, _bsl_meta = apply_bounded_sl_floor(runtime.symbol, entry, stop_dist, cfg)
+            if _bsl_meta.get("applied"):
+                stop_dist = _bsl_new
+                indicators["bounded_sl_applied_pipeline"] = 1
+                indicators["bounded_sl_floor_bps"] = round(float(_bsl_meta.get("mae_floor_bps", 0.0)), 2)
+        except Exception:
+            pass
 
         # Для rocket_v1 и expansion_v1: TP1 = MULT * ATR, остальные TP через RR
         rocket_mult_raw = self._get_rocket_multiplier(runtime.symbol)

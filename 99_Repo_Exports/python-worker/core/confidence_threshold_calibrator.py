@@ -50,6 +50,18 @@ def _safe_int(x: Any, default: int = 0) -> int:
         return default
 
 
+def _safe_float(x: Any, default: float = 0.0) -> float:
+    """Tolerant float parser. Necessary because reliability_calibrator may
+    write fractional counts via HINCRBYFLOAT (IPS weighting). Returns
+    ``default`` on any error — never raises."""
+    try:
+        f = float(x)
+    except (TypeError, ValueError):
+        return default
+    import math as _math
+    return f if _math.isfinite(f) else default
+
+
 def _build_relcal_key(
     prefix: str,
     outcome: str,
@@ -64,12 +76,16 @@ def _build_relcal_key(
     return ":".join([prefix, outcome, kind, symbol, venue, session, tf, regime])
 
 
-def _parse_buckets(hash_data: dict[str, str]) -> dict[int, tuple[int, int]]:
+def _parse_buckets(hash_data: dict[str, str]) -> dict[int, tuple[float, float]]:
     """
     Parse HASH fields {b{bucket}:n → count, b{bucket}:h → hits} into
     dict[bucket_start_int → (n, h)].
+
+    Values are floats so HINCRBYFLOAT-written buckets (from IPS-weighted
+    reliability_calibrator writes) parse correctly. Legacy HINCRBY-written
+    integer fields also parse cleanly into float.
     """
-    buckets: dict[int, tuple[int, int]] = {}
+    buckets: dict[int, tuple[float, float]] = {}
     for k, v in hash_data.items():
         if not k.startswith("b"):
             continue
@@ -81,8 +97,8 @@ def _parse_buckets(hash_data: dict[str, str]) -> dict[int, tuple[int, int]]:
         except ValueError:
             continue
         suffix = k[colon + 1:]
-        n, h = buckets.get(bkt, (0, 0))
-        val = _safe_int(v)
+        n, h = buckets.get(bkt, (0.0, 0.0))
+        val = _safe_float(v)
         if suffix == "n":
             buckets[bkt] = (val, h)
         elif suffix == "h":
@@ -95,7 +111,7 @@ def _invert_curve(
     *,
     target_wr: float,
     min_samples_above: int,
-) -> tuple[float, float, int] | None:
+) -> tuple[float, float, float] | None:
     """
     Invert empirical reliability curve.
 
@@ -103,6 +119,9 @@ def _invert_curve(
     Returns (threshold, hit_rate, n_above) for the smallest bucket T where
     cumulative hit-rate above T >= target_wr AND n_above >= min_samples_above.
     Returns None if no such bucket found.
+
+    n_above is float (effective sample count Σw under IPS weighting); under
+    uniform weight=1.0 it stays integer-valued.
 
     The smallest valid T is chosen so the gate is as permissive as possible
     while still meeting the WR target — avoids over-filtering.
@@ -115,16 +134,16 @@ def _invert_curve(
 
     best_t: float | None = None
     best_hr: float = 0.0
-    best_n: int = 0
+    best_n: float = 0.0
 
-    cum_n = 0
-    cum_h = 0
+    cum_n: float = 0.0
+    cum_h: float = 0.0
 
     for bkt in sorted_bkts:
         n, h = buckets[bkt]
         cum_n += n
         cum_h += h
-        if cum_n < min_samples_above:
+        if cum_n < float(min_samples_above):
             continue
         hit_rate = cum_h / cum_n
         if hit_rate >= target_wr:
@@ -145,7 +164,9 @@ class _BinState:
     min_conf: float = 0.0           # committed (enforced) threshold; 0 = not yet set
     shadow_min_conf: float = 0.0    # latest proposal regardless of enforce
     shadow_hit_rate: float = 0.0    # realized WR at shadow threshold
-    shadow_n_above: int = 0         # samples above shadow threshold
+    # Effective sample count above shadow threshold (Σw). Integer-valued
+    # under uniform weight=1.0; float under IPS weighting.
+    shadow_n_above: float = 0.0
     last_apply_sec: float = 0.0     # wall time of last committed update
     n_commits: int = 0              # total committed updates
     cache_expires_sec: float = 0.0  # when to re-read Redis for this cluster

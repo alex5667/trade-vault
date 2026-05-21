@@ -327,6 +327,39 @@ class TradeClosed:
     atr_sel_src: str = ""
     atr_sel_age_ms: int = 0
 
+    # -------------------------------------------------------------------------
+    # Horizon-aware ATR scalars (stamped from PositionState by
+    # stamp_closed_trade_horizon_from_position). Without these slots on the
+    # slots=True dataclass, setattr silently fails.
+    # -------------------------------------------------------------------------
+    contract_ver: int = 0
+    hold_target_ms: int = 0
+    alpha_half_life_ms: int = 0
+    max_signal_age_ms: int = 0
+    risk_horizon_bucket: str = ""
+    horizon_profile_source: str = ""
+    horizon_profile_conf: float = 0.0
+    horizon_reason_code: str = ""
+    atr_mode: str = ""
+    atr_value: float = 0.0
+    atr_tf_ms: int = 0
+    atr_window_n: int = 0
+    atr_age_ms: int = 0
+    atr_source: str = ""
+    atr_pct: float = 0.0
+    vol_ratio_fast_slow: float = 1.0
+    vol_ratio_z: float = 0.0
+    atr_regime_value: float = 0.0
+    atr_trail_value: float = 0.0
+    atr_regime_tf_ms: int = 0
+    atr_trail_tf_ms: int = 0
+
+    # Trailing surface A/B (set in trade_monitor close path)
+    trailing_surface_applied: bool = False
+    trailing_surface_reason_code: str = ""
+    baseline_trailing_offset_atr: float = 0.0
+    selected_trailing_offset_atr: float = 0.0
+
     # P41 Native Meta Fields
     meta_enforce_cov_bucket: str = ""
     meta_enforce_applied: int = -1

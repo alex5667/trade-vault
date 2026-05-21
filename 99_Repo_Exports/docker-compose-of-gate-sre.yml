@@ -28,7 +28,7 @@ services:
       \   echo \\\"[OF-GATE-SRE] Redis not ready, retry (max 12)...\\\"\n    sleep\
       \ 5\n  done\n\n  while true; do\n    M=`date +%M`\n    H=`date +%H`\n\n    #\
       \ SRE monitor: 00, 10, 20, 30, 40, 50\n    case \"$$M\" in 00|10|20|30|40|50)\
-      \ python -m tools.of_gate_sre_monitor --window-min 10 --always 0 || echo 'SRE\
+      \ python -m tools.of_gate_sre_monitor --window-min 30 --always 0 || echo 'SRE\
       \ monitor failed' ;; esac\n\n    # Latency benchmark: 05, 35\n    case \"$$M\"\
       \ in 05|35) python -m tools.bench_of_gate_latency --window-min 60 --out /var/lib/trade/of_bench/latency_bench_last.json\
       \ || echo 'Benchmark failed' ;; esac\n    \n    # Nightly tasks\n    if [ \"\

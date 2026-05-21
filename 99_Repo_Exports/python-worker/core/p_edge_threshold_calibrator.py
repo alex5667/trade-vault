@@ -88,13 +88,26 @@ def _quantile(xs: list[float], q: float) -> float:
     return a[lo] * (1.0 - w) + a[hi] * w
 
 
+# Re-exported from `core.weighted_stats` so existing imports remain stable.
+# See that module for the Type-7 weighted quantile implementation.
+from core.weighted_stats import weighted_quantile as _weighted_quantile  # noqa: E402
+
+
 @dataclass
 class _Sample:
-    """Single observed closed trade: (p_edge, r_multiple, win, ts_ms)."""
+    """Single observed closed trade: (p_edge, r_multiple, win, ts_ms, weight).
+
+    `weight` ∈ [0, 1] is the outcome-reliability weight from
+    `core.reject_reason_weights.weight_for_reason(v_gate_reason)`. Defaults to
+    1.0 (passed real trade or weighting disabled) for back-compat — callers
+    that don't pass weight produce identical behaviour to the pre-weight code
+    path.
+    """
     p: float
     r: float
     win: int  # 1 for WIN, 0 for LOSS, -1 for BE (excluded from EV math)
     ts_ms: int
+    w: float = 1.0
 
 
 # (symbol, regime, kind, direction) — '*' is the aggregated wildcard.
@@ -186,6 +199,7 @@ class PEdgeThresholdCalibrator:
         result: str,
         ts_ms: int,
         direction: str = "*",
+        weight: float = 1.0,
     ) -> None:
         """Append a closed-trade outcome to all relevant aggregated bins.
 
@@ -195,6 +209,12 @@ class PEdgeThresholdCalibrator:
         sample is recorded BOTH in the direction-specific bin AND in the
         direction="*" aggregate bin so the legacy 3D-fallback path keeps
         working unchanged.
+
+        `weight` (IPS-style outcome reliability ∈ [0, 1]) — derived from the
+        trade's gate reject_reason via `core.reject_reason_weights`. Defaults
+        to 1.0 (passed real trade or weighting disabled) — back-compat with
+        pre-weight callers. Out-of-domain weights are clipped to [0, 1]; a
+        weight of 0 means the sample is fully discarded.
 
         Boundary cast — any non-finite or out-of-domain input is silently
         dropped; calibrator must not crash on dirty inputs from upstream.
@@ -213,12 +233,23 @@ class PEdgeThresholdCalibrator:
             return
         win = 1 if res_u == "WIN" else (0 if res_u == "LOSS" else -1)
 
+        # Clip weight into [0, 1]. Zero → silently discard the sample so
+        # callers don't need to special-case it.
+        try:
+            w = float(weight)
+        except (TypeError, ValueError):
+            w = 1.0
+        if not math.isfinite(w) or w <= 0.0:
+            return
+        if w > 1.0:
+            w = 1.0
+
         sym = (symbol or "*").upper()
         reg = (regime or "*").lower()
         knd = (kind or "*").lower()
         dir_norm = _norm_direction(direction)
 
-        sample = _Sample(p=p, r=r, win=win, ts_ms=int(ts_ms))
+        sample = _Sample(p=p, r=r, win=win, ts_ms=int(ts_ms), w=w)
 
         # Wildcard-direction bins — always populated regardless of side, so the
         # legacy 3D fallback path (direction="*") receives every sample.
@@ -433,26 +464,33 @@ class PEdgeThresholdCalibrator:
             return
 
         # ----- grid search: smallest τ where mean_R ≥ target AND n_kept ok
+        # `min_kept_trades` is interpreted as EFFECTIVE sample count when
+        # weights are in play — sum of weights above τ must clear the bar.
+        # For all-weight=1.0 (default / disabled) this is identical to count.
         chosen: float = 0.0
         chosen_ev: float = 0.0
         chosen_n: int = 0
         for tau in self.tau_grid:
-            kept_r = [s.r for s in eligible if s.p >= tau]
-            n_kept = len(kept_r)
-            if n_kept < self.min_kept_trades:
+            kept = [(s.r, s.w) for s in eligible if s.p >= tau]
+            n_kept_eff = sum(w for _r, w in kept)
+            if n_kept_eff < float(self.min_kept_trades):
                 continue
-            mean_r = sum(kept_r) / n_kept
+            mean_r = sum(r * w for r, w in kept) / n_kept_eff
             if mean_r >= self.target_ev_r:
                 chosen = tau
                 chosen_ev = mean_r
-                chosen_n = n_kept
+                chosen_n = int(n_kept_eff)
                 break  # smallest τ satisfying constraint
 
         # ----- conformal floor on LOSS-only p_edge --------------------------
-        loss_p = [s.p for s in eligible if s.win == 0]
+        # Weighted quantile over LOSS-only samples so high-reliability losses
+        # (real passed trades) dominate the floor over noisy environment-veto
+        # losses (freeze, DQ failures, …).
+        loss_pw = [(s.p, s.w) for s in eligible if s.win == 0]
+        loss_eff = sum(w for _p, w in loss_pw)
         tau_cf = 0.0
-        if len(loss_p) >= self.conformal_min_losses:
-            tau_cf = _quantile(loss_p, 1.0 - self.conformal_alpha)
+        if loss_eff >= float(self.conformal_min_losses):
+            tau_cf = _weighted_quantile(loss_pw, 1.0 - self.conformal_alpha)
 
         # Combine: if grid found nothing, fall back to max(cf, default_floor).
         if chosen <= 0.0:

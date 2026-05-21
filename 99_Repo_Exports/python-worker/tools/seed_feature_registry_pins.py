@@ -30,6 +30,9 @@ import subprocess
 import sys
 
 
+# Current prod+canary default. On v14→v15 transition:
+#   change to ("v14_of", "v15_of") and run `make seed-registry-pins`
+# Or use `make transition-to-v15of` for the full guided procedure.
 _DEFAULT_SCHEMAS = ("v13_of", "v14_of")
 _DEFAULT_PREFIX = "cfg:feature_registry:edge_stack:"
 

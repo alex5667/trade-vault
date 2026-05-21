@@ -420,7 +420,16 @@ def save_trade_closed(closed: TradeClosed) -> None:  # type: ignore
             atr_policy_ver, atr_policy_tag, atr_policy_source, atr_policy_scenario,
             atr_policy_regime, atr_policy_bucket, atr_stop_ttl_mode, atr_trailing_mode,
             atr_recovery_run_id, atr_restore_cert_id, atr_restore_cert_status,
-            atr_policy_snapshot_json
+            atr_policy_snapshot_json,
+            atr_sel_tf, atr_sel_src, atr_sel_age_ms,
+            trailing_surface_applied, trailing_surface_reason_code,
+            baseline_trailing_offset_atr, selected_trailing_offset_atr,
+            strong_gate_ok,
+            contract_ver, hold_target_ms, alpha_half_life_ms, max_signal_age_ms,
+            risk_horizon_bucket, horizon_profile_source, horizon_profile_conf, horizon_reason_code,
+            atr_mode, atr_value, atr_window_n, atr_age_ms, atr_source, atr_pct,
+            vol_ratio_fast_slow, vol_ratio_z,
+            atr_regime_value, atr_trail_value, atr_regime_tf_ms, atr_trail_tf_ms
         ) VALUES (
             %s, %s, %s, %s, %s, %s, %s,
             %s, %s, %s, %s, %s, %s,
@@ -446,7 +455,16 @@ def save_trade_closed(closed: TradeClosed) -> None:  # type: ignore
             %s, %s, %s, %s,
             %s, %s, %s, %s,
             %s, %s, %s,
-            %s
+            %s,
+            %s, %s, %s,
+            %s, %s,
+            %s, %s,
+            %s,
+            %s, %s, %s, %s,
+            %s, %s, %s, %s,
+            %s, %s, %s, %s, %s, %s,
+            %s, %s,
+            %s, %s, %s, %s
         )
         ON CONFLICT (order_id) DO UPDATE SET
             exit_ts_ms = CASE
@@ -572,8 +590,22 @@ def save_trade_closed(closed: TradeClosed) -> None:  # type: ignore
     except Exception:
         pass
 
+    # Copy indicators/atr_metrics/meta from signal_payload so generated columns
+    # (ind_delta_z, ind_weak_progress, ind_atr_th_bps) receive data for all paths.
+    for _sp_key in ("indicators", "atr_metrics", "metrics", "meta"):
+        if _sp_key in signal_payload and signal_payload[_sp_key] is not None:
+            config_snapshot.setdefault(_sp_key, signal_payload[_sp_key])
+
     config_snapshot = _sanitize_floats(config_snapshot)
     horizon_contract = _sanitize_floats(horizon_contract)
+
+    # Extract strong_gate_ok from signal indicators (same logic as batch_trade_writer)
+    _ind = (signal_payload.get("indicators") or {})
+    _sgo_raw = _ind.get("strong_gate_ok", _ind.get("of_confirm_ok", None))
+    try:
+        _strong_gate_ok = bool(int(_sgo_raw)) if _sgo_raw is not None else None
+    except (ValueError, TypeError):
+        _strong_gate_ok = None
 
     params = (
         closed.order_id, closed.sid, closed.strategy, closed.source, closed.symbol, closed.tf, closed.direction,
@@ -628,7 +660,39 @@ def save_trade_closed(closed: TradeClosed) -> None:  # type: ignore
         getattr(closed, "atr_recovery_run_id", ""),
         getattr(closed, "atr_restore_cert_id", ""),
         getattr(closed, "atr_restore_cert_status", ""),
-        Json(_sanitize_floats(getattr(closed, "atr_policy_snapshot_json", {}))) if Json is not None else _sanitize_floats(getattr(closed, "atr_policy_snapshot_json", {}))
+        Json(_sanitize_floats(getattr(closed, "atr_policy_snapshot_json", {}))) if Json is not None else _sanitize_floats(getattr(closed, "atr_policy_snapshot_json", {})),
+        # ATR selector (already slots in TradeClosed, set by domain/handlers.py)
+        getattr(closed, "atr_sel_tf", ""),
+        getattr(closed, "atr_sel_src", ""),
+        getattr(closed, "atr_sel_age_ms", 0),
+        # Trailing surface A/B
+        getattr(closed, "trailing_surface_applied", False),
+        getattr(closed, "trailing_surface_reason_code", "") or "",
+        getattr(closed, "baseline_trailing_offset_atr", 0.0),
+        getattr(closed, "selected_trailing_offset_atr", 0.0),
+        # Gate signal
+        _strong_gate_ok,
+        # Horizon scalars (stamped from PositionState; new TradeClosed slots fix the slots=True barrier)
+        getattr(closed, "contract_ver", 0) or 0,
+        getattr(closed, "hold_target_ms", 0) or 0,
+        getattr(closed, "alpha_half_life_ms", 0) or 0,
+        getattr(closed, "max_signal_age_ms", 0) or 0,
+        getattr(closed, "risk_horizon_bucket", "") or "",
+        getattr(closed, "horizon_profile_source", "") or "",
+        getattr(closed, "horizon_profile_conf", 0.0),
+        getattr(closed, "horizon_reason_code", "") or "",
+        getattr(closed, "atr_mode", "") or "",
+        getattr(closed, "atr_value", 0.0) or getattr(closed, "atr", 0.0),
+        getattr(closed, "atr_window_n", 0) or 0,
+        getattr(closed, "atr_age_ms", 0) or 0,
+        getattr(closed, "atr_source", "") or "",
+        getattr(closed, "atr_pct", 0.0),
+        getattr(closed, "vol_ratio_fast_slow", 1.0),
+        getattr(closed, "vol_ratio_z", 0.0),
+        getattr(closed, "atr_regime_value", 0.0),
+        getattr(closed, "atr_trail_value", 0.0),
+        getattr(closed, "atr_regime_tf_ms", 0) or 0,
+        getattr(closed, "atr_trail_tf_ms", 0) or 0,
     )
 
     # ---- P0 extraction (robust fallbacks) ----

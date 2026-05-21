@@ -3732,6 +3732,8 @@ class TradeMonitorService:
                 # ---------------------------------------------------------------------
                 with contextlib.suppress(Exception):
                     attach_timebucket_snapshots_to_closed(pos, closed)  # type: ignore
+                with contextlib.suppress(Exception):
+                    stamp_closed_trade_horizon_from_position(pos, closed)
 
                 # Явно помечаем "почему" — чтобы фильтровать в репортах/аналитике
                 with contextlib.suppress(Exception):
@@ -4409,6 +4411,9 @@ class TradeMonitorService:
                         except Exception:
                             pass
 
+                    with contextlib.suppress(Exception):
+                        stamp_closed_trade_horizon_from_position(pos, closed)
+
                     # IO steps for close (repo + analytics + stats)
                     hs = {}
                     try:
@@ -4861,6 +4866,9 @@ class TradeMonitorService:
             except Exception:
                 hs = {}
   # type: ignore
+            with contextlib.suppress(Exception):
+                stamp_closed_trade_horizon_from_position(pos, closed)
+
             # --- Cleanup service in-memory indexes under _lock ---
             with self._lock:
                 self._pop_pos(pos.id)
@@ -5193,6 +5201,9 @@ class TradeMonitorService:
             except Exception:
                 hs = {}
   # type: ignore
+            with contextlib.suppress(Exception):
+                stamp_closed_trade_horizon_from_position(pos, closed)
+
             # Cleanup indexes under _lock
             with self._lock:
                 self._pop_pos(pos.id)

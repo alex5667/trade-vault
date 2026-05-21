@@ -111,6 +111,9 @@ class L2ConfirmBreakout:
     """
     Breakout подтверждение по L2 без зависимости от handler.
     Возвращает (ok, details).
+
+    Опционально: calibrator (ConfirmationBarrierCalibrator) для online-наблюдения OBI
+    при каждом ok=True; reader (ConfirmationBarrierReader) для адаптивного порога.
     """
 
     def __init__(
@@ -119,16 +122,25 @@ class L2ConfirmBreakout:
         cfg: L2ConfirmCfg,
         get_snapshot: Callable[[Any], L2Snapshot | None],
         get_snapshot_ts_ms: Callable[[Any], int | None],
+        calibrator: Any = None,
+        reader: Any = None,
     ) -> None:
         self.cfg = cfg
         self._get_snapshot = get_snapshot
         self._get_snapshot_ts_ms = get_snapshot_ts_ms
+        self._calibrator = calibrator   # ConfirmationBarrierCalibrator | None
+        self._reader = reader           # ConfirmationBarrierReader | None
 
     # ---- экстракторы по умолчанию (без зависимости от хендлера) ----
     @staticmethod
     def default_get_snapshot(ctx: Any) -> L2Snapshot | None:
         # распространенные имена полей: l2_snapshot, l2, orderbook, book, l2_book
-        snap = getattr(ctx, "l2_snapshot", None) or getattr(ctx, "l2", None) or getattr(ctx, "orderbook", None) or getattr(ctx, "book", None)
+        snap = (
+            getattr(ctx, "l2_snapshot", None)
+            or getattr(ctx, "l2", None)
+            or getattr(ctx, "orderbook", None)
+            or getattr(ctx, "book", None)
+        )
         return snap if isinstance(snap, L2Snapshot) else None
 
     @staticmethod
@@ -190,10 +202,18 @@ class L2ConfirmBreakout:
                     details["reason"] = "bid_wall_near"
                     return False, details
 
+        # Адаптивный порог из reader (enforce=True) или hardcoded default.
+        imb_min = float(self.cfg.breakout_imbalance_min or 1.0)
+        if self._reader is not None:
+            _sym = getattr(ctx, "symbol", "") or ""
+            try:
+                imb_min = float(self._reader.threshold_for(_sym, "breakout"))
+            except Exception:
+                pass
+
         # Правило дисбаланса:
         #   пробой вверх: биды доминируют над асками (поддержка / лифт)
         #   пробой вниз: аски доминируют над бидами (давление / удар)
-        imb_min = float(self.cfg.breakout_imbalance_min or 1.0)
         if dir_up:
             imb = _ratio(bid_not, ask_not)
         else:
@@ -205,6 +225,15 @@ class L2ConfirmBreakout:
             return False, details
 
         details["ok"] = True
+
+        # Наблюдение для calibrator: записываем OBI при каждом ok=True
+        if self._calibrator is not None:
+            _sym = getattr(ctx, "symbol", "") or ""
+            try:
+                self._calibrator.observe(_sym, "breakout", imb, int(ts_now) if ts_now > 0 else 0)
+            except Exception:
+                pass
+
         return True, details
 
 
@@ -212,6 +241,8 @@ class L2ConfirmAbsorption:
     """
     Absorption подтверждение по L2 без зависимости от handler.
     Возвращает (ok, details).
+
+    Опционально: calibrator и reader — см. L2ConfirmBreakout.
     """
 
     def __init__(
@@ -220,14 +251,23 @@ class L2ConfirmAbsorption:
         cfg: L2ConfirmCfg,
         get_snapshot: Callable[[Any], L2Snapshot | None],
         get_snapshot_ts_ms: Callable[[Any], int | None],
+        calibrator: Any = None,
+        reader: Any = None,
     ) -> None:
         self.cfg = cfg
         self._get_snapshot = get_snapshot
         self._get_snapshot_ts_ms = get_snapshot_ts_ms
+        self._calibrator = calibrator
+        self._reader = reader
 
     @staticmethod
     def default_get_snapshot(ctx: Any) -> L2Snapshot | None:
-        snap = getattr(ctx, "l2_snapshot", None) or getattr(ctx, "l2", None) or getattr(ctx, "orderbook", None) or getattr(ctx, "book", None)
+        snap = (
+            getattr(ctx, "l2_snapshot", None)
+            or getattr(ctx, "l2", None)
+            or getattr(ctx, "orderbook", None)
+            or getattr(ctx, "book", None)
+        )
         return snap if isinstance(snap, L2Snapshot) else None
 
     @staticmethod
@@ -273,10 +313,18 @@ class L2ConfirmAbsorption:
             details["reason"] = "too_thin_book"
             return False, details
 
+        # Адаптивный порог из reader
+        imb_min = float(self.cfg.absorption_imbalance_min or 1.0)
+        if self._reader is not None:
+            _sym = getattr(ctx, "symbol", "") or ""
+            try:
+                imb_min = float(self._reader.threshold_for(_sym, "absorption"))
+            except Exception:
+                pass
+
         # Абсорбция — это «затухание» импульса:
         #   импульс вверх (dir_up=True) => хотим, чтобы аски доминировали над бидами (стена продаж / рефилл)
         #   импульс вниз => хотим, чтобы биды доминировали над асками.
-        imb_min = float(self.cfg.absorption_imbalance_min or 1.0)
         if dir_up:
             imb = _ratio(ask_not, bid_not)
         else:
@@ -288,4 +336,13 @@ class L2ConfirmAbsorption:
             return False, details
 
         details["ok"] = True
+
+        # Наблюдение для calibrator
+        if self._calibrator is not None:
+            _sym = getattr(ctx, "symbol", "") or ""
+            try:
+                self._calibrator.observe(_sym, "absorption", imb, int(ts_now) if ts_now > 0 else 0)
+            except Exception:
+                pass
+
         return True, details

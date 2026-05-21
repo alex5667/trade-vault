@@ -119,6 +119,69 @@ def test_dn_calib_persistence_with_how():
     assert "test" in calib2._global_liq
     assert "test" in calib2._bucket_liq
 
+def test_dn_calib_selection_bias_fix():
+    """Prove that training on all events (not just gate-passers) avoids threshold drift.
+
+    Without the fix: calibrator sees only delta_usd > tier0, so p50 of the
+    training set converges to ~p75 of the full distribution → threshold inflates
+    → more events get vetoed → threshold inflates further (positive feedback).
+
+    With the fix: calibrator sees the full distribution → p50 stays at true p50.
+    """
+    import random
+    random.seed(42)
+
+    # True distribution: uniform [1000, 9000] → true p50 ≈ 5000
+    population = [float(random.randint(1000, 9000)) for _ in range(2000)]
+    true_p50 = sorted(population)[len(population) // 2]  # ≈ 5000
+
+    # --- Biased calibrator: trained only on events that passed (delta_usd > threshold) ---
+    biased = DeltaNotionalCalibrator(min_samples=100)
+    threshold = 5000.0  # initial static tier0
+    for v in population:
+        if v > threshold:  # simulate old gate: update only on pass
+            biased.update(regime="na", dn_usd=v)
+    biased_tiers = biased.tiers(regime="na", default_t0=threshold, default_t1=7000, default_t2=9000)
+    # Biased p50 should be significantly above true p50 (~p75 of [5001..9000] ≈ 7000)
+    assert biased_tiers.tier0_usd > true_p50 * 1.2, (
+        f"Biased calibrator should overestimate p50: got {biased_tiers.tier0_usd:.0f}, true p50={true_p50:.0f}"
+    )
+
+    # --- Unbiased calibrator: trained on ALL events (the fix) ---
+    unbiased = DeltaNotionalCalibrator(min_samples=100)
+    for v in population:
+        unbiased.update(regime="na", dn_usd=v)  # no gate filter
+    unbiased_tiers = unbiased.tiers(regime="na", default_t0=threshold, default_t1=7000, default_t2=9000)
+    # Unbiased p50 should be within 15% of true p50
+    assert abs(unbiased_tiers.tier0_usd - true_p50) / true_p50 < 0.15, (
+        f"Unbiased calibrator p50={unbiased_tiers.tier0_usd:.0f} should be near true p50={true_p50:.0f}"
+    )
+
+
+def test_dn_calib_min_usd_floor():
+    """dn_calib_min_usd=500 excludes sub-threshold noise from calibration."""
+    calib_with_floor = DeltaNotionalCalibrator(min_samples=5)
+    calib_without_floor = DeltaNotionalCalibrator(min_samples=5)
+
+    noise_events = [10.0, 50.0, 100.0, 200.0, 400.0]
+    signal_events = [1000.0, 2000.0, 3000.0, 4000.0, 5000.0, 6000.0]
+
+    min_usd = 500.0
+
+    for v in noise_events + signal_events:
+        if v > min_usd:  # simulates dn_calib_min_usd floor in tick_decision_engine
+            calib_with_floor.update(regime="na", dn_usd=v)
+        calib_without_floor.update(regime="na", dn_usd=v)
+
+    tiers_floor = calib_with_floor.tiers(regime="na", default_t0=100, default_t1=200, default_t2=500)
+    tiers_no_floor = calib_without_floor.tiers(regime="na", default_t0=100, default_t1=200, default_t2=500)
+
+    # With floor: noise excluded → p50 reflects only signal events
+    assert tiers_floor.tier0_usd > min_usd
+    # Without floor: noise pulls p50 down
+    assert tiers_no_floor.tier0_usd < tiers_floor.tier0_usd
+
+
 def test_hour_of_week_utc():
     """Test hour_of_week_utc function."""
     # Monday 10:00 UTC (weekday 0, hour 10 -> how=10)

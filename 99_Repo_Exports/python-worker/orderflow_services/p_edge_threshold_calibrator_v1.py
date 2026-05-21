@@ -38,6 +38,11 @@ ENV
   P_EDGE_CAL_REPORT_SEC         (default 600 — counterfactual report interval)
   P_EDGE_CAL_REPORTS_DIR        (default /var/lib/trade/of_reports)
   P_EDGE_CAL_DEFAULT_P_MIN      (default 0.55 — matches EDGE_EV_P_MIN)
+
+Reject-reason weighting (IPS-style outcome reliability):
+  REJECT_REASON_WEIGHTS_ENABLED (default 0 — back-compat; every sample w=1.0)
+  REJECT_REASON_WEIGHTS_JSON    optional override of `core.reject_reason_weights.DEFAULT_WEIGHTS`
+  See `core/reject_reason_weights.py` for full taxonomy and rationale.
 """
 from __future__ import annotations
 
@@ -58,6 +63,11 @@ from core.p_edge_threshold_calibrator import (
 )
 from core.redis_client import get_redis
 from core.redis_keys import RK, RS
+from core.reject_reason_weights import (
+    is_enabled as reject_weights_enabled,
+    reason_family,
+    weight_for_reason,
+)
 
 logger = logging.getLogger("p-edge-cal")
 
@@ -143,15 +153,31 @@ def _counter(name: str, doc: str, labels: list[str]) -> Counter:
 
 
 def _realized_ev_at_threshold(
-    samples: list[tuple[float, float, int]],
+    samples: list[tuple[float, float, int]] | list[tuple[float, float, int, float]],
     tau: float,
 ) -> tuple[float, int]:
-    """For (p, r, win) triples (win ∈ {0,1}; BE excluded by caller), return
-    (mean_R_above_tau, n_kept)."""
-    kept = [r for (p, r, _w) in samples if p >= tau]
+    """For (p, r, win[, weight]) tuples (win ∈ {0,1}; BE excluded by caller),
+    return (mean_R_above_tau, n_kept).
+
+    Accepts both legacy 3-tuples and 4-tuples with an explicit IPS weight —
+    when weight is omitted (3-tuple) each sample is treated as weight=1.0, so
+    the result is identical to the pre-weighting code path.
+    """
+    kept: list[tuple[float, float]] = []
+    for tup in samples:
+        if len(tup) >= 4:
+            p, r, _win, w = tup[0], tup[1], tup[2], tup[3]  # type: ignore[misc]
+        else:
+            p, r, _win = tup[0], tup[1], tup[2]
+            w = 1.0
+        if p >= tau:
+            kept.append((r, w))
     if not kept:
         return (float("nan"), 0)
-    return (sum(kept) / len(kept), len(kept))
+    total_w = sum(w for _r, w in kept)
+    if total_w <= 0.0:
+        return (float("nan"), 0)
+    return (sum(r * w for r, w in kept) / total_w, int(total_w))
 
 
 def _build_counterfactual_report(
@@ -164,8 +190,10 @@ def _build_counterfactual_report(
     out_bins: list[dict[str, Any]] = []
     for (sym, reg, knd, drc), b in cal.bins.items():
         # Snapshot eligible samples (exclude BE — same rule as calibrator).
+        # Tuple is (p, r, win, weight) so the report uses the same weighted EV
+        # math as the live calibrator (`_maybe_recompute`).
         eligible = [
-            (s.p, s.r, s.win) for s in b.buf if s.win != -1
+            (s.p, s.r, s.win, s.w) for s in b.buf if s.win != -1
         ]
         committed_ev, committed_n = _realized_ev_at_threshold(eligible, b.p_min if b.p_min > 0 else default_tau)
         shadow_ev, shadow_n = _realized_ev_at_threshold(eligible, b.shadow_p_min if b.shadow_p_min > 0 else default_tau)
@@ -265,6 +293,18 @@ def main() -> None:  # pragma: no cover — integration entrypoint
     c_skip = _counter("p_edge_cal_skipped_total", "Trades skipped", ["reason"])
     c_snap = _counter("p_edge_cal_snapshots_total", "Snapshot publishes", ["outcome"])
     c_report = _counter("p_edge_cal_reports_total", "Counterfactual reports written", ["outcome"])
+    # IPS-weighting telemetry — bounded cardinality by `reason_family()`.
+    c_reason = _counter(
+        "p_edge_cal_input_by_reason_family_total",
+        "Trades observed per reject_reason family (after IPS weighting policy)",
+        ["family"],
+    )
+    g_weights_on = _gauge(
+        "p_edge_cal_reject_weights_enabled",
+        "1 if REJECT_REASON_WEIGHTS_ENABLED=1, else 0 (every sample w=1.0)",
+        [],
+    )
+    g_weights_on.set(1.0 if reject_weights_enabled() else 0.0)
 
     g_up.set(1)
     g_enforce.set(1.0 if enforce else 0.0)
@@ -368,6 +408,21 @@ def main() -> None:  # pragma: no cover — integration entrypoint
                         )
                         ts_close = int(_safe_float(fields.get("ts_close"), default=now_ms))
 
+                        # IPS-style outcome-reliability weight derived from the
+                        # gate reject_reason recorded at signal time.
+                        # `v_gate_reason` is written by trade_monitor.on_audit
+                        # (see infra/redis_repo.py:1216) — empty / "OK" /
+                        # "passed" all map to weight=1.0. When
+                        # REJECT_REASON_WEIGHTS_ENABLED=0 every weight=1.0,
+                        # preserving pre-weighting behaviour exactly.
+                        v_gate_reason = (
+                            fields.get("v_gate_reason", "")
+                            or fields.get("reject_reason", "")
+                            or ""
+                        )
+                        w = weight_for_reason(v_gate_reason)
+                        fam = reason_family(v_gate_reason)
+
                         cal.observe(
                             symbol=symbol,
                             regime=regime,
@@ -377,8 +432,10 @@ def main() -> None:  # pragma: no cover — integration entrypoint
                             result=result,
                             ts_ms=ts_close,
                             direction=direction,
+                            weight=w,
                         )
                         c_obs.labels(result=result).inc()
+                        c_reason.labels(family=fam).inc()
                     except Exception as e:  # noqa: BLE001
                         c_skip.labels(reason="exception").inc()
                         logger.warning("observe failed for %s: %s", msg_id, e)

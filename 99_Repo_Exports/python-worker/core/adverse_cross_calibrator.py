@@ -42,6 +42,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from core.quantile_p2 import P2Quantile
+from core.weighted_stats import weighted_quantile
 
 # ── hard rails ──────────────────────────────────────────────────────────────
 CROSS_BPS_FLOOR: float = 0.05   # below this: rounding noise / no real cross
@@ -119,8 +120,11 @@ class AdverseCrossCalibrator:
         # total observation count (cross_bps > FLOOR only)
         self._n: dict[str, int] = {}
 
-        # precision-on-loss ring buffer: deque of (cross_bps, is_loss) per regime
-        self._outcomes: dict[str, deque[tuple[float, bool]]] = {}
+        # precision-on-loss ring buffer: deque of (cross_bps, is_loss, weight)
+        # per regime. `weight` ∈ (0, 1] is the IPS-style outcome-reliability
+        # weight from `core.reject_reason_weights`. Legacy 2-tuple snapshots
+        # are tolerated via load_regime_state (assumed weight=1.0).
+        self._outcomes: dict[str, deque[tuple[float, bool, float]]] = {}
 
         # shadow proposals (always computed, even in shadow mode)
         self._shadow: dict[str, AdverseCrossThresholds] = {}
@@ -144,7 +148,12 @@ class AdverseCrossCalibrator:
         self._n[r] = self._n.get(r, 0) + 1
 
     def observe_outcome(
-        self, *, regime: str, cross_bps: float, is_loss: bool
+        self,
+        *,
+        regime: str,
+        cross_bps: float,
+        is_loss: bool,
+        weight: float = 1.0,
     ) -> None:
         """
         Optional: feed a closed-trade outcome to compute precision-on-loss floor.
@@ -152,10 +161,15 @@ class AdverseCrossCalibrator:
         regime:    same key as passed to observe().
         cross_bps: adverse cross bps at decision time (or 0 if unavailable).
         is_loss:   True if the trade was a loss (pnl < 0).
+        weight:    IPS-style outcome-reliability ∈ [0, 1] from
+                   `core.reject_reason_weights.weight_for_reason(v_gate_reason)`.
+                   Default 1.0 — back-compat with pre-weighting callers.
+                   Out-of-domain weights are clipped to [0, 1]; weight=0 silently
+                   discards the sample.
 
         Feed this from a trades:closed consumer whenever the adverse cross was
-        recorded in the decision context. Requires outcome_min_losses samples
-        in the LOSS subset to activate the loss floor.
+        recorded in the decision context. Requires outcome_min_losses (effective)
+        samples in the LOSS subset to activate the loss floor.
         """
         r = (regime or "na").lower()
         try:
@@ -165,11 +179,20 @@ class AdverseCrossCalibrator:
         if not math.isfinite(cb) or cb < 0.0:
             return
 
+        try:
+            w = float(weight)
+        except (TypeError, ValueError):
+            w = 1.0
+        if not math.isfinite(w) or w <= 0.0:
+            return
+        if w > 1.0:
+            w = 1.0
+
         buf = self._outcomes.get(r)
         if buf is None:
             buf = deque(maxlen=self.outcome_max_buf)
             self._outcomes[r] = buf
-        buf.append((cb, is_loss))
+        buf.append((cb, bool(is_loss), w))
 
     def thresholds(
         self,
@@ -225,7 +248,9 @@ class AdverseCrossCalibrator:
             "q90": (self._q90[r].to_state() if r in self._q90 else None),
             "q98": (self._q98[r].to_state() if r in self._q98 else None),
             "outcomes": (
-                [(cb, il) for cb, il in self._outcomes[r]]
+                # v2 snapshot: (cb, is_loss, weight). Legacy v1 (cb, is_loss)
+                # is accepted by load_regime_state with weight defaulted to 1.0.
+                [list(entry) for entry in self._outcomes[r]]
                 if r in self._outcomes
                 else []
             ),
@@ -246,13 +271,20 @@ class AdverseCrossCalibrator:
                     getattr(self, attr)[r] = P2Quantile.from_state(raw)
             raw_out = state.get("outcomes")
             if isinstance(raw_out, list):
-                buf: deque[tuple[float, bool]] = deque(
+                buf: deque[tuple[float, bool, float]] = deque(
                     maxlen=self.outcome_max_buf
                 )
                 for entry in raw_out:
                     try:
-                        cb, il = float(entry[0]), bool(int(entry[1]))
-                        buf.append((cb, il))
+                        cb = float(entry[0])
+                        il = bool(int(entry[1]))
+                        # v1 snapshots (2-tuple) → weight=1.0; v2 carries weight.
+                        w = float(entry[2]) if len(entry) >= 3 else 1.0
+                        if not math.isfinite(w) or w <= 0.0:
+                            w = 1.0
+                        if w > 1.0:
+                            w = 1.0
+                        buf.append((cb, il, w))
                     except Exception:
                         pass
                 self._outcomes[r] = buf
@@ -277,31 +309,31 @@ class AdverseCrossCalibrator:
         return q
 
     def _count_losses(self, regime: str) -> int:
+        """Effective LOSS count (Σw over LOSS-only outcomes).
+
+        Returns an integer for back-compat with callers that compare against
+        an integer min-samples threshold; under uniform weight=1.0 this is
+        identical to the raw count.
+        """
         buf = self._outcomes.get(regime)
         if buf is None:
             return 0
-        return sum(1 for _, il in buf if il)
+        return int(sum(w for _cb, il, w in buf if il))
 
     def _loss_floor(self, regime: str) -> float | None:
         """
-        Compute q80 of LOSS-only cross_bps values for this regime.
-        Returns None if fewer than outcome_min_losses samples available.
+        Compute weighted q80 of LOSS-only cross_bps values for this regime.
+        Returns None if effective sample count (Σw) < outcome_min_losses.
+        Uniform weight=1.0 → identical to the legacy unweighted q80.
         """
         buf = self._outcomes.get(regime)
         if buf is None:
             return None
-        losses = sorted(cb for cb, il in buf if il and cb > 0.0)
-        if len(losses) < self.outcome_min_losses:
+        losses_w = [(cb, w) for cb, il, w in buf if il and cb > 0.0]
+        eff = sum(w for _cb, w in losses_w)
+        if eff < float(self.outcome_min_losses):
             return None
-        # linear-interpolated q80
-        p = _Q_LOSS
-        a = losses
-        i = p * (len(a) - 1)
-        lo, hi = math.floor(i), math.ceil(i)
-        if lo == hi:
-            return a[lo]
-        w = i - lo
-        return a[lo] * (1.0 - w) + a[hi] * w
+        return weighted_quantile(losses_w, _Q_LOSS)
 
     def _compute(
         self,

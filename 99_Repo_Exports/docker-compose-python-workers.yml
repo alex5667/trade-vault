@@ -39,6 +39,10 @@ services:
       retries: 5
       start_period: 60s
     environment:
+    # Over-subscription fix (2026-05-20): dedicated scanner-crypto-orderflow
+    # service owns CryptoOrderflowService. Disable here to eliminate competing
+    # consumers on crypto-of:* groups (was 3 consumers in crypto-of:BTCUSDT).
+    - MAIN_RUN_ORDERFLOW_SERVICE=0
     - liqmap_gate_mode=${LIQMAP_GATE_MODE:-enforce}
     # Direction-aware counter-trend gate: off | shadow | enforce
     - REGIME_DIRECTION_GATE_MODE=${REGIME_DIRECTION_GATE_MODE:-enforce}
@@ -76,9 +80,9 @@ services:
     - REDIS_MAX_CONNECTIONS=256
     - REDIS_MAIN_MAX_CONNECTIONS=128
     - REDIS_TICKS_MAX_CONNECTIONS=1024
-    - REDIS_PUBLISH_MAX_CONNECTIONS=64
+    - REDIS_PUBLISH_MAX_CONNECTIONS=128
     - REDIS_PUBLISH_SOCKET_TIMEOUT=2
-    - REDIS_POOL_ACQUIRE_TIMEOUT=2
+    - REDIS_POOL_ACQUIRE_TIMEOUT=1
     - REDIS_RETRY_ON_TIMEOUT=true
     - REDIS_HEALTH_CHECK_INTERVAL=30
     - NEWS_REDIS_SOCKET_TIMEOUT_SEC=0.05
@@ -556,12 +560,19 @@ services:
     - AUTOCAL_PATH_TP_READ_ENABLED=${AUTOCAL_PATH_TP_READ_ENABLED:-1}
     - AUTOCAL_PATH_TP_REFRESH_MS=${AUTOCAL_PATH_TP_REFRESH_MS:-30000}
     - AUTOCAL_PATH_TP_STALE_MS=${AUTOCAL_PATH_TP_STALE_MS:-21600000}
+    # Cross-venue autocalibrator reader (adaptive disloc_z / min_agree).
+    # Default 0 — stays off until scanner-crossvenue-cal has ≥30 min of data.
+    # Rollout Step 3: set AUTOCAL_CROSSVENUE_READ_ENABLED=1 + force-recreate.
+    # Rollback: set 0 + force-recreate → signal_pipeline returns to ENV 0.67/3.0.
+    - AUTOCAL_CROSSVENUE_READ_ENABLED=${AUTOCAL_CROSSVENUE_READ_ENABLED:-0}
+    - AUTOCAL_CROSSVENUE_REFRESH_MS=${AUTOCAL_CROSSVENUE_REFRESH_MS:-60000}
+    - AUTOCAL_CROSSVENUE_STALE_MS=${AUTOCAL_CROSSVENUE_STALE_MS:-1800000}
     # ── Confirmation Barrier (audit 2026-05-18) ─────────────────────────────
     # enforce: 7 SHADOW_DROPs/h validated (2026-05-19) — chop without follow-through.
     # Rollback: set CONFIRMATION_BARRIER_MODE=off (or shadow) and restart.
-    - CONFIRMATION_BARRIER_MODE=${CONFIRMATION_BARRIER_MODE:-enforce}
+    - CONFIRMATION_BARRIER_MODE=${CONFIRMATION_BARRIER_MODE:-shadow}
     - CONFIRMATION_BARRIER_TIMEOUT_MS=${CONFIRMATION_BARRIER_TIMEOUT_MS:-5000}
-    - CONFIRMATION_BARRIER_MIN_PROGRESS_BPS=${CONFIRMATION_BARRIER_MIN_PROGRESS_BPS:-10}
+    - CONFIRMATION_BARRIER_MIN_PROGRESS_BPS=${CONFIRMATION_BARRIER_MIN_PROGRESS_BPS:-5}
     - CONFIRMATION_BARRIER_MAX_ADVERSE_BPS=${CONFIRMATION_BARRIER_MAX_ADVERSE_BPS:-20}
     - CONFIRMATION_BARRIER_MIN_OBSERVATIONS=${CONFIRMATION_BARRIER_MIN_OBSERVATIONS:-3}
     - BARRIER_POLL_INTERVAL_MS=${BARRIER_POLL_INTERVAL_MS:-500}
@@ -612,10 +623,10 @@ services:
     deploy:
       resources:
         limits:
-          memory: 2G
-          cpus: '2.0'
+          memory: 6G
+          cpus: '5.0'
         reservations:
-          memory: 512M
+          memory: 1G
     ulimits:
       nofile:
         soft: 65536
@@ -652,6 +663,8 @@ services:
       retries: 5
       start_period: 60s
     environment:
+    # Over-subscription fix (2026-05-20) — see scanner-python-worker.
+    - MAIN_RUN_ORDERFLOW_SERVICE=0
     - liqmap_gate_mode=${LIQMAP_GATE_MODE:-enforce}
     # Direction-aware counter-trend gate: off | shadow | enforce
     - REGIME_DIRECTION_GATE_MODE=${REGIME_DIRECTION_GATE_MODE:-enforce}
@@ -689,9 +702,9 @@ services:
     - REDIS_MAX_CONNECTIONS=256
     - REDIS_MAIN_MAX_CONNECTIONS=128
     - REDIS_TICKS_MAX_CONNECTIONS=1024
-    - REDIS_PUBLISH_MAX_CONNECTIONS=64
+    - REDIS_PUBLISH_MAX_CONNECTIONS=128
     - REDIS_PUBLISH_SOCKET_TIMEOUT=2
-    - REDIS_POOL_ACQUIRE_TIMEOUT=2
+    - REDIS_POOL_ACQUIRE_TIMEOUT=1
     - REDIS_RETRY_ON_TIMEOUT=true
     - REDIS_HEALTH_CHECK_INTERVAL=30
     - REDIS_SIGNALS_HOST=redis-worker-1
@@ -831,9 +844,9 @@ services:
     - OF_INPUTS_STREAM=signals:of:inputs
     - OF_INPUTS_STREAM_MAXLEN=5000
     # ── Confirmation Barrier (audit 2026-05-18) ─────────────────────────────
-    - CONFIRMATION_BARRIER_MODE=${CONFIRMATION_BARRIER_MODE:-enforce}
+    - CONFIRMATION_BARRIER_MODE=${CONFIRMATION_BARRIER_MODE:-shadow}
     - CONFIRMATION_BARRIER_TIMEOUT_MS=${CONFIRMATION_BARRIER_TIMEOUT_MS:-5000}
-    - CONFIRMATION_BARRIER_MIN_PROGRESS_BPS=${CONFIRMATION_BARRIER_MIN_PROGRESS_BPS:-10}
+    - CONFIRMATION_BARRIER_MIN_PROGRESS_BPS=${CONFIRMATION_BARRIER_MIN_PROGRESS_BPS:-5}
     - CONFIRMATION_BARRIER_MAX_ADVERSE_BPS=${CONFIRMATION_BARRIER_MAX_ADVERSE_BPS:-20}
     - CONFIRMATION_BARRIER_MIN_OBSERVATIONS=${CONFIRMATION_BARRIER_MIN_OBSERVATIONS:-3}
     - BARRIER_POLL_INTERVAL_MS=${BARRIER_POLL_INTERVAL_MS:-500}
@@ -873,10 +886,10 @@ services:
     deploy:
       resources:
         limits:
-          memory: 2G
-          cpus: '1.5'
+          memory: 6G
+          cpus: '5.0'
         reservations:
-          memory: 512M
+          memory: 1G
     ulimits:
       nofile:
         soft: 65536
@@ -1708,6 +1721,10 @@ services:
     - AUTOCAL_PATH_TP_READ_ENABLED=${AUTOCAL_PATH_TP_READ_ENABLED:-1}
     - AUTOCAL_PATH_TP_REFRESH_MS=${AUTOCAL_PATH_TP_REFRESH_MS:-30000}
     - AUTOCAL_PATH_TP_STALE_MS=${AUTOCAL_PATH_TP_STALE_MS:-21600000}
+    # Cross-venue autocalibrator reader — same rollout ladder as scanner-python-worker.
+    - AUTOCAL_CROSSVENUE_READ_ENABLED=${AUTOCAL_CROSSVENUE_READ_ENABLED:-0}
+    - AUTOCAL_CROSSVENUE_REFRESH_MS=${AUTOCAL_CROSSVENUE_REFRESH_MS:-60000}
+    - AUTOCAL_CROSSVENUE_STALE_MS=${AUTOCAL_CROSSVENUE_STALE_MS:-1800000}
     - EDGE_COST_K_BTCUSDT=3.0
     - EDGE_COST_K_ETHUSDT=3.0
     - EDGE_COST_K_SOLUSDT=3.5
@@ -2861,6 +2878,15 @@ services:
     # 2026-05-19 (G5): BE-after-TP1 mode for maybe_arm_trailing_after_tp1.
     # ENFORCE=apply SL→BE+fees; SHADOW=log secure_sl_would_be only; OFF=skip.
     - BE_AFTER_TP1_MODE=${BE_AFTER_TP1_MODE:-ENFORCE}
+    # ── IPS reject_reason weighting (Phase 2, see memory/project_reject_reason_weights_phase2_2026_05_20.md) ──
+    # Влияет на ВЕС записей в reliability_calibrator (`relcal:*`) и
+    # smt_coh_isotonic_calibrator (`smtcoh:cal:v1:*`) на каждый закрытый трейд:
+    # passed real → w=1.0 (HINCRBY); virtual с veto → w<1.0 (HINCRBYFLOAT).
+    # READ-side калибраторы (ConfidenceThresholdCalibrator, SmtCohIsotonicCalibrator
+    # enforce flags) сейчас в SHADOW в prod, поэтому weighted-writes
+    # эффективно остаются shadow до промоушна enforce.
+    # Rollback: REJECT_REASON_WEIGHTS_ENABLED=0 → HINCRBY как раньше.
+    - REJECT_REASON_WEIGHTS_ENABLED=${REJECT_REASON_WEIGHTS_ENABLED:-1}
     - TZ=UTC
     depends_on:
       redis-worker-1:
@@ -2953,6 +2979,8 @@ services:
     # 2026-05-19 (G5): BE-after-TP1 mode for maybe_arm_trailing_after_tp1.
     # ENFORCE=apply SL→BE+fees; SHADOW=log secure_sl_would_be only; OFF=skip.
     - BE_AFTER_TP1_MODE=${BE_AFTER_TP1_MODE:-ENFORCE}
+    # ── IPS reject_reason weighting (Phase 2) — см. trade-monitor выше ──
+    - REJECT_REASON_WEIGHTS_ENABLED=${REJECT_REASON_WEIGHTS_ENABLED:-1}
     - TZ=UTC
     depends_on:
       redis-worker-1:
@@ -4712,10 +4740,10 @@ services:
     deploy:
       resources:
         limits:
-          memory: 256M
-          cpus: '0.2'
+          memory: 512M
+          cpus: '0.3'
         reservations:
-          memory: 128M
+          memory: 256M
     command:
       - sh
       - -c
@@ -4778,6 +4806,14 @@ services:
     - P_EDGE_CAL_REPORT_SEC=600
     - P_EDGE_CAL_REPORTS_DIR=/var/lib/trade/of_reports
     - P_EDGE_CAL_DEFAULT_P_MIN=0.55
+    # ── IPS reject_reason weighting (Phase 1, see memory/project_reject_reason_weights_p_edge_2026_05_20.md) ──
+    # 1.0 (default) → калибратор взвешивает observe()-сэмплы по v_gate_reason
+    # из trades:closed (passed=1.0, shadow=0.7, context=0.5, exec=0.3, env=0.1).
+    # Rollback: REJECT_REASON_WEIGHTS_ENABLED=0 → every sample w=1.0 → legacy.
+    # NB: P_EDGE_CAL_ENFORCE=1 above => взвешенный τ применяется в gate — это
+    # НЕ shadow. Counterfactual report по-прежнему сравнивает committed vs
+    # shadow vs default τ в /var/lib/trade/of_reports/p_edge_calibrator_counterfactual.json.
+    - REJECT_REASON_WEIGHTS_ENABLED=${REJECT_REASON_WEIGHTS_ENABLED:-1}
     - PYTHONPATH=.:/app
     - PYTHONUNBUFFERED=1
     - TZ=UTC
@@ -4797,6 +4833,87 @@ services:
         reservations:
           memory: 64M
     command: python -u orderflow_services/p_edge_threshold_calibrator_v1.py
+
+  scanner-ctx-tighten-cal:
+    build: *id001
+    container_name: scanner-ctx-tighten-cal
+    environment:
+    - REDIS_URL=${REDIS_URL:-redis://redis-worker-1:6379/0}
+    - CTX_TIGHTEN_CAL_PORT=9162
+    - CTX_TIGHTEN_CAL_GROUP=ctx-tighten-cal
+    - CTX_TIGHTEN_CAL_CONSUMER=ctx-tighten-cal-1
+    - CTX_TIGHTEN_CAL_BATCH=200
+    # ENFORCE=0 (shadow) by default — monitor before activating cap overrides.
+    # Set to 1 only after SENTIMENT_CTX_ENABLED / DEFILLAMA_CTX_ENABLED is live
+    # and n_tightened ≥ 50.  Rollback: CTX_TIGHTEN_CAL_ENFORCE=0 + force-recreate.
+    - CTX_TIGHTEN_CAL_ENFORCE=${CTX_TIGHTEN_CAL_ENFORCE:-0}
+    - CTX_TIGHTEN_CAL_TARGET_EV_R=0.08
+    - CTX_TIGHTEN_CAL_WINDOW_DAYS=14
+    - CTX_TIGHTEN_CAL_MIN_TIGHTENED=50
+    - CTX_TIGHTEN_CAL_SNAPSHOT_SEC=60
+    - CTX_TIGHTEN_CAL_DEFAULT_SENTI=2.0
+    - CTX_TIGHTEN_CAL_DEFAULT_DEFI=4.0
+    # IPS weighting: shared master switch with p_edge calibrator
+    - REJECT_REASON_WEIGHTS_ENABLED=${REJECT_REASON_WEIGHTS_ENABLED:-1}
+    - PYTHONPATH=.:/app
+    - PYTHONUNBUFFERED=1
+    - TZ=UTC
+    working_dir: /app
+    volumes:
+    - ./python-worker:/app
+    - ./var:/var/lib/trade
+    networks:
+    - scanner-core
+    - scanner-infra
+    restart: on-failure:5
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+          cpus: '0.1'
+        reservations:
+          memory: 32M
+    command: python -u orderflow_services/sentiment_defillama_ctx_tighten_calibrator_v1.py
+
+  scanner-flow-tox-cal:
+    build: *id001
+    container_name: scanner-flow-tox-cal
+    environment:
+    - REDIS_URL=${REDIS_URL:-redis://redis-worker-1:6379/0}
+    - FLOW_TOX_CAL_PORT=9149
+    - FLOW_TOX_CAL_GROUP=flow-tox-cal
+    - FLOW_TOX_CAL_CONSUMER=flow-tox-cal-1
+    - FLOW_TOX_CAL_BATCH=500
+    # Порог прогрева (Easley et al.): ≥2000 сигналов на символ до авто-promote.
+    - FLOW_TOX_CAL_MIN_SAMPLES=2000
+    # ENFORCE=0: shadow-режим (изучай пороги, gate не трогает).
+    # AUTO_ENFORCE=1: auto-promote disabled→shadow→enforce при n >= MIN_SAMPLES.
+    # Для перехода в enforce: либо ENFORCE=1, либо AUTOCAL_FLOW_TOX_READ_ENABLED=1
+    # в crypto-of-common.env (читатель активируется в signal_pipeline).
+    - FLOW_TOX_CAL_ENFORCE=${FLOW_TOX_CAL_ENFORCE:-0}
+    - FLOW_TOX_CAL_AUTO_ENFORCE=1
+    - FLOW_TOX_CAL_SNAPSHOT_SEC=30
+    - FLOW_TOX_CAL_UPDATE_BAND_Z=0.10
+    - FLOW_TOX_CAL_UPDATE_BAND_VPIN=0.005
+    - PYTHONPATH=.:/app
+    - PYTHONUNBUFFERED=1
+    - TZ=UTC
+    working_dir: /app
+    volumes:
+    - ./python-worker:/app
+    - ./var:/var/lib/trade
+    networks:
+    - scanner-core
+    - scanner-infra
+    restart: on-failure:5
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+          cpus: '0.1'
+        reservations:
+          memory: 32M
+    command: python -u orderflow_services/flow_toxicity_calibrator_v1.py
 
   scanner-fills-tca-enricher:
     build: *id001
@@ -4869,13 +4986,15 @@ services:
     - config/generated/symbols.env
     environment:
     - REDIS_URL=${REDIS_URL:-redis://redis-worker-1:6379/0}
+    - CROSS_CTX_TICKS_REDIS_URL=redis://redis-ticks:6379/0
+    - CROSS_CTX_LIQ_REDIS_URL=redis://redis:6379/0
     - CROSS_CTX_PORT=9145
     - CROSS_CTX_GROUP=cross-context-aggregator
     - CROSS_CTX_CONSUMER=cross-context-aggregator-1
-    - CROSS_CTX_BATCH=500
+    - CROSS_CTX_BATCH=50
     - CROSS_CTX_ANCHORS=${CANARY_SYMBOLS}
     - CROSS_CTX_TTL_SEC=60
-    - CROSS_CTX_MAX_LAG_MS=2000
+    - CROSS_CTX_MAX_LAG_MS=15000
     - PYTHONPATH=.:/app
     - PYTHONUNBUFFERED=1
     - TZ=UTC
@@ -4983,10 +5102,10 @@ services:
     deploy:
       resources:
         limits:
-          memory: 384M
-          cpus: '0.2'
+          memory: 768M
+          cpus: '0.3'
         reservations:
-          memory: 96M
+          memory: 256M
     command: python -u orderflow_services/pit_priors_rolling_v1.py
 
   scanner-liq-evt-archiver:
@@ -5047,6 +5166,54 @@ services:
         reservations:
           memory: 32M
     command: python -u services/macro_calendar_scheduler.py
+
+  # ── Cross-venue gate autocalibrator ─────────────────────────────────────────
+  # Polls ctx:crossvenue:{SYMBOL} every 60 s, computes rolling 24-h robust stats
+  # (median/MAD), publishes adaptive disloc_z / min_agree to autocal:crossvenue:state.
+  #
+  # Shadow mode (CV_CAL_ENFORCE=0, default): snapshot written, thresholds NOT applied.
+  # Enforce mode (CV_CAL_ENFORCE=1 + AUTOCAL_CROSSVENUE_READ_ENABLED=1 on workers):
+  #   workers read adaptive thresholds, replacing hardcoded 0.67/3.0 in the gate.
+  #
+  # Rollout:
+  #   Step 1: start this container (already shadow mode, safe).
+  #   Step 2: wait ~30 min → crossvenue_cal_symbols_calibrated should reach active-symbol count.
+  #   Step 3: set AUTOCAL_CROSSVENUE_READ_ENABLED=1 on OF workers + force-recreate.
+  #   Step 4: set CV_CAL_ENFORCE=1 here + restart this container.
+  # Rollback: set AUTOCAL_CROSSVENUE_READ_ENABLED=0 on workers + force-recreate.
+  scanner-crossvenue-cal:
+    build: *id001
+    container_name: scanner-crossvenue-cal
+    environment:
+    # Feed Redis: must reach redis-worker-1 where ctx:crossvenue:* keys live
+    - REDIS_URL=${REDIS_URL:-redis://redis-worker-1:6379/0}
+    - CV_CAL_PORT=9920
+    - CV_CAL_POLL_SEC=${CV_CAL_POLL_SEC:-60}
+    - CV_CAL_SNAPSHOT_TTL=${CV_CAL_SNAPSHOT_TTL:-3600}
+    # ENFORCE=0 (shadow): compute and store thresholds, but readers use ENV defaults
+    # until CV_CAL_ENFORCE=1 AND AUTOCAL_CROSSVENUE_READ_ENABLED=1 on workers.
+    - CV_CAL_ENFORCE=${CV_CAL_ENFORCE:-0}
+    - CV_CAL_WINDOW_MS=${CV_CAL_WINDOW_MS:-86400000}
+    - CV_CAL_MIN_SAMPLES=${CV_CAL_MIN_SAMPLES:-30}
+    - CV_CAL_KEY_PREFIX=${CV_CAL_KEY_PREFIX:-ctx:crossvenue:}
+    - PYTHONPATH=.:/app
+    - PYTHONUNBUFFERED=1
+    - TZ=UTC
+    working_dir: /app
+    volumes:
+    - ./python-worker:/app
+    networks:
+    - scanner-core
+    - scanner-infra
+    restart: on-failure:5
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+          cpus: '0.1'
+        reservations:
+          memory: 32M
+    command: python -u orderflow_services/cross_venue_calibrator_v1.py
 
 networks:
   scanner-core:

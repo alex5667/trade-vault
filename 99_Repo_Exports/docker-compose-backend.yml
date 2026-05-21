@@ -256,10 +256,10 @@ services:
     deploy:
       resources:
         limits:
-          memory: 3G
-          cpus: '0.5'
+          memory: 4G
+          cpus: '3.0'
         reservations:
-          memory: 24M
+          memory: 512M
     ulimits:
       nofile:
         soft: 4096

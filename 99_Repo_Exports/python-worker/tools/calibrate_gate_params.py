@@ -48,8 +48,10 @@ def eval_policy(rows: list[dict[str, Any]], *, w_exec: float, exec_ref_bps: floa
     Здесь используем:
       base_score = evidence.score_breakdown.base_score if present else row.score
     Gate pass criteria:
-      ok_cal = (base_score - penalty >= score_min) AND (ok==1)
-    (ok==1 preserves hard vetoes from other gates)
+      ok_cal = (score_adj >= score_min)
+    NOTE: ok_hard (ok==1) is intentionally NOT used here. Replay inputs are candidates that were
+    rejected by the *current* gate parameters — they all have ok=0 by definition. Calibration
+    searches for new (w_exec, ref_bps, score_min) that would let profitable signals through.
     """
     n = 0
     n_pass = 0
@@ -76,8 +78,7 @@ def eval_policy(rows: list[dict[str, Any]], *, w_exec: float, exec_ref_bps: floa
             penalty = w_exec * max(0.0, exec_bps / exec_ref_bps)
         score_adj = max(0.0, min(1.0, base_score - penalty))
 
-        ok_hard = _i(r.get("ok", 0))
-        ok_cal = 1 if (ok_hard == 1 and score_adj >= score_min) else 0
+        ok_cal = 1 if score_adj >= score_min else 0
 
         if ok_cal == 1:
             n_pass += 1

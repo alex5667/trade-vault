@@ -261,6 +261,28 @@ def process_message(r, stream_key, message_id, message_data):
             logger.debug(f"[counter-only] {stream_key} ID {message_id} → ok:{severity.upper()}")
             return True
 
+        # report_bundle: multi-part HTML report published by ReportingService.
+        # scanner-notify-worker handles these too; whichever consumer receives
+        # the message must send all parts to Telegram.
+        if message_data.get("type") == "report_bundle":
+            parts_raw = message_data.get("parts", "")
+            try:
+                parts = json.loads(parts_raw) if parts_raw else []
+            except Exception:
+                parts = []
+            parts = [p for p in parts if isinstance(p, str) and p]
+            if not parts:
+                logger.warning(f"report_bundle has no usable parts: {stream_key} ID {message_id}")
+                return True
+            for i, part in enumerate(parts):
+                ok, _resp, _code = send_telegram_message(chat_id, part)
+                if not ok:
+                    logger.warning(f"report_bundle part {i+1}/{len(parts)} send failed ({_code}): {stream_key} ID {message_id}")
+                if i < len(parts) - 1:
+                    time.sleep(0.35)
+            logger.info(f"report_bundle sent {len(parts)} parts: {stream_key} ID {message_id}")
+            return True
+
         text = payload.get("message", "")
         if not text:
             # Fallback to direct fields in message_data or other payload fields

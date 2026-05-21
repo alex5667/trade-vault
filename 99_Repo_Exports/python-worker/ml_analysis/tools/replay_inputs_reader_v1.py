@@ -20,33 +20,42 @@ class ReplayInputsReader:
             logger.warning(f"Archive directory {self.archive_dir} does not exist")
             return []
 
-        # Assuming files are named like ml_replay_inputs_v1_YYYYMMDD_HHMMSS.ndjson.gz
-        files = list(self.archive_dir.glob("ml_replay_inputs_v1_*.ndjson*"))
-        files.sort()
+        # Support two naming conventions:
+        #   ml_replay_inputs_v1_YYYYMMDD_HHMMSS.ndjson.gz  (chunked archiver)
+        #   YYYY-MM-DD.ndjson                               (daily archiver)
+        files = sorted(
+            list(self.archive_dir.glob("ml_replay_inputs_v1_*.ndjson*"))
+            + list(self.archive_dir.glob("[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9].ndjson*"))
+        )
 
         if not start_ts_ms and not end_ts_ms:
             return files
 
         relevant_files = []
         for f in files:
-            # We use modification time or filename to approximate range
-            # For robustness, we check the first record if possible, but here we just use name
-            # filename format: ..._YYYYMMDD_HHMMSS.ndjson.gz
             try:
-                parts = f.name.split('_')
-                if len(parts) >= 6:
-                    ts_str = parts[4] + "_" + parts[5].split('.')[0]
-                    file_dt = datetime.strptime(ts_str, "%Y%m%d_%H%M%S").replace(tzinfo=UTC)
-                    file_ts = int(file_dt.timestamp() * 1000)
-
-                    # If file_ts is after end_ts, and assuming files are discrete chunks,
-                    # we might need the previous file too. But usually we keep a bit of overlap.
-                    if end_ts_ms and file_ts > end_ts_ms:
+                name = f.name
+                if name[:4].isdigit() and name[4] == '-':
+                    # YYYY-MM-DD.ndjson — file covers the whole day; include if day overlaps range
+                    file_dt = datetime.strptime(name[:10], "%Y-%m-%d").replace(tzinfo=UTC)
+                    day_start_ms = int(file_dt.timestamp() * 1000)
+                    day_end_ms = day_start_ms + 86_400_000
+                    if start_ts_ms and day_end_ms < start_ts_ms:
                         continue
-                    relevant_files.append(f)
+                    if end_ts_ms and day_start_ms > end_ts_ms:
+                        continue
+                else:
+                    parts = name.split('_')
+                    if len(parts) >= 6:
+                        ts_str = parts[4] + "_" + parts[5].split('.')[0]
+                        file_dt = datetime.strptime(ts_str, "%Y%m%d_%H%M%S").replace(tzinfo=UTC)
+                        file_ts = int(file_dt.timestamp() * 1000)
+                        if end_ts_ms and file_ts > end_ts_ms:
+                            continue
+                relevant_files.append(f)
             except Exception as e:
                 logger.warning(f"Failed to parse timestamp from filename {f.name}: {e}")
-                relevant_files.append(f) # Fallback to include it
+                relevant_files.append(f)  # fallback: include
 
         return relevant_files
 

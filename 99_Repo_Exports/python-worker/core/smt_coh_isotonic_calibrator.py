@@ -109,8 +109,11 @@ class SmtCohIsotonicThresholds:
     """
     coh_min: float
     veto_precision: float
-    n_above: int
-    n_total: int
+    # n_above / n_total are effective sample counts (Σw); declared `float`
+    # for IPS-weighted observations but remain integer-valued under uniform
+    # weight=1.0 — JSON serialisation tolerates both.
+    n_above: float
+    n_total: float
     src: str
 
 
@@ -122,7 +125,9 @@ class _ClusterState:
     shadow_coh_min: float = 0.0
     prev_shadow_coh_min: float = 0.0   # previous shadow for streak comparison
     shadow_veto_precision: float = 0.0
-    shadow_n_above: int = 0
+    # Effective sample count (Σw) — float for IPS-weighted observations,
+    # integer-valued under uniform weight=1.0.
+    shadow_n_above: float = 0.0
     last_commit_sec: float = 0.0
     n_commits: int = 0
     n_stable_streak: int = 0
@@ -177,8 +182,11 @@ class SmtCohIsotonicCalibrator:
         self.cache_ttl_sec = cache_ttl_sec
         self.key_prefix = key_prefix
 
-        # In-memory histogram: {(SYMBOL, regime) → {bucket_pct: (n, h)}}
-        self._bins: dict[tuple[str, str], dict[int, tuple[int, int]]] = {}
+        # In-memory histogram: {(SYMBOL, regime) → {bucket_pct: (n, h)}}.
+        # Tuple values are floats so IPS-style sub-unit weights from
+        # `core.reject_reason_weights` are aggregated correctly. With uniform
+        # weight=1.0 (or master switch off) values stay integer-valued.
+        self._bins: dict[tuple[str, str], dict[int, tuple[float, float]]] = {}
         # Per-cluster committed + shadow state
         self._state: dict[tuple[str, str], _ClusterState] = {}
 
@@ -191,11 +199,17 @@ class SmtCohIsotonicCalibrator:
         regime: str,
         coh: float,
         outcome: int,
+        weight: float = 1.0,
     ) -> None:
         """Accumulate a countertrend signal outcome in-process.
 
         Call ONLY for countertrend signals (leader_confirm=1, direction ≠ leader_dir).
         outcome: 1 = signal succeeded (TP hit / pnl>0), 0 = failed.
+        weight:  IPS-style outcome-reliability ∈ [0, 1] from
+                 `core.reject_reason_weights.weight_for_reason(v_gate_reason)`.
+                 Defaults to 1.0 — back-compat with pre-weighting callers.
+                 weight=0 (or non-finite) silently discards the sample.
+
         NaN/Inf/out-of-range coh and invalid outcomes are silently ignored.
         """
         if not math.isfinite(coh):
@@ -204,11 +218,19 @@ class SmtCohIsotonicCalibrator:
             return
         if outcome not in (0, 1):
             return
+        try:
+            w = float(weight)
+        except (TypeError, ValueError):
+            w = 1.0
+        if not math.isfinite(w) or w <= 0.0:
+            return
+        if w > 1.0:
+            w = 1.0
         key = (symbol.upper(), regime.lower())
         bkt = _bucket_pct(coh)
         bins = self._bins.setdefault(key, {})
-        n, h = bins.get(bkt, (0, 0))
-        bins[bkt] = (n + 1, h + outcome)
+        n, h = bins.get(bkt, (0.0, 0.0))
+        bins[bkt] = (n + w, h + (w if outcome == 1 else 0.0))
 
     def thresholds(
         self,
@@ -327,7 +349,8 @@ class SmtCohIsotonicCalibrator:
             src="isotonic_calib",
         )
 
-    def n_total(self, *, symbol: str, regime: str) -> int:
+    def n_total(self, *, symbol: str, regime: str) -> float:
+        """Effective sample count (Σw). Integer-valued under uniform weight=1.0."""
         key = (symbol.upper(), regime.lower())
         return sum(n for n, _ in self._bins.get(key, {}).values())
 
@@ -403,7 +426,10 @@ class SmtCohIsotonicCalibrator:
             return
 
         d = {_b2s(k): _b2s(v) for k, v in raw.items()}
-        bins: dict[int, tuple[int, int]] = {}
+        # Float-typed because Redis HINCRBYFLOAT (used when IPS weighting
+        # writes sub-unit increments) returns float-strings. Integer-valued
+        # legacy fields parse cleanly into float.
+        bins: dict[int, tuple[float, float]] = {}
         for fname, vstr in d.items():
             if not fname.startswith("b"):
                 continue
@@ -415,20 +441,20 @@ class SmtCohIsotonicCalibrator:
             except ValueError:
                 continue
             suffix = fname[colon + 1:]
-            n, h = bins.get(bkt, (0, 0))
+            n, h = bins.get(bkt, (0.0, 0.0))
             try:
-                iv = int(vstr)
+                fv = float(vstr)
             except (ValueError, TypeError):
                 continue
             if suffix == "n":
-                bins[bkt] = (iv, h)
+                bins[bkt] = (fv, h)
             elif suffix == "h":
-                bins[bkt] = (n, iv)
+                bins[bkt] = (n, fv)
 
         # Merge Redis bins with in-memory (take max to handle concurrent writes)
         existing = self._bins.get(key, {})
         for bkt, (rn, rh) in bins.items():
-            en, eh = existing.get(bkt, (0, 0))
+            en, eh = existing.get(bkt, (0.0, 0.0))
             existing[bkt] = (max(rn, en), max(rh, eh))
         self._bins[key] = existing
 
@@ -441,7 +467,7 @@ class SmtCohIsotonicCalibrator:
 # ── core algorithm ────────────────────────────────────────────────────────────
 
 def _compute_threshold(
-    bins: dict[int, tuple[int, int]],
+    bins: dict[int, tuple[float, float]],
     *,
     target_veto_precision: float,
     min_samples: int,
@@ -498,8 +524,8 @@ def _compute_threshold(
 
 
 def _isotonic_smooth(
-    bins: dict[int, tuple[int, int]],
-) -> dict[int, tuple[int, int]]:
+    bins: dict[int, tuple[float, float]],
+) -> dict[int, tuple[float, float]]:
     """Apply IsotonicRegression (increasing=False) to per-bucket empirical rates.
 
     Enforces the expected monotone-decreasing relationship:
@@ -526,21 +552,23 @@ def _isotonic_smooth(
         ir = IsotonicRegression(increasing=False, out_of_bounds="clip")
         y_iso = ir.fit_transform(xs, ys, sample_weight=ws)
 
-        new_bins = dict(bins)
+        # Preserve float n/h aggregation under IPS weighting; clamp smoothed
+        # hits to [0, n] but keep float type (n may be non-integer).
+        new_bins: dict[int, tuple[float, float]] = dict(bins)
         for i, (bkt, n, _) in enumerate(eligible):
-            smoothed_h = max(0, min(n, round(float(y_iso[i]) * n)))
-            new_bins[bkt] = (n, smoothed_h)
+            smoothed_h = max(0.0, min(float(n), float(y_iso[i]) * float(n)))
+            new_bins[bkt] = (float(n), smoothed_h)
         return new_bins
     except Exception:
         return bins
 
 
 def _find_veto_threshold(
-    bins: dict[int, tuple[int, int]],
+    bins: dict[int, tuple[float, float]],
     *,
     target_veto_precision: float,
     min_samples_above: int,
-) -> tuple[float, float, int] | None:
+) -> tuple[float, float, float] | None:
     """Find smallest coh_thr where P(loss | coh >= coh_thr) >= target_veto_precision.
 
     Scans buckets in ascending order.  At each bucket as threshold, computes:
@@ -560,7 +588,7 @@ def _find_veto_threshold(
     cum_h = sum(h for _, h in bins.values())
 
     for bkt in sorted_bkts:
-        n_bkt, h_bkt = bins.get(bkt, (0, 0))
+        n_bkt, h_bkt = bins.get(bkt, (0.0, 0.0))
 
         if cum_n >= min_samples_above and cum_n > 0:
             p_success_above = cum_h / cum_n

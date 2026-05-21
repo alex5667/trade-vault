@@ -41,10 +41,10 @@ services:
     deploy:
       resources:
         limits:
-          memory: 256M
-          cpus: '0.1'
+          memory: 512M
+          cpus: '0.3'
         reservations:
-          memory: 64M
+          memory: 128M
     command:
       - sh
       - -c

@@ -177,18 +177,28 @@ class CostEdgeResult:
 class CostEdgeGate:
     """
     Фильтр, который отклоняет сигналы, где ожидаемый эдж не превышает затраты.
-    
+
     Использование:
         gate = CostEdgeGate.from_env()
+        gate.set_slippage_store(SlippageCalReader(redis))   # опционально
         result = gate.evaluate(ctx, symbol="BTCUSDT", entry_price=50000.0)
-        logger.info(str(result))
         if not result.passed:
-            # Отклоняем сигнал
             return
     """
 
     def __init__(self, config: CostEdgeConfig):
         self.config = config
+        self._slippage_store: Any = None  # SlippageCalStore | SlippageCalReader | None
+
+    def set_slippage_store(self, store: Any) -> None:
+        """Wire calibrated slippage reader (SlippageCalReader or SlippageCalStore).
+
+        When set, _estimate_slippage_bps() tries calibrated value first before
+        falling back to spread-half or config default.
+
+            gate.set_slippage_store(SlippageCalReader(redis))
+        """
+        self._slippage_store = store
 
     @classmethod
     def from_env(cls) -> CostEdgeGate:
@@ -205,20 +215,30 @@ class CostEdgeGate:
         # Возвращаем сырое значение, clamp будет в evaluate
         return self.config.symbol_buffer_bps.get(symbol.upper(), self.config.buffer_bps)
 
-    def _estimate_slippage_bps(self, ctx: Any, entry_price: float) -> float:
+    def _estimate_slippage_bps(self, ctx: Any, entry_price: float, symbol: str = "") -> float:
+        """Оценивает проскальзывание в bps.
+
+        Порядок приоритетов:
+          1. Calibrated store (SlippageCalReader/Store) если подключён — q75(adverse_bps_t)
+          2. 0.5 * spread из ctx (если EDGE_SLIPPAGE_USE_SPREAD_HALF=1)
+          3. config.slippage_bps (статика)
         """
-        Оценивает проскальзывание в базисных пунктах.
-        
-        Если EDGE_SLIPPAGE_USE_SPREAD_HALF=1, использует 0.5 * спред.
-        Иначе, использует настроенное значение по умолчанию.
-        """
+        # 1. Calibrated slippage per (symbol × session)
+        if self._slippage_store is not None:
+            try:
+                session = str(getattr(ctx, "session", None) or "na")
+                cal_bps = self._slippage_store.get_slippage(symbol, session,
+                                                            default=-1.0)
+                if cal_bps > 0:
+                    return cal_bps
+            except Exception:
+                pass
+
         if not self.config.slippage_use_spread_half:
             return self.config.slippage_bps
 
-        # Пытаемся получить спред из контекста
+        # 2. Half-spread from ctx
         spread = None
-
-        # Проверяем различные возможные местоположения данных спреда
         if hasattr(ctx, "spread_bps"):
             val = getattr(ctx, "spread_bps", 0.0)
             if val is not None:
@@ -229,15 +249,14 @@ class CostEdgeGate:
                 bid = float(getattr(ctx, "bid", 0.0))
                 ask = float(getattr(ctx, "ask", 0.0))
                 if bid > 0 and ask > 0 and entry_price > 0:
-                    spread = ((ask - bid) / entry_price) * 10000.0  # Конвертируем в bps
+                    spread = ((ask - bid) / entry_price) * 10000.0
             except (TypeError, ValueError):
                 pass
 
-        # Если спред доступен, используем половину как оценку проскальзывания
         if spread is not None and _isfinite(spread) and spread > 0:
             return spread * 0.5
 
-        # Фоллбек на настроенное значение по умолчанию
+        # 3. Static config default
         return self.config.slippage_bps
 
     def _estimate_edge_bps(self, ctx: Any, symbol: str, entry_price: float) -> tuple[float, str]:
@@ -348,7 +367,7 @@ class CostEdgeGate:
 
         # 2. Оценка затрат и очистка
         fees_bps = float(self.config.fees_bps)
-        slippage_bps = float(self._estimate_slippage_bps(ctx, entry_price))
+        slippage_bps = float(self._estimate_slippage_bps(ctx, entry_price, symbol))
 
         # Sanitize bps values (защита от NaN/Negative)
         if not _isfinite(fees_bps) or fees_bps < 0:

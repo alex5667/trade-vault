@@ -1306,9 +1306,17 @@ class CryptoOrderflowService:
 
             tick_sample_rate = _cached_tick_sample_rate
 
-            # --- Corrected consume_ticks logic (Expert Fix) ---
-            # ENV override wins over runtime.config (default reduced 250→100ms to lower H2 lag)
-            block_ms = int(_cached_block_ms_env) if _cached_block_ms_env.strip().isdigit() else int(runtime.config.get("read_block_ms", 100))
+            # Per-symbol override ({SYMBOL}_READ_BLOCK_MS via instrument_config) takes
+            # precedence over global CRYPTO_OF_READ_BLOCK_MS — high-volatility symbols
+            # like 1000PEPE intentionally pick smaller windows; small-cap pairs lengthen
+            # BLOCK to amortize empty-wakeup cost on redis-ticks.
+            _runtime_block_ms = runtime.config.get("read_block_ms")
+            if _runtime_block_ms not in (None, ""):
+                block_ms = int(_runtime_block_ms)
+            elif _cached_block_ms_env.strip().isdigit():
+                block_ms = int(_cached_block_ms_env)
+            else:
+                block_ms = 500
             count = self._adaptive_tick_read_count(symbol, int(runtime.config.get("read_count", 200)))
             messages = []
 

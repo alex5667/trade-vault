@@ -44,7 +44,7 @@ services:
     image: redis:7-alpine
     container_name: redis-worker-1
     ports:
-    - 127.0.0.1:63791:6379
+    - ${REDIS_WORKER_1_BIND_HOST:-127.0.0.1}:63791:6379
     expose:
     - '6379'
     volumes:
@@ -85,10 +85,11 @@ services:
     deploy:
       resources:
         limits:
-          memory: 10GB
-          cpus: '3.0'
+          memory: 12GB
+          cpus: '4.0'
         reservations:
-          memory: 3G
+          memory: 4G
+          cpus: '1.0'
     ulimits:
       nofile:
         soft: 65536
@@ -448,10 +449,11 @@ services:
     deploy:
       resources:
         limits:
-          memory: 8G
+          memory: 10G
           cpus: '4.0'
         reservations:
-          memory: 3G
+          memory: 4G
+          cpus: '1.0'
     ulimits:
       nofile:
         soft: 65536

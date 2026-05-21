@@ -1874,6 +1874,7 @@ services:
     - STATE_FILE=/var/lib/trade/of_reports/out/of_inputs.state
     - RECS_HMAC_SECRET=${RECS_HMAC_SECRET:-CHANGE_ME_LONG_RANDOM}
     - RECS_TTL_SEC=86400
+    - NIGHTLY_CAL_AUTO_APPLY=1
     - TRADES_SINCE_HOURS=72
     - GPU_ENABLED=true
     - NVIDIA_VISIBLE_DEVICES=all
@@ -2411,7 +2412,7 @@ services:
     - NVIDIA_DRIVER_CAPABILITIES=compute,utility
     - GPU_ENABLED=${GPU_ENABLED:-1}
     - EDGE_STACK_MIN_JOINED=300
-    - ML_FEATURE_SCHEMA_VER=v10_of
+    - ML_FEATURE_SCHEMA_VER=v14_of
     - TZ=UTC
     working_dir: /app
     volumes:
@@ -2420,7 +2421,7 @@ services:
     - ./calibration:/app/calibration
     command: "sh -c \"sleep 496 && while true; do\n  HOUR=$$(date +%-H);\n  MIN=$$(date\
       \ +%-M);\n  if [ \\\"$$HOUR\\\" -eq 0 ] && [ \\\"$$MIN\\\" -ge 0 ] && [ \\\"\
-      $$MIN\\\" -lt 20 ]; then\n    echo 'Running Nightly Edge Stack v1 Train Bundle...';\n\
+      $$MIN\\\" -lt 20 ]; then\n    echo 'Running Nightly Edge Stack v14_of Train Bundle...';\n\
       \    python3 -m ml_analysis.tools.nightly_edge_stack_v1_train_bundle;\n    echo\
       \ 'Done. Sleeping until next day...';\n    sleep 82800;\n  else\n    sleep 600;\n\
       \  fi\ndone\"\n"
@@ -4572,7 +4573,7 @@ services:
         reservations:
           memory: 24M
     environment:
-    - REDIS_URL=${REDIS_URL:-redis://redis-worker-1:6379/0}
+    - REDIS_URL=${EXEC_HEALTH_REDIS_WRITER_URL:-redis://redis-worker-1:6379/0}
     - EXEC_HEALTH_REDIS_AUDIT_URL=${EXEC_HEALTH_REDIS_AUDIT_URL:-}
     - EXEC_HEALTH_REDIS_BOOTSTRAP_URL=${EXEC_HEALTH_REDIS_BOOTSTRAP_URL:-}
     - EXEC_HEALTH_REDIS_WRONG_USER_URL=${EXEC_HEALTH_REDIS_WRONG_USER_URL:-}

@@ -107,8 +107,28 @@ def main() -> None:
         # 5) build dataset (join by sid)
         subprocess.run([sys.executable, "-m", "tools.build_of_dataset", "--replay", replay_out, "--trades", trades_out, "--out", dataset_out, "--pos-th", "0", "--neg-th", "0"], check=True, capture_output=True, text=True)
 
-        # 6) calibrate
-        subprocess.run([sys.executable, "-m", "tools.calibrate_gate_params", "--dataset", dataset_out, "--out", calib_out], check=True, capture_output=True, text=True)
+        # 6) calibrate — derive score grid from actual dataset quantiles so the grid
+        # always covers the replay score range (replay inputs all have ok=0 and lower scores
+        # than live signals; a fixed 0.62–0.70 grid would yield pass_rate=0).
+        score_min_grid = os.getenv("SCORE_MIN_GRID", "")
+        if not score_min_grid:
+            try:
+                _ds_rows = [json.loads(l) for l in open(dataset_out, encoding="utf-8") if l.strip()]
+                _scores = sorted(
+                    float(r.get("base_score") or r.get("score") or 0)
+                    for r in _ds_rows if r.get("base_score") is not None or r.get("score") is not None
+                )
+                if _scores:
+                    n = len(_scores)
+                    _pcts = [0.25, 0.40, 0.55, 0.70, 0.85]
+                    _grid = sorted({round(_scores[min(int(n * p), n - 1)], 3) for p in _pcts})
+                    score_min_grid = ",".join(f"{v:.3f}" for v in _grid)
+            except Exception:
+                pass
+        calib_cmd = [sys.executable, "-m", "tools.calibrate_gate_params", "--dataset", dataset_out, "--out", calib_out]
+        if score_min_grid:
+            calib_cmd += ["--score-min-grid", score_min_grid]
+        subprocess.run(calib_cmd, check=True, capture_output=True, text=True)
 
         best = json.loads(open(calib_out, encoding="utf-8").read()).get("best") or {}
         if not best:
@@ -120,16 +140,16 @@ def main() -> None:
         ttl = int(os.getenv("RECS_TTL_SEC", "86400") or 86400)
         prefix = os.getenv("CFG_HASH_PREFIX", "config:orderflow:")
 
-        w_exec = best.get("w_exec_risk")
-        ref = best.get("exec_risk_ref_bps")
-        smin = best.get("of_score_min")
+        w_exec = float(best.get("w_exec_risk") or 0.0)
+        ref = float(best.get("exec_risk_ref_bps") or 0.0)
+        smin = float(best.get("of_score_min") or 0.0)
 
         ops = []
         for sym in sorted(allow):
             ops += [
-                {"op": "HSET", "key": f"{prefix}{sym}", "field": "w_exec_risk", "value": f"{float(w_exec):.3f}"},
-                {"op": "HSET", "key": f"{prefix}{sym}", "field": "exec_risk_ref_bps", "value": f"{float(ref):.2f}"},
-                {"op": "HSET", "key": f"{prefix}{sym}", "field": "of_score_min", "value": f"{float(smin):.3f}"},
+                {"op": "HSET", "key": f"{prefix}{sym}", "field": "w_exec_risk", "value": f"{w_exec:.3f}"},
+                {"op": "HSET", "key": f"{prefix}{sym}", "field": "exec_risk_ref_bps", "value": f"{ref:.2f}"},
+                {"op": "HSET", "key": f"{prefix}{sym}", "field": "of_score_min", "value": f"{smin:.3f}"},
             ]
 
         bundle = {
@@ -143,29 +163,56 @@ def main() -> None:
 
         r = redis.Redis.from_url(redis_url, decode_responses=True)
         r.set(f"recs:bundle:{bundle_id}", json.dumps(bundle, ensure_ascii=False, separators=(",", ":")), ex=ttl)
-        r.set(f"recs:status:{bundle_id}", "PENDING", ex=ttl)
 
-        # 8) Telegram message with preview button (2-phase)
-        buttons = [[
-            {"text": "✅ Approve (preview)", "callback": f"recs:preview:{bundle_id}:{sig}"},
-            {"text": "❌ Reject", "callback": f"recs:reject:{bundle_id}:{sig}"},
-        ]]
-        msg = (
-            "<b>Nightly calibration</b>\n"
-            f"id=<code>{bundle_id}</code>\n"
-            f"symbols=<code>{','.join(sorted(allow))}</code>\n"
-            f"w_exec_risk=<code>{float(w_exec):.3f}</code> exec_ref=<code>{float(ref):.2f}</code> score_min=<code>{float(smin):.3f}</code>\n"
-            f"metrics={best.get('metrics')}"
-        )
-        r.xadd(os.getenv("NOTIFY_TELEGRAM_STREAM", RS.NOTIFY_TELEGRAM), {
-            "type": "report",
-            "text": msg,
-            "buttons": json.dumps(buttons, ensure_ascii=False, separators=(",", ":")),
-            "ts": str(get_ny_time_millis()),
-        }, maxlen=200000, approximate=True)
+        auto_apply = int(os.getenv("NIGHTLY_CAL_AUTO_APPLY", "0") or 0) == 1
+
+        if auto_apply:
+            # Apply ops directly without waiting for Telegram confirmation
+            pipe = r.pipeline()
+            for op in ops:
+                if op.get("op") == "HSET":
+                    pipe.hset(op["key"], op["field"], op["value"])
+            pipe.execute()
+            r.set(f"recs:status:{bundle_id}", "APPLIED", ex=ttl)
+
+            msg = (
+                "<b>✅ Nightly calibration — auto-applied</b>\n"
+                f"id=<code>{bundle_id}</code>\n"
+                f"symbols=<code>{','.join(sorted(allow))}</code>\n"
+                f"w_exec_risk=<code>{w_exec:.3f}</code> exec_ref=<code>{ref:.2f}</code> score_min=<code>{smin:.3f}</code>\n"
+                f"metrics={best.get('metrics')}\n"
+                f"ops=<code>{len(ops)}</code> applied"
+            )
+            r.xadd(os.getenv("NOTIFY_TELEGRAM_STREAM", RS.NOTIFY_TELEGRAM), {
+                "type": "report",
+                "text": msg,
+                "ts": str(get_ny_time_millis()),
+            }, maxlen=200000, approximate=True)
+        else:
+            r.set(f"recs:status:{bundle_id}", "PENDING", ex=ttl)
+
+            # 8) Telegram message with preview button (2-phase)
+            buttons = [[
+                {"text": "✅ Approve (preview)", "callback": f"recs:preview:{bundle_id}:{sig}"},
+                {"text": "❌ Reject", "callback": f"recs:reject:{bundle_id}:{sig}"},
+            ]]
+            msg = (
+                "<b>Nightly calibration</b>\n"
+                f"id=<code>{bundle_id}</code>\n"
+                f"symbols=<code>{','.join(sorted(allow))}</code>\n"
+                f"w_exec_risk=<code>{w_exec:.3f}</code> exec_ref=<code>{ref:.2f}</code> score_min=<code>{smin:.3f}</code>\n"
+                f"metrics={best.get('metrics')}"
+            )
+            r.xadd(os.getenv("NOTIFY_TELEGRAM_STREAM", RS.NOTIFY_TELEGRAM), {
+                "type": "report",
+                "text": msg,
+                "buttons": json.dumps(buttons, ensure_ascii=False, separators=(",", ":")),
+                "ts": str(get_ny_time_millis()),
+            }, maxlen=200000, approximate=True)
 
         status_data["status"] = "SUCCESS"
         status_data["bundle_id"] = bundle_id
+        status_data["auto_applied"] = "1" if auto_apply else "0"
 
     except SystemExit as e:
         msg = str(e)

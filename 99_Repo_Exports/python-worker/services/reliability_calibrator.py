@@ -337,6 +337,31 @@ def _build_key(cfg: RelCalConfig, *, outcome: str, kind: str, symbol: str, venue
     return ":".join(parts)
 
 
+def _extract_reject_weight(pos: dict[str, Any], trade_closed: dict[str, Any]) -> float:
+    """IPS-style outcome-reliability weight from gate reject_reason.
+
+    Reads `v_gate_reason` from closed-trade or position; routes through
+    `core.reject_reason_weights.weight_for_reason`. Returns 1.0 for passed
+    real trades, unknown reasons, or when the master switch is off (back-compat).
+    """
+    try:
+        from core.reject_reason_weights import weight_for_reason
+    except Exception:
+        return 1.0
+    reason = ""
+    for src in (trade_closed, pos):
+        if not isinstance(src, dict):
+            continue
+        v = src.get("v_gate_reason") or src.get("reject_reason") or ""
+        if v:
+            reason = str(v)
+            break
+    try:
+        return float(weight_for_reason(reason))
+    except Exception:
+        return 1.0
+
+
 def update_reliability_curves(
     redis_client: Any,
     *,
@@ -351,11 +376,13 @@ def update_reliability_curves(
       - never raises
     Redis structure per key:
       HASH fields:
-        samples_total
-        hits_total
-        b{bucket}:n
-        b{bucket}:h
+        samples_total       (float when REJECT_REASON_WEIGHTS_ENABLED=1; int legacy)
+        hits_total          (float when weighted; int legacy)
+        b{bucket}:n         (float when weighted; int legacy)
+        b{bucket}:h         (float when weighted; int legacy)
         last_ts_ms
+    Weighted-write path uses HINCRBYFLOAT so it coexists with legacy
+    HINCRBY-produced integer fields (Redis auto-promotes on read).
     """
     try:
         cfg2 = cfg or RelCalConfig.from_env()
@@ -370,6 +397,18 @@ def update_reliability_curves(
         bucket = _bucket_conf_pct(float(conf), cfg2.bucket_step_pct)
         now = int(now_ms or get_ny_time_millis())
 
+        # IPS weight derived from v_gate_reason; defaults to 1.0 when master
+        # switch off, reason empty/unknown — preserving legacy semantics.
+        w = _extract_reject_weight(pos, trade_closed)
+        if not math.isfinite(w) or w <= 0.0:
+            return
+        if w > 1.0:
+            w = 1.0
+        # When weight == 1.0 we keep using HINCRBY to avoid converting legacy
+        # integer fields to float for no reason; sub-unit weights take the
+        # HINCRBYFLOAT branch.
+        use_float = w < 1.0
+
         pipe = redis_client.pipeline(transaction=False)
         for outcome in (cfg2.outcomes or []):
             hit = _compute_hit(outcome, pos, trade_closed)
@@ -383,20 +422,25 @@ def update_reliability_curves(
                 tf=tf,
                 regime=regime,
             )
-            # Global totals
-            pipe.hincrby(key, "samples_total", 1)
-            if hit:
-                pipe.hincrby(key, "hits_total", 1)
-            # Per-bucket counters
             bn = f"b{bucket}:n"
             bh = f"b{bucket}:h"
-            pipe.hincrby(key, bn, 1)
-            if hit:
-                pipe.hincrby(key, bh, 1)
-            # Audit timestamp (not used in math, but useful for maintenance)
+            if use_float:
+                # Fractional contribution; Redis coerces legacy int fields.
+                pipe.hincrbyfloat(key, "samples_total", w)
+                if hit:
+                    pipe.hincrbyfloat(key, "hits_total", w)
+                pipe.hincrbyfloat(key, bn, w)
+                if hit:
+                    pipe.hincrbyfloat(key, bh, w)
+            else:
+                pipe.hincrby(key, "samples_total", 1)
+                if hit:
+                    pipe.hincrby(key, "hits_total", 1)
+                pipe.hincrby(key, bn, 1)
+                if hit:
+                    pipe.hincrby(key, bh, 1)
             with contextlib.suppress(Exception):
                 pipe.hset(key, "last_ts_ms", str(now))
-            # TTL to avoid unbounded growth (default 30d)
             if cfg2.ttl_sec and cfg2.ttl_sec > 0:
                 with contextlib.suppress(Exception):
                     pipe.expire(key, int(cfg2.ttl_sec))
@@ -501,11 +545,24 @@ def update_smt_coh_curves(
         now = now_ms or get_ny_time_millis()
         _ttl = ttl_sec if ttl_sec else 60 * 60 * 24 * 30  # 30d default
 
+        # IPS weight from v_gate_reason — see update_reliability_curves.
+        w = _extract_reject_weight(pos, trade_closed)
+        if not math.isfinite(w) or w <= 0.0:
+            return
+        if w > 1.0:
+            w = 1.0
+        use_float = w < 1.0
+
         key = f"{_SMT_COH_KEY_PREFIX}:{symbol.upper()}:{regime.lower()}"
         pipe = redis_client.pipeline(transaction=False)
-        pipe.hincrby(key, f"b{bucket}:n", 1)
-        if hit:
-            pipe.hincrby(key, f"b{bucket}:h", 1)
+        if use_float:
+            pipe.hincrbyfloat(key, f"b{bucket}:n", w)
+            if hit:
+                pipe.hincrbyfloat(key, f"b{bucket}:h", w)
+        else:
+            pipe.hincrby(key, f"b{bucket}:n", 1)
+            if hit:
+                pipe.hincrby(key, f"b{bucket}:h", 1)
         with contextlib.suppress(Exception):
             pipe.hset(key, "last_ts_ms", str(now))
         with contextlib.suppress(Exception):

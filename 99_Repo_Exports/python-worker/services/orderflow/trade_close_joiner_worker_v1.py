@@ -454,6 +454,27 @@ async def _write_outputs(
         or "*"
     )
     _kind = str(decision.get("kind") or decision.get("signal_kind") or "*")
+
+    # P2 ctx_tighten attribution: extract from signal_payload.indicators
+    # Written by signal_pipeline._apply_decision when SentimentContextGate /
+    # DefiLlamaContextGate fires TIGHTEN. Zero when gate disabled/abstain.
+    _ctx_senti_bps = 0.0
+    _ctx_defi_bps = 0.0
+    try:
+        _sp = close_ev.get("signal_payload") or {}
+        if isinstance(_sp, str):
+            import json as _json_mod
+            _sp = _json_mod.loads(_sp)
+        _inds = _sp.get("indicators") or {} if isinstance(_sp, dict) else {}
+        if isinstance(_inds, str):
+            import json as _json_mod  # noqa: F811
+            _inds = _json_mod.loads(_inds)
+        if isinstance(_inds, dict):
+            _ctx_senti_bps = float(_inds.get("ctx_sentiment_tighten_bps", 0.0) or 0.0)
+            _ctx_defi_bps = float(_inds.get("ctx_defillama_tighten_bps", 0.0) or 0.0)
+    except Exception:
+        pass
+
     calib_fields: dict[str, str] = {
         "ml_prob":     "" if _p is None else f"{float(_p):.6f}",
         "r_multiple":  "" if r_mult is None else str(r_mult),
@@ -461,6 +482,8 @@ async def _write_outputs(
         "ts_close":    str(close_ts_ms),
         "market_regime": _market_regime,
         "kind":        _kind,
+        "ctx_sentiment_tighten_bps": f"{_ctx_senti_bps:.4f}",
+        "ctx_defillama_tighten_bps": f"{_ctx_defi_bps:.4f}",
     }
 
     # Prefer simple 'payload' format (standard)
