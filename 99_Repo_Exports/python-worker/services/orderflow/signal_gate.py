@@ -388,7 +388,7 @@ class SignalGate:
                 or signal.get("high_vol_blackout")
                 or signal.get("news_blackout_active")
             ),
-            shadow_only=bool(signal.get("shadow_only") or signal.get("paper_only")),
+            shadow_only=bool(signal.get("shadow_only") or signal.get("paper_only") or bool(int(signal.get("is_virtual", 0) or 0))),
         )
 
     # ── Side effects ──────────────────────────────────────────────────────────

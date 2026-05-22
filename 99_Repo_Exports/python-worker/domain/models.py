@@ -372,6 +372,20 @@ class TradeClosed:
     venue: str = ""
     confidence: float = 0.0
 
+    # ── Orphan cleanup metadata ────────────────────────────────────────────
+    # is_orphan_cleanup=True → position removed by housekeep, not by executor fill.
+    # exclude_from_ml_labels=True → exclude from ML training/evaluation datasets.
+    is_orphan_cleanup: bool = False
+    exclude_from_ml_labels: bool = False
+
+    # ── Max-hold timeout close metadata ───────────────────────────────────
+    timeout_age_ms: int = 0
+    timeout_max_hold_ms: int = 0
+    timeout_request_ts_ms: int = 0
+    timeout_close_latency_ms: int = 0
+    exit_order_ref: str = ""
+    closed_trade_id: str = ""
+
 
 @dataclass(slots=True)
 class PositionState:
@@ -463,6 +477,7 @@ class PositionState:
     arm_ver: int = 0
     risk_usd: float = 0.0
     entry_regime: str = "na"
+    regime: str = ""
     entry_zone_id: str = ""
 
     # сырой сигнал для отладки/аудита
@@ -540,6 +555,7 @@ class PositionState:
     # ------------------------------------------------------------------
     trail_after_tp1: bool = True
     trail_after_tp1_reason: str = ""
+    trail_after_tp_level: int = 0  # 0=immediate, 1=TP1, 2=TP2 (from TradeProfileRouter)
     trailing_skip_reason: str = ""
 
     # If trailing is explicitly NOT started after TP1, we record it for audit.

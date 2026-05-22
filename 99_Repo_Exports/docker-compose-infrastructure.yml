@@ -593,7 +593,7 @@ services:
     # Это стандартное решение для scram-sha-256: pg_authid недоступна непривилегированным ролям.
     - AUTH_USER=pgbouncer
     - AUTH_PASSWORD=${PGBOUNCER_AUTH_PASSWORD}
-    - AUTH_QUERY=SELECT usename, passwd FROM public.pgbouncer_get_auth($1)
+    - "AUTH_QUERY=SELECT usename, passwd FROM public.pgbouncer_get_auth($$1)"
     - LOG_CONNECTIONS=0
     - LOG_DISCONNECTIONS=0
     - TZ=UTC
@@ -728,9 +728,6 @@ services:
     - scanner-infra
     healthcheck:
       test: ["NONE"]
-      timeout: 5s
-      retries: 3
-      start_period: 15s
     deploy:
       resources:
         limits:
@@ -756,9 +753,6 @@ services:
     - scanner-infra
     healthcheck:
       test: ["NONE"]
-      timeout: 5s
-      retries: 3
-      start_period: 15s
     deploy:
       resources:
         limits:
@@ -783,9 +777,6 @@ services:
     - scanner-infra
     healthcheck:
       test: ["NONE"]
-      timeout: 5s
-      retries: 3
-      start_period: 15s
     deploy:
       resources:
         limits:
@@ -811,9 +802,6 @@ services:
     - scanner-infra
     healthcheck:
       test: ["NONE"]
-      timeout: 5s
-      retries: 3
-      start_period: 15s
     deploy:
       resources:
         limits:
@@ -838,9 +826,6 @@ services:
     - scanner-infra
     healthcheck:
       test: ["NONE"]
-      timeout: 5s
-      retries: 3
-      start_period: 15s
     deploy:
       resources:
         limits:
@@ -865,9 +850,6 @@ services:
     - scanner-infra
     healthcheck:
       test: ["NONE"]
-      timeout: 5s
-      retries: 3
-      start_period: 15s
     deploy:
       resources:
         limits:
@@ -890,9 +872,6 @@ services:
     - scanner-infra
     healthcheck:
       test: ["NONE"]
-      timeout: 5s
-      retries: 3
-      start_period: 15s
     deploy:
       resources:
         limits:
@@ -915,9 +894,6 @@ services:
     - scanner-infra
     healthcheck:
       test: ["NONE"]
-      timeout: 5s
-      retries: 3
-      start_period: 15s
     deploy:
       resources:
         limits:

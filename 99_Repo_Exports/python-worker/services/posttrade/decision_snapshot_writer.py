@@ -592,6 +592,11 @@ class DecisionSnapshotStreamWorker:
 
                         self._metrics.written_total.inc(float(written))
 
+                        if self.cfg.decision_redis_mirror_enabled:
+                            ack_bad_set = set(ack_bad)
+                            good_entries = [(_decode_id(i), f) for (i, f) in msgs if _decode_id(i) not in ack_bad_set]
+                            await self._mirror_decision_redis_keys(good_entries)
+
                         good_ids = [_decode_id(i) for (i, _) in msgs if _decode_id(i) not in set(ack_bad)]
                         await self._ack(*good_ids)
 
@@ -664,6 +669,11 @@ class DecisionSnapshotStreamWorker:
                         return claimed_total
 
                     self._metrics.written_total.inc(float(written))
+
+                    if self.cfg.decision_redis_mirror_enabled:
+                        ack_bad_set = set(ack_bad)
+                        good_entries = [(_decode_id(i), f) for (i, f) in claimed if _decode_id(i) not in ack_bad_set]
+                        await self._mirror_decision_redis_keys(good_entries)
 
                     good_ids = [_decode_id(i) for (i, _) in claimed if _decode_id(i) not in set(ack_bad)]
                     await self._ack(*good_ids)

@@ -118,8 +118,13 @@ def main():
         # Check Global metrics
         g_metrics = data.get("buckets", {}).get("global", {}).get("metrics", {})
         if not g_metrics:
-            logger.warning("No global metrics found. Skipping guardrails (unsafe?).")
-            # Might enforce existence?
+            # Empty bundle means dataset had no confidence_v1 rows — do NOT promote.
+            # Common cause: signals:of:inputs stale OR confidence_v1 key missing from signals.
+            logger.error(
+                "Trained bundle has no global metrics (buckets: {} or missing confidence_v1 in dataset). "
+                "Skipping promotion to preserve last valid bundle."
+            )
+            sys.exit(0)
         else:
             raw_ece = g_metrics["raw"]["ece"]
             cal_ece = g_metrics["cal"]["ece"]

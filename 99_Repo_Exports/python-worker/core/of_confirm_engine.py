@@ -4637,6 +4637,72 @@ class OFConfirmEngine:
                     indicators_with_v4.setdefault(_cmck, 0.0)
 
             # ------------------------------------------------------------------
+            # Macro Metadata Block: composite macro_status / quality / reason / age.
+            # Reads runtime:coingecko:circuit:status to distinguish 429 from plain stale.
+            # Sets macro_status_ok (float 0/1), macro_quality (0.1–1.0),
+            # macro_age_ms, macro_reason_code — metadata fields, not ML features.
+            # ML feature values (cg_*/cp_*/cmc_*) stay 0.0 when stale (unchanged).
+            # ------------------------------------------------------------------
+            try:
+                _macro_circuit_open = False
+                try:
+                    _rc_cg_circuit = getattr(self, "_redis_client_main", None) or getattr(self, "_redis_client", None)
+                    _raw_circuit = _ctx_hgetall(_rc_cg_circuit, "runtime:coingecko:circuit:status")
+                    if _raw_circuit:
+                        _circuit = {
+                            (k.decode() if isinstance(k, (bytes, bytearray)) else str(k)):
+                            (v.decode() if isinstance(v, (bytes, bytearray)) else str(v))
+                            for k, v in _raw_circuit.items()
+                        }
+                        if _circuit.get("status") == "open":
+                            _reopen_at = float(_circuit.get("reopen_at_ms") or 0)
+                            if _reopen_at > int(now_ts):
+                                _macro_circuit_open = True
+                except Exception:
+                    pass
+
+                # Stale state from each provider (default True if block threw before setting)
+                _cg_fresh = not locals().get("_cg_global_stale", True)
+                _cp_fresh = not locals().get("_cp_global_stale", True)
+                _cmc_fresh = not locals().get("_cmc_global_stale", True)
+
+                if _cg_fresh:
+                    _macro_status = "ok"
+                    _macro_quality = 1.0
+                    _macro_reason_code = "ok"
+                elif _cp_fresh or _cmc_fresh:
+                    # CG stale but fallback provider is live
+                    _macro_status = "degraded"
+                    _macro_quality = 0.7
+                    _macro_reason_code = "cg_fallback"
+                else:
+                    # All providers stale
+                    _macro_status = "stale"
+                    _macro_quality = 0.2 if _macro_circuit_open else 0.1
+                    _macro_reason_code = "provider_429" if _macro_circuit_open else "all_stale"
+
+                # Age from freshest available source
+                _macro_age_ms_val = float(locals().get("_cg_max_lag_ms", 600_000))
+                for _mts, _mstale in (
+                    (float((locals().get("_cg_global") or {}).get("ts_ms") or 0), not _cg_fresh),
+                    (float((locals().get("_cp_global") or {}).get("ts_ms") or 0), not _cp_fresh),
+                    (float((locals().get("_cmc_global") or {}).get("ts_ms") or 0), not _cmc_fresh),
+                ):
+                    if not _mstale and _mts > 0:
+                        _macro_age_ms_val = max(0.0, int(now_ts) - _mts)
+                        break
+
+                indicators_with_v4.setdefault("macro_status_ok", 1.0 if _macro_status == "ok" else 0.0)
+                indicators_with_v4.setdefault("macro_quality", _macro_quality)
+                indicators_with_v4.setdefault("macro_age_ms", _macro_age_ms_val)
+                indicators_with_v4.setdefault("macro_reason_code", _macro_reason_code)
+            except Exception:
+                indicators_with_v4.setdefault("macro_status_ok", 0.0)
+                indicators_with_v4.setdefault("macro_quality", 0.0)
+                indicators_with_v4.setdefault("macro_age_ms", 0.0)
+                indicators_with_v4.setdefault("macro_reason_code", "error")
+
+            # ------------------------------------------------------------------
             # Phase 8.5: Deribit extended (Group XVII) — options OI + perp basis.
             # Re-uses _deribit_data/_deribit_stale/_deribit_max_lag_ms (Phase 8.1 W3b).
             # Per-symbol basis: ctx:deribit:{symbol} — only BTC/ETH have data, others → 0.

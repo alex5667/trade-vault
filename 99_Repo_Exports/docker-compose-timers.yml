@@ -2125,12 +2125,13 @@ services:
     environment:
     # Master switch. Trainer refuses to write scorer_model.lgb unless = 1.
     # See docs/PHASE3_ML_FUSION_REDESIGN.md.
-    - PHASE3_TRAINER_ENABLE=${PHASE3_TRAINER_ENABLE:-0}
+    - PHASE3_TRAINER_ENABLE=1
     - PHASE3_INPUT_DIR=/var/lib/trade/of_reports/out/confidence_cal_live
     - PHASE3_OUTPUT_DIR=/app/python-worker/ml_models
-    - PHASE3_LOOKBACK_HOURS=336
+    - PHASE3_LOOKBACK_HOURS=168
     - PHASE3_MIN_TOTAL_N=8000
     - PHASE3_HOLDOUT_FRAC=0.30
+    - PHASE3_Y_MIN_R_OVERRIDE=0.15
     - PYTHONPATH=.:/app
     - PYTHONUNBUFFERED=1
     - TZ=UTC
@@ -7473,6 +7474,102 @@ services:
       \ (retention=$${PURGE_RETENTION_DAYS:-30}d)...';\n    python3 -m runners.execution_journal_purge_runner;\n\
       \    echo '[exec-journal-purge] Done. Sleeping 23h...';\n    sleep 82800;\n  else\n\
       \    sleep 600;\n  fi\ndone\"\n"
+    networks:
+    - scanner-timers
+    - scanner-infra
+
+  slip-cal-v1-nightly-timer:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile.gpu
+    container_name: scanner-slip-cal-v1-nightly-timer
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 256M
+        reservations:
+          memory: 32M
+    environment:
+    - REDIS_URL=${REDIS_URL:-redis://redis-worker-1:6379/0}
+    - REDIS_MAIN_URL=${REDIS_MAIN_URL:-redis://redis:6379/0}
+    - DATABASE_URL=${DATABASE_URL:-postgresql://trading:${TRADING_PASSWORD}@scanner-postgres:5432/scanner_analytics}
+    - PYTHONPATH=.:/app
+    - PYTHONUNBUFFERED=1
+    - SLIP_CAL_APPLY=${SLIP_CAL_APPLY:-1}
+    - SLIP_CAL_SHADOW_ENFORCE=${SLIP_CAL_SHADOW_ENFORCE:-0}
+    - SLIP_CAL_LOOKBACK_DAYS=${SLIP_CAL_LOOKBACK_DAYS:-30}
+    - SLIP_CAL_MIN_N=${SLIP_CAL_MIN_N:-20}
+    - SLIP_CAL_OUT_DIR=/var/lib/trade/of_reports/slippage_calibration
+    - SLIP_CAL_STATE_PATH=/var/lib/trade/of_reports/slippage_cal_state.json
+    - NOTIFY_STREAM=${NOTIFY_STREAM:-notify:telegram}
+    - TZ=UTC
+    working_dir: /app
+    volumes:
+    - ./python-worker:/app
+    - /var/lib/trade/of_reports:/var/lib/trade/of_reports
+    command: "sh -c \"sleep 720 && while true; do\n  HOUR=$$(date +%-H);\n  MIN=$$(date\
+      \ +%-M);\n  if [ \\\"$$HOUR\\\" -eq 3 ] && [ \\\"$$MIN\\\" -ge 40 ] && [ \\\"\
+      $$MIN\\\" -lt 55 ]; then\n    echo '[slip-cal-v1] Running Slippage Calibrator\
+      \ v1...';\n    python3 -m orderflow_services.cost_edge_slippage_calibrator_v1\
+      \  --apply $${SLIP_CAL_APPLY:-1}\
+      \  --shadow-enforce $${SLIP_CAL_SHADOW_ENFORCE:-0}\
+      \  --lookback-days $${SLIP_CAL_LOOKBACK_DAYS:-30}\
+      \  --min-n $${SLIP_CAL_MIN_N:-20}\
+      \  --out-dir $${SLIP_CAL_OUT_DIR:-/var/lib/trade/of_reports/slippage_calibration}\
+      \  --state-path $${SLIP_CAL_STATE_PATH:-/var/lib/trade/of_reports/slippage_cal_state.json};\n\
+      \    echo '[slip-cal-v1] Done. Sleeping 23h...';\n    sleep 82800;\n  else\n\
+      \    sleep 600;\n  fi\ndone\"\n"
+    depends_on:
+      redis-worker-1:
+        condition: service_healthy
+    networks:
+    - scanner-timers
+    - scanner-infra
+
+  slip-autocal-v1:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile.gpu
+    container_name: scanner-slip-autocal-v1
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '0.15'
+          memory: 128M
+        reservations:
+          memory: 32M
+    environment:
+    - REDIS_URL=${REDIS_URL:-redis://redis-worker-1:6379/0}
+    - PYTHONPATH=.:/app
+    - PYTHONUNBUFFERED=1
+    - SLIP_AC_GROUP=slip-ac
+    - SLIP_AC_CONSUMER=slip-ac-1
+    - SLIP_AC_PORT=9157
+    - SLIP_AC_WINDOW_DAYS=${SLIP_AC_WINDOW_DAYS:-30}
+    - SLIP_AC_HALF_LIFE_DAYS=${SLIP_AC_HALF_LIFE_DAYS:-7}
+    - SLIP_AC_ALPHA=${SLIP_AC_ALPHA:-0.095}
+    - SLIP_AC_LOWER=${SLIP_AC_LOWER:-1.0}
+    - SLIP_AC_UPPER=${SLIP_AC_UPPER:-30.0}
+    - SLIP_AC_MIN_N=${SLIP_AC_MIN_N:-20}
+    - SLIP_AC_SNAP_SEC=${SLIP_AC_SNAP_SEC:-60}
+    - SLIP_AC_ENFORCE=${SLIP_AC_ENFORCE:-0}
+    - SLIP_AC_ADVERSE_KEY_MS=${SLIP_AC_ADVERSE_KEY_MS:-800}
+    - SLIP_AC_PROMOTE_ENABLED=${SLIP_AC_PROMOTE_ENABLED:-0}
+    - SLIP_AC_PROMOTE_MIN_OBS=${SLIP_AC_PROMOTE_MIN_OBS:-500}
+    - SLIP_AC_PROMOTE_MIN_GROUPS=${SLIP_AC_PROMOTE_MIN_GROUPS:-5}
+    - SLIP_AC_PROMOTE_DWELL_SEC=${SLIP_AC_PROMOTE_DWELL_SEC:-3600}
+    - SLIP_AC_PROMOTE_MAX_DRIFT=${SLIP_AC_PROMOTE_MAX_DRIFT:-30}
+    - TZ=UTC
+    working_dir: /app
+    volumes:
+    - ./python-worker:/app
+    command: python3 -m orderflow_services.slippage_autocal_v1
+    depends_on:
+      redis-worker-1:
+        condition: service_healthy
     networks:
     - scanner-timers
     - scanner-infra

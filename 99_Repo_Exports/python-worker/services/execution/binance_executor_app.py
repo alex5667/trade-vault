@@ -467,6 +467,11 @@ class BinanceExecutor:
                     payload=payload, client=client, filters=filters,
                     sid=sid, ts_queue_ms=ts_queue_ms, ts_exec_start_ms=ts_exec_start_ms,
                 )
+            elif action == "timeout_close":
+                self.cancel_svc.handle_timeout_close(
+                    payload=payload, client=client, filters=filters,
+                    sid=sid, ts_queue_ms=ts_queue_ms, ts_exec_start_ms=ts_exec_start_ms,
+                )
             else:
                 self.event_writer.dlq(raw, f"unknown_action:{action}")
 

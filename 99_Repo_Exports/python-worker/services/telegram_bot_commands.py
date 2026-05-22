@@ -157,7 +157,7 @@ def register_analytics_commands(dp, bot):
 
 PROMETHEUS_URL = os.getenv("PROMETHEUS_URL", "http://prometheus:9090/api/v1/query")
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://ollama:11434").rstrip("/")
-MODEL = os.getenv("TELEGRAM_LLM_MODEL", "deepseek-r1:14b")
+MODEL = os.getenv("TELEGRAM_LLM_MODEL", "deepseek-r1:8b")
 
 async def fetch_prometheus_metric(query: str) -> float | None:
     try:

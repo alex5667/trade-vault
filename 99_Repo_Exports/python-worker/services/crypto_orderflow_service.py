@@ -374,6 +374,14 @@ class CryptoOrderflowService:
         self._task_restart_hist: dict[tuple[str, str], deque] = {}
         self._shutdown = False
 
+        # Confirmation Barrier reader (shadow mode until CONFIRM_BARRIER_CAL_ENABLED=1).
+        # Provides adaptive OBI thresholds from the calibrator snapshot in Redis.
+        try:
+            from core.confirmation_barrier_reader import ConfirmationBarrierReader
+            self.confirm_barrier_reader = ConfirmationBarrierReader.from_env(redis_client=self.main)
+        except Exception:
+            self.confirm_barrier_reader = None  # type: ignore[assignment]
+
         # Rolling calibrator persistence settings
         self._score_calib_redis_key = self._svc_cfg.calib.score_calib_redis_key
         self._score_calib_persist_interval = self._svc_cfg.calib.score_calib_persist_interval_sec

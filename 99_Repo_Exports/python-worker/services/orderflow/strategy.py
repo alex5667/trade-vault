@@ -384,6 +384,10 @@ class OrderFlowStrategy:
             self._mbatch_task = safe_create_task(self._mbatch.run())
         if self._pbatch_task is None:
             self._pbatch_task = safe_create_task(self._pbatch.run())
+        if not getattr(self, "_calib_snap_task", None):
+            self._calib_snap_task = safe_create_task(
+                self.signal_pipeline._calib_snap_bg_loop()
+            )
 
     def cleanup_symbol(self, symbol: str) -> None:
         """Removes all internal tracking state for a symbol to prevent memory leaks."""
@@ -1431,6 +1435,7 @@ class OrderFlowStrategy:
                     indicators["notional_ask_within_1bp"] = float(na1)
                     indicators["notional_bid_within_5bp"] = float(nb5)
                     indicators["notional_ask_within_5bp"] = float(na5)
+                    indicators["book_mid_price"] = float(mid)
 
                     # Liquidity resiliency (recovery time after stress).
                     try:
@@ -1464,51 +1469,6 @@ class OrderFlowStrategy:
                             indicators.setdefault("liq_geom_monitor_hit", 0)
                     except Exception:
                         pass
-
-
-                # ------------------------------------------------------------
-                # Phase D (P3): Flow toxicity features (OFI normalized by depth)
-                # ------------------------------------------------------------
-                # We compute a scale-invariant OFI proxy:
-                #   ofi_norm = (ofi_best_qty * mid) / (bid_notional_1bp + ask_notional_1bp)
-                # and a robust z-score using a bounded RollingRobustZ tracker (runtime.ofi_norm_stats).
-                #
-                # Why here (not earlier): we already computed near-touch depth notional (nb1/na1).
-                # This keeps the metric stable across symbols and market regimes.
-                try:
-                    from services.orderflow.flow_toxicity import compute_ofi_norm_notional, normal_cdf
-                    ofi_qty = float(indicators.get("ofi_best_qty", 0.0) or 0.0)
-                    depth1 = float(nb1 + na1)
-                    if depth1 <= 0.0:
-                        depth1 = float(min(nb5, na5))
-                    if ofi_qty != 0.0 and float(mid) > 0.0 and depth1 > 0.0:
-                        ofi_norm = compute_ofi_norm_notional(ofi_best_qty=ofi_qty, mid=float(mid), depth_usd_near=float(depth1))
-                        indicators["ofi_norm"] = float(ofi_norm)
-                        indicators["ofi_norm_depth_usd_1bp"] = float(depth1)
-                        try:
-                            runtime.ofi_norm_stats.update(float(ofi_norm))
-                            z = float(runtime.ofi_norm_stats.z(float(ofi_norm)))
-                            runtime.ofi_norm_z = float(z)
-                            indicators["ofi_norm_z"] = float(z)
-                        except Exception:
-                            indicators.setdefault("ofi_norm_z", float(getattr(runtime, "ofi_norm_z", 0.0) or 0.0))
-                    else:
-                        indicators.setdefault("ofi_norm", 0.0)
-                        indicators.setdefault("ofi_norm_z", float(getattr(runtime, "ofi_norm_z", 0.0) or 0.0))
-
-                    # Optional VPIN-like toxicity proxy from L3-lite tracker (if enabled)
-                    # Stored as z-score + CDF in [0..1] for easy thresholding.
-                    vz = 0.0
-                    try:
-                        l3s = getattr(runtime, "l3_stats", None)
-                        if l3s is not None:
-                            vz = float(getattr(l3s, "vpin_tox_z", 0.0) or 0.0)
-                    except Exception:
-                        vz = 0.0
-                    indicators["vpin_tox_z"] = float(vz)
-                    indicators["vpin_cdf"] = float(normal_cdf(float(vz)))
-                except Exception:
-                    pass
 
                 # --------------------------------------------------------
                 # Phase E / P4: Manipulation pattern indicators (hot-path)
@@ -1648,6 +1608,46 @@ class OrderFlowStrategy:
                 indicators['depth_top5_qty'] = float(depth)
                 indicators['ofi_best_norm'] = float(norm)
                 runtime._ofi_prev_book = book
+        except Exception:
+            pass
+
+        # --- Phase D (P3): OFI normalized by near-touch depth + VPIN proxy ---
+        # Runs AFTER ofi_best_qty is populated (line above). Uses book_mid_price
+        # stored by Phase C so nb1/na1 notional values are already in indicators.
+        try:
+            from services.orderflow.flow_toxicity import compute_ofi_norm_notional, normal_cdf
+            ofi_qty = float(indicators.get("ofi_best_qty", 0.0) or 0.0)
+            depth1 = float(indicators.get("notional_within_1bp", 0.0) or 0.0)
+            if depth1 <= 0.0:
+                nb5_usd = float(indicators.get("notional_bid_within_5bp", 0.0) or 0.0)
+                na5_usd = float(indicators.get("notional_ask_within_5bp", 0.0) or 0.0)
+                depth1 = nb5_usd + na5_usd
+            mid_px = float(indicators.get("book_mid_price", 0.0) or 0.0)
+            if ofi_qty != 0.0 and mid_px > 0.0 and depth1 > 0.0:
+                ofi_norm = compute_ofi_norm_notional(ofi_best_qty=ofi_qty, mid=mid_px, depth_usd_near=depth1)
+                indicators["ofi_norm"] = float(ofi_norm)
+                indicators["ofi_norm_depth_usd_1bp"] = float(depth1)
+                try:
+                    runtime.ofi_norm_stats.update(float(ofi_norm))
+                    z = float(runtime.ofi_norm_stats.z(float(ofi_norm)))
+                    runtime.ofi_norm_z = float(z)
+                    indicators["ofi_norm_z"] = float(z)
+                except Exception:
+                    indicators.setdefault("ofi_norm_z", float(getattr(runtime, "ofi_norm_z", 0.0) or 0.0))
+            else:
+                indicators.setdefault("ofi_norm", 0.0)
+                indicators.setdefault("ofi_norm_z", float(getattr(runtime, "ofi_norm_z", 0.0) or 0.0))
+
+            # VPIN-like toxicity proxy from L3-lite tracker
+            vz = 0.0
+            try:
+                l3s = getattr(runtime, "l3_stats", None)
+                if l3s is not None:
+                    vz = float(getattr(l3s, "vpin_tox_z", 0.0) or 0.0)
+            except Exception:
+                vz = 0.0
+            indicators["vpin_tox_z"] = float(vz)
+            indicators["vpin_cdf"] = float(normal_cdf(float(vz)))
         except Exception:
             pass
 
@@ -4270,6 +4270,13 @@ class OrderFlowStrategy:
                          )
 
                          new_regime = self._regime_svc.update_regime(features)
+
+                         # Store for ML feature bridge in publish_signal
+                         try:
+                             runtime._last_atr_q = float(features.atr_q)
+                             runtime._last_regime_score = float(self._regime_svc.state.score)
+                         except Exception:
+                             pass
 
                          # Publish back to Redis for other consumers
                          if ts_bar - runtime._regime_last_pub_ms >= self._regime_pub_gap_ms:

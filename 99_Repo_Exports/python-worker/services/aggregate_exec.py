@@ -94,7 +94,7 @@ def _fetch_snapshots(r: redis.Redis, sids: set) -> dict:
         batch = sids_list[i : i + _SNAP_BATCH]
         keys = [SNAP_PREFIX + sid for sid in batch]
         try:
-            vals = r.mget(keys)
+            vals: list = r.mget(keys)  # type: ignore[assignment]
             for sid, val in zip(batch, vals):
                 if not val:
                     continue
@@ -277,7 +277,7 @@ def stream_and_write(
         while True:
             # ── 1. Read chunk from Redis ─────────────────────────────
             try:
-                chunk = r.xrange(
+                chunk: list = r.xrange(  # type: ignore[assignment]
                     EXEC_STREAM, min=last, max=end_id, count=_REDIS_CHUNK
                 )
             except redis.exceptions.BusyLoadingError:

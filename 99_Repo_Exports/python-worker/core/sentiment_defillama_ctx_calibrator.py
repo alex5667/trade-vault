@@ -98,6 +98,10 @@ class CtxGateTightenCalibrator:
 
     enforce: bool = False
 
+    # Auto-promote: flip enforce=True automatically once warmup criteria met.
+    auto_promote: bool = True
+    auto_promote_min_hours: float = 6.0  # min elapsed since first sample
+
     _cap_bps: float = field(init=False)
     _shadow_cap_bps: float = field(init=False)
     _buf: deque = field(init=False)
@@ -106,6 +110,9 @@ class CtxGateTightenCalibrator:
     _ev_baseline: float = field(init=False, default=float("nan"))
     _n_tightened: int = field(init=False, default=0)
     _n_baseline: int = field(init=False, default=0)
+    _first_sample_ms: int = field(init=False, default=0)
+    _auto_promoted: bool = field(init=False, default=False)
+    _auto_promoted_ms: int = field(init=False, default=0)
 
     def __post_init__(self) -> None:
         self._cap_bps = self.default_cap_bps
@@ -121,6 +128,8 @@ class CtxGateTightenCalibrator:
         w = max(0.0, min(1.0, float(w) if math.isfinite(w) else 1.0))
         if w <= 0.0:
             return
+        if self._first_sample_ms == 0:
+            self._first_sample_ms = ts_ms
         self._buf.append(_Sample(r=float(r), tighten_bps=float(tighten_bps), w=w, ts_ms=int(ts_ms)))
 
     def recompute(self, now_ms: int | None = None) -> None:
@@ -145,6 +154,19 @@ class CtxGateTightenCalibrator:
         ev_b = weighted_mean(baseline_rw) if baseline_rw else float("nan")
         self._ev_tightened = ev_t
         self._ev_baseline = ev_b
+
+        # Auto-promote: flip enforce=True once warmup criteria met (sticky).
+        if (
+            self.auto_promote
+            and not self._auto_promoted
+            and n_t >= self.min_tightened
+            and self._first_sample_ms > 0
+        ):
+            elapsed_h = (now_ms - self._first_sample_ms) / 3_600_000.0
+            if elapsed_h >= self.auto_promote_min_hours:
+                self.enforce = True
+                self._auto_promoted = True
+                self._auto_promoted_ms = now_ms
 
         if n_t < self.min_tightened:
             return  # not enough tightened samples yet
@@ -179,6 +201,10 @@ class CtxGateTightenCalibrator:
     def shadow_cap_bps(self) -> float:
         return self._shadow_cap_bps
 
+    @property
+    def auto_promoted(self) -> bool:
+        return self._auto_promoted
+
     def snapshot(self) -> dict[str, Any]:
         return {
             "cap_bps": round(self._cap_bps, 4),
@@ -188,6 +214,9 @@ class CtxGateTightenCalibrator:
             "n_tightened": self._n_tightened,
             "n_baseline": self._n_baseline,
             "last_commit_ms": self._last_commit_ms,
+            "auto_promoted": self._auto_promoted,
+            "auto_promoted_ms": self._auto_promoted_ms,
+            "first_sample_ms": self._first_sample_ms,
         }
 
     def loads_gate_state(self, data: dict[str, Any]) -> None:
@@ -200,6 +229,11 @@ class CtxGateTightenCalibrator:
             if math.isfinite(shadow) and self.min_cap_bps <= shadow <= self.max_cap_bps:
                 self._shadow_cap_bps = shadow
             self._last_commit_ms = int(data.get("last_commit_ms", 0) or 0)
+            self._first_sample_ms = int(data.get("first_sample_ms", 0) or 0)
+            self._auto_promoted = bool(data.get("auto_promoted", False))
+            self._auto_promoted_ms = int(data.get("auto_promoted_ms", 0) or 0)
+            if self._auto_promoted:
+                self.enforce = True  # sticky — never regress once promoted
         except Exception:
             pass
 

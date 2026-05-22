@@ -124,6 +124,32 @@ try:
         "confirmation_barrier_pending",
         "Signals currently held in confirmation barrier awaiting deadline",
     )
+    _VIRTUAL_THRESHOLD_CANDIDATE_TOTAL = Counter(
+        "virtual_threshold_candidate_total",
+        "Signals that entered virtual order routing logic",
+        ["symbol", "meets_virtual_threshold"],
+    )
+    _VIRTUAL_ORDER_SKIPPED_BAD_DQ_TOTAL = Counter(
+        "virtual_order_skipped_bad_dq_total",
+        "Virtual order pushes suppressed due to DQ/time/integrity veto",
+        ["reason"],
+    )
+    _VIRTUAL_ORDER_INVALID_LEVELS_TOTAL = Counter(
+        "virtual_order_invalid_levels_total",
+        "Virtual order pushes suppressed due to zero/missing entry/sl/lot",
+        ["reason"],
+    )
+    # Policy-aware exploration metrics (plan §6)
+    _DEEP_EXPLORE_SAMPLE_TOTAL = Counter(
+        "deep_explore_sample_total",
+        "Signals evaluated for deep_explore_20_35 bucket (accepted=1 passed cap+rate, 0=dropped)",
+        ["symbol", "accepted"],
+    )
+    _VIRTUAL_SAMPLE_COUNT_BY_POLICY = Counter(
+        "virtual_sample_count_total",
+        "Virtual/exploration samples recorded by policy bucket",
+        ["sample_policy", "symbol", "regime", "session"],
+    )
 except ImportError:
     _FEATURE_TO_DECISION_MS = None
     _DECISION_TO_OUTBOX_MS = None
@@ -133,6 +159,44 @@ except ImportError:
     _G9_CONFIDENCE_MISSING_TOTAL = None
     _BARRIER_DECISION_TOTAL = None
     _BARRIER_PENDING = None
+    _VIRTUAL_THRESHOLD_CANDIDATE_TOTAL = None
+    _VIRTUAL_ORDER_SKIPPED_BAD_DQ_TOTAL = None
+    _VIRTUAL_ORDER_INVALID_LEVELS_TOTAL = None
+    _DEEP_EXPLORE_SAMPLE_TOTAL = None
+    _VIRTUAL_SAMPLE_COUNT_BY_POLICY = None
+
+# Gates whose vetoes must never route to virtual order queue.
+# Checked via rejection_gate parameter (dec.gate passed by _handle_pipeline_veto).
+_VIRTUAL_ORDER_SKIP_GATES: frozenset[str] = frozenset({
+    "HardDataQualityGate",
+    "StreamIntegrityGate",
+    "BookSanityGate",
+})
+
+# Reason codes whose vetoes must never route to virtual order queue.
+# DQ/time/integrity/book-sanity failures mean the signal is structurally invalid,
+# not just weak. Coverage: Stage-1 gates (HardDataQualityGate / StreamIntegrityGate)
+# fire BEFORE _calculate_levels, so entry/sl/lot are still zero — Guard 2
+# (invalid-levels check) provides independent defence-in-depth.
+# BookSanityGate reasons added so malformed book signals are also blocked.
+# The audit stream (signals:cryptoorderflow:{symbol}) still records them.
+_VIRTUAL_ORDER_SKIP_REASONS: frozenset[str] = frozenset({
+    # HardDataQualityGate / StreamIntegrityGate
+    "VETO_BAD_TS_NOT_EPOCH",
+    "VETO_ATR_TS_MISSING",
+    "VETO_ATR_STALE",
+    "VETO_TOUCH_STALE",
+    "VETO_QUALITY_FLAG",
+    "VETO_STREAM_INTEGRITY",
+    "VETO_SEQ_GAP_WINDOW",
+    "VETO_SEQ_GAP_RATE",
+    # BookSanityGate
+    "VETO_BOOK_SANITY",
+    "VETO_BOOK_CROSS",
+    "VETO_BOOK_NAN",
+    "VETO_BOOK_NEG_QTY",
+    "VETO_TRADE_OUTSIDE_BBO",
+})
 
 # Signal Pipeline Logger
 logger = logging.getLogger("of_signal_pipeline")
@@ -191,9 +255,26 @@ class SignalPipeline:
         # Unified Orchestrator (P1)
         # EntryPolicyGate: enabled by default — drives autocal:adverse_cross / spread_staleness /
         # burst_c2t accumulation and freeze enforcement. Toggle via ENTRY_POLICY_ENABLED=0 env.
+        _cost_gate = EdgeCostGate.from_env()
+        # Wire calibrated slippage reader: q75(adverse_bps_t) per (symbol × session).
+        # Fail-open: if key missing or Redis unavailable, gate falls back to EDGE_SLIPPAGE_BPS_DEFAULT.
+        if os.getenv("EDGE_SLIPPAGE_CAL_ENABLED", "1").lower() in {"1", "true", "yes", "on"}:
+            try:
+                from core.slippage_cal_store import SlippageCalReader
+                _slip_redis_url = (
+                    os.getenv("SLIP_CAL_REDIS_URL")
+                    or os.getenv("REDIS_WORKER_1_URL")
+                    or os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
+                )
+                from core.redis_client import get_redis as _get_redis
+                _cost_gate.set_slippage_store(SlippageCalReader(_get_redis(_slip_redis_url)))
+            except Exception as _e:
+                import logging as _log
+                _log.getLogger(__name__).warning("SlippageCalReader init failed (fail-open): %s", _e)
+
         self.orchestrator = GateOrchestrator(
             entry_policy=EntryPolicyGate.from_env(),
-            cost_gate=EdgeCostGate.from_env(),
+            cost_gate=_cost_gate,
             portfolio_gate=PortfolioExposureGate(r=getattr(publisher, "r", None)),
             consistency_gate=ConsistencyGate.from_env(),
             regime_liquidity_gate=RegimeSessionGate.from_env(),
@@ -217,6 +298,7 @@ class SignalPipeline:
         from core.htf_proximity_calibrator import HtfProximityCalibrator
         from core.liquidity_wall_calibrator import LiquidityWallCalibrator
         from core.dq_microstructure_calibrator import DqMicrostructureCalibrator
+        from core.confirmation_barrier_calibrator import ConfirmationBarrierCalibrator
 
         self._cooldown_calib = CooldownCalibrator(
             min_signals=int(os.getenv("COOLDOWN_CAL_MIN_SIGNALS", "100") or "100"),
@@ -225,6 +307,12 @@ class SignalPipeline:
         self._vol_z_calib = VolZThrCalibrator()
         self._htf_prox_calib = HtfProximityCalibrator()
         self._liq_wall_calib = LiquidityWallCalibrator()
+        self._confirm_barrier_cal = ConfirmationBarrierCalibrator()
+        # Cache hot-path DQ thresholds here (also re-assigned below with the rest of
+        # the _cached_* block — that's fine, same value from the same env var).
+        self._cached_dq_book_stale_flag_ms = int(os.getenv("DQ_BOOK_STALE_FLAG_MS", "1500") or 1500)
+        self._cached_dq_spread_wide_flag_bps = float(os.getenv("DQ_SPREAD_WIDE_FLAG_BPS", "12") or 12.0)
+
         self._dq_micro_cal = DqMicrostructureCalibrator(
             min_samples=int(os.getenv("DQ_MICRO_CAL_MIN_SAMPLES", "200") or 200),
             enforce=os.getenv("DQ_MICRO_CAL_ENFORCE", "0").lower() in {"1", "true", "yes", "on"},
@@ -303,6 +391,38 @@ class SignalPipeline:
         self._cached_deriv_ctx_tighten_mult = float(os.getenv("DERIV_CTX_TIGHTEN_ADD_MULT", "1.0") or 1.0)
         self._cached_deriv_ctx_tighten_cap = float(os.getenv("DERIV_CTX_TIGHTEN_ADD_CAP_BPS", "8.0") or 8.0)
         self._cached_min_conf_pct = float(os.getenv("CRYPTO_SIGNAL_MIN_CONF", "70"))
+        # Separate lower threshold for virtual/ML data collection only.
+        # Live gate stays at CRYPTO_SIGNAL_MIN_CONF. Setting this below
+        # live threshold widens the training distribution without relaxing
+        # the real execution path.
+        self._cached_virtual_min_conf_pct = float(
+            os.getenv("VIRTUAL_SIGNAL_MIN_CONF", str(self._cached_min_conf_pct))
+        )
+
+        # ------------------------------------------------------------------
+        # Deep Exploration Sampling (plan §7, Phase 2)
+        # ------------------------------------------------------------------
+        # Signals in [DEEP_EXPLORATION_MIN_CONF, VIRTUAL_SIGNAL_MIN_CONF) are
+        # sampled at a low rate for ML outcome tracking ONLY.
+        # NEVER routes to virtual order queue (DEEP_EXPLORATION_TO_ORDER_QUEUE=0).
+        # Rollback: set DEEP_EXPLORATION_SAMPLE_RATE=0
+        self._cached_deep_explore_min_conf_pct = float(
+            os.getenv("DEEP_EXPLORATION_MIN_CONF", "20")
+        )
+        self._cached_deep_explore_sample_rate = float(
+            os.getenv("DEEP_EXPLORATION_SAMPLE_RATE", "0.0")
+        )
+        # Safety: deep_explore NEVER goes to order queue by default.
+        self._cached_deep_explore_to_queue = os.getenv(
+            "DEEP_EXPLORATION_TO_ORDER_QUEUE", "0"
+        ).lower() in {"1", "true", "yes", "on"}
+        # Cap: max deep_explore samples per (symbol, rounded_hour, regime)
+        self._cached_deep_explore_cap_per_slot = int(
+            os.getenv("DEEP_EXPLORATION_CAP_PER_SYMBOL_SESSION_HOUR", "50")
+        )
+        # In-memory cap counters: key=(symbol, hour_bucket, regime) → count
+        # Rotated by hour; bounded by number of active symbols × regimes.
+        self._deep_explore_cap_counters: dict[tuple[str, int, str], int] = {}
 
         self._cached_fees_bps_rt = float(os.getenv("FEES_BPS_RT", "10"))
         self._cached_tp_bps_buffer = float(os.getenv("TP_BPS_BUFFER", "4"))
@@ -361,13 +481,19 @@ class SignalPipeline:
         self._cached_sentiment_ctx_max_age_ms = int(os.getenv("SENTIMENT_CTX_MAX_AGE_MS", "172800000") or 172800000)
         self._cached_sentiment_ctx_tighten_cap = float(os.getenv("SENTIMENT_CTX_TIGHTEN_CAP_BPS", "2.0") or 2.0)
 
-        # P2 ctx_tighten autocalibrator reader
-        # AUTOCAL_CTX_TIGHTEN_READ_ENABLED=0 by default (shadow phase).
-        # When enabled, overrides _cached_sentiment_ctx_tighten_cap and
-        # _cached_defillama_ctx_tighten_cap from autocal:ctx_tighten:state.
-        self._ctx_tighten_autocal_enabled = os.getenv(
-            "AUTOCAL_CTX_TIGHTEN_READ_ENABLED", "0"
-        ).lower() in {"1", "true", "yes", "on"}
+        # P2 ctx_tighten autocalibrator reader — tri-state:
+        #   "off"  → disabled entirely (AUTOCAL_CTX_TIGHTEN_READ_ENABLED=0)
+        #   "auto" → apply caps only when calibrator sets auto_promoted=True in snapshot
+        #   "on"   → always apply caps (AUTOCAL_CTX_TIGHTEN_READ_ENABLED=1)
+        # Default: "auto" — picks up enforce automatically once n_tightened≥50.
+        _actr_raw = os.getenv("AUTOCAL_CTX_TIGHTEN_READ_ENABLED", "auto").strip().lower()
+        if _actr_raw in {"0", "false", "no", "off"}:
+            self._ctx_tighten_autocal_mode = "off"
+        elif _actr_raw in {"1", "true", "yes", "on"}:
+            self._ctx_tighten_autocal_mode = "on"
+        else:
+            self._ctx_tighten_autocal_mode = "auto"
+        self._ctx_tighten_autocal_enabled = self._ctx_tighten_autocal_mode != "off"
         self._ctx_tighten_autocal_last_ms: int = 0
         self._ctx_tighten_autocal_ttl_ms: int = 300_000  # refresh every 5 min
 
@@ -508,6 +634,9 @@ class SignalPipeline:
                     _top_regime = (enriched_signal.get("regime") or "").lower().strip()
                     if _top_regime and _top_regime not in ("na", "unknown", ""):
                         _inds["regime"] = _top_regime
+                # confidence_v1 bridge: strategy.py sets indicators["confidence"] not indicators["confidence_v1"]
+                # Calibration trainer expects confidence_v1 as the raw pre-calibration confidence key.
+                _inds.setdefault("confidence_v1", _inds.get("confidence"))
             await publisher.xadd_json(
                 sink=StreamSink(name=self.of_inputs_stream, field="payload", maxlen=self.of_inputs_stream_maxlen),
                 payload=enriched_signal,
@@ -551,6 +680,7 @@ class SignalPipeline:
         entry: float = 0.0,
         sl: float = 0.0,
         tp_levels: list[float] | None = None,
+        regime: str = "na",
     ) -> None:
         """Fire-and-forget XADD of a confidence-gated-out signal to a shadow stream.
 
@@ -566,8 +696,13 @@ class SignalPipeline:
         if not (self.publisher and getattr(self.publisher, "r", None)):
             return
         try:
+            _virtual_min_conf_pct = getattr(self, "_cached_virtual_min_conf_pct", min_conf)
+            if 0 < _virtual_min_conf_pct <= 1:
+                _virtual_min_conf_pct *= 100.0
+            _virtual_min_conf = _virtual_min_conf_pct / 100.0
+            _session = session_utc(ts_ms)
             payload = {
-                "v": 1,
+                "v": 2,
                 "ts_ms": ts_ms,
                 "symbol": symbol,
                 "direction": direction,
@@ -580,6 +715,22 @@ class SignalPipeline:
                 "tp_levels": list(tp_levels) if tp_levels else [],
                 "gated_out": 1,
                 "gate_reason": "low_confidence",
+                "virtual": True,
+                "tradeable": False,
+                "is_counterfactual": True,
+                # ML training metadata: policy-aware split requires these fields.
+                # sample_policy drives selection_weight in training; conformal
+                # calibration must be run on strict_live_passed holdout only.
+                "sample_policy": "confidence_gated_out",
+                "selection_policy_version": "v1",
+                "selection_prob": confidence / min_conf if min_conf > 0 else 0.0,
+                "selection_weight": confidence / min_conf if min_conf > 0 else 0.0,
+                # Whether this signal clears the relaxed virtual threshold,
+                # i.e. it would be routed to virtual order queue if enabled.
+                "meets_virtual_threshold": confidence >= _virtual_min_conf,
+                "virtual_min_conf": _virtual_min_conf,
+                "regime": regime,
+                "session": _session,
                 "confirmations": list(confirmations) if isinstance(confirmations, (list, tuple)) else [],
                 "indicators": indicators,
             }
@@ -592,8 +743,158 @@ class SignalPipeline:
                 ),
                 name=f"gated_out_shadow_{symbol}_{ts_ms}",
             )
+            with contextlib.suppress(Exception):
+                if _VIRTUAL_SAMPLE_COUNT_BY_POLICY is not None:
+                    _VIRTUAL_SAMPLE_COUNT_BY_POLICY.labels(
+                        sample_policy="confidence_gated_out",
+                        symbol=symbol,
+                        regime=regime,
+                        session=_session,
+                    ).inc()
         except Exception:
             # Fail-open: shadow recording must never break the pipeline.
+            pass
+
+    def _maybe_record_deep_explore(
+        self,
+        *,
+        signal: dict[str, Any],
+        indicators: dict[str, Any],
+        confirmations: list[Any],
+        symbol: str,
+        direction: str,
+        ts_ms: int,
+        confidence: float,
+        entry: float = 0.0,
+        sl: float = 0.0,
+        tp_levels: list[float] | None = None,
+        regime: str = "na",
+    ) -> None:
+        """Sampled outcome-only recording for signals in [deep_min, virtual_min) range.
+
+        Policy: deep_explore_20_35_sampled
+        Rules:
+        - NEVER routes to virtual order queue (tradeable=False, gated_out=1).
+        - Controlled by DEEP_EXPLORATION_SAMPLE_RATE (probabilistic gate, default=0).
+        - Capped by DEEP_EXPLORATION_CAP_PER_SYMBOL_SESSION_HOUR per (symbol×hour×regime).
+        - Off-path, fail-open.
+
+        Rollback: set DEEP_EXPLORATION_SAMPLE_RATE=0.0 (default).
+        """
+        if not getattr(self, "gated_out_shadow_enabled", False):
+            return
+        if not (self.publisher and getattr(self.publisher, "r", None)):
+            return
+
+        sample_rate = getattr(self, "_cached_deep_explore_sample_rate", 0.0)
+        if sample_rate <= 0.0:
+            return  # disabled by default
+
+        try:
+            import hashlib
+            signal_id = str(signal.get("signal_id") or "")
+            
+            # --- Probabilistic gate (Deterministic Hash) ---
+            hash_hex = hashlib.sha256(f"{signal_id}:{symbol}:deep_explore".encode("utf-8")).hexdigest()
+            bucket = int(hash_hex, 16) % 10_000
+            accept = bucket < (sample_rate * 10_000)
+            
+            if not accept:
+                with contextlib.suppress(Exception):
+                    if _DEEP_EXPLORE_SAMPLE_TOTAL is not None:
+                        _DEEP_EXPLORE_SAMPLE_TOTAL.labels(symbol=symbol, accepted="0").inc()
+                return
+
+            # --- Cap gate: per (symbol, hour_bucket, regime) via Redis ---
+            cap = getattr(self, "_cached_deep_explore_cap_per_slot", 50)
+            hour_bucket = ts_ms // 3_600_000  # rounded to hour epoch
+            cap_key = f"deep_explore:cap:{symbol}:{hour_bucket}:{regime}"
+            
+            current_count = 0
+            try:
+                if self.publisher and self.publisher.r:
+                    pipe = self.publisher.r.pipeline()
+                    pipe.incr(cap_key)
+                    pipe.expire(cap_key, 7200)  # 2 hours TTL
+                    res = pipe.execute()
+                    current_count = res[0]
+            except Exception as e:
+                logger.debug("⚠️ Redis cap counter fail-open for %s: %s", cap_key, e)
+                # Fail-open: if Redis is down, we allow the sample.
+                
+            if current_count > cap:
+                with contextlib.suppress(Exception):
+                    if _DEEP_EXPLORE_SAMPLE_TOTAL is not None:
+                        _DEEP_EXPLORE_SAMPLE_TOTAL.labels(symbol=symbol, accepted="0").inc()
+                return
+
+            # --- Build payload ---
+            _virt_min_conf_pct = getattr(self, "_cached_virtual_min_conf_pct", 35.0)
+            _virt_min_conf = _virt_min_conf_pct / 100.0 if _virt_min_conf_pct > 1 else _virt_min_conf_pct
+            _deep_min_pct = getattr(self, "_cached_deep_explore_min_conf_pct", 20.0)
+            _deep_min_conf = _deep_min_pct / 100.0 if _deep_min_pct > 1 else _deep_min_pct
+            _session = session_utc(ts_ms)
+
+            payload = {
+                "v": 2,
+                "ts_ms": ts_ms,
+                "symbol": symbol,
+                "direction": direction,
+                "side": direction.lower(),
+                "signal_id": str(signal.get("signal_id") or ""),
+                "confidence": confidence,
+                "min_conf": _virt_min_conf,
+                "entry": entry,
+                "sl": sl,
+                "tp_levels": list(tp_levels) if tp_levels else [],
+                "gated_out": 1,
+                "gate_reason": "low_confidence",
+                "virtual": True,
+                # SAFETY: deep_explore samples are NEVER tradeable.
+                # They are for outcome tracking and ML dataset expansion only.
+                "tradeable": False,
+                "is_counterfactual": True,
+                # Policy labels for dataset filtering and propensity weighting.
+                "sample_policy": "deep_explore_20_35_sampled",
+                "selection_policy_version": "v1",
+                "selection_prob": sample_rate,
+                # Propensity weight: inverse of sample_rate for off-policy correction.
+                # Capped at 20x to avoid extreme weights.
+                "selection_weight": min(1.0 / sample_rate if sample_rate > 0 else 1.0, 20.0),
+                "meets_virtual_threshold": False,  # always False for deep explore
+                "virtual_min_conf": _virt_min_conf,
+                "deep_explore_min_conf": _deep_min_conf,
+                "regime": regime,
+                "session": _session,
+                "confirmations": list(confirmations) if isinstance(confirmations, (list, tuple)) else [],
+                "indicators": indicators,
+            }
+
+            safe_create_task(
+                self.publisher.r.xadd(
+                    self.gated_out_shadow_stream,
+                    {"payload": json.dumps(payload, ensure_ascii=False, default=str)},
+                    maxlen=self.gated_out_shadow_maxlen,
+                    approximate=True,
+                ),
+                name=f"deep_explore_{symbol}_{ts_ms}",
+            )
+            with contextlib.suppress(Exception):
+                if _DEEP_EXPLORE_SAMPLE_TOTAL is not None:
+                    _DEEP_EXPLORE_SAMPLE_TOTAL.labels(symbol=symbol, accepted="1").inc()
+                if _VIRTUAL_SAMPLE_COUNT_BY_POLICY is not None:
+                    _VIRTUAL_SAMPLE_COUNT_BY_POLICY.labels(
+                        sample_policy="deep_explore_20_35_sampled",
+                        symbol=symbol,
+                        regime=regime,
+                        session=_session,
+                    ).inc()
+            logger.debug(
+                "🔬 [%s] deep_explore sample recorded conf=%.3f bucket=%s",
+                symbol, confidence, cap_key,
+            )
+        except Exception:
+            # Fail-open: exploration sampling must never break the pipeline.
             pass
 
     def _handle_pipeline_veto(
@@ -692,10 +993,25 @@ class SignalPipeline:
                     enriched_signal=signal,
                     indicators=indicators,
                     is_rejected_signal=True,
-                    rejection_reason=dec.reason_code
+                    rejection_reason=dec.reason_code,
+                    rejection_gate=dec.gate,
                 ),
                 name=f"virtual_veto_{symbol}_{ts_ms}"
             )
+
+            # 4. Feed TB Labeler — pre_publish vetoed signals still need training data
+            # Calibration requires (confidence, outcome) pairs for ALL signals that
+            # passed portfolio risk gate, regardless of execution-level veto reason.
+            if self.of_inputs_publish_enabled and self.of_inputs_stream:
+                safe_create_task(
+                    self._publish_of_inputs(
+                        publisher=self.publisher,
+                        enriched_signal=signal,
+                        symbol=symbol,
+                        path="veto",
+                    ),
+                    name=f"of_inputs_veto_{symbol}_{ts_ms}",
+                )
         except Exception as e:
             logger.debug("⚠️ _handle_pipeline_veto error: %s", e)
 
@@ -1180,6 +1496,20 @@ class SignalPipeline:
         except Exception:
             return None
 
+    async def _calib_snap_bg_loop(self) -> None:
+        """Periodic pipeline calibrator snapshot — fires every PIPELINE_CALIB_SNAP_SEC
+        regardless of whether any signal was emitted. Ensures dq_micro / confirm_barrier
+        state is persisted to Redis even in periods of all-SHADOW_DROP or no-emit."""
+        import asyncio as _asyncio
+        import time as _time
+        interval_sec = max(10.0, self._calib_snap_interval_ms / 1000.0)
+        while True:
+            await _asyncio.sleep(interval_sec)
+            try:
+                self._pipeline_calib_snap(int(_time.time() * 1000))
+            except Exception:
+                pass
+
     def _pipeline_calib_load(self) -> None:
         """Warm-start pipeline calibrators from Redis (best-effort, once)."""
         if self._calib_loaded:
@@ -1207,6 +1537,14 @@ class SignalPipeline:
                     loader(_json.loads(s))
             except Exception:
                 pass
+        # confirm_barrier uses a single JSON blob (STRING key, not HASH)
+        try:
+            raw_cb = rc.get(RK.AUTOCAL_CONFIRM_BARRIER)
+            if raw_cb:
+                s = raw_cb.decode("utf-8", "ignore") if isinstance(raw_cb, (bytes, bytearray)) else raw_cb
+                self._confirm_barrier_cal.load_state(_json.loads(s))
+        except Exception:
+            pass
 
     def _pipeline_calib_snap(self, now_ms: int) -> None:
         """Throttled snapshot of pipeline calibrators to Redis (best-effort)."""
@@ -1252,6 +1590,48 @@ class SignalPipeline:
             for sym_key in list(self._dq_micro_cal._n.keys()):
                 state = self._dq_micro_cal.dump_symbol_state(symbol=sym_key, updated_ts_ms=now_ms)
                 rc.hset(RK.AUTOCAL_DQ_MICRO, sym_key, _json.dumps(state))
+        except Exception:
+            pass
+        # confirm_barrier (global snapshot, STRING key, TTL 14 days)
+        try:
+            snapshot_cb = self._confirm_barrier_cal.snapshot()
+            rc.set(RK.AUTOCAL_CONFIRM_BARRIER, _json.dumps(snapshot_cb), ex=14 * 24 * 3600)
+        except Exception:
+            pass
+
+    def _confirm_barrier_observe(self, *, symbol: str, signal: dict[str, Any], runtime: Any, now_ms: int) -> None:
+        """Observe bid/ask volume ratio for ConfirmationBarrierCalibrator on signal emit.
+
+        Uses depth_5_bid_vol / depth_5_ask_vol from runtime.last_book as proxy
+        for the top-N notional imbalance used in L2ConfirmBreakout/Absorption.check().
+        Direction-aware: for breakout-up, bid/ask ratio; for breakout-down, ask/bid; etc.
+        """
+        try:
+            kind_raw = str(signal.get("kind") or "").lower().strip()
+            cal_kind: str | None = None
+            if kind_raw in ("breakout", "bo"):
+                cal_kind = "breakout"
+            elif kind_raw in ("absorption", "abs"):
+                cal_kind = "absorption"
+            if cal_kind is None:
+                return
+            if runtime is None:
+                return
+            book = getattr(runtime, "last_book", None)
+            if book is None:
+                return
+            bid_vol = float(getattr(book, "depth_5_bid_vol", 0.0) or 0.0)
+            ask_vol = float(getattr(book, "depth_5_ask_vol", 0.0) or 0.0)
+            if bid_vol <= 0.0 or ask_vol <= 0.0:
+                return
+            side_raw = str(signal.get("direction") or signal.get("side") or "").lower()
+            dir_up = side_raw in ("buy", "long", "up", "bull", "1")
+            if cal_kind == "breakout":
+                obi_ratio = bid_vol / ask_vol if dir_up else ask_vol / bid_vol
+            else:
+                # absorption: counterside must dominate (asks for LONG, bids for SHORT)
+                obi_ratio = ask_vol / bid_vol if dir_up else bid_vol / ask_vol
+            self._confirm_barrier_cal.observe((symbol or "").upper(), cal_kind, obi_ratio, now_ms)
         except Exception:
             pass
 
@@ -1373,7 +1753,13 @@ class SignalPipeline:
             pass
 
     async def _maybe_refresh_ctx_tighten_caps(self, ctx: Any) -> None:
-        """TTL-cached read of autocal:ctx_tighten:state → update sentiment/defillama cap."""
+        """TTL-cached read of autocal:ctx_tighten:state → update sentiment/defillama cap.
+
+        Tri-state behaviour (self._ctx_tighten_autocal_mode):
+          "on"   → always apply calibrated caps
+          "auto" → apply only when calibrator has set auto_promoted=True per gate
+          "off"  → method never called (guarded by caller)
+        """
         import time as _t
         now_ms = int(_t.time() * 1000)
         if now_ms - self._ctx_tighten_autocal_last_ms < self._ctx_tighten_autocal_ttl_ms:
@@ -1393,12 +1779,17 @@ class SignalPipeline:
                 return
             _s = state.get("sentiment") or {}
             _d = state.get("defillama") or {}
-            _sc = float(_s.get("cap_bps", 0.0) or 0.0)
-            _dc = float(_d.get("cap_bps", 0.0) or 0.0)
-            if _sc > 0.0:
-                self._cached_sentiment_ctx_tighten_cap = _sc
-            if _dc > 0.0:
-                self._cached_defillama_ctx_tighten_cap = _dc
+            _mode = self._ctx_tighten_autocal_mode
+            _s_apply = _mode == "on" or (_mode == "auto" and bool(_s.get("auto_promoted", False)))
+            _d_apply = _mode == "on" or (_mode == "auto" and bool(_d.get("auto_promoted", False)))
+            if _s_apply:
+                _sc = float(_s.get("cap_bps", 0.0) or 0.0)
+                if _sc > 0.0:
+                    self._cached_sentiment_ctx_tighten_cap = _sc
+            if _d_apply:
+                _dc = float(_d.get("cap_bps", 0.0) or 0.0)
+                if _dc > 0.0:
+                    self._cached_defillama_ctx_tighten_cap = _dc
         except Exception:
             pass
         finally:
@@ -1619,6 +2010,50 @@ class SignalPipeline:
                     now_ms=int(signal.get("ts_ms", 0) or 0),
                     indicators=_ind,
                 )
+        except Exception:
+            pass
+
+        # ML Feature Bridge: regime + L2 microstructure features that are computed
+        # in the active pipeline but never written to indicators. All setdefault —
+        # never overwrites existing values. Fail-open per field.
+        try:
+            _ind = signal.get("indicators")
+            if isinstance(_ind, dict):
+                # Regime features (stored on runtime by kline handler after update_regime)
+                _ind.setdefault("atr_q", float(getattr(runtime, "_last_atr_q", 0.5) or 0.5))
+                _ind.setdefault("delta_ema", float(getattr(runtime, "_regime_delta_ema", 0.0) or 0.0))
+                _rg_score = float(getattr(runtime, "_last_regime_score", 0.0) or 0.0)
+                _ind.setdefault("trend_score", max(0.0, _rg_score))
+                _ind.setdefault("range_score", max(0.0, -_rg_score))
+                # L2 book microstructure (LOBPressureTracker runtime attrs as proxies)
+                _ind.setdefault("spread_bps_z", float(getattr(runtime, "last_spread_z", 0.0) or 0.0))
+                _ind.setdefault("obi_avg_20", float(getattr(runtime, "lob_dw_obi", 0.0) or 0.0))
+                _ind.setdefault("microprice_shift_bps_20", float(getattr(runtime, "lob_micro_shift_bps", 0.0) or 0.0))
+                _ind.setdefault("depth_bid_20", float(getattr(runtime, "last_depth_bid_5", 0.0) or 0.0))
+                _ind.setdefault("depth_ask_20", float(getattr(runtime, "last_depth_ask_5", 0.0) or 0.0))
+                _ind.setdefault("slope_bid_20", float(getattr(runtime, "lob_depth_slope_bid", 0.0) or 0.0))
+                _ind.setdefault("slope_ask_20", float(getattr(runtime, "lob_depth_slope_ask", 0.0) or 0.0))
+                # wall_bid/ask_dist_bps: GPU wall price → distance from mid in bps
+                _mid = float(getattr(runtime, "last_book_mid", 0.0) or 0.0)
+                _wall_bid_px = float(getattr(runtime, "last_gpu_wall_bid_price", 0.0) or 0.0)
+                _wall_ask_px = float(getattr(runtime, "last_gpu_wall_ask_price", 0.0) or 0.0)
+                _ind.setdefault(
+                    "wall_bid_dist_bps",
+                    abs(_mid - _wall_bid_px) / _mid * 10_000.0 if _mid > 0.0 and _wall_bid_px > 0.0 else 0.0,
+                )
+                _ind.setdefault(
+                    "wall_ask_dist_bps",
+                    abs(_wall_ask_px - _mid) / _mid * 10_000.0 if _mid > 0.0 and _wall_ask_px > 0.0 else 0.0,
+                )
+                # obi_local_q: OBI robust z-score as local-quantile proxy
+                _ind.setdefault("obi_local_q", float(getattr(runtime, "dw_obi_z", 0.0) or 0.0))
+                # delta_spike_z: reuse delta_z as proxy (same underlying delta series)
+                _ind.setdefault("delta_spike_z", float(_ind.get("delta_z", 0.0) or 0.0))
+                _ind.setdefault("delta_spike_z_local_q", 0.5)
+                # atr_local_q: same as atr_q (best available ATR quantile in active pipeline)
+                _ind.setdefault("atr_local_q", float(_ind.get("atr_q", 0.5) or 0.5))
+                # weak_ratio: range_vs_atr proxy (neutral 1.0 if unavailable)
+                _ind.setdefault("weak_ratio", float(_ind.get("range_vs_atr", 1.0) or 1.0))
         except Exception:
             pass
 
@@ -2756,12 +3191,32 @@ class SignalPipeline:
                 _sl = float(_levels.get("sl", 0.0) or 0.0)  # type: ignore[arg-type]
                 _tp_raw = _levels.get("tp_levels", []) or []
                 _tp_list: list[float] = [float(x) for x in _tp_raw] if isinstance(_tp_raw, (list, tuple)) else []
-                self._record_gated_out_shadow(
-                    signal=signal, indicators=indicators, confirmations=confirmations,
-                    symbol=symbol, direction=direction, ts_ms=sig_ts,
-                    confidence=confidence, min_conf=min_conf,
-                    entry=_entry, sl=_sl, tp_levels=_tp_list,
-                )
+                _regime_for_explore = str(indicators.get("regime") or "na").lower().strip() or "na"
+                # --- Deep exploration bucket: [DEEP_EXPLORATION_MIN_CONF, VIRTUAL_SIGNAL_MIN_CONF) ---
+                # Only for structurally valid signals (entry/sl already validated by guard above).
+                # These signals have passed DQ/time/book gates but are below virtual threshold.
+                # sample_policy=deep_explore_20_35_sampled, tradeable=False, never to order queue.
+                _deep_min_pct = getattr(self, "_cached_deep_explore_min_conf_pct", 20.0)
+                _deep_min = _deep_min_pct / 100.0 if _deep_min_pct > 1 else _deep_min_pct
+                _virt_min_pct = getattr(self, "_cached_virtual_min_conf_pct", self._cached_min_conf_pct)
+                _virt_min = _virt_min_pct / 100.0 if _virt_min_pct > 1 else _virt_min_pct
+                
+                if _deep_min <= confidence < _virt_min:
+                    self._maybe_record_deep_explore(
+                        signal=signal, indicators=indicators, confirmations=confirmations,
+                        symbol=symbol, direction=direction, ts_ms=sig_ts,
+                        confidence=confidence,
+                        entry=_entry, sl=_sl, tp_levels=_tp_list,
+                        regime=_regime_for_explore,
+                    )
+                else:
+                    self._record_gated_out_shadow(
+                        signal=signal, indicators=indicators, confirmations=confirmations,
+                        symbol=symbol, direction=direction, ts_ms=sig_ts,
+                        confidence=confidence, min_conf=min_conf,
+                        entry=_entry, sl=_sl, tp_levels=_tp_list,
+                        regime=_regime_for_explore,
+                    )
                 if _PRE_PUBLISH_VETO_TOTAL is not None:
                     with contextlib.suppress(Exception):
                         _PRE_PUBLISH_VETO_TOTAL.labels(
@@ -3237,6 +3692,18 @@ class SignalPipeline:
         except Exception:
             pass
 
+        # Confirmation barrier calibrator observation (shadow mode, fail-open).
+        # Feeds autocal:confirm_barrier:state for adaptive OBI thresholds.
+        try:
+            self._confirm_barrier_observe(
+                symbol=symbol,
+                signal=enriched_signal,
+                runtime=runtime,
+                now_ms=ts_ms,
+            )
+        except Exception:
+            pass
+
         # A2 Decision Snapshot publication (enriched output, fail-open)
         # This MUST contain joinable keys, is_virtual flag, and be stable across retries.
         if self.decision_snapshot_publish_enabled:
@@ -3543,6 +4010,7 @@ class SignalPipeline:
         indicators: dict[str, Any],
         is_rejected_signal: bool = False,
         rejection_reason: str = "",
+        rejection_gate: str = "",
     ) -> None:
         """Push orderflow signals to Binance demo queue as is_virtual=1.
 
@@ -3556,8 +4024,10 @@ class SignalPipeline:
 
         BINANCE_VIRTUAL_ORDERS_ENABLED=1  (shadow-only mode, legacy)
             Only rejected / shadow-vetoed signals are pushed to
-            ORDERS_QUEUE_BINANCE (default: orders:queue:binance).
-            Requires confidence >= CRYPTO_SIGNAL_MIN_CONF threshold.
+            ORDERS_QUEUE_BINANCE (default: orders:queue:binance:intent).
+            Confidence threshold is VIRTUAL_SIGNAL_MIN_CONF (defaults to
+            CRYPTO_SIGNAL_MIN_CONF when unset), keeping the live execution
+            gate independent.
 
         BinanceExecutor reads is_virtual=1 and routes to demo/testnet client.
         """
@@ -3570,10 +4040,50 @@ class SignalPipeline:
         if not self.publisher or not self.publisher.r:
             return
 
+        # Guard 1: DQ/time/integrity/book-sanity vetoes must never reach the virtual queue.
+        # The signal is structurally invalid (bad timestamp, stale book, crossed BBO,
+        # stream gap) — not merely low-confidence. Two complementary checks:
+        #   a) gate name (rejection_gate) — fast path when dec.gate is forwarded
+        #   b) reason code (rejection_reason) — covers all BookSanityGate + DQ codes
+        # The audit stream still records them via _handle_pipeline_veto step 2.
+        _skip_by_gate = bool(rejection_gate and rejection_gate in _VIRTUAL_ORDER_SKIP_GATES)
+        _skip_by_reason = bool(rejection_reason and rejection_reason in _VIRTUAL_ORDER_SKIP_REASONS)
+        if _skip_by_gate or _skip_by_reason:
+            _skip_label = rejection_reason or f"gate:{rejection_gate}"
+            with contextlib.suppress(Exception):
+                if _VIRTUAL_ORDER_SKIPPED_BAD_DQ_TOTAL is not None:
+                    _VIRTUAL_ORDER_SKIPPED_BAD_DQ_TOTAL.labels(reason=_skip_label).inc()
+            return
+
+        # Guard 2: levels must be valid before any virtual order routing.
+        # _handle_pipeline_veto is called at early gate stages where entry/sl/lot
+        # may still be zero (pre-level-calculation veto). Routing these would
+        # produce zero-price virtual orders and corrupt ML outcome labels.
+        _entry_ok = entry > 0
+        _sl_ok = sl > 0
+        _lot_ok = lot > 0
+        if not (_entry_ok and _sl_ok and _lot_ok):
+            _lvl_reason = (
+                "zero_entry" if not _entry_ok
+                else "zero_sl" if not _sl_ok
+                else "zero_lot"
+            )
+            with contextlib.suppress(Exception):
+                if _VIRTUAL_ORDER_INVALID_LEVELS_TOTAL is not None:
+                    _VIRTUAL_ORDER_INVALID_LEVELS_TOTAL.labels(reason=_lvl_reason).inc()
+            return
+
         validation_status = (enriched_signal.get("validation_status") or "").lower()
         is_virtual_flag = bool(int(enriched_signal.get("is_virtual", 0) or indicators.get("is_virtual", 0) or 0))
 
-        min_conf_pct = self._cached_min_conf_pct
+        # Virtual/shadow/rejected paths use a separate lower threshold so the
+        # live execution gate (CRYPTO_SIGNAL_MIN_CONF) is never relaxed.
+        # VIRTUAL_SIGNAL_MIN_CONF defaults to CRYPTO_SIGNAL_MIN_CONF when unset.
+        _use_virtual_threshold = mirror_all or shadow_only or is_virtual_flag or is_rejected_signal
+        _raw_conf_pct = (
+            self._cached_virtual_min_conf_pct if _use_virtual_threshold else self._cached_min_conf_pct
+        )
+        min_conf_pct = _raw_conf_pct
         if 0 < min_conf_pct <= 1:
             min_conf_pct *= 100.0
         min_conf = min_conf_pct / 100.0
@@ -3593,6 +4103,15 @@ class SignalPipeline:
             # Confidence filter only in shadow-only mode (mirror_all logic handled above)
             if confidence < min_conf:
                 return
+
+        # Telemetry: count candidates that cleared guards and confidence filter.
+        # min_conf is already computed above in the correct unit (0-1 fraction).
+        with contextlib.suppress(Exception):
+            if _VIRTUAL_THRESHOLD_CANDIDATE_TOTAL is not None:
+                _VIRTUAL_THRESHOLD_CANDIDATE_TOTAL.labels(
+                    symbol=symbol,
+                    meets_virtual_threshold="1" if confidence >= min_conf else "0",
+                ).inc()
 
         try:
             # mirror_all uses a dedicated queue so prod queue stays clean

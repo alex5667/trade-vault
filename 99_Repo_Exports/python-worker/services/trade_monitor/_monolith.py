@@ -186,6 +186,34 @@ TM_JITTER_RELEASE_LATENCY_MS = Histogram(
     ["symbol"],
     buckets=(10, 20, 50, 100, 250, 500, 1000, 5000),
 )
+
+# ── Max-hold Timeout Close metrics ─────────────────────────────────────
+TM_TIMEOUT_EVAL_TOTAL = Counter(
+    "tm_timeout_eval_total",
+    "Max-hold timeout evaluations",
+    ["symbol", "decision", "reason"],
+)
+TM_TIMEOUT_CLOSE_REQUESTED_TOTAL = Counter(
+    "tm_timeout_close_requested_total",
+    "Real timeout close commands published to orders:queue",
+    ["venue", "symbol", "reason"],
+)
+TM_TIMEOUT_CLOSE_DEDUP_TOTAL = Counter(
+    "tm_timeout_close_dedup_total",
+    "Duplicate timeout close commands suppressed by idempotency key",
+    ["symbol", "reason"],
+)
+TM_ORPHAN_CLEANUP_TOTAL = Counter(
+    "tm_orphan_cleanup_total",
+    "Local orphan cleanup events (ORPHAN_CLEANUP_* codes)",
+    ["symbol", "reason"],
+)
+TM_TIMEOUT_POSITION_AGE_MS = Histogram(
+    "tm_timeout_position_age_ms",
+    "Position age at max-hold timeout evaluation",
+    ["symbol"],
+    buckets=[60_000, 120_000, 300_000, 900_000, 3_600_000, 14_400_000],
+)
 # --------------------------------------------------------------------
 
 from datetime import UTC
@@ -665,8 +693,29 @@ class TradeMonitorService:
         if not hasattr(self, "_orphan_ttl_ms"):
             self._orphan_ttl_ms = int(os.getenv("TM_ORPHAN_TTL_MS", "120000"))
 
-        # Optional Orphan Timeout (default: ON to prevent permanently hanging positions if bridge crashes)
-        self.orphan_timeout_enabled = os.getenv("TM_ORPHAN_TIMEOUT_ENABLED", "1") == "1"
+        # ── Orphan cleanup (A): housekeep stale monitor-state only ────────────
+        _legacy_orphan = os.getenv("TM_ORPHAN_TIMEOUT_ENABLED")
+        if _legacy_orphan is not None:
+            self.orphan_cleanup_enabled: bool = _legacy_orphan == "1"
+        else:
+            self.orphan_cleanup_enabled = os.getenv("TM_ORPHAN_CLEANUP_ENABLED", "1") == "1"
+        self.orphan_timeout_enabled = self.orphan_cleanup_enabled  # legacy alias
+
+        # ── Max-hold timeout close (B): real time-based exit via executor ─────
+        self.real_timeout_close_enabled: bool = os.getenv("TM_REAL_TIMEOUT_CLOSE_ENABLED", "0") == "1"
+        self.timeout_close_mode: str = os.getenv("TM_TIMEOUT_CLOSE_MODE", "shadow").lower()
+        self._max_hold_ms_default: int = max(0, int(os.getenv("TM_MAX_HOLD_MS_DEFAULT", "300000")))
+        self._max_hold_bars_default: int = max(0, int(os.getenv("TM_MAX_HOLD_BARS_DEFAULT", "0")))
+        self._max_hold_grace_ms: int = max(0, int(os.getenv("TM_MAX_HOLD_GRACE_MS", "15000")))
+        self._timeout_skip_if_trailing: bool = os.getenv("TM_TIMEOUT_SKIP_IF_TRAILING_ACTIVE", "1") == "1"
+        self._timeout_require_fresh_price: bool = os.getenv("TM_TIMEOUT_REQUIRE_FRESH_PRICE", "1") == "1"
+        self._timeout_max_last_price_age_ms: int = max(0, int(os.getenv("TM_TIMEOUT_MAX_LAST_PRICE_AGE_MS", "5000")))
+        self._timeout_idempotency_ttl_sec: int = int(os.getenv("TM_TIMEOUT_IDEMPOTENCY_TTL_SEC", "86400"))
+        self._smart_timeout_enabled: bool = os.getenv("TM_SMART_TIMEOUT_ENABLED", "1") == "1"
+        self._smart_timeout_min_profit_bps: float = float(os.getenv("TM_SMART_TIMEOUT_MIN_PROFIT_BPS", "4.0"))
+        self._smart_timeout_adverse_atr: float = float(os.getenv("TM_SMART_TIMEOUT_ADVERSE_ATR", "1.0"))
+        self._binance_orders_queue: str = os.getenv("BINANCE_ORDERS_QUEUE", "orders:queue")
+        self._mt5_orders_queue: str = os.getenv("MT5_ORDERS_QUEUE", "orders:queue:mt5")
 
         # Trading parameters initialization
         self._attach_health_on_close = os.getenv("ATTACH_HEALTH_SNAPSHOT_ON_CLOSE", "1") == "1"
@@ -959,6 +1008,7 @@ class TradeMonitorService:
             set_last_housekeep_ms_fn=lambda v: setattr(self, "_last_housekeep_ms", v),
             cleanup_stale_prices_fn=self._cleanup_stale_prices,
             is_grace_period_active_fn=self._is_grace_period_active,
+            max_hold_scan_fn=self._run_max_hold_timeout_scan,
             tp_ratios=list(self.tp_ratios),
             housekeep_interval_ms=self._orphan_housekeep_interval_ms,
             orphan_max_price_age_ms=self._orphan_max_last_price_age_ms,
@@ -1164,9 +1214,16 @@ class TradeMonitorService:
              # If trailing is active, we trust the trailing logic to close it, not the janitor.
              return False
 
-        last_ms = self._pos_last_ts_ms(pos)
-        ttl = int(getattr(self, "_orphan_ttl_ms", 120000))
-        return (last_ms > 0) and ((now_ms - last_ms) >= ttl)
+        # TTL counts from entry, not from last tick — ticks on liquid pairs would
+        # otherwise reset the timer continuously, preventing timeout from ever firing.
+        entry_ms = int(getattr(pos, "entry_ts_ms", 0) or 0)
+        try:
+            ttl = int(self._resolve_orphan_ttl_ms(pos))
+        except Exception:
+            ttl = int(getattr(self, "_orphan_max_lifetime_ms_default", 6 * 3600 * 1000))
+        if ttl <= 0:
+            return False
+        return (entry_ms > 0) and ((now_ms - entry_ms) >= ttl)
 
     def _get_health_snapshot(self, symbol: str) -> dict[str, Any]:
         """
@@ -1371,6 +1428,232 @@ class TradeMonitorService:
 
         # 4) глобальный TTL в ms
         return max(0, int(self._orphan_max_lifetime_ms_default))
+
+    # ──────────────────────────────────────────────────────────────────────
+    # Max-hold timeout close helpers (Mechanism B)
+    # ──────────────────────────────────────────────────────────────────────
+
+    def _is_real_position(self, pos: PositionState) -> bool:
+        venue = str(
+            getattr(pos, "venue", "")
+            or (getattr(pos, "signal_payload", None) or {}).get("venue", "")
+        ).lower()
+        source = str(getattr(pos, "source", "") or "").lower()
+        if getattr(pos, "is_virtual", False):
+            return False
+        return venue in {"binance_futures", "mt5"} or source in {"binance", "mt5"}
+
+    def _position_age_ms(self, pos: PositionState, now_ms: int) -> int:
+        entry_ts_ms = int(getattr(pos, "entry_ts_ms", 0) or 0)
+        if entry_ts_ms <= 0:
+            return 0
+        return max(0, int(now_ms) - entry_ts_ms)
+
+    def _resolve_max_hold_ms(self, pos: PositionState) -> int:
+        sp = getattr(pos, "signal_payload", None) or {}
+        tf_ms = self._tf_to_ms(getattr(pos, "tf", "") or "1m")
+        try:
+            v = sp.get("max_hold_ms")
+            if v is not None:
+                return max(0, int(v))
+        except Exception:
+            pass
+        try:
+            bars = int(sp.get("max_hold_bars") or 0)
+            if bars > 0:
+                return bars * tf_ms
+        except Exception:
+            pass
+        if self._max_hold_bars_default > 0:
+            return self._max_hold_bars_default * tf_ms
+        return max(0, self._max_hold_ms_default)
+
+    def _is_max_hold_expired(self, pos: PositionState, now_ms: int) -> bool:
+        if getattr(pos, "closed", False):
+            return False
+        mode = str(getattr(self, "timeout_close_mode", "shadow")).lower()
+        if not getattr(self, "real_timeout_close_enabled", False) and mode not in {"shadow", "paper", "enforce"}:
+            return False
+        max_hold = self._resolve_max_hold_ms(pos)
+        if max_hold <= 0:
+            return False
+        return self._position_age_ms(pos, now_ms) >= max_hold
+
+    def _get_last_price_for_pos(self, pos: PositionState) -> tuple[int, float]:
+        sym = str(getattr(pos, "symbol", "") or "").upper()
+        lp = self._last_price_by_symbol.get(sym)
+        if lp:
+            return int(lp[0]), float(lp[1])
+        return 0, 0.0
+
+    def _emit_timeout_eval(self, pos: PositionState, decision: str, reason: str) -> None:
+        sym = str(getattr(pos, "symbol", "") or "unknown")
+        try:
+            TM_TIMEOUT_EVAL_TOTAL.labels(symbol=sym, decision=decision, reason=reason).inc()
+        except Exception:
+            pass
+
+    def _claim_timeout_close_once(self, sid: str, reason: str) -> bool:
+        ttl = int(getattr(self, "_timeout_idempotency_ttl_sec", 86400))
+        key = f"tm:timeout_close:claimed:{sid}:{reason}"
+        try:
+            return bool(self.redis.set(key, "1", nx=True, ex=ttl))
+        except Exception:
+            return False
+
+    def _resolve_timeout_reason(
+        self, pos: PositionState, *, last_price: float
+    ) -> tuple[bool, str]:
+        if self._timeout_skip_if_trailing and getattr(pos, "trailing_active", False):
+            return False, "TIMEOUT_SKIP_TRAILING_ACTIVE"
+        if not self._smart_timeout_enabled:
+            return True, "TIMEOUT_MAX_HOLD"
+        entry = float(getattr(pos, "entry_price", 0.0) or 0.0)
+        if entry <= 0 or last_price <= 0:
+            return False, "TIMEOUT_SKIP_NO_PRICE"
+        direction = str(getattr(pos, "direction", "") or "").upper()
+        if direction in {"LONG", "BUY"}:
+            pnl_bps = (last_price - entry) / entry * 10_000
+            adverse = entry - last_price
+        else:
+            pnl_bps = (entry - last_price) / entry * 10_000
+            adverse = last_price - entry
+        if pnl_bps >= self._smart_timeout_min_profit_bps:
+            return True, "TIMEOUT_PROFITABLE"
+        atr = float(getattr(pos, "atr", 0.0) or 0.0)
+        if atr > 0 and adverse >= atr * self._smart_timeout_adverse_atr:
+            return True, "TIMEOUT_ADVERSE_MOVE"
+        return True, "TIMEOUT_MAX_HOLD"
+
+    def _request_real_timeout_close(
+        self, pos: PositionState, *, now_ms: int, max_hold_ms: int,
+        age_ms: int, reason: str, last_price: float, last_price_ts_ms: int,
+    ) -> None:
+        import json as _json
+
+        sid = str(getattr(pos, "sid", "") or getattr(pos, "id", "") or "")
+        symbol = str(getattr(pos, "symbol", "") or "").upper()
+        if not sid or not symbol:
+            self._emit_timeout_eval(pos, "skip", "TIMEOUT_SKIP_MISSING_SID_SYMBOL")
+            return
+
+        if not self._claim_timeout_close_once(sid, reason):
+            try:
+                TM_TIMEOUT_CLOSE_DEDUP_TOTAL.labels(symbol=symbol, reason=reason).inc()
+            except Exception:
+                pass
+            self._emit_timeout_eval(pos, "dedup", "TIMEOUT_DUPLICATE_SUPPRESSED")
+            return
+
+        mode = str(getattr(self, "timeout_close_mode", "shadow")).lower()
+        if mode == "shadow" or not getattr(self, "real_timeout_close_enabled", False):
+            self._emit_timeout_eval(pos, "shadow", reason)
+            logger.info("⏳ [timeout_close shadow] %s sid=%s reason=%s age_ms=%d", symbol, sid, reason, age_ms)
+            return
+
+        venue = str(
+            getattr(pos, "venue", "")
+            or (getattr(pos, "signal_payload", None) or {}).get("venue", "")
+            or "binance_futures"
+        ).lower()
+        cmd = {
+            "v": 1, "action": "timeout_close", "sid": sid, "symbol": symbol,
+            "venue": venue, "close_reason_raw": reason,
+            "request_ts_ms": int(now_ms), "entry_ts_ms": int(getattr(pos, "entry_ts_ms", 0) or 0),
+            "max_hold_ms": int(max_hold_ms), "age_ms": int(age_ms),
+            "idempotency_key": f"timeout_close:{sid}:{reason}",
+            "source": "trade_monitor",
+            "expected_side": str(getattr(pos, "direction", "") or ""),
+            "expected_qty": float(getattr(pos, "remaining_qty", 0.0) or getattr(pos, "lot", 0.0) or 0.0),
+            "last_price": float(last_price or 0.0),
+            "last_price_ts_ms": int(last_price_ts_ms or 0),
+        }
+        queue = self._mt5_orders_queue if venue == "mt5" else self._binance_orders_queue
+        try:
+            self.redis.xadd(queue, {"data": _json.dumps(cmd, ensure_ascii=False)}, maxlen=100000, approximate=True)
+            TM_TIMEOUT_CLOSE_REQUESTED_TOTAL.labels(venue=venue, symbol=symbol, reason=reason).inc()
+        except Exception as e:
+            logger.error("❌ [timeout_close] failed to publish command: %s", e)
+            return
+        self._emit_timeout_eval(pos, "requested", reason)
+        logger.info("📤 [timeout_close] queued sid=%s symbol=%s venue=%s reason=%s age_ms=%d", sid, symbol, venue, reason, age_ms)
+
+    def _finalize_paper_timeout_close(
+        self, pos: PositionState, *, exit_price: float, exit_ts_ms: int, close_reason_raw: str,
+    ) -> None:
+        sym = str(getattr(pos, "symbol", "") or "UNKNOWN").upper()
+        spec = self._get_spec(sym)
+        pos.closed = True
+        pos.exit_ts_ms = int(exit_ts_ms)
+        pos.exit_price = float(exit_price)
+        with contextlib.suppress(Exception):
+            self._fsm_transition(pos, "ORPHAN_CLOSED", trigger="max_hold_timeout_paper",
+                                 reason=close_reason_raw, price=float(exit_price), ts_ms=int(exit_ts_ms))
+        with contextlib.suppress(Exception):
+            rq = float(getattr(pos, "remaining_qty", 0.0) or 0.0)
+            if rq > 0 and not getattr(pos, "_pnl_finalized", False):
+                pnl_rest = float(spec.pnl_money(pos.entry_price, float(exit_price), rq, pos.direction, symbol=sym))
+                pos.realized_pnl_gross = float(getattr(pos, "realized_pnl_gross", 0.0) or 0.0) + pnl_rest
+                pos.remaining_qty = 0.0
+        closed = finalize_trade(pos, spec, exit_price=float(exit_price),
+                                exit_ts_ms=int(exit_ts_ms), close_reason_raw=close_reason_raw,
+                                tp_ratios=self.tp_ratios)
+        with contextlib.suppress(Exception):
+            object.__setattr__(closed, "is_orphan_cleanup", False)
+            object.__setattr__(closed, "exclude_from_ml_labels", False)
+            object.__setattr__(closed, "timeout_age_ms", self._position_age_ms(pos, exit_ts_ms))
+            object.__setattr__(closed, "timeout_max_hold_ms", self._resolve_max_hold_ms(pos))
+        with contextlib.suppress(Exception):
+            self._log_ab_closed_event(pos, closed, close_reason_raw)
+        with contextlib.suppress(Exception):
+            hs = self._get_health_snapshot_for_trade(str(closed.symbol))
+            self._io_save_closed(closed, health_snapshot=hs)
+        with self._lock:
+            self._pop_pos(pos.id)
+        try:
+            TM_TIMEOUT_EVAL_TOTAL.labels(symbol=sym, decision="finalized_paper", reason=close_reason_raw).inc()
+        except Exception:
+            pass
+
+    def _on_max_hold_expired(self, pos: PositionState, now_ms: int) -> None:
+        age_ms = self._position_age_ms(pos, now_ms)
+        max_hold_ms = self._resolve_max_hold_ms(pos)
+        if max_hold_ms <= 0 or age_ms < max_hold_ms:
+            return
+        sym = str(getattr(pos, "symbol", "") or "unknown")
+        with contextlib.suppress(Exception):
+            TM_TIMEOUT_POSITION_AGE_MS.labels(symbol=sym).observe(age_ms)
+        last_ts, last_price = self._get_last_price_for_pos(pos)
+        if self._timeout_require_fresh_price:
+            if not last_ts or (now_ms - last_ts) > self._timeout_max_last_price_age_ms:
+                self._emit_timeout_eval(pos, "skip", "TIMEOUT_SKIP_STALE_PRICE")
+                return
+        should_close, reason = self._resolve_timeout_reason(pos, last_price=last_price)
+        if not should_close:
+            self._emit_timeout_eval(pos, "skip", reason)
+            return
+        if self._is_real_position(pos):
+            self._request_real_timeout_close(pos, now_ms=now_ms, max_hold_ms=max_hold_ms,
+                                             age_ms=age_ms, reason=reason, last_price=last_price,
+                                             last_price_ts_ms=last_ts)
+        else:
+            self._finalize_paper_timeout_close(
+                pos,
+                exit_price=last_price if last_price > 0 else float(getattr(pos, "entry_price", 0.0) or 0.0),
+                exit_ts_ms=now_ms, close_reason_raw=reason,
+            )
+
+    def _run_max_hold_timeout_scan(self, now_ms: int) -> None:
+        with self._lock:
+            shards_snap = {s: dict(sh) for s, sh in self.shards.items()}
+        for sym, shard in shards_snap.items():
+            for pos_id, pos in shard.items():
+                if getattr(pos, "closed", False):
+                    continue
+                if not self._is_max_hold_expired(pos, now_ms):
+                    continue
+                with contextlib.suppress(Exception):
+                    self._on_max_hold_expired(pos, now_ms)
 
     # --------------------
     # Index helpers
@@ -3688,10 +3971,10 @@ class TradeMonitorService:
                         max_age = int(self._orphan_max_last_price_age_ms)
                         if max_age > 0 and (int(now_ms) - last_ts) > max_age:
                             exit_price = float(getattr(pos, "entry_price", 0.0) or 0.0)
-                            close_reason_raw = "ORPHAN_TIMEOUT_STALE_PRICE"
+                            close_reason_raw = "ORPHAN_CLEANUP_STALE_PRICE"
                         else:
                             exit_price = last_px
-                            close_reason_raw = "ORPHAN_TIMEOUT"
+                            close_reason_raw = "ORPHAN_CLEANUP_STALE_MONITOR_STATE"
                     else:
                         # [FIX-3] Use commission-adjusted price, not raw entry_price.
                         _entry_px = float(getattr(pos, "entry_price", 0.0) or 0.0)
@@ -3701,7 +3984,7 @@ class TradeMonitorService:
                             str(getattr(pos, "direction", "LONG") or "LONG"),
                             _spec,
                         )
-                        close_reason_raw = "ORPHAN_TIMEOUT_NO_PRICE"
+                        close_reason_raw = "ORPHAN_CLEANUP_NO_PRICE"
 
                     # Сразу удаляем из памяти/индексов, чтобы позиция не "жила вечно"
                     with self._lock:
@@ -3759,6 +4042,17 @@ class TradeMonitorService:
                     tp_ratios=effective_tp_ratios,
                 )
                 self._log_ab_closed_event(pos, closed, str(close_reason_raw))
+
+                # Mark orphan cleanup: excluded from ML labels
+                with contextlib.suppress(Exception):
+                    object.__setattr__(closed, "is_orphan_cleanup", True)
+                    object.__setattr__(closed, "exclude_from_ml_labels", True)
+                try:
+                    TM_ORPHAN_CLEANUP_TOTAL.labels(
+                        symbol=str(pos.symbol or ""), reason=str(close_reason_raw),
+                    ).inc()
+                except Exception:
+                    pass
 
                 # ---------------------------------------------------------------------
                 # NEW: persist time-bucket snapshots into TradeClosed event so that
@@ -3861,6 +4155,10 @@ class TradeMonitorService:
                 self._housekeep_expired_positions(start_ms)
             except Exception as e:
                 logger.error("Housekeep loop error: %s", e)
+            try:
+                self._run_max_hold_timeout_scan(start_ms)
+            except Exception as e:
+                logger.error("Max-hold timeout scan error: %s", e)
             finally:
                 duration_ms = get_ny_time_millis() - start_ms
                 if hasattr(self, "tm_orphan_cleanup_duration_ms"):
@@ -3960,7 +4258,8 @@ class TradeMonitorService:
 
                     # get last price for forced exit
                     lp = self._last_price_by_symbol.get(sym)
-                    raw = "ORPHAN_FORCED_CLOSE"
+                    raw = "ORPHAN_TIMEOUT"
+                    is_stale_price = False
 
                     if lp:
                         exit_ts_ms, exit_price = int(lp[0]), float(lp[1])
@@ -3968,6 +4267,7 @@ class TradeMonitorService:
                         if (now_ms - exit_ts_ms) > self._orphan_max_last_price_age_ms:
                             logger.info(f"⚠️ Stale price for {sym} ({now_ms - exit_ts_ms}ms old), using entry_price for orphan closure")
                             exit_price = 0.0  # trigger fallback below
+                            is_stale_price = True
                     else:
                         exit_ts_ms, exit_price = now_ms, 0.0
 
@@ -3980,6 +4280,32 @@ class TradeMonitorService:
                         # re-check expiration under lock (race-safe)
                         if not self._is_orphan_expired(pos, now_ms):
                             continue
+
+                        # Smart Timeout: не закрывать если позиция вблизи безубытка
+                        # и нет значительного adverse excursion.
+                        if os.getenv("TM_SMART_TIMEOUT_ENABLED", "1") == "1":
+                            if not getattr(pos, "trailing_active", False):
+                                _sym = str(getattr(pos, "symbol", "") or "")
+                                _last = self._last_price_by_symbol.get(_sym)
+                                if _last and float(_last[1]) > 0:
+                                    _last_px = float(_last[1])
+                                    _entry_px = float(getattr(pos, "entry_price", 0.0) or 0.0)
+                                    if _entry_px > 0:
+                                        _dir = getattr(pos, "direction", "LONG")
+                                        _pnl_bps = ((_last_px - _entry_px) / _entry_px * 10000.0
+                                                    if _dir == "LONG"
+                                                    else (_entry_px - _last_px) / _entry_px * 10000.0)
+                                        _min_pnl = float(os.getenv("TM_SMART_TIMEOUT_PNL_BPS", "10.0"))
+                                        _atr = float(getattr(pos, "atr", 0.0) or 0.0)
+                                        _mae_atr = float(os.getenv("TM_SMART_TIMEOUT_MAE_ATR", "1.0"))
+                                        _is_profitable = _pnl_bps >= _min_pnl
+                                        _is_risky = False
+                                        if _atr > 0:
+                                            _adverse = (_entry_px - _last_px if _dir == "LONG"
+                                                        else _last_px - _entry_px)
+                                            _is_risky = _adverse > (_atr * _mae_atr)
+                                            if not _is_profitable and not _is_risky:
+                                                continue  # держим позицию
 
                         from domain.models import TradeEvent
 
@@ -3997,7 +4323,7 @@ class TradeMonitorService:
                                 str(getattr(pos, "direction", "LONG") or "LONG"),
                                 _spec,
                             )
-                            pos_raw = "ORPHAN_TIMEOUT_NO_PRICE"
+                            pos_raw = "ORPHAN_TIMEOUT_STALE_PRICE" if is_stale_price else "ORPHAN_TIMEOUT_NO_PRICE"
 
                         # mark closed in-memory
                         pos.closed = True

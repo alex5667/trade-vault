@@ -91,9 +91,10 @@ class MT5Event:
     type: int              # Type сделки (DEAL_TYPE_BUY=0, DEAL_TYPE_SELL=1)
     price: float
     profit: float
-    comment: str | None = None    # sid сигнала
-    volume: float | None = None   # Объём сделки
-    ts: int | None = None         # Timestamp (если MT5 не шлёт - ставим сервером)
+    comment: str | None = None          # sid сигнала
+    volume: float | None = None         # Объём сделки
+    ts: int | None = None               # Timestamp (если MT5 не шлёт - ставим сервером)
+    close_reason_raw: str | None = None # Explicit reason from timeout_close command (TIMEOUT_*)
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -397,7 +398,11 @@ def receive_mt5_event(event: MT5Event):
             state["volume_closed"] += event.volume
 
         # Определяем причину закрытия
-        if state.get("tp3_hit"):
+        # Explicit TIMEOUT_* reason from TradeMonitor timeout_close command takes precedence.
+        explicit_reason = str(event.close_reason_raw or "").strip()
+        if explicit_reason.startswith("TIMEOUT_"):
+            close_reason = explicit_reason
+        elif state.get("tp3_hit"):
             close_reason = "tp3"
         elif state.get("tp2_hit"):
             close_reason = "tp2"

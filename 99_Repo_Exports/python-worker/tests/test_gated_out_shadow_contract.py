@@ -1,6 +1,9 @@
 """Contract test for signals:gated_out (shadow stream for confidence-gated-out signals).
 
-Schema version: v=1 (int field, not schema_version).
+Schema version: v=2 (int field, not schema_version).
+  v=2 adds ML training metadata: virtual, tradeable, is_counterfactual,
+  sample_policy, selection_policy_version, selection_prob, selection_weight,
+  meets_virtual_threshold, virtual_min_conf.
 Stream key: RS.SIGNAL_GATED_OUT ("stream:signals:gated_out")
 Wire format: {"payload": JSON-string}
 
@@ -12,6 +15,7 @@ Verifies:
 5. tp_levels is always a list (never None in wire payload).
 6. Disabled flag suppresses publish.
 7. Stream key is correct.
+8. ML metadata fields present (v=2).
 """
 from __future__ import annotations
 
@@ -39,12 +43,17 @@ GATED_OUT_STREAM = "stream:signals:gated_out"
 
 def _make_stub():
     class _Stub:
-        pass
+        gated_out_shadow_enabled: bool = True
+        gated_out_shadow_stream: str = GATED_OUT_STREAM
+        gated_out_shadow_maxlen: int = 100_000
+        _cached_virtual_min_conf_pct: float = 35.0  # separate virtual threshold (plan §5)
+        # deep_explore attrs needed so _record_gated_out_shadow doesn't AttributeError
+        _cached_deep_explore_min_conf_pct: float = 20.0
+        _cached_deep_explore_sample_rate: float = 0.0
+        _cached_deep_explore_cap_per_slot: int = 50
+        _deep_explore_cap_counters: dict = {}
 
     stub = _Stub()
-    stub.gated_out_shadow_enabled = True
-    stub.gated_out_shadow_stream = GATED_OUT_STREAM
-    stub.gated_out_shadow_maxlen = 100_000
     stub._record_gated_out_shadow = _sp_mod.SignalPipeline._record_gated_out_shadow.__get__(stub)
     return stub
 
@@ -128,14 +137,30 @@ def test_required_fields_present():
     assert not missing, f"Missing required fields: {missing}"
 
 
+ML_METADATA_FIELDS = {
+    "virtual", "tradeable", "is_counterfactual",
+    "sample_policy", "selection_policy_version",
+    "selection_prob", "selection_weight",
+    "meets_virtual_threshold", "virtual_min_conf",
+    # v2 additions: regime/session for per-policy Prometheus labeling
+    "regime", "session",
+}
+
+
 def test_gated_out_invariants():
     stub = _make_full_stub()
     payloads = _call_and_flush(stub)
     p = payloads[0]
-    assert p["v"] == 1, "schema version must be 1"
+    assert p["v"] == 2, "schema version must be 2 (v2 adds ML training metadata)"
     assert p["gated_out"] == 1, "gated_out must be 1"
     assert p["gate_reason"] == "low_confidence", f"gate_reason={p['gate_reason']!r}"
     assert p["confidence"] < p["min_conf"], "confidence must be below min_conf"
+    assert p["virtual"] is True, "gated_out signals are always virtual"
+    assert p["tradeable"] is False, "gated_out signals are never tradeable"
+    assert p["is_counterfactual"] is True
+    assert p["sample_policy"] == "confidence_gated_out"
+    missing_ml = ML_METADATA_FIELDS - set(p.keys())
+    assert not missing_ml, f"Missing ML metadata fields: {missing_ml}"
 
 
 def test_direction_and_side_encoding():

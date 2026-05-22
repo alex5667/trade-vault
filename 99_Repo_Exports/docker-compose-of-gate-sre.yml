@@ -53,7 +53,6 @@ services:
     container_name: ollama
     restart: unless-stopped
     environment:
-    - OLLAMA_MAX_VRAM=24G
     - OLLAMA_MAX_THREADS=2
     - OLLAMA_KEEP_ALIVE=24h
     - TZ=UTC
@@ -70,7 +69,7 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '0.2'
+          cpus: '4.0'
         reservations:
           devices:
           - driver: nvidia
@@ -89,7 +88,7 @@ services:
     init: true
     restart: unless-stopped
     environment:
-    - AIOPS_MODEL=deepseek-r1:14b
+    - AIOPS_MODEL=deepseek-r1:8b
     - AIOPS_TIMEOUT=600
     - OLLAMA_URL=http://ollama:11434/api/generate
     - GO_GATEWAY_URL=${AIOPS_GO_GATEWAY_URL:-http://scanner-go-gateway:8090}

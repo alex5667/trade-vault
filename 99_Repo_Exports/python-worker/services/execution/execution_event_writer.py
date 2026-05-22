@@ -112,7 +112,7 @@ class ExecutionEventWriter:
         action = str(raw.get("action") or raw.get("event_type") or "event").strip() or "event"
         event_type = str(raw.get("event_type") or action).strip() or "event"
         status = (raw.get("status") or "ok").strip() or "ok"
-        ts_event_ms = raw.get("ts_event_ms") or raw.get("ts_ms" or _ms_now())
+        ts_event_ms = raw.get("ts_event_ms") or raw.get("ts_ms") or _ms_now()
 
         # Derive side_int if absent
         side_int = raw.get("side_int")
@@ -132,8 +132,8 @@ class ExecutionEventWriter:
                     symbol=symbol,
                     ts_ms=ts_event_ms,
                     side=Side(normalize_side(str(raw.get("side") or raw.get("logical_side") or "")).value),
-                    price=raw.get("avg_price") or raw.get("price" or 0.0),
-                    qty=raw.get("filled_qty") or raw.get("qty" or 0.0),
+                    price=float(raw.get("avg_price") or raw.get("price") or 0.0),
+                    qty=float(raw.get("filled_qty") or raw.get("qty") or 0.0),
                     side_int=side_int or 0,
                     status=status.upper(),
                     meta={k: v for k, v in raw.items() if v is not None},

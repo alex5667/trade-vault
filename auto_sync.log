@@ -662,3 +662,46 @@ fatal: Could not read from remote repository.
 Please make sure you have the correct access rights
 and the repository exists.
 2026-05-20 05:45:10 - Синхронизация завершена успешно.
+[main 157b1274] Auto-sync vault notes 2026-05-21 05:45:01
+ 80 files changed, 10372 insertions(+), 374 deletions(-)
+ create mode 100644 99_Automation/logs/update_2026-05-21_03-37-15.log
+ create mode 100644 99_Repo_Exports/docker-compose.stale-pytest-killer.yml
+ create mode 100644 99_Repo_Exports/python-worker/core/confirmation_barrier_calibrator.py
+ create mode 100644 99_Repo_Exports/python-worker/core/confirmation_barrier_reader.py
+ create mode 100644 99_Repo_Exports/python-worker/core/cross_venue_calib_reader.py
+ create mode 100644 99_Repo_Exports/python-worker/core/cross_venue_calibrator.py
+ create mode 100644 99_Repo_Exports/python-worker/core/dq_microstructure_calibrator.py
+ create mode 100644 99_Repo_Exports/python-worker/core/flow_toxicity_calibrator.py
+ create mode 100644 99_Repo_Exports/python-worker/core/reject_reason_weights.py
+ create mode 100644 99_Repo_Exports/python-worker/core/score_component_weight_calibrator.py
+ create mode 100644 99_Repo_Exports/python-worker/core/sentiment_defillama_ctx_calibrator.py
+ create mode 100644 99_Repo_Exports/python-worker/core/slippage_cal_store.py
+ create mode 100644 99_Repo_Exports/python-worker/core/weighted_stats.py
+ create mode 100644 99_Repo_Exports/python-worker/migrations/20260519_03_signal_outcome_join_timeout_class.sql
+ create mode 100644 99_Repo_Exports/python-worker/migrations/20260520_01_fix_ind_obi_generated_column.sql
+ create mode 100644 99_Repo_Exports/python-worker/migrations/20260520_02_of_inputs_history.sql
+ create mode 100644 99_Repo_Exports/python-worker/migrations/20260520_04_backfill_position_events_from_trades_closed.sql
+ create mode 100644 99_Repo_Exports/python-worker/orderflow_services/_common.py
+ create mode 100644 99_Repo_Exports/python-worker/orderflow_services/cost_edge_slippage_calibrator_v1.py
+ create mode 100644 99_Repo_Exports/python-worker/orderflow_services/cross_venue_calibrator_v1.py
+ create mode 100644 99_Repo_Exports/python-worker/orderflow_services/flow_toxicity_calibrator_v1.py
+ create mode 100644 99_Repo_Exports/python-worker/orderflow_services/of_inputs_history_writer_p101.py
+ create mode 100644 99_Repo_Exports/python-worker/orderflow_services/score_component_weight_calibrator_v1.py
+ create mode 100644 99_Repo_Exports/python-worker/orderflow_services/sentiment_defillama_ctx_tighten_calibrator_v1.py
+ create mode 100644 99_Repo_Exports/python-worker/services/flow_toxicity_runtime_overrides.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_confirmation_barrier_calibrator.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_cost_edge_slippage_calibrator.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_cross_venue_calibrator.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_dq_microstructure_calibrator.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_flow_toxicity_calibrator.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_ml_lag_ema.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_reject_reason_weights.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_reject_reason_weights_phase2.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_score_component_weight_calibrator.py
+ create mode 100644 99_Repo_Exports/python-worker/tools/sql/phase0_reliability.sql
+git@github.com: Permission denied (publickey).
+fatal: Could not read from remote repository.
+
+Please make sure you have the correct access rights
+and the repository exists.
+2026-05-21 05:45:02 - Синхронизация завершена успешно.

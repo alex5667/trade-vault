@@ -459,7 +459,7 @@ class OllamaDeepSeekClient(LLMClient):
 
     def __init__(self) -> None:
         self.base_url = os.getenv("OLLAMA_BASE_URL", "http://host.docker.internal:11434").rstrip("/")
-        self.model = os.getenv("NEWS_FALLBACK_OLLAMA_MODEL", "deepseek-r1:14b").strip()
+        self.model = os.getenv("NEWS_FALLBACK_OLLAMA_MODEL", "deepseek-r1:8b").strip()
         self.timeout_sec = float(os.getenv("OLLAMA_TIMEOUT_SEC", "30"))
         self.max_retries = int(os.getenv("OLLAMA_RETRIES", "1"))
 

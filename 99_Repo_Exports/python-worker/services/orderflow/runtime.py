@@ -380,6 +380,8 @@ class SymbolRuntime:
     _regime_hold_ema: float = 0.0
     _regime_cross_hist: deque[int] = field(default_factory=lambda: deque(maxlen=30))
     _regime_last_pub_ms: int = 0
+    _last_atr_q: float = 0.5
+    _last_regime_score: float = 0.0
 
     # Book Health State
     last_book_health_ok: int = 1

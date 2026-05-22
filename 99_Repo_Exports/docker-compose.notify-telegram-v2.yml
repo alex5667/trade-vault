@@ -25,7 +25,7 @@ services:
     - NOTIFY_METRICS_ADDR=0.0.0.0
     - TZ=UTC
     - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://ollama:11434}
-    - TELEGRAM_LLM_MODEL=${TELEGRAM_LLM_MODEL:-deepseek-r1:14b}
+    - TELEGRAM_LLM_MODEL=${TELEGRAM_LLM_MODEL:-deepseek-r1:8b}
     ports:
     - ${NOTIFY_METRICS_PORT:-9125}:${NOTIFY_METRICS_PORT:-9125}
     command: python python-worker/services/telegram_notifier_worker_v2.py

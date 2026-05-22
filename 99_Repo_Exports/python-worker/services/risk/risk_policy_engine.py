@@ -623,7 +623,9 @@ def evaluate_risk_policy(inp: RiskPolicyInput, limits: RiskPolicyLimits | None =
                 reasons.append("net_short_beta_cap")
 
     # ── Priority 8: Confidence below tier floor ───────────────────────────────
-    if allow and confidence and confidence < float(tier_policy.min_confidence):
+    # shadow_only=True (virtual/paper signals) bypass the confidence floor —
+    # they are analytics-only and must not be silently dropped before calibration data is captured.
+    if allow and confidence and confidence < float(tier_policy.min_confidence) and not inp.shadow_only:
         level = RISK_DENY_SOFT
         allow = False
         reasons.append("confidence_below_tier_floor")

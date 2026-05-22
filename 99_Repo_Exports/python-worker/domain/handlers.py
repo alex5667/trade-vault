@@ -213,7 +213,7 @@ def _enrich_closed_from_pos(closed: TradeClosed, pos: PositionState, exit_px: fl
 
     closed.spread_bps_at_entry = pos.p0_spread_bps_at_entry
     closed.slippage_bps_est = pos.p0_slippage_bps_est
-    closed.p0_slippage_bps_est = pos.p0_slippage_bps_est
+    closed.p0_slippage_bps_est = pos.p0_slippage_bps_est or 0.0
     closed.book_age_ms = pos.p0_book_age_ms
     closed.entry_regime = str(getattr(pos, "entry_regime", "na") or "na")
 
@@ -749,10 +749,6 @@ def _maybe_start_trailing_after_tp1(
         # fail-open: never break tick processing
         return
 
-def _env_bool(name: str, default: bool) -> bool:
-    v = (os.getenv(name, "1" if default else "0") or "").strip().lower()
-    return v in {"1", "true", "yes", "on"}
-
 def _parse_csv_ints(s: str) -> Sequence[int]:
     out = []
     for part in (s or "").split(","):
@@ -928,7 +924,7 @@ def _build_features_snapshot(feats: dict[str, Any]) -> dict[str, Any]:
         "weak_progress", "vwap_pos", "atr_bps", "liq_scale",
         "confidence", "spread_bps_at_entry", "book_age_ms", "slippage_bps_est",
         "scenario", "regime", "tier", "data_health", "expected_slippage_bps"
-    },
+    }
     if not isinstance(feats, dict):
         return {}
 
@@ -975,6 +971,11 @@ def create_position(signal: SignalNorm, spec) -> PositionState:
         lot_v = float(payload.get("qty") or payload.get("lot") or signal.lot or 0.0)
     except Exception:
         lot_v = float(signal.lot or 0.0)
+
+    _raw_enforce = payload.get(MetaKeys.ENFORCE_APPLIED)
+    if _raw_enforce is None:
+        _raw_enforce = _indicators_pl.get(MetaKeys.ENFORCE_APPLIED)
+    _meta_enforce_applied_val: int = int(_raw_enforce) if _raw_enforce is not None else -1
 
     pos = PositionState(
         id=pos_id,
@@ -1029,15 +1030,7 @@ def create_position(signal: SignalNorm, spec) -> PositionState:
             or _indicators_pl.get(MetaKeys.ENFORCE_COV_BUCKET)
             or ""
         ),
-        meta_enforce_applied=int(
-            payload.get(MetaKeys.ENFORCE_APPLIED)
-            if payload.get(MetaKeys.ENFORCE_APPLIED) is not None
-            else (
-                _indicators_pl.get(MetaKeys.ENFORCE_APPLIED)
-                if _indicators_pl.get(MetaKeys.ENFORCE_APPLIED) is not None
-                else -1
-            )
-        )
+        meta_enforce_applied=_meta_enforce_applied_val
     )
 
     # ---- Defensive: Recover Lot from Risk USD if Lot is 0 (Fix Zero PnL) ----
@@ -1150,9 +1143,12 @@ def create_position(signal: SignalNorm, spec) -> PositionState:
                     sp[k] = pl.get(k)
 
             # Copy ctx/of fields used by LCB threshold evaluator
-            ctx = pl.get("ctx") if isinstance(pl.get("ctx"), dict) else {}
-            of_dict = pl.get("of") if isinstance(pl.get("of"), dict) else {}
-            zone = pl.get("zone") if isinstance(pl.get("zone"), dict) else {}
+            _ctx_v = pl.get("ctx")
+            ctx: dict = _ctx_v if isinstance(_ctx_v, dict) else {}
+            _of_v = pl.get("of")
+            of_dict: dict = _of_v if isinstance(_of_v, dict) else {}
+            _zone_v = pl.get("zone")
+            zone: dict = _zone_v if isinstance(_zone_v, dict) else {}
 
             # Decision-time features for threshold optimization
             for k in ("regime", "scenario", "zone_dist_bp", "obi_stable_sec", "iceberg_strict", "spread_z"):

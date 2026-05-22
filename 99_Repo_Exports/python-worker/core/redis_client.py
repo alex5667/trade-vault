@@ -37,8 +37,16 @@ import contextlib
 # unconditionally breaks tests that do not require Redis connectivity.
 try:
     import redis  # type: ignore
+    from redis.exceptions import (  # type: ignore
+        BusyLoadingError as redis_BusyLoadingError,
+        ConnectionError as redis_ConnectionError,
+        TimeoutError as redis_TimeoutError,
+    )
 except Exception:  # pragma: no cover
     redis = None  # type: ignore
+    redis_BusyLoadingError = Exception  # type: ignore
+    redis_ConnectionError = Exception  # type: ignore
+    redis_TimeoutError = Exception  # type: ignore
 
 
 def get_env(key, default_value):
@@ -72,7 +80,7 @@ def get_redis(retry_attempts=10, retry_delay=2):
         try:
             _redis_client.ping()
             return _redis_client
-        except (redis.exceptions.ConnectionError, redis.exceptions.TimeoutError, AttributeError):
+        except (redis_ConnectionError, redis_TimeoutError, AttributeError):
             _redis_client = None
             _connection_pool = None
 
@@ -81,7 +89,7 @@ def get_redis(retry_attempts=10, retry_delay=2):
             try:
                 _redis_client.ping()
                 return _redis_client
-            except (redis.exceptions.ConnectionError, redis.exceptions.TimeoutError, AttributeError):
+            except (redis_ConnectionError, redis_TimeoutError, AttributeError):
                 _redis_client = None
                 _connection_pool = None
 
@@ -136,7 +144,7 @@ def get_redis(retry_attempts=10, retry_delay=2):
                 sys.stdout.flush()
                 return client
 
-            except redis.exceptions.BusyLoadingError as e:
+            except redis_BusyLoadingError as e:
                 if attempt < retry_attempts - 1:
                     print(f"⚠️ Redis BusyLoading (attempt {attempt+1}/{retry_attempts}): {e}")
                     print(f"⏳ retry in {current_delay} sec...")
@@ -149,7 +157,7 @@ def get_redis(retry_attempts=10, retry_delay=2):
                     sys.stdout.flush()
                     raise
 
-            except (redis.exceptions.ConnectionError, redis.exceptions.TimeoutError) as e:
+            except (redis_ConnectionError, redis_TimeoutError) as e:
                 if attempt < retry_attempts - 1:
                     print(f"⚠️ Redis connect error (attempt {attempt+1}/{retry_attempts}): {e}")
                     print(f"⏳ retry in {current_delay} sec...")
@@ -181,7 +189,7 @@ def get_redis(retry_attempts=10, retry_delay=2):
                     sys.stdout.flush()
                     raise
 
-        raise redis.exceptions.ConnectionError("Failed to connect to Redis after all retries")
+        raise redis_ConnectionError("Failed to connect to Redis after all retries")
 
 
 def reset_redis_connection():
@@ -391,10 +399,12 @@ def get_redis_publish():
             return _publish_redis_client
 
         redis_url = get_env("REDIS_URL", "redis://redis-worker-1:6379/0")
-        # Default raised from 20 to 64: at 20 the pool starved under
-        # concurrent XADD load (Signal Emit p99 ~90ms observed in prod),
-        # while redis-server itself handles thousands of connections fine.
-        max_conn = max(5, min(int(get_env("PUBLISH_REDIS_MAX_CONNECTIONS", "64")), 100))  # type: ignore
+        # Accept both PUBLISH_REDIS_MAX_CONNECTIONS and REDIS_PUBLISH_MAX_CONNECTIONS.
+        # compose sets REDIS_PUBLISH_MAX_CONNECTIONS; old code only read the reverse form.
+        # 2026-05-21: cap raised 100→256 after Signal Emit P99=100ms (pool exhaustion).
+        _pub_max_raw = get_env("PUBLISH_REDIS_MAX_CONNECTIONS",
+                               get_env("REDIS_PUBLISH_MAX_CONNECTIONS", "128"))
+        max_conn = max(5, min(int(_pub_max_raw), 256))  # type: ignore
         timeout_ms = int(get_env("PUBLISH_REDIS_SOCKET_TIMEOUT_MS", "200"))  # type: ignore
         timeout_s = max(0.05, min(timeout_ms / 1000.0, 2.0))
 
@@ -434,16 +444,15 @@ async def wait_for_redis_async(client, max_retries: int = 30, delay: float = 10.
     """
     import asyncio
 
-    import redis.exceptions
     for attempt in range(max_retries):
         try:
             await client.ping()
             return True
-        except redis.exceptions.BusyLoadingError:
+        except redis_BusyLoadingError:
             print(f"⚠️ Redis is loading dataset (attempt {attempt+1}/{max_retries}). Waiting {delay}s...")
             sys.stdout.flush()
             await asyncio.sleep(delay)
-        except (redis.exceptions.ConnectionError, redis.exceptions.TimeoutError):
+        except (redis_ConnectionError, redis_TimeoutError):
             print(f"⚠️ Redis connection error (attempt {attempt+1}/{max_retries}). Waiting {delay}s...")
             sys.stdout.flush()
             await asyncio.sleep(delay)
@@ -458,16 +467,15 @@ def wait_for_redis(client, max_retries: int = 30, delay: float = 10.0) -> bool:
     """
     Synchronous version of wait_for_redis.
     """
-    import redis.exceptions
     for attempt in range(max_retries):
         try:
             client.ping()
             return True
-        except redis.exceptions.BusyLoadingError:
+        except redis_BusyLoadingError:
             print(f"⚠️ Redis is loading dataset (attempt {attempt+1}/{max_retries}). Waiting {delay}s...")
             sys.stdout.flush()
             time.sleep(delay)
-        except (redis.exceptions.ConnectionError, redis.exceptions.TimeoutError):
+        except (redis_ConnectionError, redis_TimeoutError):
             print(f"⚠️ Redis connection error (attempt {attempt+1}/{max_retries}). Waiting {delay}s...")
             sys.stdout.flush()
             time.sleep(delay)
@@ -560,7 +568,7 @@ def get_async_redis_client(
                     # With 3660 connections, pool exhaustion made every coroutine
                     # block up to 30 s waiting for a slot → Worker Lag P99 = 1997ms.
                     # 2 s allows the gather() error handler to retry gracefully.
-                    timeout=int(os.environ.get("REDIS_POOL_ACQUIRE_TIMEOUT", "2")),
+                    timeout=float(os.environ.get("REDIS_POOL_ACQUIRE_TIMEOUT", "2")),
                 )
                 client = aioredis.Redis(connection_pool=pool)
             except ImportError:

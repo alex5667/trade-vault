@@ -77,12 +77,17 @@ services:
     - REDIS_TICKS_PORT=6379
     - REDIS_SOCKET_TIMEOUT=2
     - REDIS_SOCKET_CONNECT_TIMEOUT=5
-    - REDIS_MAX_CONNECTIONS=256
-    - REDIS_MAIN_MAX_CONNECTIONS=128
-    - REDIS_TICKS_MAX_CONNECTIONS=1024
-    - REDIS_PUBLISH_MAX_CONNECTIONS=128
+    - REDIS_MAX_CONNECTIONS=512
+    - REDIS_MAIN_MAX_CONNECTIONS=256
+    - REDIS_TICKS_MAX_CONNECTIONS=1536
+    - REDIS_PUBLISH_MAX_CONNECTIONS=256
+    # 2026-05-21: core/redis_client.py get_redis_publish() reads PUBLISH_REDIS_MAX_CONNECTIONS
+    # (not REDIS_PUBLISH_MAX_CONNECTIONS). Both set here so both paths get headroom.
+    - PUBLISH_REDIS_MAX_CONNECTIONS=256
     - REDIS_PUBLISH_SOCKET_TIMEOUT=2
-    - REDIS_POOL_ACQUIRE_TIMEOUT=1
+    # 2026-05-21: Entry Lag P99=500ms + Signal Emit P99=100ms — pool exhaustion.
+    # Reduced 1s→0.2s: fail-fast frees event loop sooner; retry_queue handles retries.
+    - REDIS_POOL_ACQUIRE_TIMEOUT=0.2
     - REDIS_RETRY_ON_TIMEOUT=true
     - REDIS_HEALTH_CHECK_INTERVAL=30
     - NEWS_REDIS_SOCKET_TIMEOUT_SEC=0.05
@@ -203,6 +208,25 @@ services:
     - XAU_CONTRACT_SIZE=100
     - XAU_LOT_STEP=0.01
     - STOP_MODE=ATR
+    # ── Phase 1: Virtual ML Data Collection (2026-05-21) ─────────────
+    # Live gate stays strict (CRYPTO_SIGNAL_MIN_CONF above).
+    # VIRTUAL_SIGNAL_MIN_CONF widens near-miss collection without changing real execution.
+    # Rollback: set VIRTUAL_SIGNAL_MIN_CONF=${CRYPTO_SIGNAL_MIN_CONF}
+    - VIRTUAL_SIGNAL_MIN_CONF=${VIRTUAL_SIGNAL_MIN_CONF:-35}
+    - SHADOW_GATED_OUT_ENABLE=1
+    - CRYPTO_NOTIFY_SKIP_VIRTUAL=1
+    - CRYPTO_OF_VIRTUAL_ENFORCE=0
+    - BINANCE_VIRTUAL_ORDERS_ENABLED=0
+    - BINANCE_VIRTUAL_MIRROR_ALL=0
+    # ── Phase 2: Deep Exploration Sampling (2026-05-21) ───────────────
+    # Sampled outcome-only collection for signals in [20%, 35%) range.
+    # NEVER routes to virtual order queue (DEEP_EXPLORATION_TO_ORDER_QUEUE=0).
+    # Phase 2 ACTIVE: DEEP_EXPLORATION_SAMPLE_RATE=0.03 (3% sampled)
+    # Rollback: set DEEP_EXPLORATION_SAMPLE_RATE=0
+    - DEEP_EXPLORATION_MIN_CONF=${DEEP_EXPLORATION_MIN_CONF:-20}
+    - DEEP_EXPLORATION_SAMPLE_RATE=${DEEP_EXPLORATION_SAMPLE_RATE:-0.03}
+    - DEEP_EXPLORATION_TO_ORDER_QUEUE=0
+    - DEEP_EXPLORATION_CAP_PER_SYMBOL_SESSION_HOUR=${DEEP_EXPLORATION_CAP_PER_SYMBOL_SESSION_HOUR:-50}
     # ── Stop-Risk Contract: SLQ canary ────────────────────────────────
     - SLQ_ENABLE=1
     - SLQ_SHADOW_ONLY=0
@@ -561,12 +585,16 @@ services:
     - AUTOCAL_PATH_TP_REFRESH_MS=${AUTOCAL_PATH_TP_REFRESH_MS:-30000}
     - AUTOCAL_PATH_TP_STALE_MS=${AUTOCAL_PATH_TP_STALE_MS:-21600000}
     # Cross-venue autocalibrator reader (adaptive disloc_z / min_agree).
-    # Default 0 — stays off until scanner-crossvenue-cal has ≥30 min of data.
-    # Rollout Step 3: set AUTOCAL_CROSSVENUE_READ_ENABLED=1 + force-recreate.
-    # Rollback: set 0 + force-recreate → signal_pipeline returns to ENV 0.67/3.0.
-    - AUTOCAL_CROSSVENUE_READ_ENABLED=${AUTOCAL_CROSSVENUE_READ_ENABLED:-0}
+    # Default 1 — auto-promote handles enforce flip; rollback: set 0 + force-recreate.
+    # Rollback: set AUTOCAL_CROSSVENUE_READ_ENABLED=0 + force-recreate → ENV 0.67/3.0.
+    - AUTOCAL_CROSSVENUE_READ_ENABLED=${AUTOCAL_CROSSVENUE_READ_ENABLED:-1}
     - AUTOCAL_CROSSVENUE_REFRESH_MS=${AUTOCAL_CROSSVENUE_REFRESH_MS:-60000}
     - AUTOCAL_CROSSVENUE_STALE_MS=${AUTOCAL_CROSSVENUE_STALE_MS:-1800000}
+    # Reader must hit main redis (ctx:crossvenue:* and autocal:crossvenue:state live there).
+    - AUTOCAL_CROSSVENUE_REDIS_URL=${CTX_MAIN_REDIS_URL:-redis://redis:6379/0}
+    # Flow toxicity autocalibrator reader (VPIN/OFI p95 thresholds per symbol).
+    # fail-open: cold/missing → 0.0 → gate pass-through. Rollback: set 0 + force-recreate.
+    - AUTOCAL_FLOW_TOX_READ_ENABLED=${AUTOCAL_FLOW_TOX_READ_ENABLED:-1}
     # ── Confirmation Barrier (audit 2026-05-18) ─────────────────────────────
     # enforce: 7 SHADOW_DROPs/h validated (2026-05-19) — chop without follow-through.
     # Rollback: set CONFIRMATION_BARRIER_MODE=off (or shadow) and restart.
@@ -623,10 +651,10 @@ services:
     deploy:
       resources:
         limits:
-          memory: 6G
-          cpus: '5.0'
+          memory: 8G
+          cpus: '7.0'
         reservations:
-          memory: 1G
+          memory: 2G
     ulimits:
       nofile:
         soft: 65536
@@ -699,12 +727,13 @@ services:
     - REDIS_TICKS_PORT=6379
     - REDIS_SOCKET_TIMEOUT=2
     - REDIS_SOCKET_CONNECT_TIMEOUT=5
-    - REDIS_MAX_CONNECTIONS=256
-    - REDIS_MAIN_MAX_CONNECTIONS=128
-    - REDIS_TICKS_MAX_CONNECTIONS=1024
-    - REDIS_PUBLISH_MAX_CONNECTIONS=128
+    - REDIS_MAX_CONNECTIONS=512
+    - REDIS_MAIN_MAX_CONNECTIONS=256
+    - REDIS_TICKS_MAX_CONNECTIONS=1536
+    - REDIS_PUBLISH_MAX_CONNECTIONS=256
+    - PUBLISH_REDIS_MAX_CONNECTIONS=256
     - REDIS_PUBLISH_SOCKET_TIMEOUT=2
-    - REDIS_POOL_ACQUIRE_TIMEOUT=1
+    - REDIS_POOL_ACQUIRE_TIMEOUT=0.2
     - REDIS_RETRY_ON_TIMEOUT=true
     - REDIS_HEALTH_CHECK_INTERVAL=30
     - REDIS_SIGNALS_HOST=redis-worker-1
@@ -736,6 +765,18 @@ services:
     - LIQ_SIGNAL_CALIB_PERSIST_GAP_MS=${LIQ_SIGNAL_CALIB_PERSIST_GAP_MS:-120000}
     - CRYPTO_SIGNAL_MIN_CONF=${CRYPTO_SIGNAL_MIN_CONF}
     - CRYPTO_NOTIFY_SIGNAL_EVERY_N=${CRYPTO_NOTIFY_SIGNAL_EVERY_N:-100}
+    # ── Phase 1: Virtual ML Data Collection (2026-05-21) ─────────────
+    - VIRTUAL_SIGNAL_MIN_CONF=${VIRTUAL_SIGNAL_MIN_CONF:-35}
+    - SHADOW_GATED_OUT_ENABLE=1
+    - CRYPTO_NOTIFY_SKIP_VIRTUAL=1
+    - CRYPTO_OF_VIRTUAL_ENFORCE=0
+    - BINANCE_VIRTUAL_ORDERS_ENABLED=0
+    - BINANCE_VIRTUAL_MIRROR_ALL=0
+    # ── Phase 2: Deep Exploration Sampling (2026-05-21) ───────────────
+    - DEEP_EXPLORATION_MIN_CONF=${DEEP_EXPLORATION_MIN_CONF:-20}
+    - DEEP_EXPLORATION_SAMPLE_RATE=${DEEP_EXPLORATION_SAMPLE_RATE:-0.03}
+    - DEEP_EXPLORATION_TO_ORDER_QUEUE=0
+    - DEEP_EXPLORATION_CAP_PER_SYMBOL_SESSION_HOUR=${DEEP_EXPLORATION_CAP_PER_SYMBOL_SESSION_HOUR:-50}
     - ACCOUNT_DEPOSIT_USD=${ACCOUNT_DEPOSIT_USD:-1000}
     - ACCOUNT_LEVERAGE=${ACCOUNT_LEVERAGE:-10}
     - RISK_PERCENT=${RISK_PERCENT:-5.0}
@@ -886,10 +927,10 @@ services:
     deploy:
       resources:
         limits:
-          memory: 6G
-          cpus: '5.0'
+          memory: 8G
+          cpus: '7.0'
         reservations:
-          memory: 1G
+          memory: 2G
     ulimits:
       nofile:
         soft: 65536
@@ -1722,9 +1763,12 @@ services:
     - AUTOCAL_PATH_TP_REFRESH_MS=${AUTOCAL_PATH_TP_REFRESH_MS:-30000}
     - AUTOCAL_PATH_TP_STALE_MS=${AUTOCAL_PATH_TP_STALE_MS:-21600000}
     # Cross-venue autocalibrator reader — same rollout ladder as scanner-python-worker.
-    - AUTOCAL_CROSSVENUE_READ_ENABLED=${AUTOCAL_CROSSVENUE_READ_ENABLED:-0}
+    - AUTOCAL_CROSSVENUE_READ_ENABLED=${AUTOCAL_CROSSVENUE_READ_ENABLED:-1}
     - AUTOCAL_CROSSVENUE_REFRESH_MS=${AUTOCAL_CROSSVENUE_REFRESH_MS:-60000}
     - AUTOCAL_CROSSVENUE_STALE_MS=${AUTOCAL_CROSSVENUE_STALE_MS:-1800000}
+    - AUTOCAL_CROSSVENUE_REDIS_URL=${CTX_MAIN_REDIS_URL:-redis://redis:6379/0}
+    # Flow toxicity autocalibrator reader (VPIN/OFI p95 thresholds per symbol).
+    - AUTOCAL_FLOW_TOX_READ_ENABLED=${AUTOCAL_FLOW_TOX_READ_ENABLED:-1}
     - EDGE_COST_K_BTCUSDT=3.0
     - EDGE_COST_K_ETHUSDT=3.0
     - EDGE_COST_K_SOLUSDT=3.5
@@ -2841,8 +2885,8 @@ services:
     - TM_ORPHAN_TIMEOUT_ENABLED=${TM_ORPHAN_TIMEOUT_ENABLED}
     # 2026-05-14: temporary PnL double-count trace
     - TRACE_PNL_DOUBLE_COUNT=${TRACE_PNL_DOUBLE_COUNT:-false}
-    - TM_ORPHAN_TTL_MS=${TM_ORPHAN_TTL_MS:-3600000}
-    - TM_SMART_TIMEOUT_ENABLED=${TM_SMART_TIMEOUT_ENABLED:-0}
+    - TM_ORPHAN_MAX_LIFETIME_MS=${TM_ORPHAN_MAX_LIFETIME_MS:-3600000}
+    - TM_SMART_TIMEOUT_ENABLED=${TM_SMART_TIMEOUT_ENABLED:-1}
     - TM_SMART_TIMEOUT_MAE_ATR=${TM_SMART_TIMEOUT_MAE_ATR:-1.5}
     - TM_SMART_TIMEOUT_PNL_BPS=${TM_SMART_TIMEOUT_PNL_BPS:-8.0}
     - EXEC_SINGLE_ACTIVE_POSITION_PER_SYMBOL=${EXEC_SINGLE_ACTIVE_POSITION_PER_SYMBOL:-0}
@@ -2940,8 +2984,8 @@ services:
     - TM_ORPHAN_TIMEOUT_ENABLED=${TM_ORPHAN_TIMEOUT_ENABLED}
     # 2026-05-14: temporary PnL double-count trace
     - TRACE_PNL_DOUBLE_COUNT=${TRACE_PNL_DOUBLE_COUNT:-false}
-    - TM_ORPHAN_TTL_MS=${TM_ORPHAN_TTL_MS:-3600000}
-    - TM_SMART_TIMEOUT_ENABLED=${TM_SMART_TIMEOUT_ENABLED:-0}
+    - TM_ORPHAN_MAX_LIFETIME_MS=${TM_ORPHAN_MAX_LIFETIME_MS:-3600000}
+    - TM_SMART_TIMEOUT_ENABLED=${TM_SMART_TIMEOUT_ENABLED:-1}
     - TM_SMART_TIMEOUT_MAE_ATR=${TM_SMART_TIMEOUT_MAE_ATR:-1.5}
     - TM_SMART_TIMEOUT_PNL_BPS=${TM_SMART_TIMEOUT_PNL_BPS:-8.0}
     - EXEC_SINGLE_ACTIVE_POSITION_PER_SYMBOL=${EXEC_SINGLE_ACTIVE_POSITION_PER_SYMBOL:-0}
@@ -5021,6 +5065,7 @@ services:
     - config/generated/symbols.env
     environment:
     - REDIS_URL=${REDIS_URL:-redis://redis-worker-1:6379/0}
+    - REDIS_TICKS_URL=${REDIS_TICKS_URL:-redis://redis-ticks:6379/0}
     - HAWKES_SYMBOLS=${HAWKES_SYMBOLS:-${CRYPTO_SYMBOLS}}
     - HAWKES_BETA=${HAWKES_BETA:-0.0333}
     - HAWKES_ALPHA=${HAWKES_ALPHA:-0.5}
@@ -5185,14 +5230,21 @@ services:
     build: *id001
     container_name: scanner-crossvenue-cal
     environment:
-    # Feed Redis: must reach redis-worker-1 where ctx:crossvenue:* keys live
-    - REDIS_URL=${REDIS_URL:-redis://redis-worker-1:6379/0}
+    # Feed Redis: ctx:crossvenue:* keys are written to the MAIN redis by Go CrossVenueAggregator.
+    # snapshot publication (autocal:crossvenue:state) also goes to main redis, which
+    # signal_pipeline workers read via get_redis() → CTX_MAIN_REDIS_URL.
+    - REDIS_URL=${CTX_MAIN_REDIS_URL:-redis://redis:6379/0}
     - CV_CAL_PORT=9920
     - CV_CAL_POLL_SEC=${CV_CAL_POLL_SEC:-60}
     - CV_CAL_SNAPSHOT_TTL=${CV_CAL_SNAPSHOT_TTL:-3600}
     # ENFORCE=0 (shadow): compute and store thresholds, but readers use ENV defaults
     # until CV_CAL_ENFORCE=1 AND AUTOCAL_CROSSVENUE_READ_ENABLED=1 on workers.
     - CV_CAL_ENFORCE=${CV_CAL_ENFORCE:-0}
+    - CV_CAL_AUTO_PROMOTE=${CV_CAL_AUTO_PROMOTE:-1}
+    - CV_CAL_PROMOTE_DWELL_MIN=${CV_CAL_PROMOTE_DWELL_MIN:-15}
+    - CV_CAL_PROMOTE_MAX_DISLOC_Z=${CV_CAL_PROMOTE_MAX_DISLOC_Z:-5.0}
+    - CV_CAL_PROMOTE_MIN_AGREE=${CV_CAL_PROMOTE_MIN_AGREE:-0.50}
+    - CV_CAL_PROMOTE_MAX_AGREE=${CV_CAL_PROMOTE_MAX_AGREE:-0.82}
     - CV_CAL_WINDOW_MS=${CV_CAL_WINDOW_MS:-86400000}
     - CV_CAL_MIN_SAMPLES=${CV_CAL_MIN_SAMPLES:-30}
     - CV_CAL_KEY_PREFIX=${CV_CAL_KEY_PREFIX:-ctx:crossvenue:}
@@ -5202,6 +5254,8 @@ services:
     working_dir: /app
     volumes:
     - ./python-worker:/app
+    ports:
+    - "${CV_CAL_PORT:-9920}:9920"
     networks:
     - scanner-core
     - scanner-infra
@@ -5214,6 +5268,85 @@ services:
         reservations:
           memory: 32M
     command: python -u orderflow_services/cross_venue_calibrator_v1.py
+
+  scanner-confirmation-barrier-cal:
+    build: *id001
+    container_name: scanner-confirmation-barrier-cal
+    environment:
+    # Reads autocal:confirm_barrier:state from the MAIN redis (written by signal_pipeline).
+    # Writes autocal:confirm_barrier:promote to the same redis on auto-promote.
+    - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
+    - CB_CAL_PORT=9155
+    - CB_CAL_POLL_SEC=${CB_CAL_POLL_SEC:-60}
+    - CB_CAL_MIN_DAYS=${CB_CAL_MIN_DAYS:-7.0}
+    - CB_CAL_MIN_BINS=${CB_CAL_MIN_BINS:-2}
+    - CB_CAL_MIN_SAMPLES_BIN=${CB_CAL_MIN_SAMPLES_BIN:-30}
+    - CB_CAL_DWELL_MIN=${CB_CAL_DWELL_MIN:-60}
+    # CB_CAL_AUTO_PROMOTE=1: writes promote key + Telegram on conditions met.
+    # Set 0 to run in report-only mode (no auto-promote).
+    - CB_CAL_AUTO_PROMOTE=${CB_CAL_AUTO_PROMOTE:-1}
+    - CB_CAL_SNAPSHOT_TTL=${CB_CAL_SNAPSHOT_TTL:-1209600}
+    - CB_CAL_DEDUP_TTL_H=${CB_CAL_DEDUP_TTL_H:-24}
+    - CB_CAL_NOTIFY_STREAM=${CB_CAL_NOTIFY_STREAM:-notify:telegram}
+    - PYTHONPATH=.:/app
+    - PYTHONUNBUFFERED=1
+    - TZ=UTC
+    working_dir: /app
+    volumes:
+    - ./python-worker:/app
+    ports:
+    - "${CB_CAL_PORT:-9155}:9155"
+    networks:
+    - scanner-core
+    - scanner-infra
+    restart: on-failure:5
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+          cpus: '0.1'
+        reservations:
+          memory: 32M
+    command: python -u -m orderflow_services.confirmation_barrier_cal_v1
+
+  scanner-score-weight-cal:
+    build: *id001
+    container_name: scanner-score-weight-cal
+    environment:
+    # Reads trades:closed stream from redis-worker-1, writes per-(symbol × regime) IR weights.
+    # Consumers: crypto_orderflow_scoring._WeightCache (reads autocal:score_weights:{sym}:{reg}).
+    - REDIS_URL=${REDIS_WORKER_1_URL:-redis://redis-worker-1:6379/0}
+    - SCORE_W_CAL_REDIS_URL=${REDIS_WORKER_1_URL:-redis://redis-worker-1:6379/0}
+    - SCORE_W_CAL_PORT=9161
+    - SCORE_W_CAL_GROUP=${SCORE_W_CAL_GROUP:-score-w-cal}
+    - SCORE_W_CAL_CONSUMER=${SCORE_W_CAL_CONSUMER:-score-w-cal-1}
+    - SCORE_W_CAL_BATCH=${SCORE_W_CAL_BATCH:-100}
+    - SCORE_W_CAL_WINDOW_DAYS=${SCORE_W_CAL_WINDOW_DAYS:-30}
+    - SCORE_W_CAL_MIN_SAMPLES=${SCORE_W_CAL_MIN_SAMPLES:-50}
+    - SCORE_W_CAL_SNAPSHOT_SEC=${SCORE_W_CAL_SNAPSHOT_SEC:-60}
+    # SCORE_W_CAL_PROMOTE=0: shadow only (logs calibrated weights, does not replace defaults).
+    # Set 1 to auto-promote all keys (requires SCORE_W_CAL_ENFORCE=1 in scoring services).
+    - SCORE_W_CAL_PROMOTE=${SCORE_W_CAL_PROMOTE:-0}
+    - PYTHONPATH=.:/app
+    - PYTHONUNBUFFERED=1
+    - TZ=UTC
+    working_dir: /app
+    volumes:
+    - ./python-worker:/app
+    ports:
+    - "${SCORE_W_CAL_PORT:-9161}:9161"
+    networks:
+    - scanner-core
+    - scanner-infra
+    restart: on-failure:5
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+          cpus: '0.1'
+        reservations:
+          memory: 32M
+    command: python -u orderflow_services/score_component_weight_calibrator_v1.py
 
 networks:
   scanner-core:

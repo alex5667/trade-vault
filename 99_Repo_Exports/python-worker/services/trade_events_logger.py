@@ -458,7 +458,7 @@ class TradeEventsLogger:
         if side is not None:
             pl["side"] = side.upper()
         if "side" not in pl and "direction" in pl:
-            pl["side"] = (pl.get("direction")).upper()  # type: ignore
+            pl["side"] = (pl.get("direction") or "").upper()
 
         if venue is not None:
             pl["venue"] = str(venue)
@@ -511,7 +511,7 @@ class TradeEventsLogger:
         """
         try:
             events_key = f"trade:events:{sid}"
-            events_json = self.r.lrange(events_key, 0, -1)
+            events_json: list = self.r.lrange(events_key, 0, -1)  # type: ignore[assignment]
 
             events = []
             for event_json in events_json:

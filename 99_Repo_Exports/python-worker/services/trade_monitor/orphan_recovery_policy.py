@@ -101,6 +101,7 @@ class OrphanRecoveryPolicy:
         orphans_metric_fn: Callable | None = None,
         cleanup_duration_fn: Callable | None = None,
         is_grace_period_active_fn: Callable | None = None,
+        max_hold_scan_fn: Callable | None = None,
         tp_ratios: list[float] | None = None,
         housekeep_interval_ms: int = 30_000,
         orphan_max_price_age_ms: int = 120_000,
@@ -129,6 +130,7 @@ class OrphanRecoveryPolicy:
         self._orphans_metric = orphans_metric_fn
         self._cleanup_duration = cleanup_duration_fn
         self._is_grace_period_active = is_grace_period_active_fn
+        self._run_max_hold_timeout_scan = max_hold_scan_fn
         self._tp_ratios = tp_ratios or [1.0]
         self._housekeep_interval_ms = housekeep_interval_ms
         self._orphan_max_price_age_ms = orphan_max_price_age_ms
@@ -284,6 +286,11 @@ class OrphanRecoveryPolicy:
                 with contextlib.suppress(Exception):
                     self._trigger_report(src, sym, "trades", oid)
 
+        # ── Mechanism B: max-hold timeout scan ────────────────────────────
+        if callable(self._run_max_hold_timeout_scan):
+            with contextlib.suppress(Exception):
+                self._run_max_hold_timeout_scan(now_ms)
+
     # ------------------------------------------------------------------
     # Per-symbol orphan processing
     # ------------------------------------------------------------------
@@ -333,10 +340,10 @@ class OrphanRecoveryPolicy:
             try:
                 # Per-position exit price (fallback to commission-adjusted)
                 pos_exit_price = exit_price_default
-                pos_raw = "ORPHAN_FORCED_CLOSE"
+                pos_raw = "ORPHAN_CLEANUP_STALE_MONITOR_STATE"
 
                 if pos_exit_price <= 0:
-                    pos_raw = "ORPHAN_TIMEOUT_NO_PRICE"
+                    pos_raw = "ORPHAN_CLEANUP_NO_PRICE"
                     if callable(self._commission_adj_exit) and callable(self._get_spec):
                         _entry_px = float(getattr(pos, "entry_price", 0.0) or 0.0)
                         _spec = self._get_spec(str(getattr(pos, "symbol", "") or ""))
@@ -384,12 +391,21 @@ class OrphanRecoveryPolicy:
                     )
 
                 if closed is not None:
+                    # Mark orphan cleanup: excluded from ML labels
+                    with contextlib.suppress(Exception):
+                        object.__setattr__(closed, "is_orphan_cleanup", True)
+                        object.__setattr__(closed, "exclude_from_ml_labels", True)
                     if callable(self._emit_ab_closed):
                         with contextlib.suppress(Exception):
                             self._emit_ab_closed(pos, closed, pos_raw)
                     if callable(self._stamp_meta):
                         with contextlib.suppress(Exception):
                             self._stamp_meta(pos, closed, pos_raw)
+
+                # Prometheus orphan cleanup counter
+                with contextlib.suppress(Exception):
+                    from services.trade_monitor._monolith import TM_ORPHAN_CLEANUP_TOTAL
+                    TM_ORPHAN_CLEANUP_TOTAL.labels(symbol=sym, reason=pos_raw).inc()
 
                 # Build events
                 orphan_ev = TradeEvent(

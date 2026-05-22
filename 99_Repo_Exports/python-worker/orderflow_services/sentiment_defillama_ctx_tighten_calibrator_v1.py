@@ -14,20 +14,22 @@ Prometheus:      /metrics  (HTTP, CTX_TIGHTEN_CAL_PORT default 9162)
 
 ENV
 ---
-  CTX_TIGHTEN_CAL_PORT            9162
-  CTX_TIGHTEN_CAL_STREAM          trades:closed
-  CTX_TIGHTEN_CAL_GROUP           ctx-tighten-cal
-  CTX_TIGHTEN_CAL_CONSUMER        ctx-tighten-cal-1
-  CTX_TIGHTEN_CAL_BATCH           200
-  CTX_TIGHTEN_CAL_ENFORCE         0   (shadow by default)
-  CTX_TIGHTEN_CAL_TARGET_EV_R     0.08
-  CTX_TIGHTEN_CAL_WINDOW_DAYS     14
-  CTX_TIGHTEN_CAL_MIN_TIGHTENED   50
-  CTX_TIGHTEN_CAL_SNAPSHOT_SEC    60
-  CTX_TIGHTEN_CAL_DEFAULT_SENTI   2.0
-  CTX_TIGHTEN_CAL_DEFAULT_DEFI    4.0
-  REJECT_REASON_WEIGHTS_ENABLED   1   (IPS weights, shared with p_edge cal)
-  REDIS_URL                       redis://redis-worker-1:6379/0
+  CTX_TIGHTEN_CAL_PORT                9162
+  CTX_TIGHTEN_CAL_STREAM              trades:closed
+  CTX_TIGHTEN_CAL_GROUP               ctx-tighten-cal
+  CTX_TIGHTEN_CAL_CONSUMER            ctx-tighten-cal-1
+  CTX_TIGHTEN_CAL_BATCH               200
+  CTX_TIGHTEN_CAL_ENFORCE             0   (shadow at startup; auto-promote overrides)
+  CTX_TIGHTEN_CAL_TARGET_EV_R         0.08
+  CTX_TIGHTEN_CAL_WINDOW_DAYS         14
+  CTX_TIGHTEN_CAL_MIN_TIGHTENED       50
+  CTX_TIGHTEN_CAL_SNAPSHOT_SEC        60
+  CTX_TIGHTEN_CAL_DEFAULT_SENTI       2.0
+  CTX_TIGHTEN_CAL_DEFAULT_DEFI        4.0
+  CTX_TIGHTEN_CAL_AUTO_PROMOTE        1   (auto-flip enforce when criteria met)
+  CTX_TIGHTEN_CAL_AUTO_PROMOTE_HOURS  6.0 (min hours since first sample before promote)
+  REJECT_REASON_WEIGHTS_ENABLED       1   (IPS weights, shared with p_edge cal)
+  REDIS_URL                           redis://redis-worker-1:6379/0
 """
 from __future__ import annotations
 
@@ -135,6 +137,8 @@ def main() -> None:
     snap_sec = _env_int("CTX_TIGHTEN_CAL_SNAPSHOT_SEC", 60)
     default_senti = _env_float("CTX_TIGHTEN_CAL_DEFAULT_SENTI", 2.0)
     default_defi = _env_float("CTX_TIGHTEN_CAL_DEFAULT_DEFI", 4.0)
+    auto_promote = _env_bool("CTX_TIGHTEN_CAL_AUTO_PROMOTE", True)
+    auto_promote_min_hours = _env_float("CTX_TIGHTEN_CAL_AUTO_PROMOTE_HOURS", 6.0)
     redis_url = _env("REDIS_URL", "redis://redis-worker-1:6379/0")
 
     from core.redis_keys import RedisStreams as RS, RK  # type: ignore[import]
@@ -236,9 +240,16 @@ def main() -> None:
         "Seconds since last successful snapshot",
         [],
     )
+    g_auto_promoted = _gauge(
+        "ctx_tighten_cal_auto_promoted",
+        "1 if gate has auto-promoted to enforce mode (n_tightened>=min + warmup elapsed)",
+        ["gate"],
+    )
 
     g_enforce.set(1.0 if enforce else 0.0)
     g_weights_on.set(1.0 if reject_weights_enabled() else 0.0)
+    g_auto_promoted.labels(gate="sentiment").set(0.0)
+    g_auto_promoted.labels(gate="defillama").set(0.0)
 
     # ---- Redis ----
     redis_client = redis.from_url(redis_url, decode_responses=False)
@@ -250,34 +261,35 @@ def main() -> None:
         if "BUSYGROUP" not in str(e):
             raise
 
+    def _wire_cal(c: "SentimentDefiLlamaCtxCalibrator") -> None:
+        """Apply runtime config + auto-promote settings to all sub-calibrators."""
+        for sub in (c.sentiment, c.defillama):
+            sub.target_ev_r = target_ev_r
+            sub.window_ms = window_days * 24 * 60 * 60 * 1000
+            sub.min_tightened = min_tightened
+            sub.auto_promote = auto_promote
+            sub.auto_promote_min_hours = auto_promote_min_hours
+
     # ---- Calibrator ----
     cal = SentimentDefiLlamaCtxCalibrator(enforce=enforce)
-    cal.sentiment.target_ev_r = target_ev_r
-    cal.defillama.target_ev_r = target_ev_r
-    cal.sentiment.window_ms = window_days * 24 * 60 * 60 * 1000
-    cal.defillama.window_ms = window_days * 24 * 60 * 60 * 1000
-    cal.sentiment.min_tightened = min_tightened
-    cal.defillama.min_tightened = min_tightened
     cal.sentiment.default_cap_bps = default_senti
     cal.defillama.default_cap_bps = default_defi
+    _wire_cal(cal)
 
     # Restore prior state if available
     try:
         raw = redis_client.get(RK.AUTOCAL_CTX_TIGHTEN_STATE)
         if raw:
-            prior = json.loads(raw.decode("utf-8") if isinstance(raw, bytes) else raw)
+            prior = json.loads(raw.decode("utf-8") if isinstance(raw, bytes) else raw)  # type: ignore[union-attr]
             cal = SentimentDefiLlamaCtxCalibrator.loads(prior, enforce=enforce)
-            # Re-apply runtime config on top of loaded caps
-            cal.sentiment.target_ev_r = target_ev_r
-            cal.defillama.target_ev_r = target_ev_r
-            cal.sentiment.window_ms = window_days * 24 * 60 * 60 * 1000
-            cal.defillama.window_ms = window_days * 24 * 60 * 60 * 1000
-            cal.sentiment.min_tightened = min_tightened
-            cal.defillama.min_tightened = min_tightened
+            _wire_cal(cal)  # re-apply runtime config on top of loaded caps
             logger.info(
-                "Restored state: senti_cap=%.3f, defi_cap=%.3f",
-                cal.sentiment.cap_bps, cal.defillama.cap_bps,
+                "Restored state: senti_cap=%.3f (promoted=%s), defi_cap=%.3f (promoted=%s)",
+                cal.sentiment.cap_bps, cal.sentiment.auto_promoted,
+                cal.defillama.cap_bps, cal.defillama.auto_promoted,
             )
+            g_auto_promoted.labels(gate="sentiment").set(1.0 if cal.sentiment.auto_promoted else 0.0)
+            g_auto_promoted.labels(gate="defillama").set(1.0 if cal.defillama.auto_promoted else 0.0)
     except Exception as e:
         logger.warning("Could not restore prior state: %s", e)
 
@@ -421,17 +433,40 @@ def main() -> None:
                 if _ev_b2 is not None:
                     g_defi_ev_baseline.set(float(_ev_b2))
 
+                # Auto-promote gauges + enforce gauge (may flip mid-run)
+                _s_prom = bool(s_snap.get("auto_promoted", False))
+                _d_prom = bool(d_snap.get("auto_promoted", False))
+                g_auto_promoted.labels(gate="sentiment").set(1.0 if _s_prom else 0.0)
+                g_auto_promoted.labels(gate="defillama").set(1.0 if _d_prom else 0.0)
+                g_enforce.set(1.0 if (cal.sentiment.enforce or cal.defillama.enforce) else 0.0)
+
+                # Log promote events once
+                if _s_prom and not getattr(main, "_senti_promoted_logged", False):
+                    logger.info(
+                        "🚀 AUTO-PROMOTE sentiment: n_tightened=%d → enforce=True, cap=%.3f bps",
+                        s_snap.get("n_tightened", 0), s_snap.get("cap_bps", default_senti),
+                    )
+                    main._senti_promoted_logged = True  # type: ignore[attr-defined]
+                if _d_prom and not getattr(main, "_defi_promoted_logged", False):
+                    logger.info(
+                        "🚀 AUTO-PROMOTE defillama: n_tightened=%d → enforce=True, cap=%.3f bps",
+                        d_snap.get("n_tightened", 0), d_snap.get("cap_bps", default_defi),
+                    )
+                    main._defi_promoted_logged = True  # type: ignore[attr-defined]
+
                 logger.info(
-                    "snapshot: senti_cap=%.3f (shadow=%.3f, n_tightened=%d, ev=%.4f) | "
-                    "defi_cap=%.3f (shadow=%.3f, n_tightened=%d, ev=%.4f)",
+                    "snapshot: senti_cap=%.3f (shadow=%.3f, n=%d, ev=%.4f, promoted=%s) | "
+                    "defi_cap=%.3f (shadow=%.3f, n=%d, ev=%.4f, promoted=%s)",
                     s_snap.get("cap_bps", default_senti),
                     s_snap.get("shadow_cap_bps", default_senti),
                     s_snap.get("n_tightened", 0),
                     s_snap.get("ev_tightened") or 0.0,
+                    _s_prom,
                     d_snap.get("cap_bps", default_defi),
                     d_snap.get("shadow_cap_bps", default_defi),
                     d_snap.get("n_tightened", 0),
                     d_snap.get("ev_tightened") or 0.0,
+                    _d_prom,
                 )
 
             except Exception as e:

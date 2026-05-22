@@ -276,7 +276,7 @@ def fit_and_select(
     """
     n = len(y)
     if n < min_rows:
-        return {}, {"method": "identity", "n": n, "note": "insufficient_data"}
+        return {}, {"method_selected": "identity", "n": n, "note": "insufficient_data"}
 
     y_np = np.array(y, dtype=np.float64)
     p_np = np.array(p, dtype=np.float64)

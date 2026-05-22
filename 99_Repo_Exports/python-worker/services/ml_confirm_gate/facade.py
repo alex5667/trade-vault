@@ -1,4 +1,5 @@
 import asyncio
+import dataclasses
 import logging
 import os
 from typing import Any
@@ -103,7 +104,7 @@ class MLConfirmGate:
         if redis_pool is not None:
             r_client = redis.Redis(connection_pool=redis_pool)
         else:
-            redis_dsn = os.environ.get("REDIS_DSN")
+            redis_dsn = os.environ.get("REDIS_DSN") or os.environ.get("REDIS_URL")
             if redis_dsn:
                 r_client = redis.Redis.from_url(redis_dsn)
         return cls(
@@ -130,7 +131,7 @@ class MLConfirmGate:
                 self._model = _load_model_cached(model_path, kind, logger)
                 if self._model is not None and _ML_SCHEMA_VER_TOTAL is not None:
                     try:
-                        schema_hash = str(cfg_dict.get("feature_cols_hash") or cfg_dict.get("schema_hash") or "unknown")
+                        schema_hash = str(cfg_dict.get("feature_cols_hash") or cfg_dict.get("schema_hash") or cfg_dict.get("model_signature") or "unknown")
                         model_ver = str(cfg_dict.get("run_id") or cfg_dict.get("model_ver") or "unknown")
                         _ML_SCHEMA_VER_TOTAL.labels(schema_hash=schema_hash, model_ver=model_ver).inc()
                     except Exception:
@@ -219,13 +220,13 @@ class MLConfirmGate:
         try:
             t_start = time.time()
             if kind == "meta_lr":
-                self.policy._decide_meta_lr(dec, model=self._model, cfg=self._cfg, **input_dto.__dict__)
+                self.policy._decide_meta_lr(dec, model=self._model, cfg=self._cfg, **dataclasses.asdict(input_dto))
             elif kind.startswith("util_mh"):
-                self.policy._decide_util_mh(dec, model=self._model, cfg=self._cfg, **input_dto.__dict__)
+                self.policy._decide_util_mh(dec, model=self._model, cfg=self._cfg, **dataclasses.asdict(input_dto))
             elif kind == "edge_stack_v1":
-                self.policy._decide_edge_stack_v1(dec, model=self._model, cfg=self._cfg, **input_dto.__dict__)
+                self.policy._decide_edge_stack_v1(dec, model=self._model, cfg=self._cfg, **dataclasses.asdict(input_dto))
             elif kind == "edge_stack_mh_v1":
-                self.policy._decide_edge_stack_mh(dec, model=self._model, cfg=self._cfg, **input_dto.__dict__)
+                self.policy._decide_edge_stack_mh(dec, model=self._model, cfg=self._cfg, **dataclasses.asdict(input_dto))
             else:
                 dec.error = f"unknown_kind:{kind}"
                 dec.status = "ALLOW_UNKNOWN_KIND"

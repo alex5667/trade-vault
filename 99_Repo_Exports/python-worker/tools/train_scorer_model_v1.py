@@ -83,7 +83,7 @@ def _f(x: Any, default: float = float("nan")) -> float:
         return default
 
 
-def load_dataset(input_dir: str, since_ms: int, features: list[str]) -> tuple[list[list[float]], list[int], list[float], list[int], list[str]]:
+def load_dataset(input_dir: str, since_ms: int, features: list[str], *, y_min_r_override: float | None = None) -> tuple[list[list[float]], list[int], list[float], list[int], list[str]]:
     """Returns (X, y, r_mult, ts_ms, kept_features). NaN rows are dropped."""
     paths = sorted(glob.glob(os.path.join(input_dir, "edge_live_[0-9]*.jsonl")))
     if not paths:
@@ -166,14 +166,17 @@ def load_dataset(input_dir: str, since_ms: int, features: list[str]) -> tuple[li
                     rv = _f(r, float("nan"))
                     if rv != rv:
                         continue
-                    yy_raw = d.get("y")
-                    if yy_raw is not None:
-                        try:
-                            yy = 1 if int(yy_raw) else 0
-                        except (TypeError, ValueError):
-                            yy = 1 if rv > 0 else 0
+                    if y_min_r_override is not None:
+                        yy = 1 if rv >= y_min_r_override else 0
                     else:
-                        yy = 1 if rv > 0 else 0
+                        yy_raw = d.get("y")
+                        if yy_raw is not None:
+                            try:
+                                yy = 1 if int(yy_raw) else 0
+                            except (TypeError, ValueError):
+                                yy = 1 if rv > 0 else 0
+                        else:
+                            yy = 1 if rv > 0 else 0
                     X.append(row)
                     y.append(yy)
                     r_mult.append(rv)
@@ -269,6 +272,12 @@ def main() -> int:
     p.add_argument("--min-total-n", type=int, default=int(os.getenv("PHASE3_MIN_TOTAL_N", "8000")))
     p.add_argument("--holdout-frac", type=float, default=float(os.getenv("PHASE3_HOLDOUT_FRAC", "0.30")))
     p.add_argument("--dry-run", action="store_true", help="compute but do not write artifacts")
+    p.add_argument(
+        "--y-min-r-override",
+        type=float,
+        default=None if not os.getenv("PHASE3_Y_MIN_R_OVERRIDE") else float(os.getenv("PHASE3_Y_MIN_R_OVERRIDE", "0")),
+        help="Cost-aware label: override JSONL y with r_mult >= threshold (e.g. 0.25 covers fees+slip)",
+    )
     args = p.parse_args()
 
     enabled = os.getenv("PHASE3_TRAINER_ENABLE", "0").strip().lower() in ("1", "true", "yes", "on")
@@ -277,8 +286,13 @@ def main() -> int:
     now_ms = int(time.time() * 1000)
     since_ms = now_ms - args.lookback_hours * 3600 * 1000
 
-    X, y, r_mult, _ts_ms, kept_features = load_dataset(args.input_dir, since_ms, FEATURE_WHITELIST)
-    logger.info("loaded %d samples; features kept=%d", len(X), len(kept_features))
+    X, y, r_mult, _ts_ms, kept_features = load_dataset(
+        args.input_dir, since_ms, FEATURE_WHITELIST, y_min_r_override=args.y_min_r_override
+    )
+    logger.info(
+        "loaded %d samples; features kept=%d; y_min_r_override=%s",
+        len(X), len(kept_features), args.y_min_r_override
+    )
 
     os.makedirs(args.output_dir, exist_ok=True)
     report_path = os.path.join(args.output_dir, REPORT_FILENAME)
@@ -359,6 +373,7 @@ def main() -> int:
         "n_train": len(X_train),
         "n_holdout": len(X_hold),
         "kept_features": kept_features,
+        "label_config": {"y_min_r_override": args.y_min_r_override, "source": "cost_aware_r_thresh" if args.y_min_r_override else "jsonl_y"},
         "baseline_precision_top5pct": baseline_precision,
         "holdout_metrics": holdout_m,
         "fit_seconds": round(fit_sec, 2),

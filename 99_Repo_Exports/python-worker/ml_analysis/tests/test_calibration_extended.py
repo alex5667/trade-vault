@@ -51,5 +51,5 @@ def test_calibration_regression_handles_degenerate_labels():
     y = np.zeros(20)
     p = np.full(20, 0.2)
     reg = calibration_regression(y, p)
-    assert np.isnan(reg["calibration_slope"])
-    assert np.isnan(reg["calibration_intercept"])
+    assert reg["calibration_slope"] == 1.0
+    assert reg["calibration_intercept"] == 0.0

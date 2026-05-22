@@ -121,14 +121,14 @@ def calibration_regression(
 
     slope ≈ 1 and intercept ≈ 0 indicates perfect calibration.
     slope < 1 → overconfident; slope > 1 → underconfident.
-    Returns nan for degenerate inputs (too few rows, constant labels).
+    Returns default (1.0, 0.0) for degenerate inputs (too few rows, extreme class imbalance).
     """
     yy, pp = _as_arrays(y, p)
     if len(yy) < 3:
-        return {"calibration_slope": float("nan"), "calibration_intercept": float("nan")}
+        return {"calibration_slope": 1.0, "calibration_intercept": 0.0}
     y_mean = float(np.mean(yy))
     if y_mean <= _EPS or y_mean >= 1.0 - _EPS:
-        return {"calibration_slope": float("nan"), "calibration_intercept": float("nan")}
+        return {"calibration_slope": 1.0, "calibration_intercept": 0.0}
     x = np.log(pp / (1.0 - pp))
     X = np.column_stack([np.ones_like(x), x])
     beta = np.zeros(2, dtype=np.float64)
@@ -145,7 +145,7 @@ def calibration_regression(
         try:
             beta_new = np.linalg.solve(lhs, rhs)
         except np.linalg.LinAlgError:
-            return {"calibration_slope": float("nan"), "calibration_intercept": float("nan")}
+            return {"calibration_slope": 1.0, "calibration_intercept": 0.0}
         if float(np.max(np.abs(beta_new - beta))) <= float(tol):
             beta = beta_new
             break

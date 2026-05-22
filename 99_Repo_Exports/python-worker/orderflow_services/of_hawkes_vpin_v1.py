@@ -281,6 +281,11 @@ def main() -> None:
     logger.info("Starting Hawkes/VPIN service: symbols=%s beta=%.4f alpha=%.4f", symbols, beta, alpha)
 
     redis_client = get_redis()
+    
+    import redis as _redis
+    redis_ticks_url = os.getenv("REDIS_TICKS_URL", "redis://redis-ticks:6379/0")
+    redis_ticks_client = _redis.Redis.from_url(redis_ticks_url, decode_responses=True)
+
     states: dict[str, HawkesVPINState] = {
         sym: HawkesVPINState(sym, beta, alpha, vpin_alpha)
         for sym in symbols
@@ -296,7 +301,7 @@ def main() -> None:
         sk = f"stream:tick_{sym}"
         streams[sk] = ">"
         try:
-            redis_client.xgroup_create(sk, group, id="$", mkstream=True)
+            redis_ticks_client.xgroup_create(sk, group, id="$", mkstream=True)
         except Exception as e:
             if "BUSYGROUP" not in str(e):
                 logger.warning("xgroup_create failed for %s: %s", sk, e)
@@ -314,7 +319,7 @@ def main() -> None:
 
     while not stop["flag"]:
         try:
-            resp = redis_client.xreadgroup(
+            resp = redis_ticks_client.xreadgroup(
                 groupname=group,
                 consumername=consumer,
                 streams=streams,  # type: ignore[arg-type]

@@ -227,7 +227,15 @@ services:
     - ATR_REDIS_URL=redis://redis-worker-1:6379/0
     - CRYPTO_NOTIFY_SIGNAL_EVERY_N=${CRYPTO_NOTIFY_SIGNAL_EVERY_N:-100}
     - CRYPTO_SIGNAL_MIN_CONF=${CRYPTO_SIGNAL_MIN_CONF}
-    - CRYPTO_PAPER_SHADOW_ENABLED=${CRYPTO_PAPER_SHADOW_ENABLED:-0}
+    - VIRTUAL_SIGNAL_MIN_CONF=${VIRTUAL_SIGNAL_MIN_CONF:-35}
+    # ── Phase 2: Deep Exploration Sampling (2026-05-21) ───────────────
+    # sample_policy=deep_explore_20_35_sampled, tradeable=False, never to order queue.
+    # Phase 2 ACTIVE: DEEP_EXPLORATION_SAMPLE_RATE=0.03 (2026-05-21)
+    # Rollback: DEEP_EXPLORATION_SAMPLE_RATE=0
+    - DEEP_EXPLORATION_MIN_CONF=${DEEP_EXPLORATION_MIN_CONF:-20}
+    - DEEP_EXPLORATION_SAMPLE_RATE=${DEEP_EXPLORATION_SAMPLE_RATE:-0.03}
+    - DEEP_EXPLORATION_TO_ORDER_QUEUE=0
+    - DEEP_EXPLORATION_CAP_PER_SYMBOL_SESSION_HOUR=${DEEP_EXPLORATION_CAP_PER_SYMBOL_SESSION_HOUR:-50}
     - BINANCE_VIRTUAL_ORDERS_ENABLED
     - BINANCE_VIRTUAL_MIRROR_ALL
     - ORDERS_QUEUE_BINANCE_MIRROR=${ORDERS_QUEUE_BINANCE_MIRROR:-orders:queue:binance:mirror}
@@ -702,7 +710,12 @@ services:
     - DELTA_Z_THRESHOLD=3.0
     - CRYPTO_NOTIFY_SIGNAL_EVERY_N=${CRYPTO_NOTIFY_SIGNAL_EVERY_N:-100}
     - CRYPTO_SIGNAL_MIN_CONF=${CRYPTO_SIGNAL_MIN_CONF}
-    - CONF_RELAX_DISABLE=true
+    - VIRTUAL_SIGNAL_MIN_CONF=${VIRTUAL_SIGNAL_MIN_CONF:-35}
+    # ── Phase 2: Deep Exploration Sampling (2026-05-21) ───────────────
+    - DEEP_EXPLORATION_MIN_CONF=${DEEP_EXPLORATION_MIN_CONF:-20}
+    - DEEP_EXPLORATION_SAMPLE_RATE=${DEEP_EXPLORATION_SAMPLE_RATE:-0.0}
+    - DEEP_EXPLORATION_TO_ORDER_QUEUE=0
+    - DEEP_EXPLORATION_CAP_PER_SYMBOL_SESSION_HOUR=${DEEP_EXPLORATION_CAP_PER_SYMBOL_SESSION_HOUR:-50}
     - REDIS_NOTIFY_MAX_CONNECTIONS=16
     - CRYPTO_OF_DROP_ON_LAG=true
     - CRYPTO_OF_MAX_TS_SKEW_MS=21600000
@@ -1239,6 +1252,7 @@ services:
     - ATR_REDIS_URL=redis://redis-worker-1:6379/0
     - CRYPTO_NOTIFY_SIGNAL_EVERY_N=${CRYPTO_NOTIFY_SIGNAL_EVERY_N:-100}
     - CRYPTO_SIGNAL_MIN_CONF=${CRYPTO_SIGNAL_MIN_CONF}
+    - VIRTUAL_SIGNAL_MIN_CONF=${VIRTUAL_SIGNAL_MIN_CONF:-35}
     - CONF_RELAX_DISABLE=true
     - CONF_CAL_PROOF_STATE_PATH=/app/calibration/conf_cal_proof_state.json
     - CONF_CAL_PROMOTION_STATUS_PATH=/app/calibration/conf_cal_promo_status.json
@@ -1580,6 +1594,7 @@ services:
     - REDIS_SOCKET_CONNECT_TIMEOUT=5
     - CRYPTO_NOTIFY_SIGNAL_EVERY_N=${CRYPTO_NOTIFY_SIGNAL_EVERY_N:-100}
     - CRYPTO_SIGNAL_MIN_CONF=${CRYPTO_SIGNAL_MIN_CONF}
+    - VIRTUAL_SIGNAL_MIN_CONF=${VIRTUAL_SIGNAL_MIN_CONF:-35}
     - CONF_RELAX_DISABLE=true
     - METRICS_PORT=8003
     - PROMETHEUS_PORT=8004
@@ -1747,6 +1762,7 @@ services:
     - REDIS_SOCKET_CONNECT_TIMEOUT=5
     - CRYPTO_NOTIFY_SIGNAL_EVERY_N=${CRYPTO_NOTIFY_SIGNAL_EVERY_N:-100}
     - CRYPTO_SIGNAL_MIN_CONF=${CRYPTO_SIGNAL_MIN_CONF}
+    - VIRTUAL_SIGNAL_MIN_CONF=${VIRTUAL_SIGNAL_MIN_CONF:-35}
     - CONF_RELAX_DISABLE=true
     - METRICS_PORT=8005
     - PROMETHEUS_PORT=8006
@@ -3621,8 +3637,8 @@ services:
     - REDIS_URL=redis://redis-worker-1:6379/0
     - PYTHONPATH=.:/app
     - PYTHONUNBUFFERED=1
-    - V15_TRAIN_ENABLED=${V15_TRAIN_ENABLED:-0}
-    - V15_TRAIN_INTERVAL_SEC=${V15_TRAIN_INTERVAL_SEC:-21600}
+    - V15_TRAIN_ENABLED=${V15_TRAIN_ENABLED:-1}
+    - V15_TRAIN_INTERVAL_SEC=${V15_TRAIN_INTERVAL_SEC:-86400}
     - V15_FORCE_TRAIN=${V15_FORCE_TRAIN:-0}
     # The underlying v14 bundle reads V14_* env vars; v15 wrapper sets
     # V14_FEATURE_SCHEMA_VER=v15_of + work-dir + metrics-key overrides. Other
@@ -3632,17 +3648,17 @@ services:
     - V14_INPUTS_MAX_RECORDS=${V14_INPUTS_MAX_RECORDS:-5000}
     - V14_LABELS_MAX_RECORDS=${V14_LABELS_MAX_RECORDS:-5000}
     - V14_FEES_BPS_ONE_SIDE=${V14_FEES_BPS_ONE_SIDE:-2.0}
-    - V14_MIN_DATASET_ROWS=${V14_MIN_DATASET_ROWS:-500}
+    - V14_MIN_DATASET_ROWS=${V14_MIN_DATASET_ROWS:-300}
     - V14_Y_LABEL_COL=${V14_Y_LABEL_COL:-y_edge_cost_aware}
     - V15_WORK_DIR=${V15_WORK_DIR:-/var/lib/trade/of_reports/v15_of_train_work}
     - V14_OUT_DIR=${V14_OUT_DIR:-/var/lib/trade/of_reports/models}
-    - V14_PROMOTE_AUTO=${V15_PROMOTE_AUTO:-0}
-    - V14_PROMOTE_BRIER_MAX=${V14_PROMOTE_BRIER_MAX:-0.20}
-    - V14_PROMOTE_ECE_MAX=${V14_PROMOTE_ECE_MAX:-0.10}
-    # Champion/challenger cfg keys: v15 candidate goes into its own namespace
-    # to avoid clobbering v14_of canary cfgs while v15_of is in shadow.
-    - V14_CHAMPION_KEY=${V15_CHAMPION_KEY:-cfg:ml_confirm:champion}
-    - V14_CHALLENGER_KEY=${V15_CHALLENGER_KEY:-cfg:ml_confirm:challenger}
+    - V14_PROMOTE_AUTO=${V15_PROMOTE_AUTO:-1}
+    - V14_PROMOTE_BRIER_MAX=${V15_PROMOTE_BRIER_MAX:-0.25}
+    - V14_PROMOTE_ECE_MAX=${V15_PROMOTE_ECE_MAX:-0.08}
+    # Champion/challenger cfg keys: v15_of uses its own namespace
+    # to avoid clobbering v14_of champion cfg.
+    - V14_CHAMPION_KEY=${V15_CHAMPION_KEY:-cfg:ml_confirm:edge_stack_v1:champion_v15}
+    - V14_CHALLENGER_KEY=${V15_CHALLENGER_KEY:-cfg:ml_confirm:edge_stack_v1:challenger_v15}
     - V15_TRAIN_METRICS_KEY=${V15_TRAIN_METRICS_KEY:-metrics:v15_of_train:last}
     - NOTIFY_STREAM=${NOTIFY_STREAM:-notify:telegram}
     - SCANNER_CONSUMER_NAME=scanner-v15-of-train-timer
@@ -3859,6 +3875,43 @@ services:
           memory: 128M
         reservations:
           memory: 16M
+  v15-of-train-metrics-exporter:
+    # Prometheus exporter: reads Redis `metrics:v15_of_train:last` → v14_of_train_* gauges.
+    # Reuses v14_of_train_metrics_exporter with V14_TRAIN_METRICS_KEY/PORT overrides.
+    build: *id001
+    container_name: scanner-v15-of-train-metrics-exporter
+    restart: unless-stopped
+    environment:
+    - REDIS_URL=redis://redis-worker-1:6379/0
+    - PYTHONPATH=.:/app
+    - PYTHONUNBUFFERED=1
+    - V14_TRAIN_METRICS_KEY=${V15_TRAIN_METRICS_KEY:-metrics:v15_of_train:last}
+    - V14_EXPORTER_PORT=${V15_EXPORTER_PORT:-9863}
+    - V14_EXPORTER_POLL_SEC=${V15_EXPORTER_POLL_SEC:-60}
+    - TZ=UTC
+    depends_on: *id002
+    networks:
+    - scanner-network
+    - scanner-infra
+    ports:
+    - "${V15_EXPORTER_PORT:-9863}:${V15_EXPORTER_PORT:-9863}"
+    volumes:
+    - ./python-worker:/app
+    working_dir: /app
+    command:
+    - python3
+    - -m
+    - tools.v14_of_train_metrics_exporter
+    profiles:
+    - default
+    deploy:
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 128M
+        reservations:
+          memory: 16M
+
   v14-of-drift-monitor:
     # PSI/KS/ECE drift monitor for v14_of champion+challenger.
     # Reads metrics:ml_confirm (predictions) + trades:closed (outcomes),
@@ -4128,7 +4181,7 @@ services:
     - SCANNER_CONSUMER_NAME=chatops-telegram-task-bot
     - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://ollama:11434}
     - PROMETHEUS_URL=${PROMETHEUS_URL:-http://scanner-prometheus:9090/api/v1/query}
-    - TELEGRAM_LLM_MODEL=${TELEGRAM_LLM_MODEL:-deepseek-r1:14b}
+    - TELEGRAM_LLM_MODEL=${TELEGRAM_LLM_MODEL:-deepseek-r1:8b}
     - WHISPER_MODEL_SIZE=${WHISPER_MODEL_SIZE:-base}
     - WHISPER_LANGUAGE=${WHISPER_LANGUAGE:-ru}
     - WHISPER_ENABLED=${WHISPER_ENABLED:-true}

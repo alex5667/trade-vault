@@ -42,7 +42,7 @@ def _run_smart_timeout_check(
     mae_atr_threshold: float = 1.0,
 ) -> bool:
     """
-    Воспроизводит логику smart timeout из trade_monitor._collect_orphan_closures.
+    Воспроизводит логику smart timeout из trade_monitor._housekeep_expired_positions.
     Возвращает True если позиция должна быть закрыта (timeout allowed),
     False если должна быть удержана (HOLD / continue).
     """

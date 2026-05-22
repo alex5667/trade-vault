@@ -47,6 +47,14 @@ PENDING_LIMIT = int(os.getenv("GATED_OUT_PENDING_LIMIT", "50000"))
 DEFAULT_TP_BPS = float(os.getenv("GATED_OUT_DEFAULT_TP_BPS", "15"))
 DEFAULT_SL_BPS = float(os.getenv("GATED_OUT_DEFAULT_SL_BPS", "10"))
 
+# Cost-aware label: round-trip fees + half-spread + expected slippage.
+# y_edge_cost_aware=1 only when net edge after all costs is positive.
+# Individual components can be overridden via ENV; spread/slippage default to 0
+# so the label degrades gracefully when indicators don't carry them.
+COST_FEES_BPS_RT = float(os.getenv("GATED_OUT_FEES_BPS_RT", os.getenv("FEES_BPS_RT", "10")))
+COST_SPREAD_BPS_DEFAULT = float(os.getenv("GATED_OUT_SPREAD_BPS_DEFAULT", "0"))
+COST_SLIPPAGE_BPS_DEFAULT = float(os.getenv("GATED_OUT_SLIPPAGE_BPS_DEFAULT", "0"))
+
 # Prometheus
 g_pending = Gauge("gated_out_tracker_pending", "Pending signals awaiting horizon expiry")
 g_evaluated_total = Counter("gated_out_tracker_evaluated_total", "Signals evaluated", ["result"])
@@ -54,16 +62,44 @@ g_skipped_total = Counter("gated_out_tracker_skipped_total", "Signals skipped", 
 g_eval_latency_seconds = Gauge("gated_out_tracker_eval_latency_seconds", "Last full eval pass duration")
 g_input_lag_seconds = Gauge("gated_out_tracker_input_lag_seconds", "Age of oldest pending signal")
 g_last_outcome_ts_ms = Gauge("gated_out_tracker_last_outcome_ts_ms", "Timestamp of last outcome written")
+g_cost_aware_positive = Counter(
+    "gated_out_outcome_cost_aware_positive_total",
+    "Outcomes where y_edge_cost_aware=1", ["symbol"],
+)
+g_gross_positive = Counter(
+    "gated_out_outcome_gross_positive_total",
+    "Outcomes where y=1 (gross)", ["symbol"],
+)
+g_policy_missing = Counter(
+    "gated_out_outcome_policy_missing_total",
+    "Outcomes emitted without sample_policy in input payload",
+)
 
 
 class PendingSignal:
-    __slots__ = ("msg_id", "sid", "symbol", "direction", "entry", "sl", "tp_bps",
-                 "sl_bps", "ts_ms", "confidence", "min_conf", "expire_ms")
+    __slots__ = (
+        "msg_id", "sid", "symbol", "direction", "entry", "sl", "tp_bps",
+        "sl_bps", "ts_ms", "confidence", "min_conf", "expire_ms",
+        # cost model inputs — passed through to outcome for transparency
+        "spread_bps", "expected_slippage_bps",
+        # v2 ML training metadata — propagated to outcome stream
+        "sample_policy", "selection_policy_version",
+        "selection_prob", "selection_weight",
+        "virtual_min_conf", "meets_virtual_threshold",
+    )
 
     def __init__(
         self, msg_id: str, sid: str, symbol: str, direction: str,
         entry: float, sl: float, tp_bps: float, sl_bps: float,
         ts_ms: int, confidence: float, min_conf: float, expire_ms: int,
+        spread_bps: float = 0.0,
+        expected_slippage_bps: float = 0.0,
+        sample_policy: str = "",
+        selection_policy_version: str = "",
+        selection_prob: float = 0.0,
+        selection_weight: float = 0.0,
+        virtual_min_conf: float = 0.0,
+        meets_virtual_threshold: int = 0,
     ) -> None:
         self.msg_id = msg_id
         self.sid = sid
@@ -77,6 +113,14 @@ class PendingSignal:
         self.confidence = confidence
         self.min_conf = min_conf
         self.expire_ms = expire_ms
+        self.spread_bps = spread_bps
+        self.expected_slippage_bps = expected_slippage_bps
+        self.sample_policy = sample_policy
+        self.selection_policy_version = selection_policy_version
+        self.selection_prob = selection_prob
+        self.selection_weight = selection_weight
+        self.virtual_min_conf = virtual_min_conf
+        self.meets_virtual_threshold = meets_virtual_threshold
 
 
 def _f(x: Any, default: float = 0.0) -> float:
@@ -100,7 +144,12 @@ def _derive_tp_sl_bps(entry: float, sl: float, indicators: dict[str, Any]) -> tu
 
 
 def _parse_signal(msg_id: str, fields: dict[str, Any]) -> PendingSignal | None:
-    """Parse a gated_out XADD into a PendingSignal."""
+    """Parse a gated_out XADD into a PendingSignal.
+
+    v1 payloads: basic fields only.
+    v2 payloads: additional ML metadata (sample_policy, selection_weight, etc.).
+    Both are accepted; v1 fields default to empty/zero.
+    """
     try:
         raw = fields.get("payload")
         if not raw:
@@ -115,12 +164,34 @@ def _parse_signal(msg_id: str, fields: dict[str, Any]) -> PendingSignal | None:
         indicators = d.get("indicators") or {}
         if not (sid and symbol and direction in ("LONG", "SHORT") and ts_ms > 0 and entry > 0):
             return None
-        tp_bps, sl_bps = _derive_tp_sl_bps(entry, sl, indicators if isinstance(indicators, dict) else {})
+        ind = indicators if isinstance(indicators, dict) else {}
+        tp_bps, sl_bps = _derive_tp_sl_bps(entry, sl, ind)
+        sample_policy = str(d.get("sample_policy") or "")
+        if not sample_policy:
+            g_policy_missing.inc()
+        # Cost model inputs: prefer signal-level fields, fall back to indicators,
+        # then module-level defaults (which default to 0 so label degrades gracefully).
+        spread_bps = _f(
+            d.get("spread_bps") or ind.get("spread_bps"),
+            COST_SPREAD_BPS_DEFAULT,
+        )
+        expected_slippage_bps = _f(
+            d.get("expected_slippage_bps") or ind.get("expected_slippage_bps"),
+            COST_SLIPPAGE_BPS_DEFAULT,
+        )
         return PendingSignal(
             msg_id=msg_id, sid=sid, symbol=symbol, direction=direction,
             entry=entry, sl=sl, tp_bps=tp_bps, sl_bps=sl_bps, ts_ms=ts_ms,
             confidence=_f(d.get("confidence")), min_conf=_f(d.get("min_conf")),
             expire_ms=ts_ms + HORIZON_MS,
+            spread_bps=spread_bps,
+            expected_slippage_bps=expected_slippage_bps,
+            sample_policy=sample_policy,
+            selection_policy_version=str(d.get("selection_policy_version") or ""),
+            selection_prob=_f(d.get("selection_prob")),
+            selection_weight=_f(d.get("selection_weight")),
+            virtual_min_conf=_f(d.get("virtual_min_conf")),
+            meets_virtual_threshold=int(bool(d.get("meets_virtual_threshold"))),
         )
     except Exception as e:
         log.warning("parse failed for msg %s: %s", msg_id, e)
@@ -173,7 +244,17 @@ async def _fetch_ticks(r_ticks: Redis, symbol: str, ts_lo: int, ts_hi: int) -> l
 
 
 def _evaluate_path(p: PendingSignal, path: list[tuple[int, float]]) -> dict[str, Any] | None:
-    """Compute outcome from price path."""
+    """Compute outcome from price path.
+
+    Returns v=2 payload with:
+    - gross label (y / y_edge): TP/SL/TIMEOUT without cost deduction
+    - cost-aware label (y_edge_cost_aware): positive only when net edge > 0
+    - outcome type: TP_HIT | SL_HIT | TIMEOUT
+    - ML metadata from v2 gated_out payload (sample_policy etc.)
+
+    Cost model: round-trip fees + half-spread + expected slippage.
+    Components come from signal payload / indicators with ENV defaults.
+    """
     if not path:
         return None
     sign = 1.0 if p.direction == "LONG" else -1.0
@@ -216,20 +297,31 @@ def _evaluate_path(p: PendingSignal, path: list[tuple[int, float]]) -> dict[str,
         ret_bps = p.tp_bps
         r_mult = p.tp_bps / max(1e-6, p.sl_bps)
         y = 1
+        outcome_type = "TP_HIT"
     elif sl_hit:
         ret_bps = -p.sl_bps
         r_mult = -1.0
         y = 0
+        outcome_type = "SL_HIT"
     else:
-        # No barrier hit — use close
         ret_bps = sign * (close_px - p.entry) / p.entry * 1e4
         r_mult = ret_bps / max(1e-6, p.sl_bps)
         y = 1 if ret_bps > 0 else 0
+        outcome_type = "TIMEOUT"
         hit_ts = close_ts
         hit_px = close_px
 
+    # Cost-aware label: fees + half-spread + expected slippage.
+    # Components from the original signal payload (via PendingSignal); module-level
+    # defaults (0) ensure graceful degradation when indicators are absent.
+    # Positive only when TP hit AND net edge after all costs is positive.
+    # TIMEOUT is never cost-aware positive (path uncertainty too high).
+    cost_bps = COST_FEES_BPS_RT + p.spread_bps / 2.0 + p.expected_slippage_bps
+    edge_after_cost_bps = ret_bps - cost_bps
+    y_edge_cost_aware = 1 if (tp_hit and edge_after_cost_bps > 0) else 0
+
     return {
-        "v": 1,
+        "v": 2,
         "sid": p.sid,
         "symbol": p.symbol,
         "direction": p.direction,
@@ -243,15 +335,30 @@ def _evaluate_path(p: PendingSignal, path: list[tuple[int, float]]) -> dict[str,
         "ret_bps": float(ret_bps),
         "r_mult": float(r_mult),
         "y": int(y),
-        "y_edge": int(y),  # alias for joinability with labels:tb consumers
+        "y_edge": int(y),  # alias for labels:tb consumers
+        # Cost-aware label — use this for champion-model training
+        "y_edge_cost_aware": y_edge_cost_aware,
+        "cost_bps": cost_bps,
+        "cost_fees_bps": COST_FEES_BPS_RT,
+        "cost_spread_bps": p.spread_bps / 2.0,
+        "cost_slippage_bps": p.expected_slippage_bps,
+        "edge_after_cost_bps": edge_after_cost_bps,
+        "outcome": outcome_type,
         "tp_hit": 1 if tp_hit else 0,
         "sl_hit": 1 if sl_hit else 0,
         "tp_bps": p.tp_bps,
         "sl_bps": p.sl_bps,
         "confidence": p.confidence,
         "min_conf": p.min_conf,
-        "primary": 1,  # joinability flag
+        "primary": 1,
         "gated_out": 1,
+        # ML training metadata from v2 gated_out payload
+        "sample_policy": p.sample_policy,
+        "selection_policy_version": p.selection_policy_version,
+        "selection_prob": p.selection_prob,
+        "selection_weight": p.selection_weight,
+        "virtual_min_conf": p.virtual_min_conf,
+        "meets_virtual_threshold": p.meets_virtual_threshold,
     }
 
 
@@ -340,7 +447,13 @@ async def _eval_loop(r: Redis, r_ticks: Redis, pending: dict[str, PendingSignal]
                     g_skipped_total.labels(reason="no_ticks").inc()
                 else:
                     await _emit_outcome(r, payload)
-                    g_evaluated_total.labels(result=("win" if payload["y"] == 1 else "loss")).inc()
+                    sym = sig.symbol
+                    y_gross = payload["y"]
+                    g_evaluated_total.labels(result=("win" if y_gross == 1 else "loss")).inc()
+                    if y_gross == 1:
+                        g_gross_positive.labels(symbol=sym).inc()
+                    if payload.get("y_edge_cost_aware") == 1:
+                        g_cost_aware_positive.labels(symbol=sym).inc()
                 # Always XACK to drain — even on no_ticks; otherwise stuck forever.
                 await r.xack(INPUT_STREAM, GROUP, msg_id)
             except Exception as e:

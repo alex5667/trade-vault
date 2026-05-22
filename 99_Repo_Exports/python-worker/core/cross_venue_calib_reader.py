@@ -155,6 +155,10 @@ def get_reader() -> CrossVenueCalibReader | None:
     """Return the process-wide reader, or None when disabled.
 
     Toggle via ``AUTOCAL_CROSSVENUE_READ_ENABLED=1``.
+
+    Redis URL resolution (in order):
+      1. ``AUTOCAL_CROSSVENUE_REDIS_URL`` — explicit override (e.g. main redis)
+      2. ``get_redis()``                  — falls back to ``REDIS_URL`` default
     """
     global _READER
     if not _env_bool("AUTOCAL_CROSSVENUE_READ_ENABLED", False):
@@ -165,8 +169,13 @@ def get_reader() -> CrossVenueCalibReader | None:
         if _READER is not None:
             return _READER
         try:
-            from core.redis_client import get_redis
-            client = get_redis()
+            explicit_url = os.getenv("AUTOCAL_CROSSVENUE_REDIS_URL", "").strip()
+            if explicit_url:
+                import redis as _redis_pkg
+                client = _redis_pkg.Redis.from_url(explicit_url, decode_responses=True)
+            else:
+                from core.redis_client import get_redis
+                client = get_redis()
         except Exception as e:
             logger.warning("crossvenue_calib reader: cannot get Redis: %s", e)
             return None

@@ -19,7 +19,9 @@ class CoinGeckoSnapshotReader:
         refresh_ms: int = 10_000,
         max_stale_ms: int = 300_000,
     ) -> None:
-        self.r = redis_client
+        import os
+        ctx_redis_url = os.getenv("CTX_MAIN_REDIS_URL", "redis://redis:6379/0")
+        self.r = aioredis.from_url(ctx_redis_url)
         self.refresh_ms = refresh_ms
         self.max_stale_ms = max_stale_ms
         self._global: dict[str, Any] = {}
@@ -60,6 +62,11 @@ class CoinGeckoSnapshotReader:
         try:
             # 1. Читаем Global snapshot
             raw_global = await self.r.hgetall("runtime:coingecko:global")
+            if not raw_global or b"total_mcap_usd" not in raw_global:
+                raw_global_fb = await self.r.hgetall("runtime:provider:global")
+                if raw_global_fb:
+                    raw_global = raw_global_fb
+
             if raw_global:
                 self._global = {k.decode("utf-8"): v.decode("utf-8") for k, v in raw_global.items()}
 
@@ -70,26 +77,26 @@ class CoinGeckoSnapshotReader:
 
             # 2. Ищем все хэши (market, sector, liquidity)
             # SCAN может быть медленным, но мы делаем это раз в 10 сек в бэкграунде
-            cursor = b"0"
+            cursor = 0
             keys_to_fetch = []
             while True:
                 cursor, keys = await self.r.scan(cursor, match="runtime:coingecko:market:*", count=100)
                 keys_to_fetch.extend([k.decode("utf-8") for k in keys])
-                if cursor == b"0":
+                if cursor == 0 or cursor == b"0":
                     break
 
-            cursor = b"0"
+            cursor = 0
             while True:
                 cursor, keys = await self.r.scan(cursor, match="runtime:coingecko:sector:*", count=100)
                 keys_to_fetch.extend([k.decode("utf-8") for k in keys])
-                if cursor == b"0":
+                if cursor == 0 or cursor == b"0":
                     break
 
-            cursor = b"0"
+            cursor = 0
             while True:
                 cursor, keys = await self.r.scan(cursor, match="runtime:coingecko:liquidity:*", count=100)
                 keys_to_fetch.extend([k.decode("utf-8") for k in keys])
-                if cursor == b"0":
+                if cursor == 0 or cursor == b"0":
                     break
 
             # 3. Читаем market/sector/liquidity данные через пайплайн
@@ -134,9 +141,9 @@ class CoinGeckoSnapshotReader:
         g = self._global
         g_ts = int(g.get("ts_ms", 0) or 0)
         if g_ts > 0 and (now_ms - g_ts) < self.max_stale_ms:
-            ind["cg_global_mcap_usd"] = float(g.get("total_mcap_usd", 0.0) or 0.0)
-            ind["cg_global_volume_usd"] = float(g.get("total_volume_usd", 0.0) or 0.0)
-            ind["cg_btc_dom_pct"] = float(g.get("btc_dom_pct", 0.0) or 0.0)
+            ind["cg_global_mcap_usd"] = float(g.get("total_mcap_usd", g.get("provider_global_mcap", 0.0)) or 0.0)
+            ind["cg_global_volume_usd"] = float(g.get("total_volume_usd", g.get("provider_total_volume", 0.0)) or 0.0)
+            ind["cg_btc_dom_pct"] = float(g.get("btc_dom_pct", g.get("provider_btc_dominance", 0.0)) or 0.0)
             ind["cg_stable_dom_pct"] = float(g.get("stable_dom_pct", 0.0) or 0.0)
             ind["cg_btc_dom_mom"] = float(g.get("btc_dom_mom", 0.0) or 0.0)
             ind["cg_stable_dom_mom"] = float(g.get("stable_dom_mom", 0.0) or 0.0)

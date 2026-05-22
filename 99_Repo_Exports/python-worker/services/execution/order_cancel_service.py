@@ -284,3 +284,99 @@ class OrderCancelService:
             **result,
         })
         return updated
+
+    # ------------------------------------------------------------------
+    # handle_timeout_close
+    # ------------------------------------------------------------------
+
+    def handle_timeout_close(
+        self,
+        *,
+        payload: dict[str, Any],
+        client: "BinanceFuturesClient",
+        filters: "FiltersCache",
+        sid: str,
+        ts_queue_ms: int,
+        ts_exec_start_ms: int,
+    ) -> dict[str, Any]:
+        """Max-hold timeout close.
+
+        Uses exchange truth (force_flatten_exact) so stale local qty never
+        prevents a full flatten.  close_reason_raw is preserved from payload.
+        """
+        symbol = (payload.get("symbol") or "").strip().upper()
+        _, logical_side, _ = _normalize_side(payload)
+
+        reason = str(payload.get("close_reason_raw") or "TIMEOUT_MAX_HOLD")
+        if not reason.startswith("TIMEOUT_"):
+            reason = "TIMEOUT_MAX_HOLD"
+
+        state = self._load_state(sid)
+        current_fsm = (state.get("fsm_state") or "").strip().upper() if state else ""
+        if current_fsm in {"EXIT_FILLED", "EMERGENCY_FLATTENED", "FAILED"}:
+            self._write_event({
+                "sid": sid, "symbol": symbol, "action": "timeout_close",
+                "event_type": "TIMEOUT_CLOSE_SKIPPED_TERMINAL",
+                "current_state": current_fsm,
+                "close_reason_raw": reason,
+            })
+            return state or {}
+
+        # Cancel open protection/TP/SL orders first
+        if self._protection:
+            self._protection.cancel_expected_protection_refs(
+                sid=sid, symbol=symbol, state=state or {}, client=client,
+            )
+
+        # Flatten using live exchange qty (not local state) for safety
+        close_result: dict[str, Any] = {}
+        if self._flatten:
+            try:
+                close_result = self._flatten.force_flatten_exact(
+                    sid=sid,
+                    symbol=symbol,
+                    logical_side=logical_side,
+                    client=client,
+                    filters=filters,
+                    reason="timeout",
+                )
+            except Exception as exc:
+                self._write_event({
+                    "sid": sid, "symbol": symbol, "action": "timeout_close",
+                    "event_type": "TIMEOUT_CLOSE_FLATTEN_ERROR",
+                    "severity": "critical",
+                    "error": str(exc)[:200],
+                    "close_reason_raw": reason,
+                })
+                raise
+
+        closed = close_result.get("status") in {"closed", "already_flat"} or close_result.get("flatten_ok")
+        exit_order_id = close_result.get("close_order_id") or close_result.get("exit_order_id") or ""
+
+        final_state = self._transition(
+            sid, symbol=symbol, action="timeout_close", next_state=FSM_EXIT_FILLED,
+            details={
+                "close_reason_raw": reason,
+                "close_reason_tag": reason,
+                "timeout_age_ms": int(payload.get("age_ms") or 0),
+                "timeout_max_hold_ms": int(payload.get("max_hold_ms") or 0),
+                "timeout_request_ts_ms": int(payload.get("request_ts_ms") or 0),
+                "exit_order_id": exit_order_id,
+                "ts_queue_ms": ts_queue_ms,
+                "ts_exec_start_ms": ts_exec_start_ms,
+                **close_result,
+            },
+        )
+        self._write_event({
+            "sid": sid, "symbol": symbol, "action": "timeout_close",
+            "event_type": "TIMEOUT_CLOSE_RESULT",
+            "close_reason_raw": reason,
+            "closed": str(bool(closed)).lower(),
+            "exit_order_id": str(exit_order_id),
+            "timeout_age_ms": int(payload.get("age_ms") or 0),
+            "timeout_max_hold_ms": int(payload.get("max_hold_ms") or 0),
+            "residual_qty": float(close_result.get("residual_qty") or 0.0),
+            "ts_queue_ms": ts_queue_ms,
+            "ts_exec_start_ms": ts_exec_start_ms,
+        })
+        return final_state

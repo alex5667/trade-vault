@@ -1112,6 +1112,8 @@ class EdgeCostGate:
     use_calibrated_k: bool = False
     calibrated_k_max_age_ms: int = 3 * 3600 * 1000  # stale after 3h
     _k_store: Any = None  # type: ignore[misc]  # CostKStore | None
+    # Calibrated slippage store (SlippageCalReader) — wired via set_slippage_store()
+    _slippage_store: Any = None  # type: ignore[misc]  # SlippageCalReader | None
 
     # Directional p_min bias (additive, applied AFTER calibrator).
     # Targets failure mode "counter-SMT-leader LONGs": tighten threshold for
@@ -1130,6 +1132,17 @@ class EdgeCostGate:
             gate.set_k_store(CostKStore.load(redis))
         """
         object.__setattr__(self, "_k_store", store)
+
+    def set_slippage_store(self, store: Any) -> None:
+        """Wire in a SlippageCalReader for per-symbol calibrated slippage.
+
+        Should be called once at startup after from_env(), e.g.:
+            gate.set_slippage_store(SlippageCalReader(redis))
+
+        When set, evaluate() floors slippage_bps with q75(adverse_bps_t) per (symbol × session).
+        Fail-open: if store is stale or has no entry for the symbol, slippage_bps_default is used.
+        """
+        object.__setattr__(self, "_slippage_store", store)
 
     @classmethod
     def from_env(cls) -> EdgeCostGate:
@@ -1576,6 +1589,19 @@ class EdgeCostGate:
             default_bps=self.slippage_bps_default,
             use_spread_half=self.slippage_use_spread_half,
         )
+
+        # Override with calibrated q75(adverse_bps_t) per (symbol × session) if wired.
+        # Uses max() for fail-safe: never reduces below EMA/spread estimate.
+        _slip_store = self._slippage_store
+        if _slip_store is not None:
+            try:
+                _sym_str = str(symbol or getattr(ctx, "symbol", "") or "")
+                _sess = str(getattr(ctx, "session", None) or "")
+                _cal_bps = _slip_store.get_slippage(_sym_str, _sess, default=0.0)
+                if _cal_bps > 0.0:
+                    slippage_bps = max(slippage_bps, _cal_bps)
+            except Exception:
+                pass
 
         # ------------------------------------------------------------------
         # Drift tightening toggle:

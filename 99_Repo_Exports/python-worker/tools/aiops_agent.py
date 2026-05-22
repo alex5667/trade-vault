@@ -37,7 +37,7 @@ NVIDIA_MODEL    = os.environ.get("NVIDIA_MODEL", "qwen/qwen3.5-397b-a17b")
 OLLAMA_URL_ENV      = os.environ.get("OLLAMA_URL", "")
 GO_GATEWAY_URL_ENV  = os.environ.get("GO_GATEWAY_URL", "")
 PROMETHEUS_ADDR_OVERRIDE = os.environ.get("PROMETHEUS_ADDR_OVERRIDE", None)
-MODEL_NAME      = os.environ.get("AIOPS_MODEL", "deepseek-r1:14b")
+MODEL_NAME      = os.environ.get("AIOPS_MODEL", "deepseek-r1:8b")
 TIMEOUT         = int(os.environ.get("AIOPS_TIMEOUT", "600"))
 
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
