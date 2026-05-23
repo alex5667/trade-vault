@@ -119,13 +119,56 @@ def extract_features(replay_row: dict[str, Any]) -> dict[str, Any]:
 
 def extract_trade_labels(tr: dict[str, Any]) -> dict[str, Any]:
     meta = tr.get("meta") if isinstance(tr.get("meta"), dict) else {}
+    def _from_meta(key: str, default: float = 0.0) -> float:
+        v = tr.get(key)
+        if v is None:
+            v = meta.get(key)
+        return _f(v, default)
     return {
         "r_mult": _f(tr.get("r_mult", 0.0)),
         "pnl": _f(tr.get("pnl", 0.0)),
         "risk_usd": _f(tr.get("risk_usd", 0.0)),
         "close_reason": str(meta.get("close_reason", "") or tr.get("close_reason", "") or ""),
         "is_virtual": _i(tr.get("is_virtual", 0)),
+        # ── IPS / cost-aware label inputs ────────────────────────────────
+        "v_gate_reason": str(
+            tr.get("v_gate_reason")
+            or tr.get("reject_reason")
+            or meta.get("v_gate_reason")
+            or ""
+        ).strip(),
+        "pnl_net": _from_meta("pnl_net", _f(tr.get("pnl", 0.0))),
+        "fees": _from_meta("fees", 0.0),
+        "slippage_realized_bps": _from_meta("slippage_realized_bps", -1.0),
+        "expected_slippage_bps": _from_meta("expected_slippage_bps", -1.0),
     }
+
+
+# Soft import of IPS weighting so this tool still runs in environments
+# without core.reject_reason_weights (returns 1.0 for every sample).
+try:
+    from core.reject_reason_weights import weight_for_reason as _weight_for_reason  # type: ignore
+except Exception:  # pragma: no cover
+    def _weight_for_reason(_reason: str) -> float:  # type: ignore[misc]
+        return 1.0
+
+
+def compute_ips_weight(
+    *,
+    v_gate_reason: str,
+    is_virtual: int,
+    virtual_penalty: float = 0.5,
+    weight_min: float = 0.05,
+) -> float:
+    """ips_weight = weight_for_reason(reason) * virtual_penalty^is_virtual."""
+    w = _weight_for_reason(v_gate_reason or "")
+    if int(is_virtual) == 1:
+        w *= float(virtual_penalty)
+    if w < weight_min:
+        w = weight_min
+    if w > 1.0:
+        w = 1.0
+    return float(w)
 
 
 def make_label_binary(r_mult: float, *, pos_th: float, neg_th: float) -> int | None:
@@ -147,8 +190,18 @@ def main() -> None:
     ap.add_argument("--pos-th", type=float, default=0.5, help="good label if r_mult >= pos_th")
     ap.add_argument("--neg-th", type=float, default=-0.5, help="bad label if r_mult <= neg_th")
     ap.add_argument("--min-n", type=int, default=200, help="fail if dataset smaller than this (quality gate)")
-    ap.add_argument("--include-virtual", action="store_true", default=False,
-                    help="include virtual/paper trades in dataset (default: excluded)")
+    ap.add_argument(
+        "--include-virtual",
+        action="store_true",
+        default=(os.environ.get("ML_TRAIN_INCLUDE_VIRTUAL", "0").strip().lower() in ("1", "true", "yes", "on")),
+        help="include virtual/paper trades in dataset (default: excluded; env ML_TRAIN_INCLUDE_VIRTUAL).",
+    )
+    ap.add_argument(
+        "--virtual-penalty",
+        type=float,
+        default=float(os.environ.get("ML_TRAIN_VIRTUAL_PENALTY", "0.5") or 0.5),
+        help="Multiplier applied to ips_weight when is_virtual=1 (default 0.5).",
+    )
     args = ap.parse_args()
 
     trade_idx = build_trade_index(args.trades)
@@ -174,7 +227,12 @@ def main() -> None:
             if y is None:
                 continue
 
-            row = {**feat, **lab, "y": int(y)}
+            ips_w = compute_ips_weight(
+                v_gate_reason=str(lab.get("v_gate_reason", "")),
+                is_virtual=int(lab.get("is_virtual", 0)),
+                virtual_penalty=float(args.virtual_penalty),
+            )
+            row = {**feat, **lab, "y": int(y), "ips_weight": float(ips_w)}
             f.write(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n")
             written += 1
 

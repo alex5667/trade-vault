@@ -86,10 +86,12 @@ services:
       resources:
         limits:
           memory: 12GB
-          cpus: '4.0'
+          # 2026-05-22: 4.0→6.0 to give 6 io-threads + event loop headroom.
+          # Signal Emit P99=34.6ms traced to CPU throttle at 4.0 with io-threads=4.
+          cpus: '6.0'
         reservations:
           memory: 4G
-          cpus: '1.0'
+          cpus: '2.0'
     ulimits:
       nofile:
         soft: 65536

@@ -119,6 +119,16 @@ def _normalize_sid(raw_sid: Any, *, symbol="", ts_ms: int = 0) -> str:
             except Exception:
                 t = ts_ms
             return f"crypto-of:{sym}:{t}"
+    # Current SID format: "of:SYMBOL:TS[:DIR]" — strip direction suffix, map to crypto-of:
+    if s.startswith("of:"):
+        parts = s.split(":")
+        if len(parts) >= 3:
+            sym = (parts[1] or symbol or "").upper()
+            try:
+                t = int(parts[2])
+            except Exception:
+                t = ts_ms
+            return f"crypto-of:{sym}:{t}"
     if "|" in s:
         parts = s.split("|")
         if len(parts) >= 2:

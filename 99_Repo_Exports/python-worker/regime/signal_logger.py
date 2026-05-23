@@ -68,12 +68,36 @@ class SignalLogger:
             final_score = float(data.get('final_score') or data.get('confidence', 0.0))
 
             # Optional fields
-            atr_1m = data.get('atr_1m') or data.get('atr')
+            meta = data.get('meta', {})
+            def _get_f(key, fallback_key=None, fallback_meta=None):
+                val = data.get(key)
+                if val is not None: return val
+                if fallback_key and data.get(fallback_key) is not None: return data.get(fallback_key)
+                if fallback_meta and meta.get(fallback_meta) is not None: return meta.get(fallback_meta)
+                if meta.get(key) is not None: return meta.get(key)
+                return None
+
+            def _first_not_none(*keys):
+                for k in keys:
+                    v = _get_f(k)
+                    if v is not None:
+                        return v
+                return None
+
+            # atr_1m: data keys may be 'atr_1m', 'atr_14' (from SignalSnapshot.to_dict), or 'atr'
+            atr_1m = _first_not_none('atr_1m', 'atr_14', 'atr')
+            # atr_5m: data key 'atr_5m' only
+            atr_5m = _get_f('atr_5m')
             session = data.get('session')
             regime = data.get('regime')
-            delta_spike_z = data.get('delta_spike_z') or data.get('delta_z')
-            obi = data.get('obi')
-            weak_progress = data.get('weak_progress')
+            # delta_spike_z: direct key or fallback to delta_z
+            delta_spike_z = _first_not_none('delta_spike_z', 'delta_z')
+            # obi: SignalSnapshot.to_dict() produces 'obi_avg_20'; fallback to 'obi' or 'obi_avg'
+            obi = _first_not_none('obi', 'obi_avg_20', 'obi_avg')
+            # weak_progress: SignalSnapshot.to_dict() produces 'weak_progress_ratio'
+            weak_progress = _first_not_none('weak_progress', 'weak_progress_ratio')
+            tick_size = _get_f('tick_size')
+            contract_size = _get_f('contract_size')
 
             # Store full snapshot in raw_ctx
             raw_ctx = data
@@ -88,14 +112,17 @@ class SignalLogger:
                 price_at_signal,
                 final_score,
                 atr_1m,
+                atr_5m,
                 session,
                 regime,
                 delta_spike_z,
                 obi,
                 weak_progress,
+                tick_size,
+                contract_size,
                 raw_ctx
             ) VALUES (
-                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
             )
             ON CONFLICT (signal_id) DO NOTHING;
             """
@@ -109,11 +136,14 @@ class SignalLogger:
                 price_at_signal,
                 final_score,
                 atr_1m,
+                atr_5m,
                 session,
                 regime,
                 delta_spike_z,
                 obi,
                 weak_progress,
+                tick_size,
+                contract_size,
                 psycopg2.extras.Json(raw_ctx)
             ))
         except Exception as e:

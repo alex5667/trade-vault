@@ -396,11 +396,15 @@ async def main() -> None:
                 session = (dec.get("session") or "na")
                 tf = (dec.get("tf") or "na")
                 kind = (dec.get("kind") or "na")
-                if not venue or venue == "none":
-                    venue = str(dec.get("venue") or venue or "binance").lower()
+                if not venue or venue in ("none", "cryptoorderflow", ""):
+                    venue = str(dec.get("venue") or "binance").lower()
+                
+                if venue == "binance_usdm":
+                    venue = "binance"
+
                 if not side or side == "NONE":
                     side = str(dec.get("side") or side or "na").upper()
-
+                    
                 decision_mid = dec.get("decision_mid")
 
                 bbo_t = pg.fetch_bbo_mid(sym=sym, venue=venue, ts_ms=ts_fill_ms, lookback_ms=cfg.bbo_lookback_ms)

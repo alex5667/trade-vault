@@ -132,12 +132,19 @@ def evaluate_readiness(redis_client=None) -> dict:
         return out
 
     now_ms = int(time.time() * 1000)
-    oldest_id = entries[-1][0]
+    # span = actual stream age using first entry, not just the 200-sample window
+    newest_id = entries[0][0]
+    oldest_sample_id = entries[-1][0]
     try:
-        oldest_ms = int(str(oldest_id).split("-")[0])
+        first_entries: list = r.xrange(stream, "-", "+", count=1)  # type: ignore[assignment]
+        first_id = first_entries[0][0] if first_entries else oldest_sample_id
     except Exception:
-        oldest_ms = now_ms
-    span_days = (now_ms - oldest_ms) / 86_400_000
+        first_id = oldest_sample_id
+    try:
+        first_ms = int(str(first_id).split("-")[0])
+    except Exception:
+        first_ms = now_ms
+    span_days = (now_ms - first_ms) / 86_400_000
 
     total = len(entries)
     # group → count of entries where ≥1 canary in group is present-and-non-zero
@@ -157,7 +164,8 @@ def evaluate_readiness(redis_client=None) -> dict:
         "coverage": min(group_coverage.values()) if group_coverage else 0.0,
         "span_days": span_days,
         "sampled": total,
-        "oldest_id": str(oldest_id),
+        "newest_id": str(newest_id),
+        "oldest_id": str(first_id),
     })
 
     for g, cov in group_coverage.items():

@@ -14,6 +14,7 @@ Metrics: PR-AUC, logloss, Brier, ECE (approx).
 
 import argparse
 import json
+import os
 from collections.abc import Iterator
 from dataclasses import asdict, dataclass
 from typing import Any
@@ -80,6 +81,12 @@ def main() -> None:
     ap.add_argument("--lr-max-iter", type=int, default=200)
     ap.add_argument("--calib", choices=["sigmoid", "isotonic"], default="sigmoid")
     ap.add_argument("--class-weight", choices=["none", "balanced"], default="balanced")
+    ap.add_argument(
+        "--use-ips-weights",
+        action="store_true",
+        default=(os.environ.get("ML_TRAIN_USE_IPS_WEIGHTS", "1").strip().lower() in ("1", "true", "yes", "on")),
+        help="Pass sample_weight=ips_weight to clf.fit (default on; env ML_TRAIN_USE_IPS_WEIGHTS).",
+    )
     args = ap.parse_args()
 
     rows: list[dict[str, Any]] = []
@@ -106,6 +113,9 @@ def main() -> None:
 
     X_train = [r["X"] for r in train]
     y_train = np.array([int(r.get("y_edge", 0) or 0) for r in train], dtype=np.int32)
+    w_train = np.array([float(r.get("ips_weight", 1.0) or 1.0) for r in train], dtype=np.float32)
+    # Clip any non-positive weight to 1.0 to avoid sklearn errors.
+    w_train = np.where(w_train > 0.0, w_train, 1.0)
 
     X_test = [r["X"] for r in test]
     y_test = np.array([int(r.get("y_edge", 0) or 0) for r in test], dtype=np.int32)
@@ -126,7 +136,8 @@ def main() -> None:
     # Platt/Isotonic calibration on train only (CV inside train).
     # Using cv=3 keeps it deterministic enough for stable distributions.
     clf = CalibratedClassifierCV(estimator=base, method=args.calib, cv=3)
-    clf.fit(A_train, y_train)
+    _sw_train = w_train if bool(args.use_ips_weights) else None
+    clf.fit(A_train, y_train, sample_weight=_sw_train)
 
     p = clf.predict_proba(A_test)[:, 1]
     pr_auc = float(average_precision_score(y_test, p))
@@ -164,6 +175,10 @@ def main() -> None:
         "train_report": asdict(rep),
         "calibration": args.calib,
         "class_weight": args.class_weight,
+        "use_ips_weights": bool(args.use_ips_weights),
+        "ips_weight_p50": float(np.percentile(w_train, 50)),
+        "ips_weight_p99": float(np.percentile(w_train, 99)),
+        "ips_weight_min": float(np.min(w_train)),
         "lr": {"C": float(args.lr_c), "max_iter": int(args.lr_max_iter), "solver": "liblinear"},
         "feature_count": len(vec.feature_names_),
         # Decision defaults (can be overridden by ENV/Redis later)

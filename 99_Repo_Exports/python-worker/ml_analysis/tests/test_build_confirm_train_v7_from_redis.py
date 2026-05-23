@@ -30,6 +30,19 @@ class TestNormalizeSid:
     def test_extra_suffix(self):
         assert _normalize_sid("crypto-of:BTCUSDT:999:extra") == "crypto-of:BTCUSDT:999"
 
+    def test_of_prefix_long(self):
+        # Current SID format from decisions:final and trades:closed
+        assert _normalize_sid("of:BTCUSDT:1779380746000:L") == "crypto-of:BTCUSDT:1779380746000"
+
+    def test_of_prefix_short(self):
+        assert _normalize_sid("of:1000PEPEUSDT:1779297753648:S") == "crypto-of:1000PEPEUSDT:1779297753648"
+
+    def test_of_prefix_matches_crypto_of(self):
+        # Decisions (of:) and outcomes (of:) must normalize to the same SID
+        decision_sid = _normalize_sid("of:ETHUSDT:1779408884000:S")
+        outcome_sid = _normalize_sid("of:ETHUSDT:1779408884000:S")
+        assert decision_sid == outcome_sid == "crypto-of:ETHUSDT:1779408884000"
+
 
 # ─── Decision parsing ────────────────────────────────────────────────────────
 

@@ -315,11 +315,16 @@ class ExecutionJournalSink:
         )
         doc = _sanitize_floats(dict(state or {}))
         now_ms = _i(doc.get('ts_ms') or get_ny_time_millis())
+        _sid = _s(doc.get('sid')) or ''
+        _is_virtual = bool(doc.get('is_virtual') or doc.get('virtual'))
+        # Synthesize virtual refs so execution_orders rows are always joinable
+        _entry_ref = doc.get('entry_order_ref') or (f'virt:entry:{_sid}' if _sid else None)
+        _exit_ref = doc.get('exit_order_ref') or (f'virt:exit:{_sid}' if _sid and _is_virtual else None)
         try:
             with self._get_conn_ctx() as conn:
                 with conn.cursor() as cur:
                     cur.execute(sql, (
-                        _s(doc.get('sid')),
+                        _sid or None,
                         _s(doc.get('symbol')),
                         _s(doc.get('action')),
                         _s(doc.get('status')),
@@ -330,8 +335,8 @@ class ExecutionJournalSink:
                         _s(doc.get('exit_policy')),
                         _first_text(doc, 'signal_id', 'decision_id', 'id'),
                         _first_text(doc, 'execution_plan_id', 'decision_id', 'signal_id', 'id'),
-                        _optional_text(doc.get('entry_order_ref')),
-                        _optional_text(doc.get('exit_order_ref')),
+                        _optional_text(_entry_ref),
+                        _optional_text(_exit_ref),
                         _optional_text(doc.get('closed_trade_id')),
                         _s(doc.get('venue') or 'binance'),
                         _s(doc.get('position_mode')),

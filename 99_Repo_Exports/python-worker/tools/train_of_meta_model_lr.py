@@ -42,14 +42,17 @@ def _f(x: Any, d: float = 0.0) -> float:
         return d
 
 
-def build_xy(rows: list[dict[str, Any]], feat_names: list[str]) -> tuple[np.ndarray, np.ndarray]:
+def build_xy(rows: list[dict[str, Any]], feat_names: list[str]) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     X = np.zeros((len(rows), len(feat_names)), dtype=np.float32)
     y = np.zeros((len(rows),), dtype=np.int64)
+    w = np.ones((len(rows),), dtype=np.float32)
     for i, r in enumerate(rows):
         y[i] = int(r["y"])
         for j, fn in enumerate(feat_names):
             X[i, j] = float(_f(r.get(fn, 0.0)))
-    return X, y
+        wi = _f(r.get("ips_weight", 1.0), 1.0)
+        w[i] = wi if wi > 0.0 else 1.0
+    return X, y, w
 
 
 def main() -> None:
@@ -60,6 +63,12 @@ def main() -> None:
     ap.add_argument("--test-size", type=float, default=0.25)
     ap.add_argument("--seed", type=int, default=42)
     ap.add_argument("--threshold", type=float, default=0.5, help="default threshold for runtime")
+    ap.add_argument(
+        "--use-ips-weights",
+        action="store_true",
+        default=(os.environ.get("ML_TRAIN_USE_IPS_WEIGHTS", "1").strip().lower() in ("1", "true", "yes", "on")),
+        help="Pass sample_weight=ips_weight to clf.fit and raw_lr.fit (default on; env ML_TRAIN_USE_IPS_WEIGHTS).",
+    )
     args = ap.parse_args()
 
     rows = list(iter_ndjson(args.dataset))
@@ -86,7 +95,7 @@ def main() -> None:
         "leg_sweep_recent",
     ]
 
-    X, y = build_xy(rows, feat)
+    X, y, w = build_xy(rows, feat)
 
     # Handle single-class case (e.g. all 1s or all 0s)
     classes = np.unique(y)
@@ -106,7 +115,9 @@ def main() -> None:
             json.dump(report, f, ensure_ascii=False, indent=2)
         return
 
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=args.test_size, random_state=args.seed, stratify=y)
+    X_train, X_test, y_train, y_test, w_train, w_test = train_test_split(
+        X, y, w, test_size=args.test_size, random_state=args.seed, stratify=y,
+    )
 
     # Calibrated model for offline evaluation
     base = LogisticRegression(
@@ -116,12 +127,39 @@ def main() -> None:
         max_iter=300,
     )
     clf = CalibratedClassifierCV(base, method="sigmoid", cv=3)
-    clf.fit(X_train, y_train)
+    _sw_train = w_train if bool(args.use_ips_weights) else None
+    clf.fit(X_train, y_train, sample_weight=_sw_train)
 
     p = clf.predict_proba(X_test)[:, 1]
     auc = float(roc_auc_score(y_test, p))
     pred = (p >= args.threshold).astype(int)
     pr, rc, f1, _ = precision_recall_fscore_support(y_test, pred, average="binary")
+
+    # Per-slice virtual vs real diagnostics on the test fold.
+    virt_share_train = float(np.mean((w_train > 0) & (w_train < 1.0))) if len(w_train) else 0.0
+    real_mask_test = np.isclose(w_test, 1.0)
+    virt_mask_test = ~real_mask_test
+    def _slice_metrics(mask: np.ndarray) -> dict[str, float | int]:
+        if not bool(mask.any()):
+            return {"n": 0, "auc": 0.0, "precision": 0.0, "recall": 0.0, "f1": 0.0}
+        y_s = y_test[mask]
+        p_s = p[mask]
+        try:
+            auc_s = float(roc_auc_score(y_s, p_s)) if len(set(y_s.tolist())) > 1 else 0.0
+        except Exception:
+            auc_s = 0.0
+        pred_s = (p_s >= args.threshold).astype(int)
+        try:
+            pr_s, rc_s, f1_s, _ = precision_recall_fscore_support(y_s, pred_s, average="binary", zero_division=0)
+        except Exception:
+            pr_s, rc_s, f1_s = 0.0, 0.0, 0.0
+        return {
+            "n": int(mask.sum()),
+            "auc": auc_s,
+            "precision": float(pr_s),
+            "recall": float(rc_s),
+            "f1": float(f1_s),
+        }
 
     report = {
         "n": len(rows),
@@ -131,6 +169,15 @@ def main() -> None:
         "recall": float(rc),
         "f1": float(f1),
         "threshold": float(args.threshold),
+        "use_ips_weights": bool(args.use_ips_weights),
+        "ips_weight": {
+            "p50": float(np.percentile(w_train, 50)) if len(w_train) else 1.0,
+            "p99": float(np.percentile(w_train, 99)) if len(w_train) else 1.0,
+            "min": float(np.min(w_train)) if len(w_train) else 1.0,
+        },
+        "train_virtual_share": virt_share_train,
+        "slice_real_passed": _slice_metrics(real_mask_test),
+        "slice_virtual": _slice_metrics(virt_mask_test),
     }
 
     # Runtime model: raw LR (un-calibrated) stored as intercept+coef
@@ -140,7 +187,7 @@ def main() -> None:
         class_weight="balanced",
         max_iter=300,
     )
-    raw_lr.fit(X_train, y_train)
+    raw_lr.fit(X_train, y_train, sample_weight=_sw_train)
 
     model = {
         "kind": "logreg_v1",

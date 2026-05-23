@@ -58,6 +58,7 @@ RUN_DURATION = Histogram(
 REDIS_URL = os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
 INTERVAL_SEC = int(os.getenv("JANITOR_INTERVAL_SEC", "60"))
 MAX_AGE_SEC = int(os.getenv("JANITOR_MAX_AGE_SEC", "1200"))  # 20 min
+VIRTUAL_MAX_AGE_SEC = int(os.getenv("JANITOR_VIRTUAL_MAX_AGE_SEC", "86400"))  # 24h for virtual positions
 DRY_RUN = os.getenv("JANITOR_DRY_RUN", "0") == "1"
 BATCH_SIZE = int(os.getenv("JANITOR_BATCH_SIZE", "500"))
 PROMETHEUS_PORT = int(os.getenv("PROMETHEUS_PORT", "9119"))
@@ -153,7 +154,16 @@ def run_cleanup(r: redis.Redis) -> int:
             if age_sec is None:
                 continue
 
-            if age_sec > MAX_AGE_SEC:
+            # Virtual positions have a much longer TTL since they might not be closed by exchange executors
+            try:
+                is_v_raw = r.hget(f"order:{pos_id}", "is_virtual")
+                is_v = is_v_raw and is_v_raw.decode().lower() in ("1", "true")
+            except Exception:
+                is_v = False
+                
+            effective_max_age = VIRTUAL_MAX_AGE_SEC if is_v else MAX_AGE_SEC
+
+            if age_sec > effective_max_age:
                 symbol = _get_position_symbol(r, pos_id)
                 reason = "age_exceeded"
 
@@ -170,8 +180,8 @@ def run_cleanup(r: redis.Redis) -> int:
                     REMOVED.labels(symbol=symbol, reason=reason).inc()
                     removed += 1
                     logger.debug(
-                        "🧹 Removed zombie %s sym=%s age=%.0fs (>%ds)",
-                        pos_id, symbol, age_sec, MAX_AGE_SEC,
+                        "🧹 Removed zombie %s sym=%s age=%.0fs (>%ds) virtual=%s",
+                        pos_id, symbol, age_sec, effective_max_age, is_v,
                     )
                 else:
                     logger.debug(
@@ -196,8 +206,8 @@ def run_cleanup(r: redis.Redis) -> int:
 
 def main():
     logger.info(
-        "🚀 Zombie Position Janitor starting (interval=%ds, max_age=%ds, dry_run=%s, port=%d)",
-        INTERVAL_SEC, MAX_AGE_SEC, DRY_RUN, PROMETHEUS_PORT,
+        "🚀 Zombie Position Janitor starting (interval=%ds, max_age=%ds, virtual_max_age=%ds, dry_run=%s, port=%d)",
+        INTERVAL_SEC, MAX_AGE_SEC, VIRTUAL_MAX_AGE_SEC, DRY_RUN, PROMETHEUS_PORT,
     )
 
     # Prometheus

@@ -450,6 +450,50 @@ def main() -> None:
     global_metrics["dq_health_mean"] = float(dq_mean)
     global_metrics["corr_meta_p_dq_health"] = float(dq_corr)
 
+    # ── Per-slice (virtual vs real-passed) diagnostics ──────────────────────
+    # Defaults mirror core/reject_reason_weights._PASSED_TOKENS.
+    _PASSED_TOKENS = {"", "OK", "ok", "PASSED", "passed", "ALLOW", "allow"}
+    is_virtual_arr = np.zeros(n_total, dtype=bool)
+    is_real_passed_arr = np.zeros(n_total, dtype=bool)
+    if "is_virtual" in df.columns or "v_gate_reason" in df.columns:
+        iv_col = df["is_virtual"].fillna(0).astype(int).to_numpy() if "is_virtual" in df.columns else np.zeros(n_total, dtype=int)
+        vr_col = df["v_gate_reason"].fillna("").astype(str).to_numpy() if "v_gate_reason" in df.columns else np.array([""] * n_total)
+        is_virtual_arr = iv_col == 1
+        is_real_passed_arr = (iv_col == 0) & np.array([(r or "").strip() in _PASSED_TOKENS for r in vr_col])
+
+    virtual_share = float(np.mean(is_virtual_arr)) if n_total else 0.0
+    real_passed_share = float(np.mean(is_real_passed_arr)) if n_total else 0.0
+
+    def _slice_pack(mask: np.ndarray) -> dict[str, float | int]:
+        n = int(mask.sum())
+        if n == 0:
+            return {"n": 0, "brier": 0.0, "ece": 0.0, "pr_auc": 0.0, "precision_top5p": 0.0}
+        y_s = y_arr[mask].astype(int)
+        p_s = p_arr[mask]
+        mp = _calc_metrics(y_s, p_s, int(args.topk), int(args.ece_bins))
+        return {
+            "n": n,
+            "pos": int(np.sum(y_s)),
+            "brier": float(mp.brier),
+            "ece": float(mp.ece),
+            "pr_auc": float(mp.pr_auc),
+            "precision_top5p": float(mp.precision_top5p),
+        }
+
+    slice_metrics = {
+        "real_passed": _slice_pack(is_real_passed_arr),
+        "virtual": _slice_pack(is_virtual_arr),
+        "virtual_share": virtual_share,
+        "real_passed_share": real_passed_share,
+    }
+    global_metrics["virtual_share"] = virtual_share
+    global_metrics["real_passed_share"] = real_passed_share
+    sr = slice_metrics["real_passed"]
+    sv = slice_metrics["virtual"]
+    brier_real = float(sr.get("brier", 0.0)) if isinstance(sr, dict) else 0.0
+    brier_virt = float(sv.get("brier", 0.0)) if isinstance(sv, dict) else 0.0
+    global_metrics["brier_slice_delta_virt_minus_real"] = brier_virt - brier_real
+
     # Groups
     groups_out: dict[str, Any] = {}
     group_metrics: list[tuple[str, MetricPack]] = []
@@ -574,7 +618,7 @@ def main() -> None:
             "dq_missing_n": int(dq_missing_n),
         },
         "counts": {"n": global_pack.n, "pos": global_pack.pos, "neg": global_pack.neg},
-        "metrics": {"global": global_metrics, "worst": worst_metrics, "worst_dq_bucket": worst_dq_bucket},
+        "metrics": {"global": global_metrics, "worst": worst_metrics, "worst_dq_bucket": worst_dq_bucket, "slice": slice_metrics},
         "groups": groups_out,
         "worst": worst_metrics, # Keep for backward compatibility
         "stability": stability,
@@ -619,6 +663,23 @@ def main() -> None:
         lines.append(f'meta_quality_group_ece_std{{schema="{sc}"}} {stability["ece_std"]}')
         lines.append(f'meta_quality_group_pr_auc_std{{schema="{sc}"}} {stability["pr_auc_std"]}')
         lines.append(f'meta_quality_group_precision_top5p_std{{schema="{sc}"}} {stability["precision_top5p_std"]}')
+
+        # Virtual / real-passed slice metrics (ml_eval_brier{slice=...} etc.)
+        sr_pack = slice_metrics["real_passed"] if isinstance(slice_metrics.get("real_passed"), dict) else {}
+        sv_pack = slice_metrics["virtual"] if isinstance(slice_metrics.get("virtual"), dict) else {}
+        sr_n = int(sr_pack.get("n", 0))
+        sv_n = int(sv_pack.get("n", 0))
+        lines.append(f'ml_dataset_virtual_share{{schema="{sc}"}} {virtual_share}')
+        lines.append(f'ml_dataset_real_passed_share{{schema="{sc}"}} {real_passed_share}')
+        lines.append(f'ml_eval_brier{{schema="{sc}",slice="real_passed"}} {float(sr_pack.get("brier", 0.0))}')
+        lines.append(f'ml_eval_brier{{schema="{sc}",slice="virtual"}} {float(sv_pack.get("brier", 0.0))}')
+        lines.append(f'ml_eval_ece{{schema="{sc}",slice="real_passed"}} {float(sr_pack.get("ece", 0.0))}')
+        lines.append(f'ml_eval_ece{{schema="{sc}",slice="virtual"}} {float(sv_pack.get("ece", 0.0))}')
+        lines.append(f'ml_eval_pr_auc{{schema="{sc}",slice="real_passed"}} {float(sr_pack.get("pr_auc", 0.0))}')
+        lines.append(f'ml_eval_pr_auc{{schema="{sc}",slice="virtual"}} {float(sv_pack.get("pr_auc", 0.0))}')
+        lines.append(f'ml_eval_slice_n{{schema="{sc}",slice="real_passed"}} {sr_n}')
+        lines.append(f'ml_eval_slice_n{{schema="{sc}",slice="virtual"}} {sv_n}')
+        lines.append(f'ml_eval_brier_slice_delta{{schema="{sc}"}} {global_metrics.get("brier_slice_delta_virt_minus_real", 0.0)}')
 
         _write_prom_textfile(args.prom_textfile, lines)
 

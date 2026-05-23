@@ -80,10 +80,10 @@ services:
     - REDIS_MAX_CONNECTIONS=512
     - REDIS_MAIN_MAX_CONNECTIONS=256
     - REDIS_TICKS_MAX_CONNECTIONS=1536
-    - REDIS_PUBLISH_MAX_CONNECTIONS=256
-    # 2026-05-21: core/redis_client.py get_redis_publish() reads PUBLISH_REDIS_MAX_CONNECTIONS
-    # (not REDIS_PUBLISH_MAX_CONNECTIONS). Both set here so both paths get headroom.
-    - PUBLISH_REDIS_MAX_CONNECTIONS=256
+    # 2026-05-22: 256→512 after Signal Emit P99=34.6ms (pool slot exhaustion under burst).
+    # Hard cap in core/redis_client.py also raised to 512 in same patch.
+    - REDIS_PUBLISH_MAX_CONNECTIONS=512
+    - PUBLISH_REDIS_MAX_CONNECTIONS=512
     - REDIS_PUBLISH_SOCKET_TIMEOUT=2
     # 2026-05-21: Entry Lag P99=500ms + Signal Emit P99=100ms — pool exhaustion.
     # Reduced 1s→0.2s: fail-fast frees event loop sooner; retry_queue handles retries.
@@ -411,7 +411,7 @@ services:
     - BAD_TIME_RECOVERY_FAIL_QUARANTINE_MS=20000
     - BAD_TIME_RECOVERY_FAIL_STATE_FREEZE_MS=5000
     - EMP_TIME_SNAPSHOTS_READ=1
-    - CRYPTO_OF_STRONG_GATE_SHADOW=${CRYPTO_OF_STRONG_GATE_SHADOW:-1}
+    - CRYPTO_OF_STRONG_GATE_SHADOW=${CRYPTO_OF_STRONG_GATE_SHADOW:-0}
     - CRYPTO_OF_REQUIRE_STRONG_CONFIRMATION=${CRYPTO_OF_REQUIRE_STRONG_CONFIRMATION}
     - EMP_TIME_SNAPSHOT_BUF_MAX=300
     - EMP_TIME_SNAPSHOT_BUF_TTL_SEC=0
@@ -730,8 +730,9 @@ services:
     - REDIS_MAX_CONNECTIONS=512
     - REDIS_MAIN_MAX_CONNECTIONS=256
     - REDIS_TICKS_MAX_CONNECTIONS=1536
-    - REDIS_PUBLISH_MAX_CONNECTIONS=256
-    - PUBLISH_REDIS_MAX_CONNECTIONS=256
+    # 2026-05-22: 256→512 (Signal Emit P99=34.6ms, pool burst exhaustion)
+    - REDIS_PUBLISH_MAX_CONNECTIONS=512
+    - PUBLISH_REDIS_MAX_CONNECTIONS=512
     - REDIS_PUBLISH_SOCKET_TIMEOUT=2
     - REDIS_POOL_ACQUIRE_TIMEOUT=0.2
     - REDIS_RETRY_ON_TIMEOUT=true
@@ -824,11 +825,10 @@ services:
     - ADVERSE_CROSS_CAL_MIN_SAMPLES=500
     - ADVERSE_CROSS_CAL_MIN_LOSSES=30
     - ADVERSE_CROSS_CAL_SNAPSHOT_SEC=60
-    # ── F rollout 2026-05-18 SHADOW on btceth canary (BTCUSDT/ETHUSDT) ──
-    # would-veto signals now pass with is_virtual=1 → demo/testnet client (PnL=0).
-    # Observe via strong_gate_veto_total{mode=ENFORCE} vs shadow indicators in DB.
-    # Rollback: revert to ${CRYPTO_OF_STRONG_GATE_SHADOW} and `docker compose up -d --force-recreate scanner-python-worker-btceth`.
-    - CRYPTO_OF_STRONG_GATE_SHADOW=1
+    # ── F rollout 2026-05-22 ENFORCE on btceth (real mode) ──
+    # Failed signals: is_virtual=1 (virtual, for ML). Passed: is_virtual=0 (real).
+    # Rollback: set CRYPTO_OF_STRONG_GATE_SHADOW=1 + force-recreate scanner-python-worker-btceth.
+    - CRYPTO_OF_STRONG_GATE_SHADOW=0
     - CRYPTO_OF_REQUIRE_STRONG_CONFIRMATION=${CRYPTO_OF_REQUIRE_STRONG_CONFIRMATION}
     # ── E rollout 2026-05-18 SHADOW: would-allow counter ──
     # Activates trade_risk_shadow_relax_would_allow_total{tier=A|B}. Pure observability.
@@ -2333,8 +2333,10 @@ services:
     deploy:
       resources:
         limits:
-          memory: 512M
-          cpus: '0.5'
+          # 2026-05-22: 0.5→1.5 CPUs — slow drain of stream:signals:outbox caused
+          # publish-side backpressure → Signal Emit P99=34.6ms.
+          memory: 1G
+          cpus: '1.5'
         reservations:
           devices:
           - driver: nvidia

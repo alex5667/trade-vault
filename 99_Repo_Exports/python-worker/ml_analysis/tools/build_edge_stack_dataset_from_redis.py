@@ -86,6 +86,40 @@ except ImportError:
 
 
 # ---------------------------------------------------------------------------
+# IPS reweighting (core/reject_reason_weights.py) — soft import so the builder
+# still runs when core is unavailable (returns weight=1.0 for every sample).
+# ---------------------------------------------------------------------------
+try:
+    from core.reject_reason_weights import weight_for_reason as _weight_for_reason  # type: ignore
+    _IPS_AVAILABLE = True
+except Exception:  # pragma: no cover
+    _IPS_AVAILABLE = False
+    def _weight_for_reason(_reason: str) -> float:  # type: ignore[misc]
+        return 1.0
+
+
+def _compute_ips_weight(
+    *,
+    v_gate_reason: str,
+    is_virtual: int,
+    virtual_penalty: float,
+    weight_min: float = 0.05,
+) -> float:
+    """Compose IPS weight = weight_for_reason(reason) * virtual_penalty^is_virtual.
+
+    Clipped to [weight_min, 1.0] to avoid variance explosion.
+    """
+    w = _weight_for_reason(v_gate_reason or "")
+    if is_virtual == 1:
+        w *= virtual_penalty
+    if w < weight_min:
+        w = weight_min
+    if w > 1.0:
+        w = 1.0
+    return w
+
+
+# ---------------------------------------------------------------------------
 # Offline-only derived features (F/G/H) for ablation without touching runtime pipeline.
 # ---------------------------------------------------------------------------
 try:
@@ -489,6 +523,14 @@ class CloseRow:
     direction: str = ""
     scenario: str = ""
     buckets: dict[str, Any] = field(default_factory=dict, compare=False)
+    # ── IPS / virtual reweighting metadata (see core/reject_reason_weights.py) ──
+    v_gate_reason: str = ""
+    is_virtual: int = 0
+    # Cost-aware label inputs (used by ml_confirm_cost_aware_label_v1.py / nightly).
+    pnl_net: float = 0.0
+    fees: float = 0.0
+    slippage_realized_bps: float = -1.0
+    expected_slippage_bps: float = -1.0
 
 
 @dataclass
@@ -788,6 +830,53 @@ def parse_trade_closed(fields: dict[str, Any]) -> CloseRow | None:
                 if v is not None:
                     buckets[k] = v
 
+    # ── IPS metadata: v_gate_reason / is_virtual / cost-aware label inputs ──
+    v_gate_reason = _as_str(
+        fields.get("v_gate_reason")
+        or fields.get("reject_reason")
+        or fields.get("gate_reason")
+        or (meta.get("v_gate_reason") if isinstance(meta, dict) else "")
+        or ""
+    ).strip()
+    _iv_raw = (
+        fields.get("is_virtual")
+        if fields.get("is_virtual") is not None
+        else (meta.get("is_virtual") if isinstance(meta, dict) else None)
+    )
+    if _iv_raw is None and "virtual" in fields:
+        _iv_raw = fields.get("virtual")
+    is_virtual = 0
+    if _iv_raw is not None:
+        try:
+            is_virtual = 1 if str(_iv_raw).strip().lower() in ("1", "true", "yes") or int(float(_iv_raw)) == 1 else 0
+        except (TypeError, ValueError):
+            is_virtual = 0
+
+    pnl_net = _as_float(
+        fields.get("pnl_net")
+        or fields.get("pnl_after_fees")
+        or (meta.get("pnl_net") if isinstance(meta, dict) else 0.0)
+        or pnl,
+        float(pnl),
+    )
+    fees = _as_float(
+        fields.get("fees")
+        or fields.get("fee")
+        or (meta.get("fees") if isinstance(meta, dict) else 0.0)
+        or 0.0,
+        0.0,
+    )
+    slippage_realized_bps = _as_float(
+        fields.get("slippage_realized_bps")
+        or (meta.get("slippage_realized_bps") if isinstance(meta, dict) else None),
+        -1.0,
+    )
+    expected_slippage_bps = _as_float(
+        fields.get("expected_slippage_bps")
+        or (meta.get("expected_slippage_bps") if isinstance(meta, dict) else None),
+        -1.0,
+    )
+
     return CloseRow(
         sid=sid,
         close_ts_ms=int(close_ts_ms or 0),
@@ -797,6 +886,12 @@ def parse_trade_closed(fields: dict[str, Any]) -> CloseRow | None:
         direction=str(direction),
         scenario=str(scenario),
         buckets=buckets,
+        v_gate_reason=v_gate_reason,
+        is_virtual=int(is_virtual),
+        pnl_net=pnl_net,
+        fees=fees,
+        slippage_realized_bps=slippage_realized_bps,
+        expected_slippage_bps=expected_slippage_bps,
     )
 
 
@@ -1290,6 +1385,16 @@ def join_signals_with_closes_v2(
                 r_mult = float(util_r)
                 src = "tb_util"
 
+        try:
+            _virtual_penalty = float(os.environ.get("EDGE_DATASET_VIRTUAL_PENALTY", "0.5"))
+        except (TypeError, ValueError):
+            _virtual_penalty = 0.5
+        _ips_w = _compute_ips_weight(
+            v_gate_reason=c.v_gate_reason,
+            is_virtual=int(c.is_virtual),
+            virtual_penalty=_virtual_penalty,
+        )
+
         out.append(
             {
                 "ts_ms": int(s.ts_ms),
@@ -1318,6 +1423,15 @@ def join_signals_with_closes_v2(
                 "tb_primary_y_edge": int(tb_primary.get("y_edge", 0) or 0) if isinstance(tb_primary, dict) else 0,
                 "tb_util_r": float(tb_meta.get("util_r", 0.0) or 0.0) if isinstance(tb_meta, dict) else 0.0,
                 "tb_exec_cost_r": float(tb_meta.get("exec_cost_r", 0.0) or 0.0) if isinstance(tb_meta, dict) else 0.0,
+                # ── IPS reweighting (see core/reject_reason_weights.py) ──
+                "v_gate_reason": c.v_gate_reason or "",
+                "is_virtual": int(c.is_virtual),
+                "ips_weight": float(_ips_w),
+                # ── Cost-aware label inputs (ml_confirm_cost_aware_label_v1.py) ──
+                "pnl_net": float(c.pnl_net),
+                "fees": float(c.fees),
+                "slippage_realized_bps": float(c.slippage_realized_bps),
+                "expected_slippage_bps": float(c.expected_slippage_bps),
             }
         )
 

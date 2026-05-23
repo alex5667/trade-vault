@@ -170,7 +170,10 @@ CREATE TABLE IF NOT EXISTS trades_closed (
     selected_trailing_offset_atr  DOUBLE PRECISION,
 
     -- ── Strong Gate Outcome (migration 028) ───────────────────────────────
-    strong_gate_ok                BOOLEAN
+    strong_gate_ok                BOOLEAN,
+
+    -- ── Gate veto reason (migration 058, 2026-05-22) ──────────────────────
+    v_gate_reason                 TEXT
 );
 
 -- Trigger ts populator (preserves entry_ts/exit_ts on UPSERT, see migrations)
@@ -240,6 +243,9 @@ CREATE TABLE IF NOT EXISTS trades_closed_p0 (
     selected_trailing_offset_atr  DOUBLE PRECISION,
 
     strong_gate_ok                BOOLEAN,
+
+    -- ── Gate veto reason (migration 058, 2026-05-22) ──────────────────────
+    v_gate_reason                 TEXT,
 
     PRIMARY KEY (order_id, exit_ts)
 );

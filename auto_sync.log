@@ -705,3 +705,25 @@ fatal: Could not read from remote repository.
 Please make sure you have the correct access rights
 and the repository exists.
 2026-05-21 05:45:02 - Синхронизация завершена успешно.
+[main 5297282b] Auto-sync vault notes 2026-05-22 05:45:01
+ 64 files changed, 7263 insertions(+), 619 deletions(-)
+ create mode 100644 99_Automation/logs/update_2026-05-22_03-37-15.log
+ create mode 100644 99_Repo_Exports/python-worker/migrations/20260521_01_timeout_close_columns.sql
+ create mode 100644 99_Repo_Exports/python-worker/orderflow_services/confirmation_barrier_cal_v1.py
+ create mode 100644 99_Repo_Exports/python-worker/orderflow_services/slippage_autocal_v1.py
+ create mode 100644 99_Repo_Exports/python-worker/services/contracts/__init__.py
+ create mode 100644 99_Repo_Exports/python-worker/services/contracts/timeout_close.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/core/test_ctx_tighten_auto_promote.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_confirmation_barrier_cal_v1.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_deep_explore_sampling.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_gated_out_outcome_tracker.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_orphan_timeout_fixes.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_slippage_autocal.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_timeout_close.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_virtual_dq_guard.py
+git@github.com: Permission denied (publickey).
+fatal: Could not read from remote repository.
+
+Please make sure you have the correct access rights
+and the repository exists.
+2026-05-22 05:45:03 - Синхронизация завершена успешно.

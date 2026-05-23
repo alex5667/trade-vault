@@ -726,6 +726,16 @@ def main() -> int:
         default=int(os.getenv("ML_SCORER_APPROVAL_REQUIRED", "0")),
         help="1 = send Telegram approval request after training, 0 = auto-promote/reject by champion comparison (default)",
     )
+    parser.add_argument(
+        "--max_samples_per_symbol",
+        type=int,
+        default=int(os.getenv("ML_SCORER_V3_MAX_SAMPLES_PER_SYMBOL", "0")),
+        help=(
+            "Cap training rows per symbol to most-recent N (0 = unlimited). "
+            "Prevents a high-volume symbol from dominating training (e.g. 1000PEPEUSDT "
+            "had 58%% of recent data with pos_rate=2.2%% → contaminated GBDT splits)."
+        ),
+    )
     args = parser.parse_args()
 
     # ADR-0007 leakage guard: when training with prior_* features, the CV embargo
@@ -759,6 +769,36 @@ def main() -> int:
         return 0
 
     cols, rows = result
+
+    # Per-symbol sample cap: keep most-recent N rows per symbol.
+    # Without this, a single high-volume / low-quality symbol (e.g. 1000PEPEUSDT
+    # with 58% of recent data and pos_rate=2.2%) dominates GBDT splits and
+    # inverts precision@top5%. Sampling chronologically from the tail preserves
+    # the recent regime distribution.
+    if args.max_samples_per_symbol > 0:
+        try:
+            sym_idx = cols.index("symbol")
+        except ValueError:
+            logger.warning("symbol column missing — skip per-symbol cap")
+            sym_idx = None
+        if sym_idx is not None:
+            sym_counts: dict[str, int] = {}
+            kept_rows: list[Any] = []
+            # Rows are already ORDER BY s.ts ASC; reverse for newest-first walk.
+            for row in reversed(rows):
+                sym_v = str(row[sym_idx] or "")
+                if sym_counts.get(sym_v, 0) < args.max_samples_per_symbol:
+                    sym_counts[sym_v] = sym_counts.get(sym_v, 0) + 1
+                    kept_rows.append(row)
+            # Re-sort chronologically (cap walked backwards, restore ASC for CV).
+            kept_rows.reverse()
+            logger.info(
+                "Per-symbol cap=%d applied: before=%d after=%d (%s)",
+                args.max_samples_per_symbol, len(rows), len(kept_rows),
+                {k: v for k, v in sorted(sym_counts.items())},
+            )
+            rows = kept_rows
+
     n_total = len(rows)
     logger.info("Total labeled samples: %d (min required: %d)", n_total, args.min_samples)
 

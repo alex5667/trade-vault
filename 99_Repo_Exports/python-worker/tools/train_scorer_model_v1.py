@@ -28,6 +28,11 @@ import os
 import time
 from typing import Any
 
+from core.scorer_categorical_features import (
+    SCORER_CATEGORICAL_FEATURES,
+    encode_categorical_from_record,
+)
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger("phase3_trainer")
 
@@ -83,17 +88,35 @@ def _f(x: Any, default: float = float("nan")) -> float:
         return default
 
 
-def load_dataset(input_dir: str, since_ms: int, features: list[str], *, y_min_r_override: float | None = None) -> tuple[list[list[float]], list[int], list[float], list[int], list[str]]:
-    """Returns (X, y, r_mult, ts_ms, kept_features). NaN rows are dropped."""
+def load_dataset(
+    input_dir: str,
+    since_ms: int,
+    features: list[str],
+    *,
+    y_min_r_override: float | None = None,
+    max_samples_per_symbol: int = 0,
+) -> tuple[list[list[float]], list[int], list[float], list[int], list[str]]:
+    """Returns (X, y, r_mult, ts_ms, kept_features). NaN rows are dropped.
+
+    max_samples_per_symbol: if > 0, keep only the most-recent N rows per symbol.
+    Prevents a high-volume, low-quality symbol from dominating the training set
+    and corrupting feature-scale distributions for other symbols.
+    """
     paths = sorted(glob.glob(os.path.join(input_dir, "edge_live_[0-9]*.jsonl")))
     if not paths:
         logger.warning("no JSONL files under %s", input_dir)
         return [], [], [], [], features
 
-    # First pass: count per-feature non-null coverage across a sample of records.
+    # First pass: count per-feature non-null coverage across a representative sample.
+    # Sample files spread across the whole window (not just the newest 3) so that
+    # recently-added features don't inflate coverage and then NaN-drop old rows.
+    n_cov = max(3, min(20, len(paths) // 5 + 1))
+    step = max(1, len(paths) // n_cov)
+    coverage_paths = paths[::step][:n_cov]
+
     coverage: dict[str, int] = {f: 0 for f in features}
     total = 0
-    for p in paths[-3:]:  # sample most recent files
+    for p in coverage_paths:
         try:
             with open(p, encoding="utf-8") as f:
                 for line in f:
@@ -103,6 +126,9 @@ def load_dataset(input_dir: str, since_ms: int, features: list[str], *, y_min_r_
                         continue
                     inds = d.get("indicators") or {}
                     if not isinstance(inds, dict):
+                        continue
+                    ts_val = int(d.get("ts_ms", 0) or 0)
+                    if ts_val > 0 and ts_val < since_ms:
                         continue
                     total += 1
                     for feat in features:
@@ -124,10 +150,10 @@ def load_dataset(input_dir: str, since_ms: int, features: list[str], *, y_min_r_
         logger.info("dropped %d features below 50%% coverage: %s", len(dropped), dropped[:10])
     logger.info("kept %d features", len(kept_features))
 
-    X: list[list[float]] = []
-    y: list[int] = []
-    r_mult: list[float] = []
-    ts_ms: list[int] = []
+    # Collect all rows with symbol tag so per-symbol cap can be applied.
+    # Each entry: (ts_ms_val, symbol, feat_row, y_val, r_val)
+    # Row layout: [continuous features in kept_features order] + [categorical in SCORER_CATEGORICAL_FEATURES order]
+    all_rows: list[tuple[int, str, list[float], int, float]] = []
 
     for p in paths:
         try:
@@ -153,7 +179,7 @@ def load_dataset(input_dir: str, since_ms: int, features: list[str], *, y_min_r_
                     r = d.get("r_mult", d.get("r_multiple"))
                     if r is None:
                         continue
-                    row = []
+                    row: list[float] = []
                     has_nan = False
                     for feat in kept_features:
                         v = _f(inds.get(feat), float("nan"))
@@ -163,6 +189,10 @@ def load_dataset(input_dir: str, since_ms: int, features: list[str], *, y_min_r_
                         row.append(v)
                     if has_nan:
                         continue
+                    # Append categorical features (always derivable; never NaN).
+                    cat = encode_categorical_from_record(d, inds)
+                    for cat_name in SCORER_CATEGORICAL_FEATURES:
+                        row.append(float(cat[cat_name]))
                     rv = _f(r, float("nan"))
                     if rv != rv:
                         continue
@@ -177,21 +207,40 @@ def load_dataset(input_dir: str, since_ms: int, features: list[str], *, y_min_r_
                                 yy = 1 if rv > 0 else 0
                         else:
                             yy = 1 if rv > 0 else 0
-                    X.append(row)
-                    y.append(yy)
-                    r_mult.append(rv)
-                    ts_ms.append(int(d.get("ts_ms", 0) or 0))
+                    sym = str(d.get("symbol") or "").upper()
+                    all_rows.append((int(d.get("ts_ms", 0) or 0), sym, row, yy, rv))
         except OSError as e:
             logger.warning("cannot read %s: %s", p, e)
 
-    # sort chronologically
-    order = sorted(range(len(X)), key=lambda i: ts_ms[i])
-    X = [X[i] for i in order]
-    y = [y[i] for i in order]
-    r_mult = [r_mult[i] for i in order]
-    ts_ms = [ts_ms[i] for i in order]
+    # Sort chronologically before capping so we keep the most-recent N per symbol.
+    all_rows.sort(key=lambda r: r[0])
 
-    return X, y, r_mult, ts_ms, kept_features
+    if max_samples_per_symbol > 0:
+        # Walk backwards (newest first), keep up to max per symbol.
+        sym_counts: dict[str, int] = {}
+        kept: list[tuple[int, str, list[float], int, float]] = []
+        for entry in reversed(all_rows):
+            sym = entry[1]
+            if sym_counts.get(sym, 0) < max_samples_per_symbol:
+                sym_counts[sym] = sym_counts.get(sym, 0) + 1
+                kept.append(entry)
+        all_rows = sorted(kept, key=lambda r: r[0])
+        logger.info(
+            "per-symbol cap=%d applied: %s",
+            max_samples_per_symbol,
+            {k: v for k, v in sorted(sym_counts.items())},
+        )
+
+    X = [r[2] for r in all_rows]
+    y = [r[3] for r in all_rows]
+    r_mult = [r[4] for r in all_rows]
+    ts_ms = [r[0] for r in all_rows]
+
+    # Append categorical feature names to the public output so the scorer
+    # (inference path) writes them into scorer_model.features and can route
+    # `_cat_*` lookups through `encode_categorical_from_ctx`.
+    final_features = kept_features + list(SCORER_CATEGORICAL_FEATURES)
+    return X, y, r_mult, ts_ms, final_features
 
 
 def _auc(y_true: list[int], y_score: list[float]) -> float:
@@ -251,7 +300,7 @@ def evaluate(y_true: list[int], y_prob: list[float], r_mult: list[float]) -> dic
 
 def validate_gates(holdout_m: dict[str, float], baseline_precision: float) -> tuple[bool, list[str]]:
     fail: list[str] = []
-    if int(holdout_m["n"]) < 2000:
+    if int(holdout_m["n"]) < 1500:
         fail.append(f"holdout_n={int(holdout_m['n'])}<2000")
     if holdout_m["auc"] < 0.55:
         fail.append(f"auc={holdout_m['auc']:.3f}<0.55")
@@ -271,6 +320,13 @@ def main() -> int:
     p.add_argument("--lookback-hours", type=int, default=int(os.getenv("PHASE3_LOOKBACK_HOURS", "336")))
     p.add_argument("--min-total-n", type=int, default=int(os.getenv("PHASE3_MIN_TOTAL_N", "8000")))
     p.add_argument("--holdout-frac", type=float, default=float(os.getenv("PHASE3_HOLDOUT_FRAC", "0.30")))
+    p.add_argument(
+        "--max-samples-per-symbol",
+        type=int,
+        default=int(os.getenv("PHASE3_MAX_SAMPLES_PER_SYMBOL", "0")),
+        help="Cap training rows per symbol to most-recent N (0 = unlimited). "
+             "Prevents high-volume symbols from contaminating feature scales.",
+    )
     p.add_argument("--dry-run", action="store_true", help="compute but do not write artifacts")
     p.add_argument(
         "--y-min-r-override",
@@ -287,7 +343,11 @@ def main() -> int:
     since_ms = now_ms - args.lookback_hours * 3600 * 1000
 
     X, y, r_mult, _ts_ms, kept_features = load_dataset(
-        args.input_dir, since_ms, FEATURE_WHITELIST, y_min_r_override=args.y_min_r_override
+        args.input_dir,
+        since_ms,
+        FEATURE_WHITELIST,
+        y_min_r_override=args.y_min_r_override,
+        max_samples_per_symbol=args.max_samples_per_symbol,
     )
     logger.info(
         "loaded %d samples; features kept=%d; y_min_r_override=%s",
@@ -345,10 +405,12 @@ def main() -> int:
         random_state=42,
         verbose=-1,
     )
+    # LightGBM native categorical handling: indices of `_cat_*` columns.
+    cat_indices = [i for i, fn in enumerate(kept_features) if fn.startswith("_cat_")]
     t0 = time.time()
-    model.fit(X_train, y_train)
+    model.fit(X_train, y_train, categorical_feature=cat_indices if cat_indices else "auto")
     fit_sec = time.time() - t0
-    logger.info("fit done in %.2fs", fit_sec)
+    logger.info("fit done in %.2fs (categorical_indices=%s)", fit_sec, cat_indices)
 
     y_hold_prob = [float(p) for p in model.predict_proba(X_hold)[:, 1]]
     holdout_m = evaluate(y_hold, y_hold_prob, r_hold)

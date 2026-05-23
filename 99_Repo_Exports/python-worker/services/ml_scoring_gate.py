@@ -164,6 +164,10 @@ class MLScoringGate:
         self._feature_names: list[str] = []
         self._scaler_params: dict[str, dict[str, float]] = {}
         self._calibrator: Any = None
+        # v14_of edge_stack_v1 packs use a binary classifier (predict_proba → conf01
+        # directly), bypassing the regression → sigmoid/isotonic R-to-conf path used
+        # by ml_scorer_v2/v3 packs.
+        self._is_classifier: bool = False
         self._last_load_ms: int = 0
         self._load_attempts: int = 0
         self._load_failures: int = 0
@@ -267,16 +271,32 @@ class MLScoringGate:
                 return False
 
             kind = pack.get("kind", "")
-            if kind not in ("ml_scorer_v2", "ml_scorer_v3"):
-                logger.error("Unexpected model kind: %s (expected ml_scorer_v2 or ml_scorer_v3)", kind)
+            if kind not in ("ml_scorer_v2", "ml_scorer_v3", "edge_stack_v1"):
+                logger.error(
+                    "Unexpected model kind: %s (expected ml_scorer_v2, ml_scorer_v3, or edge_stack_v1)",
+                    kind,
+                )
                 self._load_failures += 1
                 return False
 
             self._pack = pack
-            self._model = pack.get("model")
-            self._feature_names = list(pack.get("feature_names", []))
-            self._scaler_params = dict(pack.get("robust_scaler_params", {}))
-            self._calibrator = pack.get("calibrator")
+            if kind == "edge_stack_v1":
+                # v14_of pack format: GBDT classifier + LR meta-stacker + meta dict.
+                # Use GBDT alone for inference — its predict_proba already outputs
+                # calibrated P(class=1) in [0, 1]. The LR meta-stacker requires
+                # v5_of-side features that this gate does not produce yet.
+                self._model = pack.get("gbdt")
+                self._feature_names = list(pack.get("feature_cols", []))
+                self._scaler_params = {}  # v14_of features are used raw (no robust scale)
+                self._calibrator = None
+                self._is_classifier = True
+            else:
+                # ml_scorer_v2 / ml_scorer_v3: legacy regression + isotonic calibrator.
+                self._model = pack.get("model")
+                self._feature_names = list(pack.get("feature_names", []))
+                self._scaler_params = dict(pack.get("robust_scaler_params", {}))
+                self._calibrator = pack.get("calibrator")
+                self._is_classifier = False
             self._load_failures = 0
 
             # Extract schema properties — support both old and new key names
@@ -370,6 +390,10 @@ class MLScoringGate:
                 sv = "3"
             elif sv_tag in ("v2", "2"):
                 sv = "2"
+            elif sv_tag in ("v14_of", "v14"):
+                # edge_stack_v1 pack: vectorize via the pack's own feature_cols
+                # (raw indicator-dict lookup, no n:/b: prefix, no categorical).
+                sv = "v14_of"
             # else: numeric sv used as-is
 
             if sv == "registry":
@@ -517,6 +541,15 @@ class MLScoringGate:
                     ts_ms=ts_ms, direction=side, scenario=scenario,
                     indicators=ind, cancel_spike_veto=bool(cancel_spike_veto)
                 )
+            elif sv == "v14_of":
+                # Trainer-aligned vectorization: 1-to-1 lookup against the pack's
+                # feature_cols list (359 raw indicator keys, no prefix, no
+                # categorical). Missing keys → 0.0 (LightGBM tolerates).
+                vec: list[float] = []
+                for fn in self._feature_names:
+                    val = ind.get(fn) if isinstance(ind, dict) else None
+                    vec.append(_fd(ind, fn, 0.0) if val is not None else 0.0)
+                return vec
             else:
                 logger.error(
                     "Unsupported schema: sv=%r sv_tag=%r — check model pack metadata",
@@ -545,23 +578,43 @@ class MLScoringGate:
     # ------------------------------------------------------------------
 
     def _predict_r(self, features: list[float]) -> float | None:
-        """Run model inference → predicted R-multiple."""
+        """Run model inference.
+
+        Returns:
+            - For ml_scorer_v2/v3 (regression): predicted R-multiple.
+            - For edge_stack_v1 (binary classifier, v14_of): predicted
+              P(class=1) ∈ [0, 1] — already in conf01-space, no further
+              calibration needed (see `_calibrate_to_conf01`).
+        """
         try:
             import numpy as _np
 
             x = _np.array([features], dtype=_np.float64)
-            pred = self._model.predict(x)
-            v = float(pred[0])
+            if self._is_classifier and hasattr(self._model, "predict_proba"):
+                proba = self._model.predict_proba(x)
+                # predict_proba returns (n, 2) for binary classifier; column 1 = positive
+                v = float(proba[0, 1])
+            else:
+                pred = self._model.predict(x)
+                v = float(pred[0])
             return v if math.isfinite(v) else None
         except Exception as e:
             logger.error("Model predict failed: %s", e)
             return None
 
     def _calibrate_to_conf01(self, predicted_r: float) -> float:
-        """Map predicted R-multiple → conf01 (0..1)."""
+        """Map predicted score → conf01 (0..1).
+
+        For binary classifiers (v14_of): score is already P(class=1) in [0, 1],
+        so the calibration step is a no-op clamp.
+        For regression models: apply isotonic calibrator if present, else sigmoid.
+        """
+        if self._is_classifier:
+            # predict_proba output is already in [0, 1] — just clamp to API range.
+            return _clamp(predicted_r, 0.05, 0.98)
+
         if self._calibrator is not None:
             try:
-
                 p = self._calibrator.predict([predicted_r])
                 return _clamp(float(p[0]), 0.05, 0.98)
             except Exception:

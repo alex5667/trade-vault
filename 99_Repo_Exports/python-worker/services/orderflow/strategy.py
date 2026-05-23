@@ -3944,6 +3944,28 @@ class OrderFlowStrategy:
                 except Exception as e:
                     self.logger.error("Error in RollingPercentileCalibrator: %s", e)
 
+            # Inject L3-adjacent proxy keys into indicators so signal_facts backfill has data.
+            # True L3 (microprice_velocity, queue_pressure) requires L3LiteAggregator wired into
+            # this pipeline — not yet done. Use available equivalents for the overlap columns.
+            try:
+                _def = lambda k, fb=0.0: (lambda v: v if v is not None else fb)(indicators.get(k))
+                indicators.setdefault("l3_spread_bps", float(_def("spread_bps")))
+                indicators.setdefault("l3_microprice_shift_bps_20", float(_def("microprice_shift_bps_20")))
+                indicators.setdefault("l3_obi_5", float(_def("obi")))
+                indicators.setdefault("l3_obi_20", float(_def("obi_20", _def("obi"))))
+                indicators.setdefault("l3_cancel_to_trade_bid_5s", float(_def("cancel_bid_rate_ema")))
+                indicators.setdefault("l3_cancel_to_trade_ask_5s", float(_def("cancel_ask_rate_ema")))
+                indicators.setdefault("l3_microprice_velocity_bps", 0.0)
+                indicators.setdefault("l3_obi_50", 0.0)
+                indicators.setdefault("l3_obi_persistence_score", 0.0)
+                indicators.setdefault("l3_cancel_to_trade_bid_20s", 0.0)
+                indicators.setdefault("l3_cancel_to_trade_ask_20s", 0.0)
+                indicators.setdefault("l3_queue_pressure_bid", 0.0)
+                indicators.setdefault("l3_queue_pressure_ask", 0.0)
+                indicators.setdefault("l3_market_depth_imbalance", 0.0)
+            except Exception:
+                pass
+
             return round(float(conf), 4)
         except Exception as exc:
             self.logger.warning("confidence scorer fallback due to error: %s", exc)

@@ -12,6 +12,22 @@ from core.performance_optimizer import get_optimized_redis_client
 from core.redis_keys import RedisStreams as RS
 from utils.time_utils import get_ny_time_millis
 
+try:
+    from prometheus_client import Counter as _PCounter
+    _signal_outbox_published_total = _PCounter(
+        "signal_outbox_published_total",
+        "Signals successfully published to outbox stream (dedup passed)",
+        ["symbol", "kind"],
+    )
+    _signal_outbox_deduped_total = _PCounter(
+        "signal_outbox_deduped_total",
+        "Signals dropped by outbox dedup",
+        ["symbol", "kind"],
+    )
+except Exception:
+    _signal_outbox_published_total = None  # type: ignore[assignment]
+    _signal_outbox_deduped_total = None  # type: ignore[assignment]
+
 logger = logging.getLogger(__name__)
 
 
@@ -211,8 +227,18 @@ class SignalOutboxPublisher:
                 msg_id = result[1]
                 if isinstance(msg_id, bytes):
                     msg_id = msg_id.decode("utf-8", errors="replace")
+                try:
+                    if _signal_outbox_published_total is not None:
+                        _signal_outbox_published_total.labels(symbol=symbol, kind=kind).inc()
+                except Exception:
+                    pass
                 return str(msg_id)
             # result[0] == 0 => dedup hit
+            try:
+                if _signal_outbox_deduped_total is not None:
+                    _signal_outbox_deduped_total.labels(symbol=symbol, kind=kind).inc()
+            except Exception:
+                pass
             return None
         # unexpected shape — treat as failure
         return None

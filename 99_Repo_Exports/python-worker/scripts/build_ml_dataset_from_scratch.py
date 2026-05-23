@@ -97,7 +97,7 @@ def run_etl():
     log.info("STEP 2a: Backfill trade_performance")
     cur.execute("""
         INSERT INTO trade_performance
-            (signal_id, ts_open, ts_close, symbol, direction, r, hit, holding_ms)
+            (signal_id, ts_open, ts_close, symbol, direction, r, hit, holding_ms, close_reason_raw, close_reason_bucket)
         SELECT DISTINCT ON (sid)
             sid,
             to_timestamp(entry_ts_ms / 1000.0) AT TIME ZONE 'UTC',
@@ -106,11 +106,13 @@ def run_etl():
             CASE WHEN direction = 'LONG' THEN 1 ELSE -1 END,
             r_multiple,
             pnl_net > 0,
-            exit_ts_ms - entry_ts_ms
+            exit_ts_ms - entry_ts_ms,
+            close_reason_raw,
+            close_reason
         FROM trades_closed
         WHERE sid IS NOT NULL AND r_multiple IS NOT NULL
         ORDER BY sid, exit_ts_ms DESC
-        ON CONFLICT (signal_id) DO UPDATE SET r = EXCLUDED.r, hit = EXCLUDED.hit
+        ON CONFLICT (signal_id) DO UPDATE SET r = EXCLUDED.r, hit = EXCLUDED.hit, close_reason_raw = EXCLUDED.close_reason_raw, close_reason_bucket = EXCLUDED.close_reason_bucket
     """)
     tp_n = cur.rowcount
     log.info("  → %d rows", tp_n)
@@ -120,11 +122,13 @@ def run_etl():
     #   ind_obi           → obi_avg_20    (double precision, may be 0.0)
     #   ind_weak_progress → weak_progress_ratio (boolean → float)
     #   ind_atr_th_bps    → atr_14        (double precision)
-    log.info("STEP 2b: Backfill signal_facts (from trades_closed.ind_*)")
+    log.info("STEP 2b: Backfill signal_facts (from trades_closed.ind_* + config_json->indicators)")
     cur.execute("""
         INSERT INTO signal_facts
             (ts, signal_id, symbol, direction, signal_family,
-             conf_score, atr_14, delta_spike_z, obi_avg_20, weak_progress_ratio)
+             conf_score, atr_14, delta_spike_z, obi_avg_20, weak_progress_ratio,
+             l3_spread_bps, l3_microprice_shift_bps_20, l3_obi_5, l3_obi_20,
+             l3_cancel_to_trade_bid_5s, l3_cancel_to_trade_ask_5s)
         SELECT DISTINCT ON (sid)
             to_timestamp(entry_ts_ms / 1000.0) AT TIME ZONE 'UTC',
             sid, symbol,
@@ -134,7 +138,19 @@ def run_etl():
             COALESCE(ind_atr_th_bps, 0.0),
             COALESCE(ind_delta_z, 0.0),
             COALESCE(ind_obi, 0.0),
-            CASE WHEN ind_weak_progress THEN 1.0 ELSE 0.0 END
+            CASE WHEN ind_weak_progress THEN 1.0 ELSE 0.0 END,
+            COALESCE((config_json->'indicators'->>'l3_spread_bps')::double precision,
+                     (config_json->'indicators'->>'spread_bps')::double precision, 0.0),
+            COALESCE((config_json->'indicators'->>'l3_microprice_shift_bps_20')::double precision,
+                     (config_json->'indicators'->>'microprice_shift_bps_20')::double precision, 0.0),
+            COALESCE((config_json->'indicators'->>'l3_obi_5')::double precision,
+                     (config_json->'indicators'->>'obi')::double precision, 0.0),
+            COALESCE((config_json->'indicators'->>'l3_obi_20')::double precision,
+                     (config_json->'indicators'->>'obi_20')::double precision, 0.0),
+            COALESCE((config_json->'indicators'->>'l3_cancel_to_trade_bid_5s')::double precision,
+                     (config_json->'indicators'->>'cancel_bid_rate_ema')::double precision, 0.0),
+            COALESCE((config_json->'indicators'->>'l3_cancel_to_trade_ask_5s')::double precision,
+                     (config_json->'indicators'->>'cancel_ask_rate_ema')::double precision, 0.0)
         FROM trades_closed
         WHERE sid IS NOT NULL AND r_multiple IS NOT NULL
         ORDER BY sid, entry_ts_ms DESC
@@ -147,7 +163,7 @@ def run_etl():
     # Step 3: Diagnostics
     log.info("STEP 3: Diagnostics")
     cur.execute("""
-        SELECT count(*)
+        SELECT count(*),
                round(avg(r)::numeric, 4),
                round(avg(CASE WHEN hit THEN 1.0 ELSE 0.0 END)::numeric, 4)
         FROM trade_performance
@@ -156,7 +172,7 @@ def run_etl():
     log.info("  trade_performance: %d, avg_R=%s, hit_rate=%s", n, avg_r, hr)
 
     cur.execute("""
-        SELECT count(*)
+        SELECT count(*),
                count(DISTINCT symbol),
                round(avg(delta_spike_z)::numeric, 4),
                round(stddev(delta_spike_z)::numeric, 4),

@@ -91,6 +91,8 @@ def _ms_now() -> int:
 
 
 class BinanceExecutor:
+    r: Any  # sync redis.Redis client
+
     """Facade: consumes orders:queue:binance and delegates to service modules.
 
     All domain logic lives in the services/execution/ sub-modules.
@@ -418,7 +420,7 @@ class BinanceExecutor:
         action = (payload.get("action") or "open").strip().lower()
         sid = (payload.get("sid") or payload.get("id") or "").strip()
         symbol = (payload.get("symbol") or "").strip().upper()
-        ts_queue_ms = payload.get("ts_ms") or payload.get("ts_queue_ms" or ts_exec_start_ms)
+        ts_queue_ms: int = int(payload.get("ts_ms") or payload.get("ts_queue_ms") or ts_exec_start_ms)
 
         if not sid or not symbol:
             self.event_writer.dlq(raw, "missing_sid_or_symbol")

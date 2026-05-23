@@ -58,7 +58,7 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '0.30'
+          cpus: '0.20'
           memory: 256M
         reservations:
           memory: 24M
@@ -102,7 +102,7 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '0.2'
+          cpus: '0.20'
           memory: 256M
         reservations:
           memory: 24M
@@ -331,7 +331,7 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '0.30'
+          cpus: '0.20'
           memory: 256M
         reservations:
           memory: 24M
@@ -394,7 +394,7 @@ services:
     command:
     - python3
     - -u
-    - tools/test_meta_schema_registry_v6.py
+    - sleep 80 && tools/test_meta_schema_registry_v6.py
     networks:
     - scanner-timers
     - scanner-infra
@@ -590,7 +590,7 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '0.30'
+          cpus: '0.20'
           memory: 256M
         reservations:
           memory: 24M
@@ -633,7 +633,7 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '0.30'
+          cpus: '0.20'
           memory: 256M
         reservations:
           memory: 24M
@@ -670,7 +670,7 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '0.50'
+          cpus: '0.25'
           memory: 512M
         reservations:
           memory: 24M
@@ -714,7 +714,7 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '0.50'
+          cpus: '0.25'
           memory: 512M
         reservations:
           memory: 24M
@@ -806,7 +806,7 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '0.50'
+          cpus: '0.25'
           memory: 512M
         reservations:
           memory: 24M
@@ -840,7 +840,7 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '0.50'
+          cpus: '0.25'
           memory: 512M
         reservations:
           memory: 24M
@@ -1087,7 +1087,7 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '0.30'
+          cpus: '0.20'
           memory: 256M
         reservations:
           memory: 24M
@@ -1126,7 +1126,7 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '0.30'
+          cpus: '0.20'
           memory: 256M
         reservations:
           memory: 24M
@@ -1158,7 +1158,7 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '0.30'
+          cpus: '0.20'
           memory: 256M
         reservations:
           memory: 24M
@@ -1189,7 +1189,7 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '0.30'
+          cpus: '0.20'
           memory: 768M
         reservations:
           memory: 24M
@@ -1230,7 +1230,7 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '1.0'
+          cpus: '0.25'
           memory: 4G
         reservations:
           memory: 24M
@@ -1261,7 +1261,7 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '0.30'
+          cpus: '0.20'
           memory: 256M
         reservations:
           memory: 24M
@@ -1297,7 +1297,7 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '0.50'
+          cpus: '0.25'
           memory: 256M
         reservations:
           memory: 24M
@@ -1418,7 +1418,7 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '0.50'
+          cpus: '0.25'
           memory: 512M
         reservations:
           memory: 24M
@@ -1456,7 +1456,7 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '0.50'
+          cpus: '0.25'
           memory: 512M
         reservations:
           memory: 24M
@@ -1500,7 +1500,7 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '0.50'
+          cpus: '0.25'
           memory: 512M
         reservations:
           memory: 24M
@@ -1543,7 +1543,7 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '0.30'
+          cpus: '0.20'
           memory: 256M
         reservations:
           memory: 24M
@@ -1606,7 +1606,7 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '0.30'
+          cpus: '0.20'
           memory: 256M
         reservations:
           memory: 24M
@@ -1648,7 +1648,7 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '0.30'
+          cpus: '0.20'
           memory: 256M
         reservations:
           memory: 24M
@@ -1730,7 +1730,7 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '0.50'
+          cpus: '0.25'
           memory: 1G
         reservations:
           memory: 24M
@@ -1885,7 +1885,7 @@ services:
       resources:
         limits:
           memory: 4G
-          cpus: '0.50'
+          cpus: '0.25'
         reservations:
           memory: 24M
     volumes:
@@ -1909,7 +1909,7 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '1.0'
+          cpus: '0.25'
           memory: 2G
         reservations:
           memory: 128M
@@ -1956,7 +1956,7 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '0.30'
+          cpus: '0.20'
           memory: 512M
         reservations:
           memory: 64M
@@ -2005,7 +2005,7 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '0.30'
+          cpus: '0.20'
           memory: 256M
         reservations:
           memory: 24M
@@ -2049,7 +2049,7 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '0.30'
+          cpus: '0.20'
           memory: 512M
         reservations:
           memory: 64M
@@ -2118,7 +2118,7 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '0.50'
+          cpus: '0.25'
           memory: 2G
         reservations:
           memory: 64M
@@ -2129,10 +2129,11 @@ services:
     - PHASE3_INPUT_DIR=/var/lib/trade/of_reports/out/confidence_cal_live
     - PHASE3_OUTPUT_DIR=/app/python-worker/ml_models
     - PHASE3_LOOKBACK_HOURS=168
-    - PHASE3_MIN_TOTAL_N=8000
+    - PHASE3_MIN_TOTAL_N=4000
     - PHASE3_HOLDOUT_FRAC=0.30
     - PHASE3_Y_MIN_R_OVERRIDE=0.15
-    - PYTHONPATH=.:/app
+    - PHASE3_MAX_SAMPLES_PER_SYMBOL=1500
+    - PYTHONPATH=/app/python-worker:.:/app
     - PYTHONUNBUFFERED=1
     - TZ=UTC
     working_dir: /app
@@ -2155,7 +2156,7 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '0.30'
+          cpus: '0.20'
           memory: 512M
         reservations:
           memory: 32M
@@ -2401,7 +2402,7 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '1.0'
+          cpus: '0.25'
           memory: 4G
         reservations:
           memory: 24M
@@ -2438,7 +2439,7 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '1.0'
+          cpus: '0.25'
           memory: 4G
         reservations:
           memory: 24M
@@ -2487,7 +2488,7 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '1.0'
+          cpus: '0.25'
           memory: 4G
         reservations:
           memory: 24M
@@ -2519,7 +2520,7 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '0.30'
+          cpus: '0.20'
           memory: 256M
         reservations:
           memory: 24M
@@ -2559,7 +2560,7 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '0.30'
+          cpus: '0.20'
           memory: 256M
         reservations:
           memory: 24M
@@ -2612,7 +2613,7 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '0.30'
+          cpus: '0.20'
           memory: 256M
         reservations:
           memory: 24M
@@ -2660,7 +2661,7 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '0.50'
+          cpus: '0.25'
           memory: 512M
         reservations:
           memory: 24M
@@ -2694,7 +2695,7 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '0.50'
+          cpus: '0.25'
           memory: 512M
         reservations:
           memory: 24M
@@ -2730,7 +2731,7 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '0.30'
+          cpus: '0.20'
           memory: 256M
         reservations:
           memory: 24M
@@ -2849,7 +2850,7 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '0.30'
+          cpus: '0.20'
           memory: 256M
         reservations:
           memory: 24M
@@ -2883,7 +2884,7 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '0.30'
+          cpus: '0.20'
           memory: 256M
         reservations:
           memory: 24M
@@ -2938,7 +2939,7 @@ services:
     command:
     - sh
     - -c
-    - python3 -u orderflow_services/golden_replay_capture_exporter_p112.py
+    - sleep 88 && python3 -u orderflow_services/golden_replay_capture_exporter_p112.py
     networks:
     - scanner-timers
     - scanner-infra
@@ -2981,7 +2982,7 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '0.30'
+          cpus: '0.20'
           memory: 256M
         reservations:
           memory: 24M
@@ -3012,7 +3013,7 @@ services:
     command:
     - sh
     - -c
-    - python3 -u -m services.binance_account_reporter
+    - sleep 96 && python3 -u -m services.binance_account_reporter
     networks:
     - scanner-timers
     - scanner-infra
@@ -3026,7 +3027,7 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '0.50'
+          cpus: '0.25'
           memory: 512M
         reservations:
           memory: 24M
@@ -3069,7 +3070,7 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '0.30'
+          cpus: '0.20'
           memory: 256M
         reservations:
           memory: 24M
@@ -3088,7 +3089,7 @@ services:
     command:
     - sh
     - -c
-    - python3 -u -m services.posttrade.decision_snapshot_writer
+    - sleep 8 && python3 -u -m services.posttrade.decision_snapshot_writer
     networks:
     - scanner-timers
     - scanner-infra
@@ -3107,7 +3108,7 @@ services:
     command:
     - sh
     - -c
-    - python /srv/runbooks/server/runbook_server.py
+    - sleep 16 && python /srv/runbooks/server/runbook_server.py
     environment:
     - RUNBOOK_ROOT=/srv/runbooks
     - RUNBOOK_REPORT_DIR=/var/lib/trade-runbook/reports
@@ -3295,7 +3296,7 @@ services:
     working_dir: /app
     volumes:
     - ./python-worker:/app
-    command: sh -c "python3 tools/run_daemon_with_minik_failover.py --job-name bbo_ts_writer -- python -m services.posttrade.bbo_ts_writer"
+    command: sh -c "sleep 24 && python3 tools/run_daemon_with_minik_failover.py --job-name bbo_ts_writer -- python -m services.posttrade.bbo_ts_writer"
     depends_on:
       redis-worker-1:
         condition: service_healthy
@@ -3311,7 +3312,7 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '0.30'
+          cpus: '0.20'
           memory: 256M
         reservations:
           memory: 24M
@@ -3334,7 +3335,7 @@ services:
     command:
     - sh
     - -c
-    - python -m services.posttrade.fills_writer
+    - sleep 32 && python -m services.posttrade.fills_writer
     networks:
     - scanner-timers
     - scanner-infra
@@ -3347,7 +3348,7 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '0.30'
+          cpus: '0.20'
           memory: 256M
         reservations:
           memory: 24M
@@ -3376,7 +3377,7 @@ services:
     command:
     - sh
     - -c
-    - python -m services.posttrade.tca_worker
+    - sleep 40 && python -m services.posttrade.tca_worker
     networks:
     - scanner-timers
     - scanner-infra
@@ -3390,7 +3391,7 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '0.30'
+          cpus: '0.20'
           memory: 256M
         reservations:
           memory: 24M
@@ -3429,7 +3430,7 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '0.50'
+          cpus: '0.25'
           memory: 512M
         reservations:
           memory: 24M
@@ -3465,7 +3466,7 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '0.30'
+          cpus: '0.20'
           memory: 512M
         reservations:
           memory: 24M
@@ -3501,7 +3502,7 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '0.50'
+          cpus: '0.25'
           memory: 512M
         reservations:
           memory: 24M
@@ -3545,7 +3546,7 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '0.2'
+          cpus: '0.20'
           memory: 256M
         reservations:
           memory: 24M
@@ -4075,7 +4076,7 @@ services:
     command:
     - sh
     - -c
-    - python3 -m orderflow_services.exec_health_slo_exporter_v1
+    - sleep 104 && python3 -m orderflow_services.exec_health_slo_exporter_v1
     depends_on:
       redis-worker-1:
         condition: service_healthy
@@ -4112,7 +4113,7 @@ services:
     command:
     - sh
     - -c
-    - python3 -m orderflow_services.exec_health_freeze_service_identity_exporter_v1
+    - sleep 112 && python3 -m orderflow_services.exec_health_freeze_service_identity_exporter_v1
     networks:
     - scanner-timers
     - scanner-infra
@@ -4158,7 +4159,7 @@ services:
     command:
     - sh
     - -c
-    - python3 -m orderflow_services.exec_health_slo_autoguard_v1
+    - sleep 120 && python3 -m orderflow_services.exec_health_slo_autoguard_v1
     networks:
     - scanner-timers
     - scanner-infra
@@ -4192,7 +4193,7 @@ services:
     command:
     - sh
     - -c
-    - python3 -m orderflow_services.exec_health_slo_autoguard_exporter_v1
+    - sleep 128 && python3 -m orderflow_services.exec_health_slo_autoguard_exporter_v1
     healthcheck:
       test:
       - CMD-SHELL
@@ -4234,7 +4235,7 @@ services:
     command:
     - sh
     - -c
-    - python3 -m orderflow_services.exec_health_freeze_control_exporter_v1
+    - sleep 136 && python3 -m orderflow_services.exec_health_freeze_control_exporter_v1
     healthcheck:
       test:
       - CMD-SHELL
@@ -4280,7 +4281,7 @@ services:
     command:
     - sh
     - -c
-    - python3 -m orderflow_services.exec_health_freeze_integrity_exporter_v1
+    - sleep 144 && python3 -m orderflow_services.exec_health_freeze_integrity_exporter_v1
     networks:
     - scanner-timers
     - scanner-infra
@@ -4319,7 +4320,7 @@ services:
     command:
     - sh
     - -c
-    - python3 -m orderflow_services.exec_health_freeze_dual_control_exporter_v1
+    - sleep 152 && python3 -m orderflow_services.exec_health_freeze_dual_control_exporter_v1
     networks:
     - scanner-timers
     - scanner-infra
@@ -4363,7 +4364,7 @@ services:
     command:
     - sh
     - -c
-    - python3 -m orderflow_services.exec_health_freeze_tamper_guard_v1
+    - sleep 160 && python3 -m orderflow_services.exec_health_freeze_tamper_guard_v1
     networks:
     - scanner-timers
     - scanner-infra
@@ -4400,7 +4401,7 @@ services:
     command:
     - sh
     - -c
-    - python3 -m orderflow_services.exec_health_freeze_acl_audit_exporter_v1
+    - sleep 168 && python3 -m orderflow_services.exec_health_freeze_acl_audit_exporter_v1
     networks:
     - scanner-timers
     - scanner-infra
@@ -4432,7 +4433,7 @@ services:
     command:
     - sh
     - -c
-    - python3 -m orderflow_services.exec_health_freeze_acl_drift_exporter_v1
+    - sleep 176 && python3 -m orderflow_services.exec_health_freeze_acl_drift_exporter_v1
     networks:
     - scanner-timers
     - scanner-infra
@@ -4482,7 +4483,7 @@ services:
     command:
     - sh
     - -c
-    - python3 /app/scripts/run_execution_audit_chain_scheduler.py
+    - sleep 48 && python3 /app/scripts/run_execution_audit_chain_scheduler.py
     networks:
     - scanner-timers
     - scanner-infra
@@ -4520,7 +4521,7 @@ services:
     command:
     - sh
     - -c
-    - python3 /app/runbooks/server/runbook_server.py
+    - sleep 56 && python3 /app/runbooks/server/runbook_server.py
     networks:
     - scanner-timers
     - scanner-infra
@@ -4707,7 +4708,7 @@ services:
     command:
     - sh
     - -c
-    - python3 -m orderflow_services.tca_nightly_report_exporter_v1
+    - sleep 184 && python3 -m orderflow_services.tca_nightly_report_exporter_v1
     networks:
     - scanner-timers
     - scanner-infra
@@ -4741,7 +4742,7 @@ services:
     command:
     - sh
     - -c
-    - python3 -m news_pipeline.news_agent_timer
+    - sleep 192 && python3 -m news_pipeline.news_agent_timer
     depends_on:
       redis-worker-1:
         condition: service_healthy
@@ -4788,7 +4789,7 @@ services:
     command:
     - sh
     - -c
-    - python3 -m services.entry_policy_rollback_guard_v2
+    - sleep 200 && python3 -m services.entry_policy_rollback_guard_v2
     depends_on:
       redis-worker-1:
         condition: service_healthy
@@ -4916,7 +4917,7 @@ services:
     volumes:
     - ./python-worker:/app
     - /var/lib/trade/of_reports:/var/lib/trade/of_reports
-    command: "sh -c \"python3 -m orderflow_services.liqmap_gate_calibrator_v1\"\n"
+    command: "sh -c \"sleep 528 && python3 -m orderflow_services.liqmap_gate_calibrator_v1\"\n"
     networks:
     - scanner-timers
     - scanner-infra
@@ -4930,7 +4931,7 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '0.50'
+          cpus: '0.25'
           memory: 1024M
         reservations:
           memory: 24M
@@ -4980,7 +4981,7 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '0.30'
+          cpus: '0.20'
           memory: 512M
         reservations:
           memory: 24M
@@ -5071,7 +5072,7 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '0.30'
+          cpus: '0.20'
           memory: 512M
         reservations:
           memory: 32M
@@ -5190,7 +5191,7 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '0.50'
+          cpus: '0.25'
           memory: 512M
         reservations:
           memory: 32M
@@ -5255,7 +5256,7 @@ services:
     - TZ=UTC
     volumes:
     - ./python-worker/services:/app/services
-    command: 'sh -c "exec python3 -m services.orderflow.ofc_contextual_decision_writer_v1"
+    command: 'sh -c "sleep 216 && exec python3 -m services.orderflow.ofc_contextual_decision_writer_v1"
 
       '
     depends_on:
@@ -5293,7 +5294,7 @@ services:
     command:
     - sh
     - -c
-    - python3 -u -m orderflow_services.ofc_contextual_exporter_v1
+    - sleep 224 && python3 -u -m orderflow_services.ofc_contextual_exporter_v1
     healthcheck:
       test:
       - CMD-SHELL
@@ -5317,7 +5318,7 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '0.50'
+          cpus: '0.25'
           memory: 1G
         reservations:
           memory: 24M
@@ -5357,7 +5358,7 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '0.30'
+          cpus: '0.20'
           memory: 256M
         reservations:
           memory: 24M
@@ -5455,7 +5456,7 @@ services:
     command:
     - sh
     - -c
-    - 'python3 -m orderflow_services.ofc_contextual_rollout_exporter_v1'
+    - sleep 232 && 'python3 -m orderflow_services.ofc_contextual_rollout_exporter_v1'
     healthcheck:
       test:
       - CMD-SHELL
@@ -5549,7 +5550,7 @@ services:
     - TZ=UTC
     volumes:
     - ./python-worker/services:/app/services
-    command: 'sh -c "exec python3 -m services.binance_dust_cleanup_worker"'
+    command: 'sh -c "sleep 240 && exec python3 -m services.binance_dust_cleanup_worker"'
     depends_on:
       redis-worker-1:
         condition: service_healthy
@@ -5595,7 +5596,7 @@ services:
     - TZ=UTC
     volumes:
     - ./python-worker/services:/app/services
-    command: 'sh -c "exec python3 -m services.binance_orphan_order_cleanup_worker"'
+    command: 'sh -c "sleep 248 && exec python3 -m services.binance_orphan_order_cleanup_worker"'
     depends_on:
       redis-worker-1:
         condition: service_healthy
@@ -5633,7 +5634,7 @@ services:
     - ${BINANCE_DUST_ADMIN_HTTP_PORT:-8791}:${BINANCE_DUST_ADMIN_HTTP_PORT:-8791}
     volumes:
     - ./python-worker/services:/app/services
-    command: 'sh -c "exec python3 -m services.binance_dust_cleanup_admin_http"'
+    command: 'sh -c "sleep 64 && exec python3 -m services.binance_dust_cleanup_admin_http"'
     depends_on:
       redis-worker-1:
         condition: service_healthy
@@ -5676,7 +5677,7 @@ services:
     - TZ=UTC
     volumes:
     - ./python-worker/services:/app/services
-    command: "sh -c \"exec python3 -m services.binance_dust_cleanup_admin_notifier\
+    command: "sh -c \"sleep 536 && exec python3 -m services.binance_dust_cleanup_admin_notifier\
       \ \\\n  --interval-sec ${BINANCE_DUST_ADMIN_NOTIFY_INTERVAL_SEC:-30}\"\n"
     depends_on:
       redis-worker-1:
@@ -5717,7 +5718,7 @@ services:
     command:
     - sh
     - -c
-    - python3 -u orderflow_services/regime_drift_worker_v1.py
+    - sleep 264 && python3 -u orderflow_services/regime_drift_worker_v1.py
     depends_on:
       redis-worker-1:
         condition: service_healthy
@@ -5762,7 +5763,7 @@ services:
     command:
     - sh
     - -c
-    - 'exec python3 -m orderflow_services.ml_inventory_exporter_v1'
+    - sleep 272 && 'exec python3 -m orderflow_services.ml_inventory_exporter_v1'
     depends_on:
       redis-worker-1:
         condition: service_healthy
@@ -5806,7 +5807,7 @@ services:
     command:
     - sh
     - -c
-    - 'exec python3 -m orderflow_services.ml_health_rollup_worker_v1'
+    - sleep 280 && 'exec python3 -m orderflow_services.ml_health_rollup_worker_v1'
     depends_on:
       redis-worker-1:
         condition: service_healthy
@@ -5824,7 +5825,7 @@ services:
     command:
     - sh
     - -c
-    - python -m orderflow_services.local_fallback_plane_gateway_v3_0
+    - sleep 288 && python -m orderflow_services.local_fallback_plane_gateway_v3_0
     restart: unless-stopped
     environment:
       REDIS_URL: ${REDIS_URL:-redis://redis-worker-1:6379/0}
@@ -5863,7 +5864,7 @@ services:
     command:
     - sh
     - -c
-    - python -m orderflow_services.vertex_local_fallback_handoff_controller_v3_1
+    - sleep 296 && python -m orderflow_services.vertex_local_fallback_handoff_controller_v3_1
     restart: unless-stopped
     environment:
       REDIS_URL: ${REDIS_URL:-redis://redis-worker-1:6379/0}
@@ -5897,7 +5898,7 @@ services:
     command:
     - sh
     - -c
-    - python -m orderflow_services.local_report_handoff_rewire_adapter_v3_2
+    - sleep 304 && python -m orderflow_services.local_report_handoff_rewire_adapter_v3_2
     restart: unless-stopped
     environment:
       REDIS_URL: ${REDIS_URL:-redis://redis-worker-1:6379/0}
@@ -5932,7 +5933,7 @@ services:
     command:
     - sh
     - -c
-    - python -m orderflow_services.offline_debug_handoff_rewire_adapter_v3_3
+    - sleep 312 && python -m orderflow_services.offline_debug_handoff_rewire_adapter_v3_3
     restart: unless-stopped
     environment:
       REDIS_URL: ${REDIS_URL:-redis://redis-worker-1:6379/0}
@@ -5967,7 +5968,7 @@ services:
     command:
     - sh
     - -c
-    - python -m orderflow_services.emergency_summarize_handoff_rewire_adapter_v3_4
+    - sleep 320 && python -m orderflow_services.emergency_summarize_handoff_rewire_adapter_v3_4
     restart: unless-stopped
     environment:
       REDIS_URL: ${REDIS_URL:-redis://redis-worker-1:6379/0}
@@ -6006,7 +6007,7 @@ services:
     command:
     - sh
     - -c
-    - python -m orderflow_services.route_incident_rca_shadow_handoff_adapter_v3_5
+    - sleep 328 && python -m orderflow_services.route_incident_rca_shadow_handoff_adapter_v3_5
     restart: unless-stopped
     environment:
       REDIS_URL: ${REDIS_URL:-redis://redis-worker-1:6379/0}
@@ -6042,7 +6043,7 @@ services:
     command:
     - sh
     - -c
-    - python -m orderflow_services.route_incident_rca_shadow_comparator_v3_6
+    - sleep 336 && python -m orderflow_services.route_incident_rca_shadow_comparator_v3_6
     restart: unless-stopped
     environment:
       REDIS_URL: ${REDIS_URL:-redis://redis-worker-1:6379/0}
@@ -6074,7 +6075,7 @@ services:
     command:
     - sh
     - -c
-    - python -m orderflow_services.route_incident_rca_mirror_governor_v3_7
+    - sleep 344 && python -m orderflow_services.route_incident_rca_mirror_governor_v3_7
     restart: unless-stopped
     environment:
       REDIS_URL: ${REDIS_URL:-redis://redis-worker-1:6379/0}
@@ -6116,7 +6117,7 @@ services:
     command:
     - sh
     - -c
-    - python -m orderflow_services.route_incident_rca_mirror_verification_loop_v3_8
+    - sleep 352 && python -m orderflow_services.route_incident_rca_mirror_verification_loop_v3_8
     restart: unless-stopped
     environment:
       REDIS_URL: ${REDIS_URL:-redis://redis-worker-1:6379/0}
@@ -6154,7 +6155,7 @@ services:
     command:
     - sh
     - -c
-    - python -m orderflow_services.route_incident_rca_mirror_rollout_controller_v3_9
+    - sleep 360 && python -m orderflow_services.route_incident_rca_mirror_rollout_controller_v3_9
     restart: unless-stopped
     networks:
     - scanner-timers
@@ -6188,7 +6189,7 @@ services:
     command:
     - sh
     - -c
-    - python -m orderflow_services.route_incident_rca_mirror_slo_analytics_v3_10
+    - sleep 368 && python -m orderflow_services.route_incident_rca_mirror_slo_analytics_v3_10
     restart: unless-stopped
     networks:
     - scanner-timers
@@ -6218,7 +6219,7 @@ services:
     command:
     - sh
     - -c
-    - python -m orderflow_services.route_incident_rca_mirror_retry_controller_v3_10
+    - sleep 376 && python -m orderflow_services.route_incident_rca_mirror_retry_controller_v3_10
     restart: unless-stopped
     networks:
     - scanner-timers
@@ -6250,7 +6251,7 @@ services:
     command:
     - sh
     - -c
-    - python -m orderflow_services.route_incident_rca_mirror_auto_escalation_summarizer_v3_10
+    - sleep 384 && python -m orderflow_services.route_incident_rca_mirror_auto_escalation_summarizer_v3_10
     restart: unless-stopped
     networks:
     - scanner-timers
@@ -6280,7 +6281,7 @@ services:
     command:
     - sh
     - -c
-    - python -m orderflow_services.route_incident_rca_mirror_incident_bundle_builder_v3_11
+    - sleep 392 && python -m orderflow_services.route_incident_rca_mirror_incident_bundle_builder_v3_11
     restart: unless-stopped
     networks:
     - scanner-timers
@@ -6311,7 +6312,7 @@ services:
     command:
     - sh
     - -c
-    - python -m orderflow_services.route_incident_rca_mirror_bundle_rca_bridge_v3_12
+    - sleep 400 && python -m orderflow_services.route_incident_rca_mirror_bundle_rca_bridge_v3_12
     restart: unless-stopped
     networks:
     - scanner-timers
@@ -6342,7 +6343,7 @@ services:
     command:
     - sh
     - -c
-    - python -m orderflow_services.route_incident_rca_mirror_vertex_rca_consumer_v3_13
+    - sleep 408 && python -m orderflow_services.route_incident_rca_mirror_vertex_rca_consumer_v3_13
     restart: unless-stopped
     networks:
     - scanner-timers
@@ -6373,7 +6374,7 @@ services:
     command:
     - sh
     - -c
-    - python -m orderflow_services.route_incident_rca_mirror_vertex_feedback_governor_v3_13
+    - sleep 416 && python -m orderflow_services.route_incident_rca_mirror_vertex_feedback_governor_v3_13
     restart: unless-stopped
     networks:
     - scanner-timers
@@ -6407,7 +6408,7 @@ services:
     command:
     - sh
     - -c
-    - python -m orderflow_services.route_incident_rca_mirror_rca_experiment_harness_v3_14
+    - sleep 424 && python -m orderflow_services.route_incident_rca_mirror_rca_experiment_harness_v3_14
     restart: unless-stopped
     networks:
     - scanner-timers
@@ -6439,7 +6440,7 @@ services:
     command:
     - sh
     - -c
-    - python -m orderflow_services.route_incident_rca_mirror_rca_evaluator_v3_15
+    - sleep 432 && python -m orderflow_services.route_incident_rca_mirror_rca_evaluator_v3_15
     restart: unless-stopped
     networks:
     - scanner-timers
@@ -6478,7 +6479,7 @@ services:
     command:
     - sh
     - -c
-    - python -m orderflow_services.route_incident_rca_mirror_rca_winner_apply_controller_v3_16
+    - sleep 440 && python -m orderflow_services.route_incident_rca_mirror_rca_winner_apply_controller_v3_16
     restart: unless-stopped
     networks:
     - scanner-timers
@@ -6512,7 +6513,7 @@ services:
     command:
     - sh
     - -c
-    - python -m orderflow_services.route_incident_rca_mirror_rca_winner_apply_verification_loop_v3_17
+    - sleep 448 && python -m orderflow_services.route_incident_rca_mirror_rca_winner_apply_verification_loop_v3_17
     restart: unless-stopped
     networks:
     - scanner-timers
@@ -6548,7 +6549,7 @@ services:
     command:
     - sh
     - -c
-    - python -m orderflow_services.route_incident_rca_mirror_rca_winner_apply_slo_analytics_v3_18
+    - sleep 456 && python -m orderflow_services.route_incident_rca_mirror_rca_winner_apply_slo_analytics_v3_18
     restart: unless-stopped
     networks:
     - scanner-timers
@@ -6578,7 +6579,7 @@ services:
     command:
     - sh
     - -c
-    - python -m orderflow_services.route_incident_rca_mirror_rca_winner_apply_retry_controller_v3_18
+    - sleep 464 && python -m orderflow_services.route_incident_rca_mirror_rca_winner_apply_retry_controller_v3_18
     restart: unless-stopped
     networks:
     - scanner-timers
@@ -6610,7 +6611,7 @@ services:
     command:
     - sh
     - -c
-    - python -m orderflow_services.route_incident_rca_mirror_rca_winner_apply_auto_escalation_summarizer_v3_18
+    - sleep 472 && python -m orderflow_services.route_incident_rca_mirror_rca_winner_apply_auto_escalation_summarizer_v3_18
     restart: unless-stopped
     networks:
     - scanner-timers
@@ -6641,7 +6642,7 @@ services:
     command:
     - sh
     - -c
-    - python -m orderflow_services.route_incident_rca_mirror_rca_winner_apply_incident_bundle_builder_v3_19
+    - sleep 480 && python -m orderflow_services.route_incident_rca_mirror_rca_winner_apply_incident_bundle_builder_v3_19
     restart: unless-stopped
     networks:
     - scanner-timers
@@ -6674,7 +6675,7 @@ services:
     command:
     - sh
     - -c
-    - python -m orderflow_services.route_incident_rca_mirror_rca_winner_apply_bundle_rca_bridge_v3_20
+    - sleep 488 && python -m orderflow_services.route_incident_rca_mirror_rca_winner_apply_bundle_rca_bridge_v3_20
     restart: unless-stopped
     networks:
     - scanner-timers
@@ -6707,7 +6708,7 @@ services:
     command:
     - sh
     - -c
-    - python -m orderflow_services.route_incident_rca_mirror_rca_winner_apply_vertex_rca_consumer_v3_21
+    - sleep 496 && python -m orderflow_services.route_incident_rca_mirror_rca_winner_apply_vertex_rca_consumer_v3_21
     restart: unless-stopped
     networks:
     - scanner-timers
@@ -6738,7 +6739,7 @@ services:
     command:
     - sh
     - -c
-    - python -m orderflow_services.route_incident_rca_mirror_rca_winner_apply_vertex_feedback_governor_v3_21
+    - sleep 504 && python -m orderflow_services.route_incident_rca_mirror_rca_winner_apply_vertex_feedback_governor_v3_21
     restart: unless-stopped
     networks:
     - scanner-timers
@@ -6770,7 +6771,7 @@ services:
     command:
     - sh
     - -c
-    - python -m orderflow_services.route_incident_rca_mirror_rca_winner_apply_experiment_harness_v3_22
+    - sleep 512 && python -m orderflow_services.route_incident_rca_mirror_rca_winner_apply_experiment_harness_v3_22
     restart: unless-stopped
     networks:
     - scanner-timers
@@ -6805,7 +6806,7 @@ services:
     command:
     - sh
     - -c
-    - python -m orderflow_services.route_incident_rca_mirror_rca_winner_apply_evaluator_v3_23
+    - sleep 520 && python -m orderflow_services.route_incident_rca_mirror_rca_winner_apply_evaluator_v3_23
     restart: unless-stopped
     networks:
     - scanner-timers
@@ -6837,7 +6838,7 @@ services:
     command:
     - sh
     - -c
-    - python -m orderflow_services.route_incident_rca_mirror_rca_winner_apply_apply_controller_v3_24
+    - sleep 528 && python -m orderflow_services.route_incident_rca_mirror_rca_winner_apply_apply_controller_v3_24
     restart: unless-stopped
     networks:
     - scanner-timers
@@ -6870,7 +6871,7 @@ services:
     command:
     - sh
     - -c
-    - python -m orderflow_services.route_incident_rca_mirror_rca_winner_apply_verification_loop_v3_25
+    - sleep 536 && python -m orderflow_services.route_incident_rca_mirror_rca_winner_apply_verification_loop_v3_25
     restart: unless-stopped
     networks:
     - scanner-timers
@@ -6902,7 +6903,7 @@ services:
     command:
     - sh
     - -c
-    - python -m orderflow_services.route_incident_rca_mirror_rca_winner_apply_apply_retry_controller_v3_26
+    - sleep 544 && python -m orderflow_services.route_incident_rca_mirror_rca_winner_apply_apply_retry_controller_v3_26
     restart: unless-stopped
     networks:
     - scanner-timers
@@ -6932,7 +6933,7 @@ services:
     command:
     - sh
     - -c
-    - python -m orderflow_services.route_incident_rca_mirror_rca_winner_apply_apply_auto_escalation_summarizer_v3_26
+    - sleep 552 && python -m orderflow_services.route_incident_rca_mirror_rca_winner_apply_apply_auto_escalation_summarizer_v3_26
     restart: unless-stopped
     networks:
     - scanner-timers
@@ -6962,7 +6963,7 @@ services:
     command:
     - sh
     - -c
-    - python -m orderflow_services.route_incident_rca_mirror_rca_winner_apply_apply_incident_bundle_builder_v3_27
+    - sleep 560 && python -m orderflow_services.route_incident_rca_mirror_rca_winner_apply_apply_incident_bundle_builder_v3_27
     restart: unless-stopped
     networks:
     - scanner-timers
@@ -6992,7 +6993,7 @@ services:
     command:
     - sh
     - -c
-    - python -m orderflow_services.route_incident_rca_mirror_rca_winner_apply_apply_bundle_rca_bridge_v3_28
+    - sleep 568 && python -m orderflow_services.route_incident_rca_mirror_rca_winner_apply_apply_bundle_rca_bridge_v3_28
     restart: unless-stopped
     networks:
     - scanner-timers
@@ -7022,7 +7023,7 @@ services:
     command:
     - sh
     - -c
-    - python -m orderflow_services.route_incident_rca_mirror_rca_winner_apply_apply_vertex_rca_consumer_v3_29
+    - sleep 576 && python -m orderflow_services.route_incident_rca_mirror_rca_winner_apply_apply_vertex_rca_consumer_v3_29
     restart: unless-stopped
     networks:
     - scanner-timers
@@ -7052,7 +7053,7 @@ services:
     command:
     - sh
     - -c
-    - python -m orderflow_services.route_incident_rca_mirror_rca_winner_apply_apply_vertex_feedback_governor_v3_29
+    - sleep 584 && python -m orderflow_services.route_incident_rca_mirror_rca_winner_apply_apply_vertex_feedback_governor_v3_29
     restart: unless-stopped
     networks:
     - scanner-timers
@@ -7080,7 +7081,7 @@ services:
     command:
     - sh
     - -c
-    - python -m orderflow_services.route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_apply_controller_v3_49
+    - sleep 592 && python -m orderflow_services.route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_apply_controller_v3_49
     restart: unless-stopped
     networks:
     - scanner-timers
@@ -7116,7 +7117,7 @@ services:
     command:
     - sh
     - -c
-    - python -m orderflow_services.route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_post_apply_verifier_v3_50
+    - sleep 600 && python -m orderflow_services.route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_post_apply_verifier_v3_50
     restart: unless-stopped
     networks:
     - scanner-timers
@@ -7149,7 +7150,7 @@ services:
     command:
     - sh
     - -c
-    - python -m orderflow_services.route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_rollback_controller_v3_50
+    - sleep 608 && python -m orderflow_services.route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_rollback_controller_v3_50
     restart: unless-stopped
     networks:
     - scanner-timers
@@ -7313,7 +7314,7 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '0.30'
+          cpus: '0.20'
           memory: 384M
         reservations:
           memory: 64M
@@ -7566,7 +7567,51 @@ services:
     working_dir: /app
     volumes:
     - ./python-worker:/app
-    command: python3 -m orderflow_services.slippage_autocal_v1
+    command: sh -c "sleep 616 && python3 -m orderflow_services.slippage_autocal_v1"
+    depends_on:
+      redis-worker-1:
+        condition: service_healthy
+    networks:
+    - scanner-timers
+    - scanner-infra
+
+  atr-floor-enrichment-autocal-v1:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile.gpu
+    container_name: scanner-atr-floor-enrichment-autocal-v1
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '0.10'
+          memory: 96M
+        reservations:
+          memory: 24M
+    environment:
+    - REDIS_URL=${REDIS_URL:-redis://redis-worker-1:6379/0}
+    - ATR_FLOOR_AUTOCAL_REDIS_URL=${REDIS_URL:-redis://redis-worker-1:6379/0}
+    - ANALYTICS_DB_DSN=${ANALYTICS_DB_DSN}
+    - ATR_FLOOR_AUTOCAL_ENABLE=${ATR_FLOOR_AUTOCAL_ENABLE:-1}
+    - ATR_FLOOR_AUTOCAL_INTERVAL=${ATR_FLOOR_AUTOCAL_INTERVAL:-300}
+    - ATR_FLOOR_AUTOCAL_WINDOW_H=${ATR_FLOOR_AUTOCAL_WINDOW_H:-2.0}
+    - ATR_FLOOR_AUTOCAL_FILL_RATE_MIN=${ATR_FLOOR_AUTOCAL_FILL_RATE_MIN:-50.0}
+    - ATR_FLOOR_AUTOCAL_P99_MAX_DELTA_MS=${ATR_FLOOR_AUTOCAL_P99_MAX_DELTA_MS:-3.0}
+    - ATR_FLOOR_AUTOCAL_DWELL_H=${ATR_FLOOR_AUTOCAL_DWELL_H:-24.0}
+    - ATR_FLOOR_AUTOCAL_EXECUTE_PROMOTE=${ATR_FLOOR_AUTOCAL_EXECUTE_PROMOTE:-0}
+    - ATR_FLOOR_AUTOCAL_ENV_FILE=/infra_config/crypto-of-common.env
+    - ATR_FLOOR_AUTOCAL_PROM_PORT=9176
+    - ATR_FLOOR_AUTOCAL_PROM_URL=http://prometheus:9090
+    - PYTHONPATH=.:/app
+    - PYTHONUNBUFFERED=1
+    - TZ=UTC
+    working_dir: /app
+    volumes:
+    - ./python-worker:/app
+    - ./config:/infra_config:rw
+    command: sh -c "sleep 624 && python3 -m orderflow_services.atr_floor_enrichment_autocal_v1"
+    ports:
+    - ${ATR_FLOOR_AUTOCAL_PROM_PORT:-9176}:9176
     depends_on:
       redis-worker-1:
         condition: service_healthy

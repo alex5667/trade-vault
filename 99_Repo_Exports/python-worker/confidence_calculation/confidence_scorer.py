@@ -29,6 +29,62 @@ try:
 except ImportError:
     joblib = None
 
+# Categorical features for the Phase-3 scorer. Symmetric encoder shared
+# with the trainer (`tools.train_scorer_model_v1`) so train and serve stay
+# aligned. Failure to import (e.g. partial deployment) falls back to a
+# no-op encoder so regular numeric features still score correctly.
+try:
+    from core.scorer_categorical_features import (
+        encode_categorical_from_ctx as _scorer_encode_cat_from_ctx,
+        is_categorical_feature_name as _scorer_is_cat_feature,
+    )
+except ImportError:  # pragma: no cover — fallback for partial deploys
+    def _scorer_encode_cat_from_ctx(_ctx: Any) -> dict[str, int]:  # type: ignore[misc]
+        return {}
+    def _scorer_is_cat_feature(name: str) -> bool:  # type: ignore[misc]
+        return name.startswith("_cat_")
+
+# --- Phase 3 ML scorer: mtime-cached loader -------------------------------
+# Previously the model was joblib.load()'ed on EVERY signal score, which
+# (a) burned CPU on a hot path, and (b) hammered the log when the file was
+# missing (ML_SCORING_ENABLE=1 + no scorer_model.lgb yet). The cache:
+#   - returns (None, None) silently when the file is absent
+#   - reloads only when mtime changes (auto-picks up retrain output)
+#   - logs at INFO on successful (re)load and at WARNING on load failure
+_ML_MODEL_CACHE: dict[str, Any] = {"path": None, "mtime": 0.0, "model": None, "features": None}
+
+
+def _load_ml_scorer(ml_model_path: str) -> tuple[Any, Any]:
+    """Returns (model, feature_names) or (None, None). Cached by mtime."""
+    if not ml_model_path or joblib is None:
+        return (None, None)
+    try:
+        mtime = os.path.getmtime(ml_model_path)
+    except OSError:
+        # File not yet produced by the trainer — silently skip.
+        return (None, None)
+    cache = _ML_MODEL_CACHE
+    if (cache["path"] == ml_model_path
+            and cache["mtime"] == mtime
+            and cache["model"] is not None):
+        return (cache["model"], cache["features"])
+    # Reload
+    try:
+        feats_path = ml_model_path.replace(".lgb", ".features")
+        model = joblib.load(ml_model_path)
+        features = joblib.load(feats_path)
+    except Exception as e:
+        logger.warning("ML scorer reload failed: %s (path=%s)", e, ml_model_path)
+        return (None, None)
+    cache["path"] = ml_model_path
+    cache["mtime"] = mtime
+    cache["model"] = model
+    cache["features"] = features
+    logger.info("ML scorer loaded: %s (mtime=%s, n_features=%d)",
+                ml_model_path, mtime, len(features) if features else 0)
+    return (model, features)
+
+
 def _crypto_conf_factor(
     ctx: SignalContext,
     signal_kind: str,
@@ -149,24 +205,32 @@ def _crypto_conf_factor(
 
     # --- Phase 3: ML Fusion ---
     if os.getenv("ML_SCORING_ENABLE") == "1" and lgb and joblib and ml_model_path:
-        try:
-            model = joblib.load(ml_model_path)
-            feats_path = ml_model_path.replace(".lgb", ".features")
-            feature_names = joblib.load(feats_path)
+        model, feature_names = _load_ml_scorer(ml_model_path)
+        if model is not None and feature_names:
+            try:
+                # Categorical features (_cat_*) are derived from the context via the
+                # shared encoder, NOT from `getattr(ctx, "_cat_*")` (which would
+                # silently default to 0.0 and break train/serve symmetry).
+                cat_values = _scorer_encode_cat_from_ctx(ctx) if any(
+                    _scorer_is_cat_feature(fn) for fn in feature_names
+                ) else {}
 
-            # Prepare feature vector
-            f_vec = []
-            for fn in feature_names:
-                f_vec.append(float(getattr(ctx, fn, 0.0)))
+                # Prepare feature vector
+                f_vec = []
+                for fn in feature_names:
+                    if _scorer_is_cat_feature(fn):
+                        f_vec.append(float(cat_values.get(fn, -1)))
+                    else:
+                        f_vec.append(float(getattr(ctx, fn, 0.0)))
 
-            ml_prob = model.predict([f_vec])[0]
-            parts["ml_prob"] = ml_prob
+                ml_prob = model.predict([f_vec])[0]
+                parts["ml_prob"] = ml_prob
 
-            # Late fusion: 60% base, 40% ML
-            alpha = _cfgf("ml_fusion_alpha", 0.4)
-            final_score = (1 - alpha) * final_score + alpha * ml_prob
-        except Exception as e:
-            logger.warning(f"ML Scoring failed: {e}")
+                # Late fusion: 60% base, 40% ML
+                alpha = _cfgf("ml_fusion_alpha", 0.4)
+                final_score = (1 - alpha) * final_score + alpha * ml_prob
+            except Exception as e:
+                logger.warning(f"ML Scoring failed: {e}")
 
     parts["confidence"] = _clamp01(final_score)
     return parts["confidence"], parts

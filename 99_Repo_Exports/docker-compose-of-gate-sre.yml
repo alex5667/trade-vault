@@ -29,7 +29,10 @@ services:
       \ 5\n  done\n\n  while true; do\n    M=`date +%M`\n    H=`date +%H`\n\n    #\
       \ SRE monitor: 00, 10, 20, 30, 40, 50\n    case \"$$M\" in 00|10|20|30|40|50)\
       \ python -m tools.of_gate_sre_monitor --window-min 30 --always 0 || echo 'SRE\
-      \ monitor failed' ;; esac\n\n    # Latency benchmark: 05, 35\n    case \"$$M\"\
+      \ monitor failed' ;; esac\n\n    # Long-window SRE monitor (4h, business rates\
+      \ ok_rate/soft_rate/scenario_drift): HH:00 only, min_n=200 for statistical power\n\
+      \    case \"$$M\" in 00) python -m tools.of_gate_sre_monitor --window-min 240\
+      \ --min-n 200 --always 0 || echo 'SRE long-window failed' ;; esac\n\n    # Latency benchmark: 05, 35\n    case \"$$M\"\
       \ in 05|35) python -m tools.bench_of_gate_latency --window-min 60 --out /var/lib/trade/of_bench/latency_bench_last.json\
       \ || echo 'Benchmark failed' ;; esac\n    \n    # Nightly tasks\n    if [ \"\
       $$M\" = \"00\" ]; then\n      if [ \"$$H\" = \"02\" ]; then python -m tools.of_gate_golden_snapshot\
@@ -132,6 +135,38 @@ services:
           memory: 256M
         reservations:
           memory: 24M
+  scanner-scorer-model-watcher:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile.gpu
+    container_name: scanner-scorer-model-watcher
+    restart: unless-stopped
+    environment:
+    - REDIS_URL=${REDIS_URL}
+    - NOTIFY_TELEGRAM_STREAM=notify:telegram
+    - SCORER_REPORT_PATH=/app/ml_models/scorer_model.report.json
+    - SCORER_WATCHER_POLL_SEC=60
+    - SCORER_WATCHER_SERVICES=of-confirm-service of-confirm-service-2
+    - PYTHONUNBUFFERED=1
+    - TZ=UTC
+    volumes:
+    - ./python-worker:/app
+    - /var/run/docker.sock:/var/run/docker.sock
+    - /usr/bin/docker:/usr/bin/docker:ro
+    command:
+    - python
+    - -m
+    - tools.scorer_model_watcher
+    networks:
+    - scanner-ops
+    - scanner-infra
+    deploy:
+      resources:
+        limits:
+          cpus: '0.05'
+          memory: 64M
+        reservations:
+          memory: 16M
 networks:
   scanner-ops:
     external: true

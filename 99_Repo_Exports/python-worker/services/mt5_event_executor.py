@@ -41,8 +41,10 @@ except ImportError:
     TradeEventsLogger = None
 
 # Import for robust R-mult calculation
+get_symbol_info: Any = None
+spec_from_symbol_info: Any = None
 with contextlib.suppress(ImportError):
-    from services.pnl_math import get_symbol_info, spec_from_symbol_info
+    from services.pnl_math import get_symbol_info, spec_from_symbol_info  # type: ignore[assignment]
 
 log = setup_logger("mt5_event_executor")
 
@@ -59,7 +61,7 @@ TRADE_STATE_PREFIX = os.getenv("TRADE_STATE_PREFIX", "trade:state:")
 PRICE_TOLERANCE = float(os.getenv("PRICE_TOLERANCE", "0.5"))
 
 # Redis connection
-r = redis.from_url(REDIS_URL, decode_responses=True)
+r: Any = redis.from_url(REDIS_URL, decode_responses=True)
 
 # Trade events logger
 events_logger = None

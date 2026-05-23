@@ -117,6 +117,11 @@ def build_runtime_from_inputs(inp: dict[str, Any]) -> RuntimeStub:
     direction = (inp.get("direction", ""))
     rt = RuntimeStub()
 
+    # Load complete serialized runtime if available (guarantees state parity)
+    if "runtime" in inp and isinstance(inp["runtime"], dict):
+        for k, v in inp["runtime"].items():
+            setattr(rt, k, v)
+
     # optional market context
     if "regime" in inp:
         rt.last_regime = (inp.get("regime") or "na")

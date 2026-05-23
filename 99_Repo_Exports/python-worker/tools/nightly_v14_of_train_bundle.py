@@ -233,29 +233,32 @@ def stage_build_dataset(*, inputs_path: Path, tb_labels_path: Path,
 
 
 # ---------------------------------------------------------------------------
-# Feature set: full feature schema (v14_of by default; v15_of via env-override).
+# Feature set: full feature schema (v15_of by default; v14_of via env-override).
+# v15_of (515 keys) = v14_of (359 keys) + 156 keys emitted by
+# external_features_payload_v1.py that were silently dropped from training
+# when the default was v14_of. Env `V14_FEATURE_SCHEMA_VER=v14_of` restores
+# the old 359-key schema for comparison/rollback.
 # Count is sourced live from core.ml_feature_schema_v{14,15}_of so totals
-# never drift in this file. Env `V14_FEATURE_SCHEMA_VER` opens the door to
-# train v15_of via the same pipeline (see python-worker/tools/nightly_v15_of_train_bundle.py).
+# never drift in this file.
 # ---------------------------------------------------------------------------
 
-# Schema version actually trained. Default 'v14_of'; override
-# `V14_FEATURE_SCHEMA_VER=v15_of` to retrain on v15_of (515 keys). Other
-# values fall back to v14_of with a warning.
-_FEATURE_SCHEMA_VER: str = (os.environ.get("V14_FEATURE_SCHEMA_VER") or "v14_of").strip() or "v14_of"
+# Schema version actually trained. Default 'v15_of' (515 keys, full ext_payload
+# coverage). Override `V14_FEATURE_SCHEMA_VER=v14_of` to fall back to 359-key
+# schema. Any other value falls back to v15_of with a warning.
+_FEATURE_SCHEMA_VER: str = (os.environ.get("V14_FEATURE_SCHEMA_VER") or "v15_of").strip() or "v15_of"
 
 
 def _get_feature_cols() -> list[str]:
-    if _FEATURE_SCHEMA_VER == "v15_of":
-        from core.ml_feature_schema_v15_of import get_v15_of_numeric_keys
-        return get_v15_of_numeric_keys()
-    if _FEATURE_SCHEMA_VER != "v14_of":
+    if _FEATURE_SCHEMA_VER == "v14_of":
+        from core.ml_feature_schema_v14_of import get_v14_of_numeric_keys
+        return get_v14_of_numeric_keys()
+    if _FEATURE_SCHEMA_VER != "v15_of":
         logger.warning(
-            "V14_FEATURE_SCHEMA_VER=%s unrecognized — falling back to v14_of",
+            "V14_FEATURE_SCHEMA_VER=%s unrecognized — falling back to v15_of",
             _FEATURE_SCHEMA_VER,
         )
-    from core.ml_feature_schema_v14_of import get_v14_of_numeric_keys
-    return get_v14_of_numeric_keys()
+    from core.ml_feature_schema_v15_of import get_v15_of_numeric_keys
+    return get_v15_of_numeric_keys()
 
 
 def _get_canonical_schema_hash() -> str:
@@ -271,9 +274,9 @@ def _get_canonical_schema_hash() -> str:
 
 
 def _feature_schema_version_int() -> int:
-    if _FEATURE_SCHEMA_VER == "v15_of":
-        return 15
-    return 14
+    if _FEATURE_SCHEMA_VER == "v14_of":
+        return 14
+    return 15
 
 
 def _schema_label(role: str) -> str:

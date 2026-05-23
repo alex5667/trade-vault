@@ -61,6 +61,22 @@ class SignalRepository:
         else:
             ctx_dict = getattr(ctx, "__dict__", {})
 
+        meta = ctx_dict.get("meta", {})
+        
+        atr_1m = getattr(ctx, "atr_1m", 0.0) or getattr(ctx, "atr_14", 0.0) or ctx_dict.get("atr_14", 0.0) or meta.get("atr_1m") or meta.get("atr_14", 0.0)
+        atr_5m = getattr(ctx, "atr_5m", None) or ctx_dict.get("atr_5m") or meta.get("atr_5m")
+        session = getattr(ctx, "session", None) or ctx_dict.get("session")
+        regime = getattr(ctx, "regime", None) or ctx_dict.get("regime")
+        
+        delta_spike_z = getattr(ctx, "delta_spike_z", None) or getattr(ctx, "delta_z", None)
+        if delta_spike_z is None:
+            delta_spike_z = ctx_dict.get("delta_spike_z") or ctx_dict.get("delta_z") or meta.get("delta_spike_z") or meta.get("delta_z")
+            
+        obi = getattr(ctx, "obi", None) or ctx_dict.get("obi") or meta.get("obi")
+        weak_progress = getattr(ctx, "weak_progress", None) or ctx_dict.get("weak_progress") or meta.get("weak_progress")
+        tick_size = getattr(ctx, "tick_size", None) or ctx_dict.get("tick_size") or meta.get("tick_size")
+        contract_size = getattr(ctx, "contract_size", None) or ctx_dict.get("contract_size") or meta.get("contract_size")
+
         with self._conn() as conn, conn.cursor(cursor_factory=dict_row) as cur:
             cur.execute(
                 """
@@ -72,6 +88,14 @@ class SignalRepository:
                     side,
                     price_at_signal,
                     atr_1m,
+                    atr_5m,
+                    session,
+                    regime,
+                    delta_spike_z,
+                    obi,
+                    weak_progress,
+                    tick_size,
+                    contract_size,
                     final_score,
                     experiment_id,
                     experiment_variant,
@@ -84,6 +108,14 @@ class SignalRepository:
                     %(side)s,
                     %(price_at_signal)s,
                     %(atr_1m)s,
+                    %(atr_5m)s,
+                    %(session)s,
+                    %(regime)s,
+                    %(delta_spike_z)s,
+                    %(obi)s,
+                    %(weak_progress)s,
+                    %(tick_size)s,
+                    %(contract_size)s,
                     %(final_score)s,
                     %(experiment_id)s,
                     %(experiment_variant)s,
@@ -98,7 +130,15 @@ class SignalRepository:
                     "setup_type": ctx.setup_type,
                     "side": str(ctx.side),
                     "price_at_signal": ctx.price_at_signal,
-                    "atr_1m": getattr(ctx, "atr_1m", 0.0),
+                    "atr_1m": atr_1m,
+                    "atr_5m": atr_5m,
+                    "session": session,
+                    "regime": regime,
+                    "delta_spike_z": delta_spike_z,
+                    "obi": obi,
+                    "weak_progress": weak_progress,
+                    "tick_size": tick_size,
+                    "contract_size": contract_size,
                     "final_score": getattr(ctx, "final_score", 0.0),
                     "experiment_id": getattr(ctx, "experiment_id", None),
                     "experiment_variant": getattr(ctx, "experiment_variant", None),
@@ -183,32 +223,32 @@ class SignalRepository:
 
     # --- Insert performance ---
 
-    def insert_signal_performance(self, perf: SignalPerformance) -> None:
+    def insert_signal_performance(self, perf: "SignalPerformance") -> None:
 
         with self._conn() as conn, conn.cursor(cursor_factory=dict_row) as cur:
             cur.execute(
 #                 """
 #                 INSERT INTO signal_performance (
-                    signal_id,
-                    ts_signal,
-                    symbol,
-                    setup_type,
-                    side,
-                    ts_entry,
-                    ts_exit,
-                    price_at_signal,
-                    entry_price,
-                    exit_price,
-                    stop_price,
-                    realized_R,
-                    mfe_R,
-                    mae_R,
-                    ttd_bars,
-                    ttd_seconds,
-                    bars_to_entry,
-                    bars_to_exit,
-                    outcome,
-                    notes,
+#                     signal_id,
+#                     ts_signal,
+#                     symbol,
+#                     setup_type,
+#                     side,
+#                     ts_entry,
+#                     ts_exit,
+#                     price_at_signal,
+#                     entry_price,
+#                     exit_price,
+#                     stop_price,
+#                     realized_R,
+#                     mfe_R,
+#                     mae_R,
+#                     ttd_bars,
+#                     ttd_seconds,
+#                     bars_to_entry,
+#                     bars_to_exit,
+#                     outcome,
+#                     notes,
 #                     extra
 #                 ) VALUES (
 #                     %(signal_id)s,

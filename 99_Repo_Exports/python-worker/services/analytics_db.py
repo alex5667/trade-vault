@@ -429,7 +429,12 @@ def save_trade_closed(closed: TradeClosed) -> None:  # type: ignore
             risk_horizon_bucket, horizon_profile_source, horizon_profile_conf, horizon_reason_code,
             atr_mode, atr_value, atr_window_n, atr_age_ms, atr_source, atr_pct,
             vol_ratio_fast_slow, vol_ratio_z,
-            atr_regime_value, atr_trail_value, atr_regime_tf_ms, atr_trail_tf_ms
+            atr_regime_value, atr_trail_value, atr_regime_tf_ms, atr_trail_tf_ms,
+            policy_mode, policy_raw,
+            v_gate_reason,
+            is_orphan_cleanup, exclude_from_ml_labels,
+            timeout_age_ms, timeout_max_hold_ms, timeout_request_ts_ms, timeout_close_latency_ms,
+            exit_order_ref, closed_trade_id
         ) VALUES (
             %s, %s, %s, %s, %s, %s, %s,
             %s, %s, %s, %s, %s, %s,
@@ -464,7 +469,12 @@ def save_trade_closed(closed: TradeClosed) -> None:  # type: ignore
             %s, %s, %s, %s,
             %s, %s, %s, %s, %s, %s,
             %s, %s,
-            %s, %s, %s, %s
+            %s, %s, %s, %s,
+            %s, %s,
+            %s,
+            %s, %s,
+            %s, %s, %s, %s,
+            %s, %s
         )
         ON CONFLICT (order_id) DO UPDATE SET
             exit_ts_ms = CASE
@@ -487,7 +497,17 @@ def save_trade_closed(closed: TradeClosed) -> None:  # type: ignore
             status = EXCLUDED.status,
             remaining_qty = EXCLUDED.remaining_qty,
             is_final_close = trades_closed.is_final_close OR EXCLUDED.is_final_close,
-            config_json = COALESCE(EXCLUDED.config_json, trades_closed.config_json)
+            config_json = COALESCE(EXCLUDED.config_json, trades_closed.config_json),
+            policy_mode = COALESCE(EXCLUDED.policy_mode, trades_closed.policy_mode),
+            policy_raw = COALESCE(EXCLUDED.policy_raw, trades_closed.policy_raw),
+            is_orphan_cleanup = trades_closed.is_orphan_cleanup OR EXCLUDED.is_orphan_cleanup,
+            exclude_from_ml_labels = trades_closed.exclude_from_ml_labels OR EXCLUDED.exclude_from_ml_labels,
+            timeout_age_ms = COALESCE(EXCLUDED.timeout_age_ms, trades_closed.timeout_age_ms),
+            timeout_max_hold_ms = COALESCE(EXCLUDED.timeout_max_hold_ms, trades_closed.timeout_max_hold_ms),
+            timeout_request_ts_ms = COALESCE(EXCLUDED.timeout_request_ts_ms, trades_closed.timeout_request_ts_ms),
+            timeout_close_latency_ms = COALESCE(EXCLUDED.timeout_close_latency_ms, trades_closed.timeout_close_latency_ms),
+            exit_order_ref = COALESCE(EXCLUDED.exit_order_ref, trades_closed.exit_order_ref),
+            closed_trade_id = COALESCE(EXCLUDED.closed_trade_id, trades_closed.closed_trade_id)
         WHERE EXCLUDED.is_final_close OR trades_closed.is_final_close = false
     """
 
@@ -503,6 +523,7 @@ def save_trade_closed(closed: TradeClosed) -> None:  # type: ignore
             is_virtual,
             meta_enforce_cov_bucket,
             meta_enforce_applied,
+            strong_gate_ok,
             updated_at
         ) VALUES (
             %s,
@@ -514,6 +535,7 @@ def save_trade_closed(closed: TradeClosed) -> None:  # type: ignore
             %s,
             %s,
             %s, %s,
+            %s,
             now()
         )
         ON CONFLICT (order_id, exit_ts)
@@ -533,6 +555,7 @@ def save_trade_closed(closed: TradeClosed) -> None:  # type: ignore
             is_virtual = EXCLUDED.is_virtual,
             meta_enforce_cov_bucket = EXCLUDED.meta_enforce_cov_bucket,
             meta_enforce_applied = EXCLUDED.meta_enforce_applied,
+            strong_gate_ok = COALESCE(EXCLUDED.strong_gate_ok, trades_closed_p0.strong_gate_ok),
             updated_at = now()
     """
 
@@ -567,6 +590,18 @@ def save_trade_closed(closed: TradeClosed) -> None:  # type: ignore
     horizon_contract = extract_horizon_contract_from_payload(signal_payload)
     horizon_bucket = extract_horizon_bucket(horizon_contract)
     atr_tf_ms_val = extract_atr_tf_ms(horizon_contract)
+    # meta lives at signal_payload["config_snapshot"]["meta"], not at the top level
+    _cs = signal_payload.get("config_snapshot") or {}
+    _meta_sp = _cs.get("meta") or signal_payload.get("meta") or {}
+    _rss = _meta_sp.get("risk_surface_shadow") or {}
+    policy_mode_val = (
+        _rss.get("mode")
+        or _meta_sp.get("policy_effective_mode")
+        or _meta_sp.get("policy_regime")
+        or _meta_sp.get("policy_mode")
+        or None
+    )
+    policy_raw_val = json.dumps(_rss, ensure_ascii=False) if _rss else None
     config_snapshot = dict(signal_payload.get("config_snapshot", {}) or {})
     if horizon_contract:
         config_snapshot["_horizon_contract"] = horizon_contract
@@ -638,8 +673,8 @@ def save_trade_closed(closed: TradeClosed) -> None:  # type: ignore
         json.dumps(config_snapshot, ensure_ascii=False, sort_keys=True),
         # Horizon contract columns
         Json(horizon_contract) if Json is not None else json.dumps(horizon_contract, ensure_ascii=False),
-        horizon_bucket or None,
-        atr_tf_ms_val or None,
+        horizon_bucket or getattr(closed, "risk_horizon_bucket", None) or (_meta_sp.get("policy_provenance") or {}).get("risk_horizon_bucket") or None,
+        atr_tf_ms_val or getattr(closed, "atr_tf_ms", None),
         getattr(closed, "live_surface_applied", False),
         getattr(closed, "live_surface_reason_code", ""),
         getattr(closed, "baseline_sl_price", 0.0),
@@ -693,6 +728,17 @@ def save_trade_closed(closed: TradeClosed) -> None:  # type: ignore
         getattr(closed, "atr_trail_value", 0.0),
         getattr(closed, "atr_regime_tf_ms", 0) or 0,
         getattr(closed, "atr_trail_tf_ms", 0) or 0,
+        policy_mode_val,
+        policy_raw_val,
+        getattr(closed, "v_gate_reason", "") or "",
+        bool(getattr(closed, "is_orphan_cleanup", False)),
+        bool(getattr(closed, "exclude_from_ml_labels", False)),
+        getattr(closed, "timeout_age_ms", None) or None,
+        getattr(closed, "timeout_max_hold_ms", None) or None,
+        getattr(closed, "timeout_request_ts_ms", None) or None,
+        getattr(closed, "timeout_close_latency_ms", None) or None,
+        getattr(closed, "exit_order_ref", None) or None,
+        getattr(closed, "closed_trade_id", None) or None,
     )
 
     # ---- P0 extraction (robust fallbacks) ----
@@ -759,7 +805,8 @@ def save_trade_closed(closed: TradeClosed) -> None:  # type: ignore
         Json(features),  # psycopg2.extras.Json → jsonb безопасно
         getattr(closed, "is_virtual", False),
         getattr(closed, "meta_enforce_cov_bucket", ""),
-        bool(getattr(closed, "meta_enforce_applied", False))
+        bool(getattr(closed, "meta_enforce_applied", False)),
+        _strong_gate_ok,
     )
 
     # Sanitize parameters: replace empty tuples `()` with `None`, and unbox 1-element tuples `(x,)`
@@ -793,6 +840,17 @@ def save_trade_closed(closed: TradeClosed) -> None:  # type: ignore
                     if ANALYTICS_P0_HARD_FAIL:
                         raise
                     logger.warning("trades_closed_p0 upsert failed", exc_info=True)
+
+            # Reconcile execution_orders.closed_trade_id for virtual trades (best-effort)
+            if closed is not None:
+                try:
+                    cur.execute(
+                        "UPDATE execution_orders SET closed_trade_id = %s "
+                        "WHERE sid = %s AND closed_trade_id IS NULL",
+                        (closed.order_id, closed.sid),
+                    )
+                except Exception:
+                    pass  # non-critical
 
             conn.commit()
 

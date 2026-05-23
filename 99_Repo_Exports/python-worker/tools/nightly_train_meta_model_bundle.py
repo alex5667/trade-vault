@@ -99,10 +99,66 @@ def main() -> None:
             "--max-scan", os.getenv("TRADES_MAX_SCAN", "500000"),
         ], check=True, capture_output=True, text=True)
 
-        # 5) dataset join (labels)
-        subprocess.run([sys.executable, "-m", "tools.build_of_dataset", "--replay", replay_out, "--trades", trades_out, "--out", dataset_out, "--pos-th", "0", "--neg-th", "0"], check=True, capture_output=True, text=True)
+        # 5) dataset join (labels) — env-driven knobs:
+        #   ML_TRAIN_INCLUDE_VIRTUAL=1     → keep is_virtual=1 rows (Phase 1 ML data collection)
+        #   ML_TRAIN_VIRTUAL_PENALTY=0.5   → ips_weight multiplier for virtuals
+        ds_args = [
+            sys.executable, "-m", "tools.build_of_dataset",
+            "--replay", replay_out, "--trades", trades_out, "--out", dataset_out,
+            "--pos-th", "0", "--neg-th", "0",
+        ]
+        if os.getenv("ML_TRAIN_INCLUDE_VIRTUAL", "0").strip().lower() in ("1", "true", "yes", "on"):
+            ds_args.append("--include-virtual")
+        subprocess.run(ds_args, check=True, capture_output=True, text=True)
 
-        # 6) train LR model
+        # 5b) optional cost-aware label rewrite (ML_TRAIN_USE_COST_AWARE_LABEL=1):
+        #     overwrite row["y"] with y_cost_aware = (pnl_net - fee_mul*fees - slippage_realized_usd) > 0.
+        if os.getenv("ML_TRAIN_USE_COST_AWARE_LABEL", "0").strip().lower() in ("1", "true", "yes", "on"):
+            try:
+                fee_mul = float(os.getenv("COSTAWARE_FEE_MUL", "2.0") or 2.0)
+            except (TypeError, ValueError):
+                fee_mul = 2.0
+            try:
+                slip_fallback = float(os.getenv("COSTAWARE_SLIPPAGE_BPS_FALLBACK", "4.0") or 4.0)
+            except (TypeError, ValueError):
+                slip_fallback = 4.0
+            tmp_path = dataset_out + ".costaware.tmp"
+            n_rewritten = 0
+            with open(dataset_out, encoding="utf-8") as f_in, open(tmp_path, "w", encoding="utf-8") as f_out:
+                for line in f_in:
+                    s = line.strip()
+                    if not s:
+                        continue
+                    try:
+                        row = json.loads(s)
+                    except Exception:
+                        f_out.write(line)
+                        continue
+                    pnl_net = row.get("pnl_net")
+                    if pnl_net is None:
+                        pnl_net = row.get("pnl", 0.0)
+                    fees = row.get("fees", 0.0)
+                    risk_usd = row.get("risk_usd", 0.0) or 0.0
+                    bps = row.get("slippage_realized_bps")
+                    if bps is None or float(bps) < 0.0:
+                        bps = row.get("expected_slippage_bps")
+                    if bps is None or float(bps) < 0.0:
+                        bps = slip_fallback
+                    try:
+                        slip_usd = (float(bps) / 10_000.0) * abs(float(risk_usd))
+                        cost = fee_mul * float(fees or 0.0) + slip_usd
+                        y_cost = 1 if (float(pnl_net or 0.0) - cost) > 0.0 else 0
+                    except (TypeError, ValueError):
+                        y_cost = int(row.get("y", 0) or 0)
+                    row["y_edge_legacy"] = int(row.get("y", 0) or 0)
+                    row["y"] = int(y_cost)
+                    row["label_kind"] = "cost_aware"
+                    f_out.write(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n")
+                    n_rewritten += 1
+            os.replace(tmp_path, dataset_out)
+            status_data["cost_aware_rewritten"] = str(n_rewritten)
+
+        # 6) train LR model (sample_weight handled inside via ML_TRAIN_USE_IPS_WEIGHTS)
         subprocess.run([sys.executable, "-m", "tools.train_of_meta_model_lr", "--dataset", dataset_out, "--out-model", model_path, "--out-report", report_path], check=True, capture_output=True, text=True)
 
         report = json.loads(open(report_path, encoding="utf-8").read())

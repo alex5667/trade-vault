@@ -416,6 +416,17 @@ class TradeEventEmitter:
             if turnover_val > 0:
                 fee_bps = (fees_usd_val / turnover_val) * 10_000.0  # type: ignore
 
+        _exit_mid = float(getattr(pos, "exit_mid_price", 0.0) or 0.0)
+        _exit_spread_bps = float(getattr(pos, "exit_spread_bps", 0.0) or 0.0)
+        if _exit_mid <= 0:
+            _exit_mid = float(getattr(closed, "exit_price", 0.0) or 0.0)
+        _bbo_bid = _bbo_ask = _bbo_mid = None
+        if _exit_mid > 0 and _exit_spread_bps > 0:
+            _half = _exit_mid * _exit_spread_bps / 20000.0
+            _bbo_mid = _exit_mid
+            _bbo_bid = _exit_mid - _half
+            _bbo_ask = _exit_mid + _half
+
         self._events_logger.log_position_closed(  # type: ignore
             sid=str(getattr(pos, "sid", "")),
             symbol=str(getattr(pos, "symbol", "")),
@@ -427,6 +438,9 @@ class TradeEventEmitter:
             qty=float(getattr(pos, "lot", 0.0) or 0.0),
             fee_bps=float(fee_bps),
             close_price=float(getattr(closed, "exit_price", 0.0) or 0.0),
+            bid_at_fill=_bbo_bid,
+            ask_at_fill=_bbo_ask,
+            mid_at_fill=_bbo_mid,
             pnl=float(getattr(closed, "pnl_net", 0.0) or 0.0),
             position_id=str(getattr(pos, "pos_id", "") or getattr(pos, "id", "")),
             lot=float(getattr(pos, "lot", 0.0) or 0.0),

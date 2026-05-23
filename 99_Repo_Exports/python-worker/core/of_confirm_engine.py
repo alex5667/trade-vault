@@ -1133,7 +1133,6 @@ class OFConfirmEngine:
             # 3. Reload needed
             mm = None
             try:
-                from core.meta_model_lr import MetaModelLR
                 mm = MetaModelLR.load(path)
             except Exception:
                 # MetaModelLR is JSON-first; tolerate joblib/pickle artifacts by falling back.
@@ -1696,6 +1695,8 @@ class OFConfirmEngine:
                 from core.core_snapshot.runtime_clock import snapshot as runtime_snapshot
                 _clock = runtime_snapshot(event_ts_ms=now_ts_for_cont)
                 uptime_sec = int(_clock.uptime_sec)
+                if getattr(self, "_replay_mode", False):
+                    uptime_sec = 999999  # Ensure deterministic behavior in replay tests
                 warmup_s = int(cfg2.get("continuation_warmup_sec", 1800))
 
                 # If we are in the warmup window, allow fallback for strictly unpopulated history legs.

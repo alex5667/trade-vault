@@ -427,6 +427,11 @@ class SignalPipeline:
         self._cached_fees_bps_rt = float(os.getenv("FEES_BPS_RT", "10"))
         self._cached_tp_bps_buffer = float(os.getenv("TP_BPS_BUFFER", "4"))
 
+        # cfg:trade_profile:* Redis overrides — refreshed every 60 s
+        self._profile_overrides: dict[str, Any] = {}
+        self._profile_overrides_ts: float = 0.0
+        self._profile_overrides_ttl: float = float(os.getenv("TRADE_PROFILE_OVERRIDES_TTL_S", "60"))
+
         # P0 FIX: Cache LIQ_GATE, FLOW_TOXIC, MANIP and others
         self._cached_liq_geom_enabled = os.getenv("LIQ_GEOM_ENABLED", "1").lower() in {"1", "true", "yes", "on"}
         self._cached_liq_geom_profile = os.getenv("LIQ_GATE_PROFILE", os.getenv("GATE_PROFILE", "default") or "default").strip().lower()
@@ -608,7 +613,15 @@ class SignalPipeline:
             exc,
         )
 
-    async def _publish_of_inputs(self, *, publisher: AsyncSignalPublisher, enriched_signal: dict[str, Any], symbol: str, path: str) -> None:
+    async def _publish_of_inputs(
+        self,
+        *,
+        publisher: AsyncSignalPublisher,
+        enriched_signal: dict[str, Any],
+        symbol: str,
+        path: str,
+        runtime: SymbolRuntime | None = None,
+    ) -> None:
         try:
             # Inject ML training metadata so dataset builder can filter/join correctly.
             # All setdefault — never overwrites values already present in the signal.
@@ -626,14 +639,25 @@ class SignalPipeline:
                 _inds.setdefault("pressure", _pressure)
                 # pressure_x_obi: interaction term (aggressive flow × book structure alignment)
                 _inds.setdefault("pressure_x_obi", _pressure * _obi)
-                # regime bridge: top-level enriched_signal["regime"] → indicators["regime"]
-                # The top-level is correctly set from runtime.last_regime (via rg_for_overrides at
-                # line ~2701), but indicators["regime"] is only set by the earlier write-back if
-                # the try-block completed before enriched_signal was assembled. Bridge here is safe.
-                if not _inds.get("regime") or _inds.get("regime") in ("na", "NA", None):
-                    _top_regime = (enriched_signal.get("regime") or "").lower().strip()
-                    if _top_regime and _top_regime not in ("na", "unknown", ""):
+                # regime bridge: resolve from runtime.last_regime → enriched_signal["regime"]
+                # → indicators["regime"]. Veto paths (`_handle_pipeline_veto`) publish the raw
+                # signal before regime resolution at L2594, so without this fallback ~87% of
+                # `signals:of:inputs` records have regime=None and ML scorer cannot condition
+                # on the regime feature (`_cat_regime_idx` becomes useless).
+                _NA_TOKENS = ("na", "NA", "None", "unknown", "?", "")
+                _need_inds_regime = (
+                    not _inds.get("regime")
+                    or str(_inds.get("regime")) in _NA_TOKENS
+                )
+                if _need_inds_regime:
+                    # Try top-level on the signal first.
+                    _top_regime = (str(enriched_signal.get("regime") or "")).lower().strip()
+                    if (not _top_regime or _top_regime in _NA_TOKENS) and runtime is not None:
+                        # Fall back to runtime.last_regime (set by bar_processor regime svc).
+                        _top_regime = (str(getattr(runtime, "last_regime", "") or "")).lower().strip()
+                    if _top_regime and _top_regime not in _NA_TOKENS:
                         _inds["regime"] = _top_regime
+                        enriched_signal.setdefault("regime", _top_regime)
                 # confidence_v1 bridge: strategy.py sets indicators["confidence"] not indicators["confidence_v1"]
                 # Calibration trainer expects confidence_v1 as the raw pre-calibration confidence key.
                 _inds.setdefault("confidence_v1", _inds.get("confidence"))
@@ -655,6 +679,112 @@ class SignalPipeline:
     @property
     def FEES_BPS_RT(self) -> float:
         return self._cached_fees_bps_rt
+
+    def _get_profile_overrides(self) -> dict[str, Any]:
+        """Load cfg:trade_profile:* keys from Redis with TTL cache."""
+        import time as _time
+        now = _time.monotonic()
+        if now - self._profile_overrides_ts < self._profile_overrides_ttl:
+            return self._profile_overrides
+        try:
+            r = self.publisher.r if (self.publisher and self.publisher.r) else None
+            if r is None:
+                return self._profile_overrides
+            overrides: dict[str, Any] = {}
+            cursor = 0
+            while True:
+                cursor, keys = r.scan(cursor, match="cfg:trade_profile:*", count=200)
+                for raw_key in keys:
+                    key = raw_key.decode() if isinstance(raw_key, bytes) else raw_key
+                    raw = r.get(key)
+                    if raw is None:
+                        continue
+                    try:
+                        import json as _json
+                        overrides[key] = _json.loads(raw.decode() if isinstance(raw, bytes) else raw)
+                    except Exception:
+                        pass
+                if cursor == 0:
+                    break
+            self._profile_overrides = overrides
+            self._profile_overrides_ts = now
+        except Exception:
+            pass
+        return self._profile_overrides
+
+    def _enrich_atr_floor_indicators(
+        self,
+        *,
+        indicators: dict[str, Any],
+        runtime: Any,
+        cfg: dict[str, Any],
+        entry: float,
+        atr: float,
+    ) -> None:
+        """Write atr_floor / atr_fees / atr_unified threshold keys into indicators.
+
+        Idempotent — safe to call multiple times. Pure write-only enrichment
+        (no gate logic, no side effects beyond dict mutation).
+        """
+        try:
+            from core.atr_floor_policy import compute_atr_bps_threshold
+
+            rg = str(getattr(runtime, "last_regime", "na") or "na").lower()
+
+            atr_bps_exec = 0.0
+            try:
+                if entry > 0 and atr > 0:
+                    atr_bps_exec = 10000.0 * (atr / entry)
+            except Exception:
+                atr_bps_exec = 0.0
+            indicators["atr_bps_exec"] = atr_bps_exec
+
+            t0 = float(runtime.dynamic_cfg.get(DK.ATR_FLOOR_T0_BPS, cfg.get("atr_floor_t0_bps", 0.0)) or 0.0)
+            t1 = float(runtime.dynamic_cfg.get(DK.ATR_FLOOR_T1_BPS, cfg.get("atr_floor_t1_bps", 0.0)) or 0.0)
+            t2 = float(runtime.dynamic_cfg.get(DK.ATR_FLOOR_T2_BPS, cfg.get("atr_floor_t2_bps", 0.0)) or 0.0)
+
+            tier, _rg_norm, floor_th = compute_atr_bps_threshold(regime=rg, cfg=cfg, t0=t0, t1=t1, t2=t2)
+
+            indicators["atr_floor_t0_bps"] = t0
+            indicators["atr_floor_t1_bps"] = t1
+            indicators["atr_floor_t2_bps"] = t2
+            indicators["atr_floor_tier"] = tier
+            indicators["atr_floor_picked_bps"] = floor_th
+            indicators["atr_floor_th_bps"] = floor_th
+            indicators["atr_floor_rg"] = rg
+            indicators["atr_floor_ready"] = int(runtime.dynamic_cfg.get(DK.ATR_CALIB_READY, 0) or 0)
+            indicators["atr_floor_src"] = str(runtime.dynamic_cfg.get(DK.ATR_BPS_SRC, "na") or "na")
+            indicators["atr_floor_n"] = int(runtime.dynamic_cfg.get(DK.ATR_BPS_N, 0) or 0)
+            indicators["atr_bps_th"] = floor_th
+        except Exception:
+            pass
+
+        try:
+            from core.fees_aware_policy import fees_aware_min_atr_bps
+
+            tp_ratios = parse_tp_ratio(str(cfg.get("tp_ratio", "")))
+            tp1_share_actual = tp_ratios[0] if tp_ratios else 0.5
+            rocket_mult = self._get_rocket_multiplier(runtime.symbol) or 0.0
+            fees_th, _fees_meta = fees_aware_min_atr_bps(
+                fees_bps_rt=self.FEES_BPS_RT,
+                tp_bps_buffer=self.TP_BPS_BUFFER,
+                tp1_share=tp1_share_actual,
+                rocket_mult=rocket_mult,
+            )
+            indicators["atr_fees_th_bps"] = fees_th
+            indicators["atr_fees_tp1_share"] = tp1_share_actual
+            indicators["atr_fees_rocket_mult"] = rocket_mult
+        except Exception:
+            pass
+
+        try:
+            floor_th_v = float(indicators.get("atr_floor_th_bps", 0.0) or 0.0)
+            fees_th_v = float(indicators.get("atr_fees_th_bps", 0.0) or 0.0)
+            unified_th = max(floor_th_v, fees_th_v)
+            indicators["atr_unified_th_bps"] = unified_th
+            indicators["atr_gate_dominant"] = ("fees" if fees_th_v >= floor_th_v else "floor") if unified_th > 0 else "na"
+        except Exception:
+            pass
 
     def _record_veto(self, symbol: str, scenario: str, reason: str, mode: str = "ENFORCE") -> None:
         """Helper to record veto metrics."""
@@ -910,6 +1040,7 @@ class SignalPipeline:
         ts_ms: int,
         indicators: dict[str, Any],
         signal: dict[str, Any],
+        runtime: SymbolRuntime | None = None,
     ) -> None:
         """Unified rejection path for all signal gates."""
         try:
@@ -1002,6 +1133,8 @@ class SignalPipeline:
             # 4. Feed TB Labeler — pre_publish vetoed signals still need training data
             # Calibration requires (confidence, outcome) pairs for ALL signals that
             # passed portfolio risk gate, regardless of execution-level veto reason.
+            # Pass runtime so _publish_of_inputs can resolve regime from runtime.last_regime
+            # (the raw `signal` here has not yet been through the regime-enrichment step).
             if self.of_inputs_publish_enabled and self.of_inputs_stream:
                 safe_create_task(
                     self._publish_of_inputs(
@@ -1009,6 +1142,7 @@ class SignalPipeline:
                         enriched_signal=signal,
                         symbol=symbol,
                         path="veto",
+                        runtime=runtime,
                     ),
                     name=f"of_inputs_veto_{symbol}_{ts_ms}",
                 )
@@ -2137,7 +2271,7 @@ class SignalPipeline:
                         symbol=symbol,
                         kind=kind,
                     ).inc()
-            if _PRE_PUBLISH_VETO_TOTAL is not None and dec_str != "ALLOW":
+            if _PRE_PUBLISH_VETO_TOTAL is not None and dec_str in ("DENY", "VETO"):
                 with contextlib.suppress(Exception):
                     _PRE_PUBLISH_VETO_TOTAL.labels(
                         gate=dec.gate,
@@ -2163,7 +2297,8 @@ class SignalPipeline:
                     confidence=confidence,
                     ts_ms=sig_ts,
                     indicators=indicators,
-                    signal=signal
+                    signal=signal,
+                    runtime=runtime,
                 )
                 return True
             if dec.decision == "TIGHTEN":
@@ -2498,6 +2633,7 @@ class SignalPipeline:
                 symbol=symbol,
                 regime_bucket=_profile_regime_bucket,
                 kind=kind,
+                overrides=self._get_profile_overrides() or None,
             )
 
             # --- Phase 2: execution_policy binding ---
@@ -2509,7 +2645,32 @@ class SignalPipeline:
                 _spread_bps = float(indicators.get("spread_bps", 0.0) or 0.0)
                 _slip_bps = float(indicators.get("expected_slippage_bps", 0.0) or 0.0)
                 _fee_bps = self._cached_fees_bps_rt
+                # expected_edge_bps: prefer upstream indicator, then actual TP1/SL
+                # from signal, then ATR-based approximation.
+                # NOTE: the field is only written to enriched_signal ~800 lines
+                # later, so indicators never has it at this point in the pipeline.
                 _ev_bps = float(indicators.get("expected_edge_bps", 0.0) or 0.0)
+                if _ev_bps == 0.0:
+                    try:
+                        _tp_r_gate = parse_tp_ratio(str(cfg.get("tp_ratio", "")))
+                        _tp1_share_gate = _tp_r_gate[0] if _tp_r_gate else 0.5
+                        _sl_gate = float(signal.get("sl", 0.0) or 0.0)
+                        _tp1_gate = float(signal.get("tp1", 0.0) or 0.0)
+                        if entry > 0 and _tp1_gate > 0 and _sl_gate > 0:
+                            # Use actual TP1/SL levels — most accurate estimate
+                            _tp1_dist_bps = abs(_tp1_gate - entry) / entry * 10_000.0
+                            _sl_dist_bps = abs(entry - _sl_gate) / entry * 10_000.0
+                            _ev_bps = max(0.0, _tp1_dist_bps * _tp1_share_gate - _sl_dist_bps * (1.0 - _tp1_share_gate))
+                        else:
+                            # Fallback: ATR-based approximation (less accurate)
+                            _atr_gate = float(indicators.get("atr", 0.0) or 0.0)
+                            if entry > 0 and _atr_gate > 0:
+                                _rocket_gate = self._get_rocket_multiplier(symbol) or 1.5
+                                _tp1_bps_gate = (_atr_gate * _rocket_gate / entry) * 10_000.0 * _tp1_share_gate
+                                _stop_bps_gate = (_atr_gate / entry) * 10_000.0
+                                _ev_bps = max(0.0, _tp1_bps_gate - _stop_bps_gate)
+                    except Exception:
+                        pass
                 _net_edge = _ev_bps - _fee_bps - _spread_bps / 2.0 - _slip_bps
                 _min_net_edge = _profile_decision.profile.min_net_edge_bps
                 indicators["profile_net_edge_bps"] = round(_net_edge, 2)
@@ -2637,6 +2798,15 @@ class SignalPipeline:
         _levels["sl"] = sl
         _levels["tp_levels"] = tp_levels
         _levels["lot"] = lot
+
+        # ATR-floor enrichment (early): ensures virtual veto signals emitted by
+        # _handle_pipeline_veto also carry atr_*_th_bps keys in indicators.
+        # Gated by ATR_FLOOR_ENRICHMENT_EARLY (default 0 = legacy post-gate position).
+        # See investigation notes 2026-05-22: ind_atr_th_bps fill 17%→11% root cause.
+        if os.getenv("ATR_FLOOR_ENRICHMENT_EARLY", "0") == "1":
+            self._enrich_atr_floor_indicators(
+                indicators=indicators, runtime=runtime, cfg=cfg, entry=entry, atr=atr,
+            )
 
         # ----------------------------------------------------------------
         # G8 · Edge-Cost Gate (EV mode) — runs AFTER levels are computed
@@ -3045,75 +3215,14 @@ class SignalPipeline:
             name=f"conf_scores_{symbol}_{ts_ms}"
         )
         # ------------------------------------------------------------------
-        # ✅ FIX "BROKEN CHAIN": expose ATR-floor tier selection into indicators
-        # so raw stream audit + unified gate see correct atr_floor_th_bps.
+        # ATR-floor enrichment (legacy post-gate position).
+        # Skipped when ATR_FLOOR_ENRICHMENT_EARLY=1 — already ran after _calculate_levels.
+        # Idempotent helper, safe to call again, but skipped for perf.
         # ------------------------------------------------------------------
-        try:
-            from core.atr_floor_policy import compute_atr_bps_threshold
-
-            rg = str(getattr(runtime, "last_regime", "na") or "na").lower()
-
-            # Current executed ATR in bps (always useful for audits)
-            atr_bps_exec = 0.0
-            try:
-                if entry > 0 and atr > 0:
-                    atr_bps_exec = 10000.0 * (atr / entry)
-            except Exception:
-                atr_bps_exec = 0.0
-            indicators["atr_bps_exec"] = atr_bps_exec
-
-            # Pull floors (prefer calibrated/dynamic; fallback to config)
-            t0 = float(runtime.dynamic_cfg.get(DK.ATR_FLOOR_T0_BPS, cfg.get("atr_floor_t0_bps", 0.0)) or 0.0)
-            t1 = float(runtime.dynamic_cfg.get(DK.ATR_FLOOR_T1_BPS, cfg.get("atr_floor_t1_bps", 0.0)) or 0.0)
-            t2 = float(runtime.dynamic_cfg.get(DK.ATR_FLOOR_T2_BPS, cfg.get("atr_floor_t2_bps", 0.0)) or 0.0)
-
-            tier, _rg_norm, floor_th = compute_atr_bps_threshold(regime=rg, cfg=cfg, t0=t0, t1=t1, t2=t2)
-
-            indicators["atr_floor_t0_bps"] = t0
-            indicators["atr_floor_t1_bps"] = t1
-            indicators["atr_floor_t2_bps"] = t2
-            indicators["atr_floor_tier"] = tier
-            indicators["atr_floor_picked_bps"] = floor_th
-            indicators["atr_floor_th_bps"] = floor_th
-            indicators["atr_floor_rg"] = rg
-            indicators["atr_floor_ready"] = int(runtime.dynamic_cfg.get(DK.ATR_CALIB_READY, 0) or 0)
-            indicators["atr_floor_src"] = str(runtime.dynamic_cfg.get(DK.ATR_BPS_SRC, "na") or "na")
-            indicators["atr_floor_n"] = int(runtime.dynamic_cfg.get(DK.ATR_BPS_N, 0) or 0)
-
-            # Keep legacy mirror used by some earlier logic
-            indicators["atr_bps_th"] = floor_th
-        except Exception:
-            pass
-
-        # Optional: also expose fees-aware threshold for audits even if gate not enforced
-        try:
-            from core.fees_aware_policy import fees_aware_min_atr_bps
-
-            # tp1_share derived from TP_RATIO (env) or config snapshot
-            tp_ratios = parse_tp_ratio(str(cfg.get("tp_ratio", "")))
-            tp1_share_actual = tp_ratios[0] if tp_ratios else 0.5
-            rocket_mult = self._get_rocket_multiplier(runtime.symbol) or 0.0
-            fees_th, fees_meta = fees_aware_min_atr_bps(
-                fees_bps_rt=self.FEES_BPS_RT,
-                tp_bps_buffer=self.TP_BPS_BUFFER,
-                tp1_share=tp1_share_actual,
-                rocket_mult=rocket_mult,
+        if os.getenv("ATR_FLOOR_ENRICHMENT_EARLY", "0") != "1":
+            self._enrich_atr_floor_indicators(
+                indicators=indicators, runtime=runtime, cfg=cfg, entry=entry, atr=atr,
             )
-            indicators["atr_fees_th_bps"] = fees_th
-            indicators["atr_fees_tp1_share"] = tp1_share_actual
-            indicators["atr_fees_rocket_mult"] = rocket_mult
-        except Exception:
-            pass
-
-        # Unified threshold numbers into indicators (debug-only; gate uses same values below)
-        try:
-            floor_th = float(indicators.get("atr_floor_th_bps", 0.0) or 0.0)
-            fees_th = float(indicators.get("atr_fees_th_bps", 0.0) or 0.0)
-            unified_th = max(floor_th, fees_th)
-            indicators["atr_unified_th_bps"] = unified_th
-            indicators["atr_gate_dominant"] = ("fees" if fees_th >= floor_th else "floor") if unified_th > 0 else "na"
-        except Exception:
-            pass
 
 
         # ------------------------------------------------------------------
@@ -3562,6 +3671,7 @@ class SignalPipeline:
 
         enriched_signal["validation_status"] = validation_status
         enriched_signal["validation_reason"] = validation_reason
+        enriched_signal["v_gate_reason"] = validation_reason
 
         # --- SHADOW MODE: mark main signal as virtual if validation failed or shadowed
         gate_mode = (indicators.get("of_gate_mode") or "").upper()
@@ -3571,6 +3681,7 @@ class SignalPipeline:
             if indicators.get("gate_shadow_veto"):
                 enriched_signal["validation_status"] = "failed"
                 enriched_signal["validation_reason"] = indicators.get("gate_reason", "SHADOW_VETO")
+                enriched_signal["v_gate_reason"] = indicators.get("gate_reason", "SHADOW_VETO")
         
         # Recommendation 3: Explicitly segregate execution modes
         # shadow: indicative only (SHADOW mode)
@@ -3762,6 +3873,25 @@ class SignalPipeline:
                 "indicators": indicators,
                 "strategy": "cryptoorderflow",
                 "tf": "tick",
+                "v_gate_reason": enriched_signal.get("v_gate_reason") or "",
+                "validation_reason": enriched_signal.get("validation_reason") or "",
+                "validation_status": enriched_signal.get("validation_status") or "",
+                # Forward meta sub-keys needed by _stamp_closed_trade_meta.
+                # meta is set by preprocess_signal_for_publish on enriched_signal but
+                # was not propagated to the signal stream payload, causing live_surface
+                # and trailing A/B fields to always be 0/False in trades_closed.
+                # We forward only the analytics-critical sub-keys (not atr_policy_resolution
+                # which is large) to keep payload compact.
+                "meta": {
+                    k: v
+                    for k, v in (enriched_signal.get("meta") or {}).items()
+                    if k in (
+                        "live_surface_baseline", "live_surface_applied",
+                        "risk_surface_live_candidate", "live_surface_canary",
+                        "trailing_canary_decision", "trailing_surface_diagnostic",
+                        "policy_provenance",
+                    )
+                },
             }
 
             env = build_outbox_envelope(
@@ -3872,6 +4002,7 @@ class SignalPipeline:
                     enriched_signal=enriched_signal,
                     symbol=symbol,
                     path="outbox",
+                    runtime=runtime,
                 )
 
             # Skip execution queue for virtual signals (tracked by trade-monitor only)
@@ -3940,6 +4071,7 @@ class SignalPipeline:
                 enriched_signal=enriched_signal,
                 symbol=symbol,
                 path="direct",
+                runtime=runtime,
             )
 
 

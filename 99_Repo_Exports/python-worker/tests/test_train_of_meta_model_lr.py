@@ -31,10 +31,13 @@ def test_build_xy():
     ]
 
     feat = ["base_score", "exec_risk_norm", "have", "need"]
-    X, y = build_xy(rows, feat)
+    X, y, w = build_xy(rows, feat)
 
     assert X.shape == (3, 4)
     assert y.shape == (3,)
+    assert w.shape == (3,)
+    # Rows without ips_weight default to 1.0.
+    assert w.tolist() == [1.0, 1.0, 1.0]
     assert y[0] == 1
     assert y[1] == 0
     assert X[0, 0] == 0.8  # base_score

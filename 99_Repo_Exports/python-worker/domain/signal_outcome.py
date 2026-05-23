@@ -166,7 +166,11 @@ def from_trade_closed(closed: Any, pos: Any = None) -> SignalOutcome | None:
         # --- meta ---
         is_virtual = bool(getattr(closed, "is_virtual", False))
         meta_enforce_cov_bucket = str(getattr(closed, "meta_enforce_cov_bucket", "") or "")
-        trace_id = str(getattr(closed, "trace_id", "") or "")
+        trace_id = (
+            str(getattr(closed, "trace_id", "") or "")
+            or str((getattr(closed, "signal_payload", {}) or {}).get("trace_id", "") or "")
+            or sid
+        )
         event_id = str(getattr(closed, "event_id", "") or "")
 
         return SignalOutcome(

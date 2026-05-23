@@ -173,7 +173,7 @@ services:
     - REDIS_SOCKET_TIMEOUT=5
     - REDIS_MAIN_MAX_CONNECTIONS=128
     - REDIS_TICKS_MAX_CONNECTIONS=256
-    - REDIS_PUBLISH_MAX_CONNECTIONS=128
+    - REDIS_PUBLISH_MAX_CONNECTIONS=512
     - REDIS_STATE_MAX_CONNECTIONS=16
     - REDIS_ML_GATE_MAX_CONNECTIONS=8
     - REDIS_HEALTH_CONTRACT_MAX_CONNECTIONS=4
@@ -304,8 +304,8 @@ services:
     - ML_MODEL_FALLBACK_ENABLE=1
     - ML_SCORING_ENABLE=1
     - OF_LAG_THRESHOLD_SHED=400
-    - SCORER_WEIGHTS_PATH=python-worker/config/suggested_weights.json
-    - SCORER_ML_MODEL_PATH=python-worker/ml_models/scorer_model.lgb
+    - SCORER_WEIGHTS_PATH=/app/config/suggested_weights.json
+    - SCORER_ML_MODEL_PATH=/app/ml_models/scorer_model.lgb
     - ANALYTICS_DB_DSN=${ANALYTICS_DB_DSN}
     - RISK_AUDIT_SQL_DSN=postgresql://trading:${TRADING_PASSWORD}@postgres:5432/scanner_analytics
     - TRADE_RISK_SQL_AUDIT_ENABLE=1
@@ -727,7 +727,7 @@ services:
     - REDIS_SOCKET_TIMEOUT=5
     - REDIS_MAIN_MAX_CONNECTIONS=128
     - REDIS_TICKS_MAX_CONNECTIONS=256
-    - REDIS_PUBLISH_MAX_CONNECTIONS=128
+    - REDIS_PUBLISH_MAX_CONNECTIONS=512
     - REDIS_STATE_MAX_CONNECTIONS=16
     - REDIS_ML_GATE_MAX_CONNECTIONS=8
     - REDIS_HEALTH_CONTRACT_MAX_CONNECTIONS=4
@@ -843,8 +843,8 @@ services:
     - scenario_dz_bypass_threshold=4.0
     - ML_SCORING_ENABLE=1
     - OF_LAG_THRESHOLD_SHED=400
-    - SCORER_WEIGHTS_PATH=python-worker/config/suggested_weights.json
-    - SCORER_ML_MODEL_PATH=python-worker/ml_models/scorer_model.lgb
+    - SCORER_WEIGHTS_PATH=/app/config/suggested_weights.json
+    - SCORER_ML_MODEL_PATH=/app/ml_models/scorer_model.lgb
     - CONFIDENCE_EVIDENCE_ENABLE=1
     - SMT_COH_BUNDLE=btc_eth_sol
     - SMT_BUNDLE_1=btc_eth_sol:BTCUSDT,ETHUSDT,SOLUSDT
@@ -1158,7 +1158,7 @@ services:
     - CONF_CAL_AB_STICKY_KEY=${CONF_CAL_AB_STICKY_KEY:-symbol|session}
     - OF_GATE_METRICS_ENABLE=1
     - OF_GATE_METRICS_STREAM=metrics:of_gate
-    - OF_GATE_METRICS_SAMPLE=0.10
+    - OF_GATE_METRICS_SAMPLE=0.50
     - CONF_SCORES_PUBLISH_ENABLED=1
     - OF_GATE_METRICS_MAXLEN=200000
     - OF_GATE_DQ_QUARANTINE_ENABLE=1
@@ -1198,8 +1198,8 @@ services:
     - DELTA_Z_THRESHOLD=3.0
     - ML_SCORING_ENABLE=1
     - OF_LAG_THRESHOLD_SHED=400
-    - SCORER_WEIGHTS_PATH=python-worker/config/suggested_weights.json
-    - SCORER_ML_MODEL_PATH=python-worker/ml_models/scorer_model.lgb
+    - SCORER_WEIGHTS_PATH=/app/config/suggested_weights.json
+    - SCORER_ML_MODEL_PATH=/app/ml_models/scorer_model.lgb
     - OBI_STABLE_SCORE_MIN=${OBI_STABLE_SCORE_MIN:-0.7}
     - WEAK_RECENT_WINDOW=5
     - FP_EDGE_VALID_MS=30000
@@ -1218,7 +1218,7 @@ services:
     - REDIS_SOCKET_TIMEOUT=5
     - REDIS_MAIN_MAX_CONNECTIONS=128
     - REDIS_TICKS_MAX_CONNECTIONS=256
-    - REDIS_PUBLISH_MAX_CONNECTIONS=128
+    - REDIS_PUBLISH_MAX_CONNECTIONS=512
     - REDIS_STATE_MAX_CONNECTIONS=16
     - REDIS_ML_GATE_MAX_CONNECTIONS=8
     - REDIS_HEALTH_CONTRACT_MAX_CONNECTIONS=4
@@ -1584,7 +1584,7 @@ services:
     - REDIS_SOCKET_TIMEOUT=5
     - REDIS_MAIN_MAX_CONNECTIONS=128
     - REDIS_TICKS_MAX_CONNECTIONS=256
-    - REDIS_PUBLISH_MAX_CONNECTIONS=128
+    - REDIS_PUBLISH_MAX_CONNECTIONS=512
     - REDIS_STATE_MAX_CONNECTIONS=16
     - REDIS_ML_GATE_MAX_CONNECTIONS=8
     - REDIS_HEALTH_CONTRACT_MAX_CONNECTIONS=4
@@ -1613,8 +1613,8 @@ services:
     - ATR_TF_CALIB_TFS=1m,5m,15m,1h
     - ML_SCORING_ENABLE=1
     - OF_LAG_THRESHOLD_SHED=400
-    - SCORER_WEIGHTS_PATH=python-worker/config/suggested_weights.json
-    - SCORER_ML_MODEL_PATH=python-worker/ml_models/scorer_model.lgb
+    - SCORER_WEIGHTS_PATH=/app/config/suggested_weights.json
+    - SCORER_ML_MODEL_PATH=/app/ml_models/scorer_model.lgb
     - CONFIDENCE_EVIDENCE_ENABLE=1
 
     - OF_SCORE_MIN=${OF_SCORE_MIN:-0.45}
@@ -1752,7 +1752,7 @@ services:
     - REDIS_SOCKET_TIMEOUT=5
     - REDIS_MAIN_MAX_CONNECTIONS=128
     - REDIS_TICKS_MAX_CONNECTIONS=256
-    - REDIS_PUBLISH_MAX_CONNECTIONS=128
+    - REDIS_PUBLISH_MAX_CONNECTIONS=512
     - REDIS_STATE_MAX_CONNECTIONS=16
     - REDIS_ML_GATE_MAX_CONNECTIONS=8
     - REDIS_HEALTH_CONTRACT_MAX_CONNECTIONS=4
@@ -1781,8 +1781,8 @@ services:
     - ATR_TF_CALIB_TFS=1m,5m,15m,1h
     - ML_SCORING_ENABLE=1
     - OF_LAG_THRESHOLD_SHED=400
-    - SCORER_WEIGHTS_PATH=python-worker/config/suggested_weights.json
-    - SCORER_ML_MODEL_PATH=python-worker/ml_models/scorer_model.lgb
+    - SCORER_WEIGHTS_PATH=/app/config/suggested_weights.json
+    - SCORER_ML_MODEL_PATH=/app/ml_models/scorer_model.lgb
     - CONFIDENCE_EVIDENCE_ENABLE=1
 
     - OF_SCORE_MIN=${OF_SCORE_MIN:-0.45}
@@ -1950,7 +1950,7 @@ services:
     - REDIS_SOCKET_TIMEOUT=5
     - REDIS_MAIN_MAX_CONNECTIONS=128
     - REDIS_TICKS_MAX_CONNECTIONS=256
-    - REDIS_PUBLISH_MAX_CONNECTIONS=128
+    - REDIS_PUBLISH_MAX_CONNECTIONS=512
     - REDIS_STATE_MAX_CONNECTIONS=16
     - REDIS_ML_GATE_MAX_CONNECTIONS=8
     - REDIS_HEALTH_CONTRACT_MAX_CONNECTIONS=4
@@ -2026,7 +2026,7 @@ services:
     - REDIS_SOCKET_TIMEOUT=5
     - REDIS_MAIN_MAX_CONNECTIONS=128
     - REDIS_TICKS_MAX_CONNECTIONS=256
-    - REDIS_PUBLISH_MAX_CONNECTIONS=128
+    - REDIS_PUBLISH_MAX_CONNECTIONS=512
     - REDIS_STATE_MAX_CONNECTIONS=16
     - REDIS_ML_GATE_MAX_CONNECTIONS=8
     - REDIS_HEALTH_CONTRACT_MAX_CONNECTIONS=4
@@ -2100,7 +2100,7 @@ services:
     - REDIS_SOCKET_TIMEOUT=5
     - REDIS_MAIN_MAX_CONNECTIONS=128
     - REDIS_TICKS_MAX_CONNECTIONS=256
-    - REDIS_PUBLISH_MAX_CONNECTIONS=128
+    - REDIS_PUBLISH_MAX_CONNECTIONS=512
     - REDIS_STATE_MAX_CONNECTIONS=16
     - REDIS_ML_GATE_MAX_CONNECTIONS=8
     - REDIS_HEALTH_CONTRACT_MAX_CONNECTIONS=4
@@ -2178,7 +2178,7 @@ services:
     - REDIS_SOCKET_TIMEOUT=5
     - REDIS_MAIN_MAX_CONNECTIONS=128
     - REDIS_TICKS_MAX_CONNECTIONS=256
-    - REDIS_PUBLISH_MAX_CONNECTIONS=128
+    - REDIS_PUBLISH_MAX_CONNECTIONS=512
     - REDIS_STATE_MAX_CONNECTIONS=16
     - REDIS_ML_GATE_MAX_CONNECTIONS=8
     - REDIS_HEALTH_CONTRACT_MAX_CONNECTIONS=4
@@ -2260,7 +2260,7 @@ services:
     - REDIS_SOCKET_TIMEOUT=5
     - REDIS_MAIN_MAX_CONNECTIONS=128
     - REDIS_TICKS_MAX_CONNECTIONS=256
-    - REDIS_PUBLISH_MAX_CONNECTIONS=128
+    - REDIS_PUBLISH_MAX_CONNECTIONS=512
     - REDIS_STATE_MAX_CONNECTIONS=16
     - REDIS_ML_GATE_MAX_CONNECTIONS=8
     - REDIS_HEALTH_CONTRACT_MAX_CONNECTIONS=4
@@ -2306,6 +2306,9 @@ services:
     - ATR_JUMP_MAX_REL=${ATR_JUMP_MAX_REL:-1.2}
     - OF_TREND_DIR_FALLBACK_TO_DIRECTION=${OF_TREND_DIR_FALLBACK_TO_DIRECTION:-1}
     - ML_CONFIRM_MODE=OFF
+    - ML_SCORING_ENABLE=1
+    - SCORER_ML_MODEL_PATH=/app/ml_models/scorer_model.lgb
+    - SCORER_WEIGHTS_PATH=/app/config/suggested_weights.json
     - OF_CONFIRM_BOOK_POLL_SEC=${OF_CONFIRM_BOOK_POLL_SEC:-0.2}
     - OF_CONFIRM_REGIME_POLL_SEC=${OF_CONFIRM_REGIME_POLL_SEC:-5}
     - SCANNER_CONSUMER_NAME=of-confirm-service
@@ -2349,6 +2352,9 @@ services:
     - ATR_JUMP_MAX_REL=${ATR_JUMP_MAX_REL:-1.2}
     - OF_TREND_DIR_FALLBACK_TO_DIRECTION=${OF_TREND_DIR_FALLBACK_TO_DIRECTION:-1}
     - ML_CONFIRM_MODE=OFF
+    - ML_SCORING_ENABLE=1
+    - SCORER_ML_MODEL_PATH=/app/ml_models/scorer_model.lgb
+    - SCORER_WEIGHTS_PATH=/app/config/suggested_weights.json
     - OF_CONFIRM_BOOK_POLL_SEC=${OF_CONFIRM_BOOK_POLL_SEC:-0.2}
     - OF_CONFIRM_REGIME_POLL_SEC=${OF_CONFIRM_REGIME_POLL_SEC:-5}
     - SCANNER_CONSUMER_NAME=of-confirm-service-2
@@ -3577,12 +3583,13 @@ services:
     - V14_Y_LABEL_COL=${V14_Y_LABEL_COL:-y_edge_cost_aware}
     - V14_WORK_DIR=${V14_WORK_DIR:-/var/lib/trade/of_reports/v14_of_train_work}
     - V14_OUT_DIR=${V14_OUT_DIR:-/var/lib/trade/of_reports/models}
-    - V14_PROMOTE_AUTO=${V14_PROMOTE_AUTO:-0}
+    - V14_PROMOTE_AUTO=${V14_PROMOTE_AUTO:-1}
     - V14_PROMOTE_BRIER_MAX=${V14_PROMOTE_BRIER_MAX:-0.20}
     - V14_PROMOTE_ECE_MAX=${V14_PROMOTE_ECE_MAX:-0.10}
     - V14_CHAMPION_KEY=${V14_CHAMPION_KEY:-cfg:ml_confirm:champion}
     - V14_CHALLENGER_KEY=${V14_CHALLENGER_KEY:-cfg:ml_confirm:challenger}
     - V14_TRAIN_METRICS_KEY=${V14_TRAIN_METRICS_KEY:-metrics:v14_of_train:last}
+    - V14_FEATURE_SCHEMA_VER=${V14_FEATURE_SCHEMA_VER:-v15_of}
     - SCANNER_CONSUMER_NAME=scanner-v14-of-train-timer
     - TZ=UTC
     depends_on: *id002
@@ -3590,6 +3597,10 @@ services:
     volumes:
     - ./python-worker:/app
     - /var/lib/trade/of_reports:/var/lib/trade/of_reports
+    # ml_models is the MLScoringGate live-model directory (read by all crypto-orderflow
+    # services via the same host bind). Required so `promote_v14_of_to_live.py` writes
+    # into the shared location, not the container's ephemeral fs.
+    - /var/lib/trade/ml_models:/var/lib/trade/ml_models
     working_dir: /app
     command:
     - bash
@@ -3984,7 +3995,7 @@ services:
     # must match this env, else apply forced to dry_run. Prevents promoting
     # a cfg whose model the scoring services cannot vectorize.
     # Updated 2026-05-20: runtime is v14_of (ML_FEATURE_SCHEMA_VERSION=14 in signal_pipeline.py).
-    - ML_FEATURE_SCHEMA_VER=${ML_FEATURE_SCHEMA_VER:-v14_of}
+    - ML_FEATURE_SCHEMA_VER=${ML_FEATURE_SCHEMA_VER:-v15_of}
     - V14_REQUIRE_RUNTIME_MATCH=${V14_REQUIRE_RUNTIME_MATCH:-1}
     - TZ=UTC
     depends_on: *id002
@@ -4031,6 +4042,11 @@ services:
     - ML_SCORER_V3_ENABLED=${ML_SCORER_V3_ENABLED:-1}
     - ML_SCORER_V3_MIN_SAMPLES=${ML_SCORER_V3_MIN_SAMPLES:-2000}
     - ML_SCORER_V3_LOOKBACK_DAYS=${ML_SCORER_V3_LOOKBACK_DAYS:-60}
+    # Per-symbol cap for the v3 trainer (0 = unlimited; activate e.g. 1500 if a
+    # single venue/symbol dominates >40% of labeled data with low pos_rate).
+    # Currently default 0 because v3 dataset is naturally balanced ~9-25% per
+    # symbol (PEPE dominance only affects Phase-3 stub, not v3 path).
+    - ML_SCORER_V3_MAX_SAMPLES_PER_SYMBOL=${ML_SCORER_V3_MAX_SAMPLES_PER_SYMBOL:-0}
     - ML_SCORER_TRAIN_INTERVAL_SEC=${ML_SCORER_V3_TRAIN_INTERVAL_SEC:-21600}
     - NOTIFY_STREAM=${NOTIFY_STREAM:-notify:telegram}
     - ML_SCORER_APPROVAL_REQUIRED=${ML_SCORER_APPROVAL_REQUIRED:-0}

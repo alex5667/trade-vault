@@ -247,7 +247,7 @@ def get_redis_fast_news():
         if _news_redis_client is not None:
             return _news_redis_client
 
-        redis_url = get_env("REDIS_URL", "redis://redis-worker-1:6379/0")
+        redis_url: str = get_env("REDIS_URL", "redis://redis-worker-1:6379/0") or "redis://redis-worker-1:6379/0"
 
         connect_timeout_ms = int(get_env("NEWS_REDIS_CONNECT_TIMEOUT_MS", "200"))  # type: ignore
         socket_timeout_ms = int(get_env("NEWS_REDIS_SOCKET_TIMEOUT_MS", "50"))  # type: ignore
@@ -329,7 +329,7 @@ def get_atr_redis():
         if _atr_redis_client is not None:
             return _atr_redis_client
 
-        redis_url = get_env("REDIS_URL", "redis://redis-worker-1:6379/0")
+        redis_url: str = get_env("REDIS_URL", "redis://redis-worker-1:6379/0") or "redis://redis-worker-1:6379/0"
         max_conn = max(2, min(int(get_env("ATR_REDIS_MAX_CONNECTIONS", "5")), 20))  # type: ignore
         timeout_ms = int(get_env("ATR_REDIS_SOCKET_TIMEOUT_MS", "1000"))  # type: ignore
         timeout_s = max(0.1, min(timeout_ms / 1000.0, 5.0))
@@ -398,13 +398,14 @@ def get_redis_publish():
         if _publish_redis_client is not None:
             return _publish_redis_client
 
-        redis_url = get_env("REDIS_URL", "redis://redis-worker-1:6379/0")
+        redis_url: str = get_env("REDIS_URL", "redis://redis-worker-1:6379/0") or "redis://redis-worker-1:6379/0"
         # Accept both PUBLISH_REDIS_MAX_CONNECTIONS and REDIS_PUBLISH_MAX_CONNECTIONS.
         # compose sets REDIS_PUBLISH_MAX_CONNECTIONS; old code only read the reverse form.
         # 2026-05-21: cap raised 100→256 after Signal Emit P99=100ms (pool exhaustion).
         _pub_max_raw = get_env("PUBLISH_REDIS_MAX_CONNECTIONS",
                                get_env("REDIS_PUBLISH_MAX_CONNECTIONS", "128"))
-        max_conn = max(5, min(int(_pub_max_raw), 256))  # type: ignore
+        # 2026-05-22: cap raised 256→512 after Signal Emit P99=34.6ms (pool slot exhaustion under burst).
+        max_conn = max(5, min(int(_pub_max_raw), 512))  # type: ignore
         timeout_ms = int(get_env("PUBLISH_REDIS_SOCKET_TIMEOUT_MS", "200"))  # type: ignore
         timeout_s = max(0.05, min(timeout_ms / 1000.0, 2.0))
 
@@ -570,7 +571,7 @@ def get_async_redis_client(
                     # 2 s allows the gather() error handler to retry gracefully.
                     timeout=float(os.environ.get("REDIS_POOL_ACQUIRE_TIMEOUT", "2")),
                 )
-                client = aioredis.Redis(connection_pool=pool)
+                client = aioredis.Redis(connection_pool=pool)  # type: ignore[arg-type]
             except ImportError:
                 # Fallback if BlockingConnectionPool is somehow unavailable
                 client = aioredis.from_url(

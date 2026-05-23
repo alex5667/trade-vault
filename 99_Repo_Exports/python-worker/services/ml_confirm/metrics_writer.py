@@ -250,6 +250,8 @@ class MetricsWriterMixin:
                 "mode": self.mode,  # type: ignore
                 "kind": dec.kind or "",
                 "model_run_id": str(dec.model_run_id or ""),
+                # model_ver mirrors model_run_id so ml_predictions_writer can persist it
+                "model_ver": str(dec.model_run_id or getattr(self, "_model_run_id", "") or ""),
                 "bucket": bucket,
                 "cfg_source": getattr(self, "_cfg_source", "none"),
                 "direction": str(direction),

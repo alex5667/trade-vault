@@ -2205,6 +2205,9 @@ class TradeMonitorService:
                 max_favorable_price=float(h.get("max_favorable_price") or 0.0),
                 max_favorable_ts=self._to_int_ms(h.get("max_favorable_ts"), 0),
                 atr=float(h.get("atr") or 0.0),
+                is_virtual=(h.get("is_virtual") or "0") == "1",
+                v_gate_status=(h.get("v_gate_status") or "na"),
+                v_gate_reason=(h.get("v_gate_reason") or ""),
                 # FIX 2026-05-14: restore one_r_money on recovery
                 one_r_money=float(h.get("one_r_money") or 0.0),
             )
@@ -2466,27 +2469,53 @@ class TradeMonitorService:
             meta = sp.get("meta", {}) if isinstance(sp, dict) else {}
             prov = meta.get("policy_provenance", {}) if isinstance(meta, dict) else {}
 
-            closed.atr_policy_ver = int(prov.get("policy_ver", 0) or 0)
-            closed.atr_policy_tag = (prov.get("policy_tag") or "")
-            closed.atr_policy_source = (prov.get("policy_source") or "")
-            closed.atr_policy_scenario = (prov.get("scenario") or "")
-            closed.atr_policy_regime = (prov.get("regime") or "")
-            closed.atr_policy_bucket = (prov.get("risk_horizon_bucket") or "")
-            closed.atr_stop_ttl_mode = (prov.get("stop_ttl_mode") or "")
-            closed.atr_trailing_mode = (prov.get("trailing_mode") or "")
-            closed.atr_recovery_run_id = (prov.get("recovery_run_id") or "")
-            closed.atr_restore_cert_id = (prov.get("restore_cert_id") or "")
-            closed.atr_restore_cert_status = (prov.get("restore_cert_status") or "")
-            closed.atr_policy_snapshot_json = prov
+            # Primary: meta.policy_provenance; Fallback: top-level atr_policy_* from signal_preprocess
+            def _prov_get(prov_key: str, sp_key: str | None = None, default: str = "") -> str:
+                v = prov.get(prov_key)
+                if v and str(v) not in ("", "None", "0"):
+                    return str(v)
+                if sp_key:
+                    v2 = sp.get(sp_key)
+                    if v2 and str(v2) not in ("", "None", "0"):
+                        return str(v2)
+                return default
+
+            closed.atr_policy_ver = int(prov.get("policy_ver", 0) or sp.get("atr_policy_ver", 0) or 0)
+            closed.atr_policy_tag = _prov_get("policy_tag", "atr_policy_tag")
+            closed.atr_policy_source = _prov_get("policy_source")
+            closed.atr_policy_scenario = _prov_get("scenario", "kind")
+            closed.atr_policy_regime = _prov_get("regime")
+            closed.atr_policy_bucket = _prov_get("risk_horizon_bucket")
+            closed.atr_stop_ttl_mode = _prov_get("stop_ttl_mode")
+            closed.atr_trailing_mode = _prov_get("trailing_mode")
+            closed.atr_recovery_run_id = _prov_get("recovery_run_id", "atr_recovery_run_id")
+            closed.atr_restore_cert_id = _prov_get("restore_cert_id")
+            closed.atr_restore_cert_status = _prov_get("restore_cert_status", "atr_restore_cert_status")
+            if prov:
+                closed.atr_policy_snapshot_json = prov
+            else:
+                closed.atr_policy_snapshot_json = {
+                    "policy_ver": int(sp.get("atr_policy_ver", 0) or 0),
+                    "policy_tag": sp.get("atr_policy_tag", ""),
+                    "policy_level": sp.get("atr_policy_level", ""),
+                    "active_key": sp.get("atr_policy_key", ""),
+                    "reason_code": sp.get("atr_policy_reason_code", ""),
+                    "recovery_run_id": sp.get("atr_recovery_run_id", ""),
+                    "restore_cert_status": sp.get("atr_restore_cert_status", ""),
+                    "_fallback": True,
+                }
         except Exception:
             pass
+
 
         # -------------------------------------------------------------
         # Phase 2.5: persist live-surface baseline vs selected snapshot
         # -------------------------------------------------------------
         try:
             sp = getattr(pos, "signal_payload", {}) or {}
-            meta = (sp.get("meta") or {}) if isinstance(sp, dict) else {}
+            # meta lives at sp["meta"] (forwarded from signal stream) or sp["config_snapshot"]["meta"]
+            _cs_sm = (sp.get("config_snapshot") or {}) if isinstance(sp, dict) else {}
+            meta = (sp.get("meta") or _cs_sm.get("meta") or {}) if isinstance(sp, dict) else {}
             baseline = (meta.get("live_surface_baseline") or {}) if isinstance(meta, dict) else {}
             applied = (meta.get("live_surface_applied") or {}) if isinstance(meta, dict) else {}
             candidate = (meta.get("risk_surface_live_candidate") or {}) if isinstance(meta, dict) else {}
@@ -2512,6 +2541,11 @@ class TradeMonitorService:
                 pos_sl = float(getattr(pos, "sl", 0.0) or 0.0)
                 if pos_sl > 0:
                     closed.selected_sl_price = pos_sl
+            # baseline = selected when live surface not applied (no override happened)
+            if closed.baseline_tp1_price == 0.0:
+                closed.baseline_tp1_price = closed.selected_tp1_price
+            if closed.baseline_sl_price == 0.0:
+                closed.baseline_sl_price = closed.selected_sl_price
         except Exception:
             pass
 
@@ -2520,7 +2554,8 @@ class TradeMonitorService:
         # -------------------------------------------------------------
         try:
             sp = getattr(pos, "signal_payload", {}) or {}
-            meta = (sp.get("meta") or {}) if isinstance(sp, dict) else {}
+            _cs_sm2 = (sp.get("config_snapshot") or {}) if isinstance(sp, dict) else {}
+            meta = (sp.get("meta") or _cs_sm2.get("meta") or {}) if isinstance(sp, dict) else {}
             canary_decision = (meta.get("trailing_canary_decision") or {}) if isinstance(meta, dict) else {}
             surface_diag = (meta.get("trailing_surface_diagnostic") or {}) if isinstance(meta, dict) else {}
 
@@ -3194,6 +3229,7 @@ class TradeMonitorService:
 
             pos.is_virtual = is_v
             pos.v_gate_status = v_status if is_v else "na"
+            pos.v_gate_reason = str(sig.payload.get("v_gate_reason") or sig.payload.get("validation_reason") or "")
 
             # ---------------------------------------------------------------------
             # NEW: stamp entry_regime onto the position (used by empirical calibration).

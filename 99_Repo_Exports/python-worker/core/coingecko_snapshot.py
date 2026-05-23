@@ -17,7 +17,7 @@ class CoinGeckoSnapshotReader:
         self,
         redis_client: aioredis.Redis,
         refresh_ms: int = 10_000,
-        max_stale_ms: int = 300_000,
+        max_stale_ms: int = 86_400_000,  # 24 hours to support LOCF during night-time sleep
     ) -> None:
         import os
         ctx_redis_url = os.getenv("CTX_MAIN_REDIS_URL", "redis://redis:6379/0")

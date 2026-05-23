@@ -175,6 +175,7 @@ STATE_PRIORITY_FIELDS = {
     'tp1_state', 'tp2_state', 'tp3_state',
     'ts_event_ms', 'ts_queue_ms', 'ts_exec_start_ms', 'ts_state_commit_ms',
     'state_schema_ver', 'state_source_stream',
+    'position_mode', 'position_side', 'working_type_policy', 'entry_policy', 'exit_policy',
 }
 
 

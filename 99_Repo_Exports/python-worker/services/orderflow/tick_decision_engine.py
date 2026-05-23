@@ -2789,7 +2789,7 @@ class TickDecisionEngine:
                     has_ofi = bool(indicators.get("ofi_stable", 0))
 
                     if not (has_reclaim or has_absorb or has_obi or has_ofi):
-                        g10_adverse_veto_total.labels(gate="G10_ADVERSE_REVERSAL").inc()
+                        g10_adverse_veto_total.labels(gate="G10_ADVERSE_REVERSAL", symbol=runtime.symbol).inc()
                         return None
 
                 # CONTINUATION CHECK (Wait for Bar)
@@ -2989,9 +2989,9 @@ class TickDecisionEngine:
                                     preprocess_signal_for_publish(final_sig, runtime.symbol, "CryptoOrderFlow", self.logger)
                                     await self.publish_signal(runtime, final_sig)
                             else:
-                                g10_adverse_veto_total.labels(gate="G10_ADVERSE_CONTINUATION").inc()
+                                g10_adverse_veto_total.labels(gate="G10_ADVERSE_CONTINUATION", symbol=runtime.symbol).inc()
                         else:
-                            g10_adverse_veto_total.labels(gate="G10_ADVERSE_TIMEOUT").inc()
+                            g10_adverse_veto_total.labels(gate="G10_ADVERSE_TIMEOUT", symbol=runtime.symbol).inc()
 
                         # Clear buffer after check (one-shot)
                         runtime.pending_adverse_payload = None

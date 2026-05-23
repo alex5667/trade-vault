@@ -2334,7 +2334,7 @@ ofc_ctx_bundle_age_seconds = _get_or_create_prom_gauge(
 g10_adverse_veto_total = _get_or_create_prom_counter(
     "g10_adverse_veto_total",
     "Total signals vetoed by G10 Adverse-Selection Gate",
-    ["gate"]
+    ["gate", "symbol"]
 )
 
 g10_adverse_buffer_wait_ms = _get_or_create_prom_histogram(

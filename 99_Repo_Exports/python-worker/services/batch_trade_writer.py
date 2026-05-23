@@ -378,14 +378,11 @@ class BatchTradeWriter:
                 risk_horizon_bucket, horizon_profile_source, horizon_profile_conf, horizon_reason_code,
                 atr_mode, atr_value, atr_window_n, atr_age_ms, atr_source, atr_pct,
                 vol_ratio_fast_slow, vol_ratio_z,
-                atr_regime_value, atr_trail_value, atr_regime_tf_ms, atr_trail_tf_ms
+                atr_regime_value, atr_trail_value, atr_regime_tf_ms, atr_trail_tf_ms,
+                policy_mode, policy_raw
             ) VALUES %s
             ON CONFLICT (order_id) DO NOTHING
         """
-        # NOTE: policy_mode/policy_raw come from ml_outcome_joiner (post-close),
-        # atr_regime_*/atr_trail_*, и непрификсированные contract_ver/hold_target_ms/.../vol_ratio_z
-        # хранятся в JSONB-блоках config_json (indicators/atr_metrics/meta) — отдельных колонок
-        # в trades_closed нет. Strategy-contract scalars дублируются в sc_* колонках выше.
 
         sql_p0 = """
             INSERT INTO trades_closed_p0 (
@@ -403,6 +400,16 @@ class BatchTradeWriter:
                 trailing_surface_reason_code,
                 baseline_trailing_offset_atr,
                 selected_trailing_offset_atr,
+                atr_policy_tag,
+                atr_policy_source,
+                atr_policy_scenario,
+                atr_policy_regime,
+                atr_policy_bucket,
+                atr_stop_ttl_mode,
+                atr_trailing_mode,
+                atr_recovery_run_id,
+                atr_restore_cert_id,
+                atr_restore_cert_status,
                 updated_at
             ) VALUES %s
             ON CONFLICT (order_id, exit_ts)
@@ -422,6 +429,16 @@ class BatchTradeWriter:
                 is_virtual = EXCLUDED.is_virtual,
                 meta_enforce_cov_bucket = EXCLUDED.meta_enforce_cov_bucket,
                 meta_enforce_applied = EXCLUDED.meta_enforce_applied,
+                atr_policy_tag = EXCLUDED.atr_policy_tag,
+                atr_policy_source = EXCLUDED.atr_policy_source,
+                atr_policy_scenario = EXCLUDED.atr_policy_scenario,
+                atr_policy_regime = EXCLUDED.atr_policy_regime,
+                atr_policy_bucket = EXCLUDED.atr_policy_bucket,
+                atr_stop_ttl_mode = EXCLUDED.atr_stop_ttl_mode,
+                atr_trailing_mode = EXCLUDED.atr_trailing_mode,
+                atr_recovery_run_id = EXCLUDED.atr_recovery_run_id,
+                atr_restore_cert_id = EXCLUDED.atr_restore_cert_id,
+                atr_restore_cert_status = EXCLUDED.atr_restore_cert_status,
                 updated_at = now()
         """
 
@@ -510,7 +527,36 @@ class BatchTradeWriter:
 
 # ------------------------------------------------------------------
 # Row builders (pure functions, testable without DB)
-# ------------------------------------------------------------------
+def _get_metric(closed, sp, key, default):
+    val = getattr(closed, key, None)
+    if val not in (None, "", 0, 0.0):
+        return val
+    if key in sp and sp[key] not in (None, "", 0, 0.0):
+        return sp[key]
+    meta = sp.get("meta") or {}
+    if key in meta and meta[key] not in (None, "", 0, 0.0):
+        return meta[key]
+    config_snapshot = sp.get("config_snapshot") or {}
+    policy_provenance = config_snapshot.get("policy_provenance") or {}
+    if key in policy_provenance and policy_provenance[key] not in (None, "", "None", 0, 0.0):
+        return policy_provenance[key]
+    atr_policy = sp.get("atr_policy") or meta.get("atr_policy") or {}
+    if key in atr_policy and atr_policy[key] not in (None, "", 0, 0.0):
+        return atr_policy[key]
+    if "live_surface" in meta and key.startswith("live_surface_"):
+        k = key.replace("live_surface_", "")
+        if k in meta["live_surface"]:
+            return meta["live_surface"][k]
+    if "trailing_surface" in meta and key.startswith("trailing_surface_"):
+        k = key.replace("trailing_surface_", "")
+        if k in meta["trailing_surface"]:
+            return meta["trailing_surface"][k]
+    # Remove 'atr_policy_' prefix if not found and check again in policy_provenance
+    if key.startswith("atr_policy_"):
+        short_key = key.replace("atr_policy_", "")
+        if short_key in policy_provenance and policy_provenance[short_key] not in (None, "", "None", 0, 0.0):
+            return policy_provenance[short_key]
+    return default
 
 def _build_main_row(closed: Any) -> tuple:
     """Строит кортеж параметров для INSERT INTO trades_closed."""
@@ -518,6 +564,10 @@ def _build_main_row(closed: Any) -> tuple:
     horizon_contract = extract_horizon_contract_from_payload(sp)
     horizon_bucket = extract_horizon_bucket(horizon_contract)
     atr_tf_ms_val = extract_atr_tf_ms(horizon_contract)
+    _cs_bw = sp.get("config_snapshot") or {}
+    _meta_sp = (sp.get("meta") or _cs_bw.get("meta") or {})
+    policy_mode_val = _meta_sp.get("policy_effective_mode") or _meta_sp.get("policy_regime") or _meta_sp.get("policy_mode") or None
+    policy_raw_val = json.dumps(_meta_sp, ensure_ascii=False) if _meta_sp else None
     config_snapshot = dict(sp.get("config_snapshot", {}) or {})
     if horizon_contract:
         config_snapshot["_horizon_contract"] = horizon_contract
@@ -563,16 +613,16 @@ def _build_main_row(closed: Any) -> tuple:
         getattr(closed, "remaining_qty", 0.0),
         getattr(closed, "status", "closed"),
         # Phase 0.3: first-class scalar horizon/ATR columns
-        getattr(closed, "contract_ver", None) or getattr(closed, "horizon_contract_ver", 2),
-        getattr(closed, "risk_horizon_bucket", "") or "",
-        getattr(closed, "hold_target_ms", 0) or 0,
-        getattr(closed, "alpha_half_life_ms", 0) or 0,
-        getattr(closed, "max_signal_age_ms", 0) or 0,
-        getattr(closed, "atr_age_ms", 0) or 0,
-        getattr(closed, "atr_source", "") or "",
-        getattr(closed, "atr_pct", 0.0) or 0.0,
-        getattr(closed, "vol_ratio_fast_slow", 1.0) if getattr(closed, "vol_ratio_fast_slow", None) is not None else 1.0,
-        getattr(closed, "vol_ratio_z", 0.0) or 0.0,
+        _get_metric(closed, sp, "contract_ver", None) or 2,
+        _get_metric(closed, sp, "risk_horizon_bucket", ""),
+        _get_metric(closed, sp, "hold_target_ms", 0),
+        _get_metric(closed, sp, "alpha_half_life_ms", 0),
+        _get_metric(closed, sp, "max_signal_age_ms", 0),
+        _get_metric(closed, sp, "atr_age_ms", 0),
+        _get_metric(closed, sp, "atr_source", ""),
+        _get_metric(closed, sp, "atr_pct", 0.0),
+        _get_metric(closed, sp, "vol_ratio_fast_slow", 1.0),
+        _get_metric(closed, sp, "vol_ratio_z", 0.0),
         getattr(closed, "health_l2_stale_ratio_tick", 0.0),
         getattr(closed, "health_l2_stale_ratio_now", 0.0),
         getattr(closed, "health_avg_l2_age_ms", 0.0),
@@ -583,38 +633,38 @@ def _build_main_row(closed: Any) -> tuple:
         json.dumps(config_snapshot, ensure_ascii=False, sort_keys=True),
         # Horizon contract columns
         json.dumps(horizon_contract, ensure_ascii=False, sort_keys=True),
-        horizon_bucket or None,
-        atr_tf_ms_val or None,
+        horizon_bucket or getattr(closed, "risk_horizon_bucket", None) or None,
+        atr_tf_ms_val or (getattr(closed, "atr_tf_ms", 0) or None),
         getattr(closed, "is_virtual", False),
-        getattr(closed, "meta_enforce_cov_bucket", ""),
+        _get_metric(closed, sp, "meta_enforce_cov_bucket", ""),
         bool(getattr(closed, "meta_enforce_applied", False)) if getattr(closed, "meta_enforce_applied", None) is not None else None,
         # Phase 2.4E: live surface A/B analytics
-        getattr(closed, "live_surface_applied", None),
-        getattr(closed, "live_surface_reason_code", None),
-        getattr(closed, "baseline_sl_price", None),
-        getattr(closed, "baseline_tp1_price", None),
-        getattr(closed, "selected_sl_price", None),
-        getattr(closed, "selected_tp1_price", None),
+        _get_metric(closed, sp, "live_surface_applied", None),
+        _get_metric(closed, sp, "live_surface_reason_code", None),
+        _get_metric(closed, sp, "baseline_sl_price", None),
+        _get_metric(closed, sp, "baseline_tp1_price", None),
+        _get_metric(closed, sp, "selected_sl_price", None),
+        _get_metric(closed, sp, "selected_tp1_price", None),
         # Phase 2.6: trailing surface A/B analytics
-        getattr(closed, "trailing_surface_applied", None),
-        getattr(closed, "trailing_surface_reason_code", None),
-        getattr(closed, "baseline_trailing_offset_atr", None),
-        getattr(closed, "selected_trailing_offset_atr", None),
+        _get_metric(closed, sp, "trailing_surface_applied", None),
+        _get_metric(closed, sp, "trailing_surface_reason_code", None),
+        _get_metric(closed, sp, "baseline_trailing_offset_atr", None),
+        _get_metric(closed, sp, "selected_trailing_offset_atr", None),
 
         # --- NEW Analytics columns ---
         getattr(closed, "close_reason_detail", ""),
         strong_gate_ok,
-        getattr(closed, "atr_policy_ver", 0),
-        getattr(closed, "atr_policy_tag", ""),
-        getattr(closed, "atr_policy_source", ""),
-        getattr(closed, "atr_policy_scenario", ""),
-        getattr(closed, "atr_policy_regime", ""),
-        getattr(closed, "atr_policy_bucket", ""),
-        getattr(closed, "atr_stop_ttl_mode", ""),
-        getattr(closed, "atr_trailing_mode", ""),
-        getattr(closed, "atr_recovery_run_id", ""),
-        getattr(closed, "atr_restore_cert_id", ""),
-        getattr(closed, "atr_restore_cert_status", ""),
+        _get_metric(closed, sp, "atr_policy_ver", 0),
+        _get_metric(closed, sp, "atr_policy_tag", ""),
+        _get_metric(closed, sp, "atr_policy_source", ""),
+        _get_metric(closed, sp, "atr_policy_scenario", ""),
+        _get_metric(closed, sp, "atr_policy_regime", ""),
+        _get_metric(closed, sp, "atr_policy_bucket", ""),
+        _get_metric(closed, sp, "atr_stop_ttl_mode", ""),
+        _get_metric(closed, sp, "atr_trailing_mode", ""),
+        _get_metric(closed, sp, "atr_recovery_run_id", ""),
+        _get_metric(closed, sp, "atr_restore_cert_id", ""),
+        _get_metric(closed, sp, "atr_restore_cert_status", ""),
         json.dumps(getattr(closed, "atr_policy_snapshot_json", {}) or {}, ensure_ascii=False) if getattr(closed, "atr_policy_snapshot_json", {}) else None,
         # ATR selector (set by domain/handlers.py)
         getattr(closed, "atr_sel_tf", ""),
@@ -641,8 +691,9 @@ def _build_main_row(closed: Any) -> tuple:
         getattr(closed, "atr_trail_value", 0.0),
         getattr(closed, "atr_regime_tf_ms", 0) or 0,
         getattr(closed, "atr_trail_tf_ms", 0) or 0,
+        policy_mode_val,
+        policy_raw_val,
     )
-    # NOTE: policy_mode/policy_raw come from ml_outcome_joiner (post-close), no slot needed.
     return tuple(None if val == () else val for val in res)
 
 
@@ -710,13 +761,23 @@ def _build_p0_row(closed: Any) -> tuple:
         getattr(closed, "slippage_bps_est", None) or sp.get("slippage_bps_est"),   # [11]
         getattr(closed, "book_age_ms", None) or sp.get("book_age_ms"),              # [12]
         features_json,                                               # [13]
-        getattr(closed, "is_virtual", False),                        # [14]
-        getattr(closed, "meta_enforce_cov_bucket", ""),              # [15]
-        bool(getattr(closed, "meta_enforce_applied", False)) if getattr(closed, "meta_enforce_applied", None) is not None else None,  # [16]
-        getattr(closed, "trailing_surface_applied", False),          # [17]
-        getattr(closed, "trailing_surface_reason_code", None),       # [18]
-        getattr(closed, "baseline_trailing_offset_atr", None),       # [19]
-        getattr(closed, "selected_trailing_offset_atr", None),       # [20]
+        _get_metric(closed, sp, "is_virtual", False),                        # [14]
+        _get_metric(closed, sp, "meta_enforce_cov_bucket", ""),              # [15]
+        bool(_get_metric(closed, sp, "meta_enforce_applied", False)) if _get_metric(closed, sp, "meta_enforce_applied", None) is not None else None,  # [16]
+        _get_metric(closed, sp, "trailing_surface_applied", False),          # [17]
+        _get_metric(closed, sp, "trailing_surface_reason_code", None),       # [18]
+        _get_metric(closed, sp, "baseline_trailing_offset_atr", None),       # [19]
+        _get_metric(closed, sp, "selected_trailing_offset_atr", None),       # [20]
+        _get_metric(closed, sp, "atr_policy_tag", ""),                       # [21]
+        _get_metric(closed, sp, "atr_policy_source", ""),                    # [22]
+        _get_metric(closed, sp, "atr_policy_scenario", ""),                  # [23]
+        _get_metric(closed, sp, "atr_policy_regime", ""),                    # [24]
+        _get_metric(closed, sp, "atr_policy_bucket", ""),                    # [25]
+        _get_metric(closed, sp, "atr_stop_ttl_mode", ""),                    # [26]
+        _get_metric(closed, sp, "atr_trailing_mode", ""),                    # [27]
+        _get_metric(closed, sp, "atr_recovery_run_id", ""),                  # [28]
+        _get_metric(closed, sp, "atr_restore_cert_id", ""),                  # [29]
+        _get_metric(closed, sp, "atr_restore_cert_status", ""),              # [30]
         # NOTE: updated_at is added by the caller as now() literal
     )
     return tuple(None if val == () else val for val in res)
