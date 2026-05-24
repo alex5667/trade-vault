@@ -384,13 +384,13 @@ class ExecutionJournalSink:
                     cur.execute(sql, (
                         sid,
                         _s(s.get('symbol')),
-                        s.get('sl_algo_id'),
-                        _optional_text(s.get('sl_client_algo_id')),
-                        s.get('tp1_algo_id'),
-                        s.get('tp2_algo_id'),
-                        s.get('tp3_algo_id'),
-                        s.get('trail_algo_id'),
-                        _optional_text(s.get('trail_client_algo_id')),
+                        s.get('sl_algo_id') or s.get('sl_order_id') or s.get('sl_algo_order_id'),
+                        _optional_text(s.get('sl_client_algo_id') or s.get('sl_client_order_id')),
+                        s.get('tp1_algo_id') or s.get('tp1_order_id') or s.get('tp1_algo_order_id'),
+                        s.get('tp2_algo_id') or s.get('tp2_order_id') or s.get('tp2_algo_order_id'),
+                        s.get('tp3_algo_id') or s.get('tp3_order_id') or s.get('tp3_algo_order_id'),
+                        s.get('trail_algo_id') or s.get('trail_algo_order_id') or s.get('trail_order_id'),
+                        _optional_text(s.get('trail_client_algo_id') or s.get('trail_client_order_id')),
                         _i(s.get('updated_at_ms') or get_ny_time_millis()),
                     ))
                 conn.commit()

@@ -128,12 +128,34 @@ def _is_fresh(payload: dict[str, Any], max_age_hours: float) -> bool:
     return age_h <= max_age_hours
 
 
+def _read_live_champion_kind(r: redis.Redis, champion_key: str) -> str:
+    """Read current champion `kind` from Redis cfg for Prometheus label matching.
+
+    Live deployment may run `meta_lr_blend` (or future variants); hardcoding
+    `meta_lr` in the PromQL filter silently breaks the live-vs-candidate
+    comparison gate. Fall back to `meta_lr` only if cfg is unreadable.
+    """
+    try:
+        raw = r.get(champion_key)
+        if not raw:
+            return "meta_lr"
+        if isinstance(raw, bytes):
+            raw = raw.decode("utf-8", "ignore")
+        cfg = json.loads(raw)
+        k = str(cfg.get("kind") or "").strip()
+        return k or "meta_lr"
+    except Exception as e:
+        log.warning("read champion kind failed: %s — falling back to meta_lr", e)
+        return "meta_lr"
+
+
 def _eval_champion(
     *,
     payload: dict[str, Any],
     prom_url: str,
     brier_max: float,
     pr_auc_epsilon: float,
+    live_kind: str = "meta_lr",
 ) -> PromoteDecision:
     reasons: list[str] = []
     apply = True
@@ -153,7 +175,7 @@ def _eval_champion(
         reasons.append(f"brier_ok({brier:.4f})")
 
     live_pr = _prom_query(prom_url,
-                          'ml_outcome_precision_top5pct{kind="meta_lr"}')
+                          f'ml_outcome_precision_top5pct{{kind="{live_kind}"}}')
     if live_pr is not None:
         if pr_auc + pr_auc_epsilon < live_pr:
             apply = False
@@ -427,9 +449,11 @@ def run_once(*, dry_run: bool | None = None) -> dict[str, Any]:
         log.info("candidate too old (>%sh), skipping", freshness_h)
         return {"status": "stale_candidate"}
 
+    live_champion_kind = _read_live_champion_kind(r, champion_key)
     decision_champ = _eval_champion(
         payload=payload, prom_url=prom_url,
         brier_max=brier_max, pr_auc_epsilon=pr_auc_eps,
+        live_kind=live_champion_kind,
     )
     decision_chal = _eval_challenger(
         payload=payload, prom_url=prom_url,

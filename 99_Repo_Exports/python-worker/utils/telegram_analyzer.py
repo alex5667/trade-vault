@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 # ENV config
 ENABLED = os.getenv("TELEGRAM_LLM_ANALYSIS_ENABLED", "1").strip().lower() in ("1", "true", "yes")
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://ollama:11434").rstrip("/")
-MODEL = os.getenv("TELEGRAM_LLM_MODEL", "deepseek-r1:7b")
+MODEL = os.getenv("TELEGRAM_LLM_MODEL", "deepseek-r1:8b")
 TIMEOUT = float(os.getenv("TELEGRAM_LLM_TIMEOUT_SEC", "300.0"))
 MIN_TEXT_LEN = int(os.getenv("TELEGRAM_LLM_MIN_LEN", "30"))
 MAX_SOURCE_LEN = int(os.getenv("TELEGRAM_LLM_MAX_SOURCE_LEN", "16000"))
@@ -257,43 +257,58 @@ class TelegramMessageAnalyzer:
         try:
             max_retries = 10
             retry_delay = 5.0
+            
+            try:
+                from orderflow_services.providers.ollama_gpu_lock import OllamaGpuLock, OllamaGpuLockTimeout
+                _redis_url = os.environ.get("REDIS_URL", "redis://redis-worker-1:6379/0")
+                _gpu_lock = OllamaGpuLock(redis_url=_redis_url)
+            except ImportError as e:
+                logger.warning(f"Could not import OllamaGpuLock: {e}")
+                _gpu_lock = None
 
-            for attempt in range(max_retries):
-                try:
-                    data = json.dumps(request_body).encode("utf-8")
-                    req = urllib.request.Request(
-                        endpoint,
-                        data=data,
-                        headers={"Content-Type": "application/json"}
-                    )
-                    with urllib.request.urlopen(req, timeout=actual_timeout) as resp:
-                        result = json.loads(resp.read().decode("utf-8"))
+            if _gpu_lock:
+                ctx = _gpu_lock.acquire_sync(owner="telegram_analyzer", timeout_sec=120)
+            else:
+                from contextlib import nullcontext
+                ctx = nullcontext()
 
-                    message_obj = result.get("message", {})
-                    response_text = message_obj.get("content", "").strip()
-                    if response_text:
-                        break # Success
+            with ctx:
+                for attempt in range(max_retries):
+                    try:
+                        data = json.dumps(request_body).encode("utf-8")
+                        req = urllib.request.Request(
+                            endpoint,
+                            data=data,
+                            headers={"Content-Type": "application/json"}
+                        )
+                        with urllib.request.urlopen(req, timeout=actual_timeout) as resp:
+                            result = json.loads(resp.read().decode("utf-8"))
 
-                except urllib.error.HTTPError as e:
-                    if e.code == 404:
-                        logger.warning(f"Telegram LLM analysis: model '{MODEL}' not found on Ollama (404) — check TELEGRAM_LLM_MODEL env")
+                        message_obj = result.get("message", {})
+                        response_text = message_obj.get("content", "").strip()
+                        if response_text:
+                            break # Success
+
+                    except urllib.error.HTTPError as e:
+                        if e.code == 404:
+                            logger.warning(f"Telegram LLM analysis: model '{MODEL}' not found on Ollama (404) — check TELEGRAM_LLM_MODEL env")
+                            return None
+                        is_last = attempt == max_retries - 1
+                        if is_last:
+                            logger.warning(f"Telegram LLM analysis: failed to connect to Ollama after {max_retries} attempts: {e}")
+                            return None
+                        logger.warning(f"Telegram LLM analysis: Ollama not ready ({e}). Retrying in {retry_delay}s (attempt {attempt+1}/{max_retries})...")
+                        time.sleep(retry_delay)
+                    except (urllib.error.URLError, ConnectionError) as e:
+                        is_last = attempt == max_retries - 1
+                        if is_last:
+                            logger.warning(f"Telegram LLM analysis: failed to connect to Ollama after {max_retries} attempts: {e}")
+                            return None
+                        logger.warning(f"Telegram LLM analysis: Ollama not ready ({e}). Retrying in {retry_delay}s (attempt {attempt+1}/{max_retries})...")
+                        time.sleep(retry_delay)
+                    except Exception as e:
+                        logger.warning(f"Telegram LLM analysis: unexpected error during request: {e}")
                         return None
-                    is_last = attempt == max_retries - 1
-                    if is_last:
-                        logger.warning(f"Telegram LLM analysis: failed to connect to Ollama after {max_retries} attempts: {e}")
-                        return None
-                    logger.warning(f"Telegram LLM analysis: Ollama not ready ({e}). Retrying in {retry_delay}s (attempt {attempt+1}/{max_retries})...")
-                    time.sleep(retry_delay)
-                except (urllib.error.URLError, ConnectionError) as e:
-                    is_last = attempt == max_retries - 1
-                    if is_last:
-                        logger.warning(f"Telegram LLM analysis: failed to connect to Ollama after {max_retries} attempts: {e}")
-                        return None
-                    logger.warning(f"Telegram LLM analysis: Ollama not ready ({e}). Retrying in {retry_delay}s (attempt {attempt+1}/{max_retries})...")
-                    time.sleep(retry_delay)
-                except Exception as e:
-                    logger.warning(f"Telegram LLM analysis: unexpected error during request: {e}")
-                    return None
 
             if not response_text:
                 return None

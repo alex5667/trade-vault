@@ -125,6 +125,19 @@ try:
         "HTF LONG bias gate decisions — Plan 1.2",
         ["symbol", "mode", "decision"],
     )
+    # 2026-05-23: RR floor counter (item 3 of low-WR fix)
+    _setup_rr_below_threshold = Counter(
+        "setup_rr_below_threshold_total",
+        "Signals with tp1/sl below ENTRY_RR_MIN floor (item 3 stop-bleed)",
+        ["kind", "regime", "decision"],
+    )
+    # 2026-05-23: maker-only candidate annotation (item 4). SHADOW until
+    # order_open_service.py learns to read ctx.exec_maker_only_required.
+    _exec_maker_only_required = Counter(
+        "exec_maker_only_required_total",
+        "Signals annotated for maker-only execution by kind",
+        ["kind", "decision"],
+    )
 except Exception:
     Counter = Gauge = None  # type: ignore[assignment,misc]
     _ac_cal_soft_bps = _ac_cal_hard_bps = _ac_cal_n = _ac_cal_loss_floor = _ac_veto_total = None  # type: ignore[assignment]
@@ -132,6 +145,7 @@ except Exception:
     _btc_drop_block_long_ret_g = None  # type: ignore[assignment]
     _daily_dd_veto_total = None  # type: ignore[assignment]
     _htf_long_bias_total = None  # type: ignore[assignment]
+    _setup_rr_below_threshold = None  # type: ignore[assignment]
 
 
 @dataclass(frozen=True)
@@ -558,6 +572,81 @@ class EntryPolicyGate:
                 pass
             return GateDecision(True, True, "VETO_DAILY_DD_KILLSWITCH", dd_reason or "daily_dd_breach")
 
+        # ── 2026-05-23 RR floor (item 3 stop-bleed) ──────────────────────────
+        # Bounded-SL floor в low-vol режиме коллапсирует RR до ~1.0, при котором
+        # WR breakeven > 55% (с 8 bps round-trip fees). Vето сигналы с tp1/sl < min.
+        # Default: SHADOW (только инкремент counter, no veto).
+        if _env_bool("ENTRY_RR_MIN_ENABLED", False):
+            try:
+                ind = getattr(ctx, "indicators", None) or {}
+                _tp = _safe_float(
+                    ind.get("liqmap_gate_reward_bps")
+                    or ind.get("tp1_bps")
+                    or ind.get("pred_tp1_bps")
+                    or getattr(ctx, "tp1_bps", None),
+                    0.0,
+                )
+                _sl = _safe_float(
+                    ind.get("liqmap_gate_risk_bps")
+                    or ind.get("sl_bps")
+                    or getattr(ctx, "sl_bps", None),
+                    0.0,
+                )
+                _rr_min = _safe_float(os.getenv("ENTRY_RR_MIN", "1.5"), 1.5)
+                _rr = (_tp / _sl) if _sl > 0 else 0.0
+                _rr_breach = _tp > 0 and _sl > 0 and _rr < _rr_min
+                if _rr_breach:
+                    _enforce = _env_bool("ENTRY_RR_MIN_ENFORCE", False)
+                    _reg = (ind.get("regime") or "unknown").lower()
+                    try:
+                        if _setup_rr_below_threshold is not None:
+                            _setup_rr_below_threshold.labels(
+                                kind=str(kind), regime=_reg,
+                                decision="VETO" if _enforce else "SHADOW",
+                            ).inc()
+                    except Exception:
+                        pass
+                    try:
+                        ctx.rr_below_min_shadow = 1
+                        ctx.rr_value = _rr
+                    except Exception:
+                        pass
+                    if _enforce:
+                        return GateDecision(
+                            True, True, "VETO_RR_BELOW_MIN",
+                            f"rr={_rr:.2f} < min={_rr_min:.2f} tp={_tp:.1f}bps sl={_sl:.1f}bps",
+                        )
+            except Exception:
+                pass  # fail-open
+
+        # ── 2026-05-23 item 4: maker-only candidate annotation ───────────────
+        # Сейчас 287% fees от gross profit при taker entry. Помечаем continuation
+        # для maker-only execution. SHADOW: только ctx.exec_maker_only_required=1
+        # + counter. ENFORCE требует patch в order_open_service (отдельный PR).
+        try:
+            _mo_kinds = {
+                k.strip().lower()
+                for k in (os.getenv("EXEC_MAKER_ONLY_KINDS") or "").split(",")
+                if k.strip()
+            }
+            if _mo_kinds and str(kind).lower() in _mo_kinds:
+                _mo_enforce = _env_bool("EXEC_MAKER_ONLY_ENFORCE", False)
+                try:
+                    ctx.exec_maker_only_required = 1
+                    ctx.exec_maker_only_enforce = 1 if _mo_enforce else 0
+                except Exception:
+                    pass
+                try:
+                    if _exec_maker_only_required is not None:
+                        _exec_maker_only_required.labels(
+                            kind=str(kind),
+                            decision="ENFORCE" if _mo_enforce else "SHADOW",
+                        ).inc()
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
         profile = (os.getenv("GATE_PROFILE", "") or "").strip().lower()
         if profile in {"", "normal"}:
             # FEATURE_DRIFT_PROFILE=soft|tighten|hard maps to GATE_PROFILE conventions
@@ -855,6 +944,75 @@ class EntryPolicyGate:
                 pass
             if htf_enforce:
                 return GateDecision(True, True, "VETO_HTF_LONG_BIAS_BEAR", htf_notes)
+
+        # ── Phase E: Risk Overlay (portfolio_heat / correlation / consec_loss) ─
+        # Fail-open: любая ошибка импорта или вычисления → пропускаем сигнал.
+        # Shadow default (RISK_OVERLAY_ENFORCE=0): только аннотирует ctx.
+        # Enforce (RISK_OVERLAY_ENFORCE=1): veto с reason_code из overlay.
+        if _env_bool("RISK_OVERLAY_ENABLED", True):
+            try:
+                from services.risk_overlay_v1 import (
+                    OpenPositionInfo,
+                    RecentTradeOutcome,
+                    RiskLimits,
+                    evaluate_risk_overlay,
+                )
+                _ro_limits = RiskLimits.from_env()
+                # open_positions — подставляется trade_monitor через ctx.open_positions
+                _ro_positions: list[OpenPositionInfo] = []
+                for _p in (getattr(ctx, "open_positions", None) or []):
+                    if isinstance(_p, dict):
+                        _ro_positions.append(OpenPositionInfo(
+                            symbol=str(_p.get("symbol", symbol)),
+                            notional_usd=_safe_float(_p.get("notional_usd"), 0.0),
+                            unrealized_r=_safe_float(_p.get("unrealized_r"), 0.0),
+                        ))
+                # recent_outcomes — подставляется pipeline через ctx.recent_outcomes
+                _ro_recent: list[RecentTradeOutcome] = []
+                for _t in (getattr(ctx, "recent_outcomes", None) or []):
+                    if isinstance(_t, dict):
+                        _ro_recent.append(RecentTradeOutcome(
+                            symbol=str(_t.get("symbol", "")),
+                            bucket=str(_t.get("bucket", "")),
+                            r_multiple=_safe_float(_t.get("r_multiple"), 0.0),
+                            ts_ms=int(_t.get("ts_ms", 0)),
+                        ))
+                _ro_notional = _safe_float(
+                    getattr(ctx, "position_notional_usd", None)
+                    or getattr(ctx, "notional_usd", None),
+                    100.0,
+                )
+                _ro_bucket = f"{symbol}|{kind}"
+                _ro_decision = evaluate_risk_overlay(
+                    symbol=symbol,
+                    bucket=_ro_bucket,
+                    open_positions=_ro_positions,
+                    new_position_notional_usd=_ro_notional,
+                    recent_outcomes=_ro_recent,
+                    now_ms=tsm if tsm > 0 else 1,
+                    limits=_ro_limits,
+                )
+                # Аннотируем ctx для observability всегда
+                try:
+                    ctx.risk_overlay_heat_r = _ro_decision.portfolio_heat_r
+                    ctx.risk_overlay_group = _ro_decision.correlation_group
+                    ctx.risk_overlay_group_notional = _ro_decision.group_notional_usd
+                    ctx.risk_overlay_consec_losses = _ro_decision.consec_losses
+                    ctx.risk_overlay_shadow = _ro_decision.shadow
+                    if _ro_decision.reason_code:
+                        ctx.risk_overlay_breach = _ro_decision.reason_code
+                except Exception:
+                    pass
+                if _ro_decision.veto:
+                    return GateDecision(
+                        True, True,
+                        _ro_decision.reason_code or "VETO_RISK_OVERLAY",
+                        f"heat={_ro_decision.portfolio_heat_r:.2f} "
+                        f"group={_ro_decision.correlation_group} "
+                        f"consec={_ro_decision.consec_losses}",
+                    )
+            except Exception:
+                pass  # fail-open
 
         # Decision policy:
         #   default/soft: do not veto (не режем поток)

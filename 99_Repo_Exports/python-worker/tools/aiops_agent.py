@@ -18,7 +18,7 @@ for env_path in ['/opt/trade-agent/compose/.env', '/home/alex/front/trade/scanne
     except Exception:
         pass
 
-VERSION = "15.7.0"
+VERSION = "15.7.1"
 
 # ── Настройки ─────────────────────────────────────────────────────────────────
 # Prometheus авто-обнаружение: сначала проверяет env var, затем сканирует известные порты
@@ -33,7 +33,7 @@ _PROMETHEUS_CANDIDATES = [
 GEMINI_KEY      = os.environ.get("GEMINI_API_KEY", "")
 GEMINI_MODEL    = os.environ.get("GEMINI_MODEL", "gemini-2.0-flash")
 NVIDIA_KEY      = os.environ.get("NVIDIA_API_KEY", "")
-NVIDIA_MODEL    = os.environ.get("NVIDIA_MODEL", "qwen/qwen3.5-397b-a17b")
+NVIDIA_MODEL    = os.environ.get("NVIDIA_MODEL", "deepseek-ai/deepseek-r1")
 OLLAMA_URL_ENV      = os.environ.get("OLLAMA_URL", "")
 GO_GATEWAY_URL_ENV  = os.environ.get("GO_GATEWAY_URL", "")
 PROMETHEUS_ADDR_OVERRIDE = os.environ.get("PROMETHEUS_ADDR_OVERRIDE", None)
@@ -142,7 +142,13 @@ QUERIES: dict[str, str] = {
     "redis_entry_lag_p99": 'max(histogram_quantile(0.99, sum(rate(redis_entry_lag_ms_hist_bucket[5m])) by (le))) or vector(0)',
     "market_inactivity_p99": 'max(histogram_quantile(0.99, sum(rate(market_inactivity_lag_ms_hist_bucket[5m])) by (le))) or vector(0)',
     "processing_p99":    'max(histogram_quantile(0.99, sum(rate(processing_time_us_bucket[5m])) by (le))) / 1000 or vector(0)',
-    "signal_emit_p99":   'max(histogram_quantile(0.99, sum(rate(signal_emit_latency_us_bucket[5m])) by (le))) / 1000 or vector(0)',
+    # Exclude high-frequency tick/book/bbo streams — they have their own SLO (50ms, см. BboWriteP99High).
+    # AIOps `signal_emit_p99` должен отражать только торговые сигналы (orders/signals:outbox/of:inputs/cryptoof).
+    # Bug fix 2026-05-23: до этого запрос включал bbo_ts/tick/book → P99 BBO 50-60ms ложно срабатывал
+    # как «КРИТИЧНО: Signal Emit P99 > 50ms». Теперь зеркалит фильтр Prometheus alert SignalEmitP99High.
+    "signal_emit_p99":   'max(histogram_quantile(0.99, sum(rate(signal_emit_latency_us_bucket{stream!~"events:bbo_ts|stream:tick.*|stream:book.*"}[5m])) by (le))) / 1000 or vector(0)',
+    # Separate metric for high-frequency BBO/tick/book XADD — SLO is 50ms (BboWriteP99High).
+    "bbo_emit_p99":      'max(histogram_quantile(0.99, sum(rate(signal_emit_latency_us_bucket{stream=~"events:bbo_ts|stream:tick.*|stream:book.*"}[5m])) by (le))) / 1000 or vector(0)',
     # 14. Virtual & Open Positions ───────────────────────────────────────────
     # P-FIX: sum() double-counts across shards that recover same positions.
     # max by (symbol) picks the authoritative shard per symbol, then sum across symbols.
@@ -501,10 +507,15 @@ def run_cycle() -> None:
     # Worker Lag P99: включает Binance RTT 80-130ms. Baseline = 120-200ms.
     # ВНИМАНИЕ > 250ms = выше network baseline. КРИТИЧНО > 800ms = деградация event loop.
     # НО: если market_inactivity_p99 объясняет большую часть лага → это нормально (тихий рынок).
+    # 2026-05-23: при низком объёме сделок (выборка < N) tail-driven P99 spikes ложные.
+    # Cross-check: если redis_entry_lag_p99 < 50ms — Python event loop ОК, лаг идёт от Binance RTT.
     wlag = m.get('worker_lag_p99')
     m_inact = m.get('market_inactivity_p99')
     r_entry = m.get('redis_entry_lag_p99')
     proc = m.get('processing_p99')
+    # If Python event-loop is healthy (redis_entry < 50ms) we should NOT fire worker_lag warning
+    # — the difference is uncontrollable Binance RTT.
+    event_loop_healthy = (r_entry is not None and r_entry < 50)
     if wlag is not None and wlag > 800:
         # Проверяем: объясняет ли market_inactivity большую часть лага?
         if m_inact is not None and m_inact > 0 and (m_inact / wlag) > 0.6:
@@ -518,21 +529,37 @@ def run_cycle() -> None:
                 f"⚪ ИНФО: Worker Lag P99 {wlag:.0f}ms — объясняется рыночной тишиной "
                 f"(tick_gap). Event Loop в норме. Breakdown: {breakdown}."
             )
+        elif event_loop_healthy:
+            alerts.append(
+                f"⚪ ИНФО: Worker Lag P99 {wlag:.0f}ms, но Python event loop здоров "
+                f"(redis_entry={r_entry:.0f}ms < 50). Источник: Binance RTT / network."
+            )
         else:
             alerts.append(f"🔴 КРИТИЧНО: Worker Lag P99 > 800ms ({wlag:.0f}ms). Критическая деградация event loop или Redis backlog!")
     elif wlag is not None and wlag > 250:
-        alerts.append(f"🟠 ВНИМАНИЕ: Worker Lag P99 > 250ms ({wlag:.0f}ms). Проверьте сеть Binance и Redis backlog.")
+        if event_loop_healthy:
+            # Не шумим: лаг идёт от сети Binance, не от нас.
+            pass
+        else:
+            extra = f" (redis_entry={r_entry:.0f}ms)" if r_entry is not None else ""
+            alerts.append(f"🟠 ВНИМАНИЕ: Worker Lag P99 > 250ms ({wlag:.0f}ms){extra}. Проверьте сеть Binance и Redis backlog.")
     if m.get('redis_entry_lag_p99') is not None and m['redis_entry_lag_p99'] > 150:
         alerts.append(f"🔴 КРИТИЧНО: Redis Entry Lag P99 > 150ms ({m['redis_entry_lag_p99']:.0f}ms). Event Loop Python заблокирован или Redis Pool исчерпан!")
     elif m.get('redis_entry_lag_p99') is not None and m['redis_entry_lag_p99'] > 50:
         alerts.append(f"🟠 ВНИМАНИЕ: Redis Entry Lag P99 > 50ms ({m['redis_entry_lag_p99']:.0f}ms). Возможна перегрузка пула Redis (батчинг).")
-    # Signal Emit P99: чистый Redis XADD round-trip. SLO < 8ms (номинал).
-    # При насыщении пула (redis_clients > 1500) наблюдается 15-30ms — это деградация, не катастрофа.
+    # Signal Emit P99: чистый Redis XADD round-trip для торговых сигналов (BBO/tick исключены).
+    # SLO < 8ms (Prometheus alert SignalEmitP99High). При насыщении пула 15-30ms — деградация.
     # КРИТИЧНО > 50ms = пул исчерпан, XADD ждёт слота. ВНИМАНИЕ > 15ms = ранний индикатор.
     if m['signal_emit_p99'] is not None and m['signal_emit_p99'] > 50:
         alerts.append(f"🔴 КРИТИЧНО: Signal Emit P99 > 50ms ({m['signal_emit_p99']:.1f}ms). Redis пул исчерпан, XADD блокируется!")
     elif m['signal_emit_p99'] is not None and m['signal_emit_p99'] > 15:
         alerts.append(f"🟠 ВНИМАНИЕ: Signal Emit P99 > 15ms ({m['signal_emit_p99']:.1f}ms). Redis-пул под давлением (норма < 8ms).")
+    # BBO/tick XADD: отдельный SLO 50ms (BboWriteP99High). High-freq stream, шум допустим.
+    bbo_p99 = m.get('bbo_emit_p99')
+    if bbo_p99 is not None and bbo_p99 > 100:
+        alerts.append(f"🔴 КРИТИЧНО: BBO Emit P99 > 100ms ({bbo_p99:.1f}ms). redis-ticks CPU или bbo-ts-writer pool!")
+    elif bbo_p99 is not None and bbo_p99 > 50:
+        alerts.append(f"🟠 ВНИМАНИЕ: BBO Emit P99 > 50ms ({bbo_p99:.1f}ms). Проверьте redis-ticks CPU.")
 
     # 16. OF Engine Bottlenecks
     if m['ofc_avg_ms_total'] is not None and m['ofc_avg_ms_total'] > 40:

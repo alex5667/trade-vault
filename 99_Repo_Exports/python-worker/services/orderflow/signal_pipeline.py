@@ -150,6 +150,22 @@ try:
         "Virtual/exploration samples recorded by policy bucket",
         ["sample_policy", "symbol", "regime", "session"],
     )
+    _TP_PROFILE_ENFORCE_TOTAL = Counter(
+        "trade_profile_tp_enforce_total",
+        "Signals where TradeProfile TP geometry was enforced (applied to _calculate_levels cfg)",
+        ["profile", "symbol"],
+    )
+    _TP_PROFILE_SHADOW_TOTAL = Counter(
+        "trade_profile_tp_shadow_total",
+        "Signals where TradeProfile TP geometry was shadow-only (indicators only, not applied)",
+        ["profile", "symbol"],
+    )
+    _TP_PROFILE_LEVEL_DELTA_BPS = Histogram(
+        "trade_profile_tp_level_delta_bps",
+        "Absolute difference in TP1 price level between profile and default (basis points)",
+        ["profile", "symbol"],
+        buckets=[0, 5, 10, 20, 50, 100, 200, 500],
+    )
 except ImportError:
     _FEATURE_TO_DECISION_MS = None
     _DECISION_TO_OUTBOX_MS = None
@@ -164,6 +180,9 @@ except ImportError:
     _VIRTUAL_ORDER_INVALID_LEVELS_TOTAL = None
     _DEEP_EXPLORE_SAMPLE_TOTAL = None
     _VIRTUAL_SAMPLE_COUNT_BY_POLICY = None
+    _TP_PROFILE_ENFORCE_TOTAL = None
+    _TP_PROFILE_SHADOW_TOTAL = None
+    _TP_PROFILE_LEVEL_DELTA_BPS = None
 
 # Gates whose vetoes must never route to virtual order queue.
 # Checked via rejection_gate parameter (dec.gate passed by _handle_pipeline_veto).
@@ -687,7 +706,7 @@ class SignalPipeline:
         if now - self._profile_overrides_ts < self._profile_overrides_ttl:
             return self._profile_overrides
         try:
-            r = self.publisher.r if (self.publisher and self.publisher.r) else None
+            r = self._pipeline_calib_sync_redis()
             if r is None:
                 return self._profile_overrides
             overrides: dict[str, Any] = {}
@@ -2778,6 +2797,54 @@ class SignalPipeline:
         # cfg already initialized
         trail_profile = signal.get("trail_profile") or cfg.get("trail_profile") or "protective_only"
 
+        # Phase 3 fix: apply TradeProfileRouter trail_profile BEFORE _calculate_levels.
+        # TP ratios/RR: TRADE_PROFILE_TP_ENFORCE=1 → applied to cfg via indicator keys
+        # that _calculate_levels reads (profile_tp_rr, profile_tp_ratio).
+        # Default shadow: written as _shadow indicators only, not applied to cfg.
+        _tp_enforce = os.getenv("TRADE_PROFILE_TP_ENFORCE", "0") == "1"
+        try:
+            if (
+                _profile_decision is not None
+                and _profile_decision.allowed
+                and _profile_decision.mode == "LIVE"
+                and _profile_decision.is_canary
+            ):
+                _pd_profile = _profile_decision.profile
+                if _pd_profile.trailing_profile and trail_profile in ("protective_only", None, ""):
+                    trail_profile = _pd_profile.trailing_profile
+                    signal["trail_profile"] = trail_profile
+                    if _pd_profile.trail_enabled:
+                        signal.setdefault("trail_after_tp1", True)
+                    if _pd_profile.trail_after_tp_level:
+                        signal.setdefault("trail_after_tp_level", _pd_profile.trail_after_tp_level)
+                    indicators["trail_profile_pre_calc"] = trail_profile
+                _pd_tp_rr = getattr(_pd_profile, "tp_rr", None)
+                _pd_tp_ratios = getattr(_pd_profile, "tp_ratios", None)
+                _pd_has_geometry = _pd_tp_rr is not None or bool(_pd_tp_ratios)
+                if _pd_tp_rr is not None:
+                    if _tp_enforce:
+                        indicators["profile_tp_rr"] = _pd_tp_rr          # → _calculate_levels applies to cfg
+                        indicators["profile_tp_rr_enforced"] = _pd_tp_rr
+                    else:
+                        indicators["profile_tp_rr_shadow"] = _pd_tp_rr
+                if _pd_tp_ratios:
+                    if _tp_enforce:
+                        indicators["profile_tp_ratio"] = ",".join(str(x) for x in _pd_tp_ratios)  # → _calculate_levels
+                        indicators["profile_tp_ratios_enforced"] = list(_pd_tp_ratios)
+                    else:
+                        indicators["profile_tp_ratios_shadow"] = list(_pd_tp_ratios)
+                if _pd_has_geometry:
+                    _pname = getattr(_pd_profile, "name", "unknown")
+                    _sym = symbol or "unknown"
+                    if _tp_enforce:
+                        if _TP_PROFILE_ENFORCE_TOTAL is not None:
+                            _TP_PROFILE_ENFORCE_TOTAL.labels(profile=_pname, symbol=_sym).inc()
+                    else:
+                        if _TP_PROFILE_SHADOW_TOTAL is not None:
+                            _TP_PROFILE_SHADOW_TOTAL.labels(profile=_pname, symbol=_sym).inc()
+        except Exception:
+            pass
+
         # ---- ts normalization (epoch ms best-effort) ----
         # We keep multiple mirrors because older downstream components differ:
         #   - some read `ts`, others `timestamp`, newer contract expects `ts_ms`.
@@ -2798,6 +2865,28 @@ class SignalPipeline:
         _levels["sl"] = sl
         _levels["tp_levels"] = tp_levels
         _levels["lot"] = lot
+
+        # Emit TP1 delta bps vs default when profile was enforced
+        try:
+            if (
+                _TP_PROFILE_LEVEL_DELTA_BPS is not None
+                and _tp_enforce
+                and indicators.get("profile_tp_rr") is not None
+                and tp_levels
+                and entry
+                and entry > 0
+            ):
+                _default_rr_str = cfg.get("tp_rr", "1.3,2.0,2.7")
+                _default_tp1_rr = float(str(_default_rr_str).split(",")[0])
+                _sl_dist = abs(entry - (sl or entry))
+                _default_tp1 = entry + _sl_dist * _default_tp1_rr if direction == "LONG" else entry - _sl_dist * _default_tp1_rr
+                _profile_tp1 = tp_levels[0]
+                _delta_bps = abs(_profile_tp1 - _default_tp1) / entry * 10_000
+                _pname = indicators.get("trail_profile_pre_calc") or "unknown"
+                _sym = symbol or "unknown"
+                _TP_PROFILE_LEVEL_DELTA_BPS.labels(profile=_pname, symbol=_sym).observe(_delta_bps)
+        except Exception:
+            pass
 
         # ATR-floor enrichment (early): ensures virtual veto signals emitted by
         # _handle_pipeline_veto also carry atr_*_th_bps keys in indicators.
@@ -3123,6 +3212,39 @@ class SignalPipeline:
                 return  # type: ignore
 
         # ------------------------------------------------------------------
+        # Phase D.2 · Entry Profile Classifier (SHADOW only)
+        # ------------------------------------------------------------------
+        # Новый слой taxonomy поверх `kind` (microstructure pattern).
+        # Не влияет на исполнение — только пишет `entry_profile_shadow` для
+        # сбора bucket-метрик. Promotion в enforce — после P1/Phase C промоут-
+        # сервиса (см. services/regime_exec_promotion_v1.py).
+        try:
+            from services.entry_profile_classifier import classify_entry_profile
+
+            _ep_ctx = {
+                "kind": kind,
+                "vol_regime": (
+                    indicators.get("vol_regime_label")
+                    or indicators.get("vol_regime")
+                    or "na"
+                ),
+                "trend_regime": rg_for_overrides or "na",
+                "side": signal.get("side") or signal.get("direction") or "LONG",
+                "og_score": indicators.get("og_score"),
+                "smt_coh": indicators.get("smt_coh"),
+                "news_shock": bool(indicators.get("news_shock_active")),
+                "adverse_cross": bool(indicators.get("adverse_cross")),
+            }
+            _ep_res = classify_entry_profile(_ep_ctx)
+            indicators["entry_profile_shadow"] = _ep_res.profile
+            indicators["entry_profile_confidence"] = round(_ep_res.confidence, 3)
+            # Список причин — для отладки в trades_closed.config_snapshot.indicators.
+            indicators["entry_profile_reasons"] = ";".join(_ep_res.reasons)[:300]
+        except Exception:
+            # Shadow-only; никогда не должен ронять пайплайн.
+            pass
+
+        # ------------------------------------------------------------------
         # Construction Phase using Typed SignalPayload
         # ------------------------------------------------------------------
 
@@ -3188,13 +3310,15 @@ class SignalPipeline:
             "indicators": indicators,
         }
 
-        # TP ratio resolution (precedence: TradeProfile → regime_exec engine →
-        # legacy regime flag fallback).
+        # TP ratio resolution (precedence: regime_exec engine → legacy regime flag fallback).
+        # TradeProfile tp_ratios written to indicators as shadow only — tp_levels are
+        # already computed without profile geometry; applying ratio here without verifying
+        # level consistency would create a payload/execution mismatch.
         _profile_meta = signal.get("meta", {})
         _profile_tp_ratios = _profile_meta.get("tp_ratios")
         if _profile_tp_ratios and isinstance(_profile_tp_ratios, (list, tuple)):
-            payload["tp_ratio"] = list(_profile_tp_ratios)
-        elif _regime_exec_tp_ratios:
+            indicators["profile_tp_ratios_shadow"] = list(_profile_tp_ratios)
+        if _regime_exec_tp_ratios:
             payload["tp_ratio"] = list(_regime_exec_tp_ratios)
         elif is_range_regime_flag:
             payload["tp_ratio"] = [0.80, 0.20]
@@ -3623,6 +3747,8 @@ class SignalPipeline:
         enriched_signal["lot"] = lot
         enriched_signal["qty"] = lot * float(getattr(get_specs(symbol), "contract_size", 1.0))
         enriched_signal["quantity"] = lot * float(getattr(get_specs(symbol), "contract_size", 1.0))
+        enriched_signal["contract_size"] = float(getattr(get_specs(symbol), "contract_size", 1.0))
+        enriched_signal["tick_size"] = float(getattr(get_specs(symbol), "tick_size", 0.01))
         enriched_signal["position_size_usd"] = position_size_usd
         enriched_signal["deposit"] = deposit
         enriched_signal["leverage"] = leverage
@@ -3666,8 +3792,17 @@ class SignalPipeline:
                 validation_reason = f"OFConfirm failed: {indicators.get('of_confirm', {}).get('reason', of_confirm_reason)}"
         else:
             # of_confirm_ok not set or OFConfirm was not evaluated
-            validation_status = "bypassed"
-            validation_reason = "OFConfirm not evaluated"
+            is_virtual = bool(int(enriched_signal.get("is_virtual", 0) or signal.get("is_virtual", 0)))
+            if not is_virtual:
+                # Real signals MUST fail if confirmation is missing.
+                validation_status = "failed"
+                validation_reason = "OFConfirm not evaluated (real signal blocked)"
+            elif is_virtual and not _virtual_enforce:
+                validation_status = "bypassed"
+                validation_reason = "OFConfirm not evaluated (virtual)"
+            else:
+                validation_status = "failed"
+                validation_reason = "OFConfirm not evaluated (virtual enforce=True)"
 
         enriched_signal["validation_status"] = validation_status
         enriched_signal["validation_reason"] = validation_reason
@@ -4774,7 +4909,8 @@ class SignalPipeline:
         _p_stop = indicators.get("profile_stop_atr_mult")
         _p_tp_rr = indicators.get("profile_tp_rr")
         _p_tp1 = indicators.get("profile_tp1_atr_mult")
-        if _p_stop is not None or _p_tp_rr is not None or _p_tp1 is not None:
+        _p_tp_ratio = indicators.get("profile_tp_ratio")  # enforced by TRADE_PROFILE_TP_ENFORCE=1
+        if _p_stop is not None or _p_tp_rr is not None or _p_tp1 is not None or _p_tp_ratio is not None:
             cfg = {**cfg}  # shallow copy to avoid mutating runtime.config
             if _p_stop is not None:
                 cfg["stop_atr_mult"] = float(_p_stop)
@@ -4782,6 +4918,8 @@ class SignalPipeline:
                 cfg["tp_rr"] = str(_p_tp_rr)
             if _p_tp1 is not None:
                 cfg["tp1_atr_mult"] = float(_p_tp1)
+            if _p_tp_ratio is not None:
+                cfg["tp_ratio"] = str(_p_tp_ratio)
         _raw_signal_atr = float(indicators.get("atr", 0.0) or 0.0)
         indicators["atr_signal_raw"] = _raw_signal_atr
         atr = 0.0  # Force load from canonical HTF cache

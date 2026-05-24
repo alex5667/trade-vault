@@ -636,8 +636,8 @@ def _get_default_symbol_info(symbol: str) -> dict:
             "lot_step": lot_step,
             # ✅ Комиссии (ENV или defaults)
             # Binance Futures taker ~0.04% (0.0004), maker ~0.02%.
-            # We use 0.0005 (0.05%) as the global baseline.
-            "commission_rate": _env_float("CRYPTO_COMMISSION_RATE", 0.0005),
+            # We use 0.0003 (0.05%) as the global baseline.
+            "commission_rate": _env_float("CRYPTO_COMMISSION_RATE", 0.0003),
             "commission_per_lot": _env_float("CRYPTO_COMMISSION_PER_LOT"),
             "swap_long": _env_float("CRYPTO_SWAP_LONG", 0.0),
             "swap_short": _env_float("CRYPTO_SWAP_SHORT", 0.0),
@@ -656,7 +656,7 @@ def _get_default_symbol_info(symbol: str) -> dict:
         "tick_size": 0.01,
         "tick_value": 1.0,
         # ✅ Комиссии (ENV или defaults)
-        "commission_rate": _env_float("DEFAULT_COMMISSION_RATE", 0.0005),  # 0.05%
+        "commission_rate": _env_float("DEFAULT_COMMISSION_RATE", 0.0003),  # 0.05%
         "commission_per_lot": _env_float("DEFAULT_COMMISSION_PER_LOT"),
         "swap_long": _env_float("DEFAULT_SWAP_LONG", 0.0),
         "swap_short": _env_float("DEFAULT_SWAP_SHORT", 0.0),

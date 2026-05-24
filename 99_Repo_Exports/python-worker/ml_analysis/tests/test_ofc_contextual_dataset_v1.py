@@ -37,3 +37,31 @@ def test_build_ofc_contextual_dataset_v1(tmp_path: Path):
     assert rep['joined'] == 2
     assert out_exec.exists()
     assert out_rule.exists()
+
+
+def test_decision_prefixed_fields_take_priority_over_flat():
+    """Regression: v7 NDJSON capture carries flat top-level `spread_bps`=0.0
+    while the canonical frozen-decision snapshot lives in `decision_spread_bps`.
+    The builder must prefer the `decision_*` snapshot — otherwise every exec-cost
+    row gets silently zero'd out."""
+    from ml_analysis.tools.build_ofc_contextual_dataset_v1 import _build_exec_cost_row
+
+    # Mirror the actual v7 capture layout: flat decision_* alongside (stale) top-level
+    decision = {
+        'sid': 'crypto-of:BTCUSDT:1700000000000',
+        'symbol': 'BTCUSDT', 'direction': 'LONG',
+        'decision_ts_ms': 1700000000000,
+        # Stale top-level values (often 0.0 in v7 capture):
+        'spread_bps': 0.0,
+        'expected_slippage_bps': 0.0,
+        'book_staleness_ms': 0,
+        # Frozen decision snapshot (the canonical source):
+        'decision_spread_bps': 0.26,
+        'decision_expected_slippage_bps': 0.60,
+        'decision_book_staleness_ms': 120,
+    }
+    outcome = {'sid': decision['sid'], 'symbol': 'BTCUSDT'}
+    row = _build_exec_cost_row(decision, outcome)
+    assert row['spread_bps'] == 0.26, row
+    assert row['expected_slippage_bps'] == 0.60, row
+    assert row['book_staleness_ms'] == 120, row

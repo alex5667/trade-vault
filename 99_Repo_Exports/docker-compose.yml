@@ -12,6 +12,7 @@ include:
   - path: docker-compose.tp-trailing.yml
   - path: docker-compose.tp-sl-trail-autocal.yml
   - path: docker-compose.path-tp-autocal.yml
+  - path: docker-compose.ml-canary-autopromoter.yml
   - path: docker-compose-timers.yml
   - path: docker-compose-utilities.yml
   - path: docker-compose-of-gate-sre.yml

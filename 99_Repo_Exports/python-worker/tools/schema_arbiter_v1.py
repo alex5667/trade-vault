@@ -59,6 +59,44 @@ def _env_bool(k: str, d: bool = False) -> bool:
 # Schema → which metrics keys to read.
 _SCHEMAS = ("v14_of", "v5_of", "meta_lr_blend")
 
+# Whitelist of cfg["kind"] values that the inference runtime
+# (services.ml_confirm_gate / services.ml_confirm) knows how to load and score.
+# A schema may not be promoted unless its candidate cfg "kind" is in this set —
+# otherwise the worker crashloops on startup with bad_model_type.
+# Keep in sync with model_loader.py dispatch + decision_policy.py / facade.py routing.
+_RUNTIME_SUPPORTED_KINDS: frozenset[str] = frozenset({
+    "meta_lr",
+    "meta_lr_blend",
+    "edge_stack_v1",
+    "edge_stack_mh_v1",
+    "edge_stack_v5_of",
+    "util_mh_v1",
+    "util_mh_fastlinear",
+})
+
+
+def _cfg_is_runtime_supported(cfg: dict[str, Any]) -> tuple[bool, str]:
+    """Validate that a candidate champion cfg can actually be served.
+
+    Returns (ok, reason). reason is empty when ok=True.
+    Checks:
+      - cfg["kind"] is in the runtime allowlist
+      - cfg["model_path"] exists on disk (best-effort; absent path = skip)
+    """
+    if not isinstance(cfg, dict):
+        return False, "cfg_not_dict"
+    kind = str(cfg.get("kind", "")).strip().lower()
+    if not kind:
+        return False, "missing_kind"
+    if kind not in _RUNTIME_SUPPORTED_KINDS:
+        return False, f"unsupported_kind:{kind}"
+    model_path = str(cfg.get("model_path", "") or "")
+    if not model_path:
+        return False, "missing_model_path"
+    if not os.path.exists(model_path):
+        return False, f"model_path_missing:{model_path}"
+    return True, ""
+
 
 def _safe_get(r: redis.Redis, key: str) -> dict[str, Any]:
     try:
@@ -301,19 +339,32 @@ def run_cycle(r: redis.Redis) -> dict[str, Any]:
         if cfg is None:
             decision["action"] = "promote_failed_no_candidate_cfg"
         else:
-            text = (
-                f"🟢 schema_arbiter: RECOMMENDS promote {cur_schema} → {winner}\n"
-                f"  score: {cur_score:.4f} → {winner_score:.4f} (Δ {winner_score-cur_score:+.4f})\n"
-                f"  stable {stability_k} cycles. auto_apply={auto_apply}"
-            )
-            if auto_apply:
-                event = apply_promotion(r, winner, cfg)
-                decision["promotion_event"] = event
-                if event.get("applied"):
-                    text = f"✅ schema_arbiter: PROMOTED {cur_schema} → {winner} (mode=SHADOW)\n  backup={event['backup_key']}\n  score Δ {winner_score-cur_score:+.4f}"
-                else:
-                    text = f"❌ schema_arbiter: APPLY FAILED for {winner}: {event.get('error')}"
-            notify_telegram(r, text)
+            ok_runtime, runtime_reason = _cfg_is_runtime_supported(cfg)
+            if not ok_runtime:
+                decision["action"] = "promote_blocked_runtime_unsupported"
+                decision["runtime_block_reason"] = runtime_reason
+                decision["winner_kind"] = str(cfg.get("kind", ""))
+                text = (
+                    f"⛔ schema_arbiter: BLOCKED promote {cur_schema} → {winner}\n"
+                    f"  reason: {runtime_reason}\n"
+                    f"  kind={cfg.get('kind')!r} model_path={cfg.get('model_path')!r}\n"
+                    f"  add handler in services.ml_confirm_gate before promoting"
+                )
+                notify_telegram(r, text)
+            else:
+                text = (
+                    f"🟢 schema_arbiter: RECOMMENDS promote {cur_schema} → {winner}\n"
+                    f"  score: {cur_score:.4f} → {winner_score:.4f} (Δ {winner_score-cur_score:+.4f})\n"
+                    f"  stable {stability_k} cycles. auto_apply={auto_apply}"
+                )
+                if auto_apply:
+                    event = apply_promotion(r, winner, cfg)
+                    decision["promotion_event"] = event
+                    if event.get("applied"):
+                        text = f"✅ schema_arbiter: PROMOTED {cur_schema} → {winner} (mode=SHADOW)\n  backup={event['backup_key']}\n  score Δ {winner_score-cur_score:+.4f}"
+                    else:
+                        text = f"❌ schema_arbiter: APPLY FAILED for {winner}: {event.get('error')}"
+                notify_telegram(r, text)
 
     # Throttle "no change" notifications.
     last_notify_ms = float(state.get("last_notify_ms") or 0)

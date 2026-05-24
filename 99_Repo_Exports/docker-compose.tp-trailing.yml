@@ -1,4 +1,117 @@
 services:
+  trailing-state-writer:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    container_name: scanner-trailing-state-writer
+    command: python -m services.trailing_state_writer
+    restart: unless-stopped
+    networks:
+    - scanner-core
+    - scanner-infra
+    depends_on:
+      redis-worker-1:
+        condition: service_healthy
+    expose:
+    - "9924"
+    environment:
+    - REDIS_URL=${REDIS_URL}
+    - ANALYTICS_DB_DSN=${ANALYTICS_DB_DSN:-postgresql://trading:${TRADING_PASSWORD}@postgres:5432/scanner_analytics}
+    - TSW_STREAM=events:trailing:state
+    - TSW_CG=trailing_state_persistence_cg
+    - TSW_BLOCK_MS=5000
+    - TSW_COUNT=500
+    - TSW_BATCH_SIZE=500
+    - TSW_DLQ_STREAM=events:trailing:state:dlq
+    - TSW_DLQ_MAXLEN=200000
+    - TSW_METRICS_PORT=9924
+    - TSW_FAIL_SLEEP_SEC=1.0
+    - LOG_LEVEL=INFO
+    - PYTHONUNBUFFERED=1
+    - PYTHONPATH=.:/app
+    - TZ=UTC
+    volumes:
+    - ./python-worker:/app
+    - ./common:/app/common
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.3'
+        reservations:
+          memory: 16M
+    labels:
+    - com.scanner.service=trailing-state-writer
+    - com.scanner.version=1.0.0
+    - com.scanner.description=Timescale persistence for events:trailing:state audit
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '3'
+
+  trailing-state-autocal:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    container_name: scanner-trailing-state-autocal
+    command: python -m orderflow_services.trailing_state_autocal_v1
+    restart: unless-stopped
+    networks:
+    - scanner-core
+    - scanner-infra
+    depends_on:
+      redis-worker-1:
+        condition: service_healthy
+    expose:
+    - "9922"
+    environment:
+    - REDIS_URL=${REDIS_URL}
+    - TS_CAL_REDIS_URL=${REDIS_URL}
+    - TS_CAL_PORT=9922
+    - TS_CAL_POLL_SEC=60
+    - TS_CAL_SNAPSHOT_TTL=7200
+    - TS_CAL_WINDOW_MS=43200000          # 12h
+    - TS_CAL_MIN_SAMPLES=50
+    - TS_CAL_ENFORCE=0
+    - TS_CAL_NOTIFY_STREAM=notify:telegram
+    - TS_CAL_SYMBOLS=BTCUSDT,ETHUSDT
+    # Auto-promote: =1 enables fully automatic shadow→live transition.
+    # Chain: autocal stats accumulate → 30min dwell → sanity check passes →
+    # autocal writes shadow=false to autocal:trailing_state:state →
+    # TrailingStateWorker (60s refresh) flips self.shadow=false →
+    # TrailingCommandConsumer (60s refresh, TCC_FOLLOW_AUTOCAL=1) auto-activates →
+    # commands flow to go-gateway → Binance SL modify.
+    # Each transition emits a Telegram notification to notify:telegram.
+    # Rollback: docker exec redis-worker-1 redis-cli DEL autocal:trailing_state:state
+    - TS_CAL_AUTO_PROMOTE=1
+    - TS_CAL_PROMOTE_DWELL_MIN=30
+    - TS_CAL_PROMOTE_MAX_ERROR=0.05
+    - TS_CAL_PROMOTE_MIN_DELTA_BPS=2.0
+    - TS_CAL_PROMOTE_MAX_DUP_RATE=0.02
+    - LOG_LEVEL=INFO
+    - PYTHONUNBUFFERED=1
+    - TZ=UTC
+    volumes:
+    - ./python-worker:/app
+    - ./common:/app/common
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.2'
+        reservations:
+          memory: 16M
+    labels:
+    - com.scanner.service=trailing-state-autocal
+    - com.scanner.version=1.0.0
+    - com.scanner.description=TrailingState shadow→live auto-promoter
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '3'
+
   tp-event-listener:
     build:
       context: .
@@ -16,6 +129,8 @@ services:
         condition: service_healthy
       go-gateway:
         condition: service_started
+    expose:
+    - "9921"
     environment:
     - REDIS_URL=${REDIS_URL}
     - TP_EVENTS_STREAM=events:trades
@@ -32,7 +147,27 @@ services:
     - LOG_LEVEL=INFO
     - PYTHONUNBUFFERED=1
     - BINANCE_TRAIL_ACTIVATE_TP=${BINANCE_TRAIL_ACTIVATE_TP}
+    - TRADES_DB_DSN=${TRADES_DB_DSN:-}
+    - ANALYTICS_DB_DSN=${ANALYTICS_DB_DSN:-}
     - TZ=UTC
+    - METRICS_PORT=9921
+    # PEL / poison-cap
+    - TP_PEL_MAX_RETRIES=5
+    - TP_PEL_STALE_MS=60000
+    - TP_PEL_RECLAIM_INTERVAL_S=30
+    # Watermark FSM (shadow default)
+    - WATERMARK_TRAILING_ENABLED=0
+    # TradeProfile TP geometry (shadow default)
+    - TRADE_PROFILE_TP_ENFORCE=0
+    # Phase B: TrailingStateWorker HWM FSM (shadow — compute only, no commands)
+    - TRAILING_STATE_ENABLED=1
+    - TRAILING_STATE_SHADOW=1
+    - TRAILING_STATE_TTL_SEC=86400
+    - TRAILING_MIN_MOVE_TICKS=5
+    - TRAILING_MIN_UPDATE_INTERVAL_MS=3000
+    - TRAILING_MAX_UPDATES_PER_POSITION=30
+    - TRAILING_PRICE_STALE_MS=3000
+    - REDIS_TICKS_URL=${REDIS_TICKS_URL:-redis://redis-ticks:6379/0}
     volumes:
     - ./python-worker:/app
     - ./common:/app/common
@@ -58,6 +193,74 @@ services:
     - com.scanner.service=tp-event-listener
     - com.scanner.version=1.0.0
     - com.scanner.description=TP1 Trailing Orchestrator
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '3'
+
+  trailing-command-consumer:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    container_name: scanner-trailing-command-consumer
+    command: python -m services.trailing_command_consumer
+    restart: unless-stopped
+    networks:
+    - scanner-core
+    - scanner-infra
+    depends_on:
+      redis:
+        condition: service_healthy
+      redis-worker-1:
+        condition: service_healthy
+      go-gateway:
+        condition: service_started
+    expose:
+    - "9923"
+    environment:
+    # Auto-activation: TCC_ENABLED=0 + TCC_FOLLOW_AUTOCAL=1 → consumer idles
+    # until autocal:trailing_state:state.shadow flips to false, then auto-activates.
+    # Telegram notification on each transition (notify:telegram).
+    # Force-on (skip autocal): set TCC_ENABLED=1.
+    # Permanently disable: TCC_ENABLED=0 + TCC_FOLLOW_AUTOCAL=0.
+    - TCC_ENABLED=0
+    - TCC_FOLLOW_AUTOCAL=1
+    - TCC_NOTIFY_STREAM=notify:telegram
+    - REDIS_URL=${REDIS_URL}
+    - TCC_STREAM=events:trailing:commands
+    - TCC_GROUP=trailing-cmd-consumer
+    - TCC_CONSUMER=tcc-1
+    - TCC_BATCH_SIZE=20
+    - TCC_BLOCK_MS=5000
+    - TCC_DLQ_STREAM=events:trailing:dlq
+    - TCC_MAX_RETRIES=5
+    - TCC_RETRY_TTL_SEC=3600
+    - TCC_PEL_STALE_MS=60000
+    - TCC_PEL_RECLAIM_COUNT=50
+    - TCC_PEL_RECLAIM_INTERVAL_S=30
+    - TCC_STATS_INTERVAL_SEC=300
+    - TCC_IDLE_SLEEP_SEC=60
+    - TCC_METRICS_PORT=9923
+    - GATEWAY_URL=http://scanner-go-gateway:8090
+    - GATEWAY_TIMEOUT=3.0
+    - LOG_LEVEL=INFO
+    - PYTHONUNBUFFERED=1
+    - TZ=UTC
+    volumes:
+    - ./python-worker:/app
+    - ./common:/app/common
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.3'
+        reservations:
+          memory: 16M
+    labels:
+    - com.scanner.service=trailing-command-consumer
+    - com.scanner.version=1.0.0
+    - com.scanner.description=Forwards events:trailing:commands to go-gateway
     logging:
       driver: json-file
       options:

@@ -86,6 +86,19 @@ class SignalSnapshot:
         if "indicators" in data and isinstance(data["indicators"], dict):
             extra["indicators"] = data["indicators"]
 
+        inds = data.get("indicators", {})
+        if not isinstance(inds, dict):
+            inds = {}
+
+        def _get_field(key: str, fallback: str = "") -> Any:
+            v = data.get(key)
+            if v is not None: return v
+            if fallback and data.get(fallback) is not None: return data.get(fallback)
+            v = inds.get(key)
+            if v is not None: return v
+            if fallback and inds.get(fallback) is not None: return inds.get(fallback)
+            return None
+
         # Map fields
         return cls(
             signal_id=data.get("signal_id", ""),
@@ -94,10 +107,10 @@ class SignalSnapshot:
             direction=data.get("direction", 0),
             signal_family=data.get("signal_family") or data.get("setup_type") or "unknown",
             conf_score=data.get("conf_score") or data.get("confidence") or data.get("final_score") or 0.0,
-            atr_14=data.get("atr_14") or data.get("atr") or 0.0,
-            delta_spike_z=data.get("delta_spike_z") or data.get("delta_z") or 0.0,
-            obi_avg_20=data.get("obi_avg_20") or data.get("obi") or 0.0,
-            weak_progress_ratio=data.get("weak_progress_ratio") or data.get("weak_progress") or 0.0,
+            atr_14=float(_get_field("atr_14", "atr") or 0.0),
+            delta_spike_z=float(_get_field("delta_spike_z", "delta_z") or 0.0),
+            obi_avg_20=float(_get_field("obi_avg_20", "obi") or 0.0),
+            weak_progress_ratio=float(_get_field("weak_progress_ratio", "weak_progress") or 0.0),
             l3=l3,
             extra=extra
         )

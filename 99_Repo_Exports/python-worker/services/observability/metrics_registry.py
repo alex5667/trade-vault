@@ -61,6 +61,27 @@ ml_confirm_cfg_present = _metric(Gauge, "ml_confirm_cfg_present", "Whether ML co
 ml_confirm_cfg_valid = _metric(Gauge, "ml_confirm_cfg_valid", "Whether ML config is valid", ["kind"])
 ml_confirm_enforce_share = _metric(Gauge, "ml_confirm_enforce_share", "Current enforce_share", ["kind"])
 ml_confirm_model_loaded = _metric(Gauge, "ml_confirm_model_loaded", "Whether ML model is loaded", ["kind"])
+# 2026-05-23 stop-bleed item 2: explicit gauge for calibrator attachment.
+# 1 = calibrator object loaded alongside model; 0 = model loaded but no calibrator
+# (meta_lr_blend with raw sigmoid → saturates to ~1.0; this is the bug).
+ml_confirm_calibrator_loaded = _metric(
+    Gauge, "ml_confirm_calibrator_loaded",
+    "1 if a posterior calibrator is loaded for the model, else 0",
+    ["kind"],
+)
+# 2026-05-23 stop-bleed: rolling WR per p_edge bucket vs predicted p_edge.
+# Updated by ml_confirm_calibration_poller (separate service); alert if
+# actual_wr < 0.5 * predicted_p_edge with n >= 20 over 30m window.
+ml_confirm_p_edge_vs_actual_wr = _metric(
+    Gauge, "ml_confirm_p_edge_vs_actual_wr",
+    "Actual WR observed per p_edge bucket (predicted vs realized calibration)",
+    ["kind", "bucket"],
+)
+ml_confirm_p_edge_vs_actual_n = _metric(
+    Gauge, "ml_confirm_p_edge_vs_actual_n",
+    "Number of closed trades supporting ml_confirm_p_edge_vs_actual_wr per bucket",
+    ["kind", "bucket"],
+)
 
 # Activated when champion cfg/model is unavailable and gate falls back to a
 # hash-key stub.  Increment BEFORE the fallback executes so the counter is

@@ -18,15 +18,15 @@ class CoinGeckoMacroGate:
     и снижению риска (risk_mult).
     """
 
-    def __init__(
-        self,
-        stable_dom_mom_risk_off_th: float = 0.02,
-        default_confidence_penalty: float = 0.05,
-        default_risk_mult: float = 0.5
-    ):
-        self.stable_dom_mom_risk_off_th = stable_dom_mom_risk_off_th
-        self.default_confidence_penalty = default_confidence_penalty
+    def __init__(self,
+                 default_risk_mult: float = 0.8,
+                 default_confidence_penalty: float = 2.0,
+                 stable_dom_mom_risk_off_th: float = 0.05,
+                 macro_stale_mode: str = "mild_tighten_only"):
         self.default_risk_mult = default_risk_mult
+        self.default_confidence_penalty = default_confidence_penalty
+        self.stable_dom_mom_risk_off_th = stable_dom_mom_risk_off_th
+        self.macro_stale_mode = macro_stale_mode
         self.logger = logging.getLogger("coingecko_macro_gate")
 
     def evaluate(self, indicators: dict[str, Any], direction: str) -> CoinGeckoMacroGateResult:
@@ -45,16 +45,23 @@ class CoinGeckoMacroGate:
             reason=""
         )
 
-        # Если данных нет, возвращаем нейтральный результат (Fail-Open)
-        if "cg_stable_dom_mom" not in indicators:
+        # Если данных нет или они просрочены (Quality < 0.3), возвращаем fail-open
+        q = float(indicators.get("cg_quality", 0.0))
+        
+        if q < 0.3:
+            indicators["macro_gate_reason"] = "cg_missing_fail_open"
             return res
+        elif q < 0.8:
+            indicators["macro_tighten_add_bps"] = max(indicators.get("macro_tighten_add_bps", 0.0), 1.0)
+            indicators["macro_gate_reason"] = "cg_stale_mild_tighten"
+            if self.macro_stale_mode == "mild_tighten_only":
+                return res
+        else:
+            indicators["macro_gate_reason"] = "cg_normal"
 
         stable_dom_mom = float(indicators.get("cg_stable_dom_mom", 0.0) or 0.0)
         btc_dom_mom = float(indicators.get("cg_btc_dom_mom", 0.0) or 0.0)
         rel_str_btc = float(indicators.get("cg_symbol_rel_strength_btc_1h", 0.0) or 0.0)
-
-        # New indicators
-        oi_volume_ratio = float(indicators.get("cg_oi_volume_ratio", 0.0) or 0.0)
         sector_mcap_change = float(indicators.get("cg_sector_mcap_change_24h", 0.0) or 0.0)
 
         # Helper calculations
@@ -65,12 +72,11 @@ class CoinGeckoMacroGate:
             if v <= 0: return 0.0
             return clamp01(v / base)
 
-        # Macro risk score construction (from dialog recommendations)
         stable_risk = pos_norm(stable_dom_mom, 0.05)
         btc_risk = pos_norm(btc_dom_mom, 0.05)
 
-        # Leverage stress: ratio > 1.0 is considered stress
-        deriv_stress = pos_norm(oi_volume_ratio - 1.0, 1.0)
+        # Leverage stress is handled by Binance-native V13 now
+        deriv_stress = 0.0
 
         # Sector weakness: negative 24h change is weak
         sector_weakness = pos_norm(-sector_mcap_change, 5.0)

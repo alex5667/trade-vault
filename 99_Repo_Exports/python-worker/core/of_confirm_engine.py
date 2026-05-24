@@ -2865,7 +2865,31 @@ class OFConfirmEngine:
                 # near-miss: allow signals missing up to 2 legs (was: exactly 1)
                 soft_score_min = float(os.getenv("OF_SOFT_SCORE_MIN") or cfg.get("soft_score_min") or 0.55)
                 soft_exec_max = float(os.getenv("OF_SOFT_EXEC_RISK_NORM_MAX") or cfg.get("soft_exec_risk_norm_max") or 0.80)
-                if float(score) >= soft_score_min and float(exec_risk_norm) <= soft_exec_max:
+                # 2026-05-23 stop-bleed: continuation в неподтверждённых регламентах
+                # (range/unknown) теряет soft-pass. cont_ctx_recent/hidden_ctx_recent
+                # — это контекст входа, и в range/unknown 94% таких сделок шли в INITIAL_SL.
+                _block_regimes = {
+                    r.strip().lower()
+                    for r in (os.getenv("OF_SOFT_PASS_CONTINUATION_BLOCK_REGIMES") or "").split(",")
+                    if r.strip()
+                }
+                _cur_regime = str(indicators.get("regime") or "").strip().lower()
+                _block_by_regime = bool(
+                    _block_regimes
+                    and scenario_base == "continuation"
+                    and _cur_regime in _block_regimes
+                )
+                # Virtual-mode + continuation: strong-gate hard-require, без soft shortcut
+                _virtual_strong_required = bool(
+                    int(os.getenv("OF_SOFT_PASS_VIRTUAL_REQUIRE_STRONG", "0") or "0")
+                    and scenario_base == "continuation"
+                    and int(indicators.get("is_virtual", 0) or indicators.get("virtual", 0))
+                )
+                if _block_by_regime or _virtual_strong_required:
+                    indicators["ok_soft_blocker"] = (
+                        "regime_block" if _block_by_regime else "virtual_strong_required"
+                    )
+                elif float(score) >= soft_score_min and float(exec_risk_norm) <= soft_exec_max:
                     ok_soft = 1
                     _miss_gap = int(need) - int(have)
                     soft_reason = f"near_miss_{_miss_gap}"

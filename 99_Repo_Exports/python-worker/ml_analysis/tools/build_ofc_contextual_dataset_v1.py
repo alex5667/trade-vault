@@ -91,8 +91,11 @@ def _build_exec_cost_row(decision: dict[str, Any], outcome: dict[str, Any]) -> d
     ind = ofc.get('indicators') if isinstance(ofc.get('indicators'), dict) else {}
     ev = ofc.get('evidence') if isinstance(ofc.get('evidence'), dict) else {}
     ctx_key = _extract_ctx_key(decision)
-    spread_bps = _to_float(_coalesce(decision.get('spread_bps'), ind.get('spread_bps')))
-    expected_slippage_bps = _to_float(_coalesce(decision.get('expected_slippage_bps'), ind.get('expected_slippage_bps')))
+    # Prefer the frozen `decision_*`-snapshot (set by ensure_decision_ctx_fields at emit
+    # time) over raw top-level / nested `indicators` — top-level `spread_bps` is often 0.0
+    # in v7 NDJSON capture and would silently zero out cost rows.
+    spread_bps = _to_float(_coalesce(decision.get('decision_spread_bps'), decision.get('spread_bps'), ind.get('spread_bps')))
+    expected_slippage_bps = _to_float(_coalesce(decision.get('decision_expected_slippage_bps'), decision.get('expected_slippage_bps'), ind.get('expected_slippage_bps')))
     realized_slippage_bps = _to_float(_coalesce(outcome.get('realized_slippage_bps'), outcome.get('slippage_bps'), outcome.get('realized_slip_worse_bps')))
     exec_risk_ref_bps = _to_float(_coalesce(decision.get(CtxKeys.EXEC_RISK_REF_BPS), decision.get('exec_risk_ref_bps'), ev.get(CtxKeys.EXEC_RISK_REF_BPS)))
     return {
@@ -108,7 +111,7 @@ def _build_exec_cost_row(decision: dict[str, Any], outcome: dict[str, Any]) -> d
         'exec_risk_ref_bps': exec_risk_ref_bps,
         'realized_slippage_bps': realized_slippage_bps,
         'fill_delay_ms': _to_int(_coalesce(outcome.get('fill_delay_ms'), default=0)),
-        'book_staleness_ms': _to_int(_coalesce(decision.get('book_staleness_ms'), ind.get('book_staleness_ms'), default=0)),
+        'book_staleness_ms': _to_int(_coalesce(decision.get('decision_book_staleness_ms'), decision.get('book_staleness_ms'), ind.get('book_staleness_ms'), default=0)),
     }
 
 

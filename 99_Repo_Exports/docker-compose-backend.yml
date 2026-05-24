@@ -198,7 +198,7 @@ services:
     - sleep 30 && uvicorn services.tick_ingest_server:app --host 0.0.0.0 --port 8087
   signal-performance-tracker:
     profiles:
-    - default
+    - disabled
     build:
       context: .
       dockerfile: python-worker/Dockerfile
@@ -392,8 +392,6 @@ services:
         condition: service_healthy
       redis-worker-1:
         condition: service_healthy
-      signal-performance-tracker:
-        condition: service_started
     networks:
     - scanner-core
     - scanner-infra
@@ -605,7 +603,7 @@ services:
           memory: 24M
   scanner-ab-winner-evaluator-v3:
     profiles:
-    - default
+    - disabled
     build:
       context: .
       dockerfile: python-worker/Dockerfile.gpu
@@ -645,7 +643,7 @@ services:
           memory: 24M
   scanner-ab-winner-v2-cron:
     profiles:
-    - default
+    - disabled
     build:
       context: .
       dockerfile: python-worker/Dockerfile.gpu
@@ -663,8 +661,7 @@ services:
     - AB_EVAL_LOCK_TTL_SEC=3300
     - TZ=UTC
     command: python3 tools/run_with_minik_failover.py --job-name ab_winner_v2_cron
-      -- sh -c while true; do echo 'Running AB Winner V2...'; python tools/ab_winner_eval_once.py;
-      echo 'Done. Sleeping 1h...'; sleep 3600; done
+      -- sh -c "while true; do echo 'Running AB Winner V2...'; python tools/ab_winner_eval_once.py; echo 'Done. Sleeping 1h...'; sleep 3600; done"
     networks:
     - scanner-core
     - scanner-infra
@@ -802,7 +799,7 @@ services:
     - ./logs:/app/logs
   scanner-cooldown-suggester:
     profiles:
-    - default
+    - disabled
     build:
       context: .
       dockerfile: python-worker/Dockerfile.gpu
@@ -834,7 +831,7 @@ services:
     - ./logs:/app/logs
   scanner-regime-quantiles:
     profiles:
-    - default
+    - disabled
     build:
       context: .
       dockerfile: python-worker/Dockerfile.gpu
@@ -869,7 +866,7 @@ services:
           memory: 24M
   scanner-auto-train-calibration:
     profiles:
-    - default
+    - disabled
     build:
       context: .
       dockerfile: python-worker/Dockerfile.gpu

@@ -3,6 +3,7 @@ import logging
 import time
 from typing import Any
 
+import os
 import redis.asyncio as aioredis
 import contextlib
 
@@ -19,16 +20,19 @@ class CoinGeckoSnapshotReader:
         refresh_ms: int = 10_000,
         max_stale_ms: int = 86_400_000,  # 24 hours to support LOCF during night-time sleep
     ) -> None:
-        import os
-        ctx_redis_url = os.getenv("CTX_MAIN_REDIS_URL", "redis://redis:6379/0")
-        self.r = aioredis.from_url(ctx_redis_url)
+        self.r = redis_client
         self.refresh_ms = refresh_ms
         self.max_stale_ms = max_stale_ms
+        
+        self.load_derivatives = int(os.getenv("COINGECKO_READER_LOAD_DERIVATIVES", "0")) == 1
+        self.load_liquidity = int(os.getenv("COINGECKO_READER_LOAD_LIQUIDITY", "0")) == 1
+        
         self._global: dict[str, Any] = {}
         self._markets: dict[str, dict[str, Any]] = {}
         self._derivatives: dict[str, Any] = {}
         self._sectors: dict[str, dict[str, Any]] = {}
         self._liquidity: dict[str, dict[str, Any]] = {}
+        self._circuit_status: dict[str, Any] = {}
         self._last_refresh_ms: int = 0
         self._task: asyncio.Task | None = None
         self.logger = logging.getLogger("coingecko_snapshot")
@@ -71,9 +75,15 @@ class CoinGeckoSnapshotReader:
                 self._global = {k.decode("utf-8"): v.decode("utf-8") for k, v in raw_global.items()}
 
             # 1.5 Читаем Derivatives
-            raw_deriv = await self.r.hgetall("runtime:coingecko:derivatives:binance_futures")
-            if raw_deriv:
-                self._derivatives = {k.decode("utf-8"): v.decode("utf-8") for k, v in raw_deriv.items()}
+            if self.load_derivatives:
+                raw_deriv = await self.r.hgetall("runtime:coingecko:derivatives:binance_futures")
+                if raw_deriv:
+                    self._derivatives = {k.decode("utf-8"): v.decode("utf-8") for k, v in raw_deriv.items()}
+
+            # 1.6 Читаем Circuit Status
+            raw_circuit = await self.r.hgetall("runtime:coingecko:circuit:status")
+            if raw_circuit:
+                self._circuit_status = {k.decode("utf-8"): v.decode("utf-8") for k, v in raw_circuit.items()}
 
             # 2. Ищем все хэши (market, sector, liquidity)
             # SCAN может быть медленным, но мы делаем это раз в 10 сек в бэкграунде
@@ -92,12 +102,13 @@ class CoinGeckoSnapshotReader:
                 if cursor == 0 or cursor == b"0":
                     break
 
-            cursor = 0
-            while True:
-                cursor, keys = await self.r.scan(cursor, match="runtime:coingecko:liquidity:*", count=100)
-                keys_to_fetch.extend([k.decode("utf-8") for k in keys])
-                if cursor == 0 or cursor == b"0":
-                    break
+            if self.load_liquidity:
+                cursor = 0
+                while True:
+                    cursor, keys = await self.r.scan(cursor, match="runtime:coingecko:liquidity:*", count=100)
+                    keys_to_fetch.extend([k.decode("utf-8") for k in keys])
+                    if cursor == 0 or cursor == b"0":
+                        break
 
             # 3. Читаем market/sector/liquidity данные через пайплайн
             new_markets = {}
@@ -130,6 +141,35 @@ class CoinGeckoSnapshotReader:
         except Exception as e:
             self.logger.error(f"Failed to refresh CoinGecko cache: {e}")
 
+    def _fresh_age_ms(self, data: dict[str, Any]) -> int:
+        try:
+            v = int(float(data.get("max_fresh_age_ms", 0) or 0))
+            if v > 0:
+                return v
+        except Exception:
+            pass
+        return self.max_stale_ms
+
+    def _is_fresh(self, data: dict[str, Any], now_ms: int) -> bool:
+        status, _, _, _ = self._snapshot_status(data, now_ms)
+        return status == "ok"
+
+    def _snapshot_status(self, data: dict[str, Any], now_ms: int) -> tuple[str, int, float, str]:
+        ts = int(data.get("ts_ms", 0) or 0)
+        if ts <= 0:
+            return "missing", 0, 0.0, "missing"
+
+        age_ms = max(0, now_ms - ts)
+        fresh_ms = self._fresh_age_ms(data)
+
+        if age_ms < fresh_ms:
+            return "ok", age_ms, 1.0, "ok"
+
+        if age_ms < fresh_ms * 3:
+            return "stale", age_ms, 0.5, "stale"
+
+        return "missing", age_ms, 0.0, "expired"
+
     def get_snapshot(self, symbol: str, now_ms: int) -> dict[str, Any]:
         """
         Синхронно возвращает словарь с индикаторами cg_* для вставки в payloads.
@@ -137,10 +177,24 @@ class CoinGeckoSnapshotReader:
         """
         ind = {}
 
-        # --- Global ---
+        # --- Status & Quality ---
         g = self._global
-        g_ts = int(g.get("ts_ms", 0) or 0)
-        if g_ts > 0 and (now_ms - g_ts) < self.max_stale_ms:
+        status, age_ms, quality, reason = self._snapshot_status(g, now_ms)
+        
+        ind["cg_status"] = status
+        ind["cg_age_ms"] = age_ms
+        ind["cg_quality"] = quality
+        ind["cg_reason"] = reason
+
+        circuit = self._circuit_status
+        circuit_status = circuit.get("status", "closed")
+        if circuit_status == "open":
+            ind["cg_status"] = "circuit_open"
+            ind["cg_quality"] = min(ind.get("cg_quality", 0.0), 0.3)
+            ind["cg_reason"] = circuit.get("reason", "provider_429")
+
+        # --- Global ---
+        if self._is_fresh(g, now_ms):
             ind["cg_global_mcap_usd"] = float(g.get("total_mcap_usd", g.get("provider_global_mcap", 0.0)) or 0.0)
             ind["cg_global_volume_usd"] = float(g.get("total_volume_usd", g.get("provider_total_volume", 0.0)) or 0.0)
             ind["cg_btc_dom_pct"] = float(g.get("btc_dom_pct", g.get("provider_btc_dominance", 0.0)) or 0.0)
@@ -150,8 +204,7 @@ class CoinGeckoSnapshotReader:
 
         # --- Market ---
         m = self._markets.get(symbol, {})
-        m_ts = int(m.get("ts_ms", 0) or 0)
-        if m_ts > 0 and (now_ms - m_ts) < self.max_stale_ms:
+        if self._is_fresh(m, now_ms):
             ind["cg_symbol_market_cap_usd"] = float(m.get("market_cap_usd", 0.0) or 0.0)
             ind["cg_symbol_volume_24h_usd"] = float(m.get("volume_24h_usd", 0.0) or 0.0)
             ind["cg_symbol_price_chg_24h"] = float(m.get("price_change_24h_pct", 0.0) or 0.0)
@@ -159,27 +212,20 @@ class CoinGeckoSnapshotReader:
             ind["cg_symbol_rel_strength_eth_1h"] = float(m.get("rel_strength_eth_1h", 0.0) or 0.0)
             ind["cg_symbol_ath_distance_pct"] = float(m.get("ath_distance_pct", 0.0) or 0.0)
 
-        # --- Derivatives ---
-        d = self._derivatives
-        d_ts = int(d.get("ts_ms", 0) or 0)
-        if d_ts > 0 and (now_ms - d_ts) < self.max_stale_ms:
-            ind["cg_oi_volume_ratio"] = float(d.get("oi_volume_ratio", 0.0) or 0.0)
+        # --- Derivatives (Disabled, handled via Binance-native V13) ---
+        # cg_oi_volume_ratio removed from production decision logic
 
         # --- Sectors ---
         # Calculate average sector 24h change as a proxy for global sector strength
         valid_sectors = []
         for s_id, s_data in self._sectors.items():
-            s_ts = int(s_data.get("ts_ms", 0) or 0)
-            if s_ts > 0 and (now_ms - s_ts) < self.max_stale_ms:
+            if self._is_fresh(s_data, now_ms):
                 valid_sectors.append(float(s_data.get("market_cap_change_24h", 0.0) or 0.0))
         if valid_sectors:
             ind["cg_sector_mcap_change_24h"] = sum(valid_sectors) / len(valid_sectors)
 
-        # --- Liquidity ---
-        l = self._liquidity.get(symbol, {})
-        l_ts = int(l.get("ts_ms", 0) or 0)
-        if l_ts > 0 and (now_ms - l_ts) < self.max_stale_ms:
-            ind["cg_cost_to_move_imbalance"] = float(l.get("cost_to_move_imbalance", 0.0) or 0.0)
-
+        # --- Liquidity (Disabled, use Execution-Grade Execution Gate instead) ---
+        ind["cg_liquidity_status"] = "disabled"
+        ind["cg_liquidity_quality"] = 0.0
 
         return ind

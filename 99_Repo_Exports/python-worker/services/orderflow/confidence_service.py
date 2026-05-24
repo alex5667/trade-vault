@@ -268,6 +268,14 @@ class ConfidenceService:
                 "mult": round(parts.get("mult", 1.0), 4),
                 "pen_total": round(parts.get("pen_total", 0.0), 4),
             }
+            # Forward ML telemetry so downstream consumers (ml_canary_autopromoter_v1)
+            # can identify which signals were canary-enforced vs canary-shadowed.
+            if "ml_shadow_conf01" in parts:
+                indicators["confidence_breakdown"]["ml_shadow_conf01"] = round(  # type: ignore[assignment]
+                    float(parts["ml_shadow_conf01"]), 4,
+                )
+            if "scorer_mode" in parts:
+                indicators["confidence_breakdown"]["scorer_mode"] = str(parts["scorer_mode"])  # type: ignore[assignment]
             conf_v1 = round(conf, 4)
             indicators["confidence_v1"] = conf_v1
 

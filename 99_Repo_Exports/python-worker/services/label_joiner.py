@@ -164,6 +164,20 @@ class LabelJoinerService:
         regime = str(feats.get("market_regime") or feats.get("regime") or "*")
         kind = str(feats.get("kind") or feats.get("signal_kind") or "*")
 
+        # 2026-05-23 calibrator refit support: persist BOTH raw and calibrated
+        # probabilities so tools/refit_meta_lr_blend_calibrator.py can re-fit
+        # safely after a calibrator is already deployed. Falls back to ml_prob
+        # for `p_edge_raw` while DecisionRecord.ml_calibrated_prob is None.
+        _ml_raw = (
+            decision.ml_prob
+            if decision.ml_calibrated_prob is None
+            else decision.ml_prob
+        )
+        _ml_cal = (
+            decision.ml_calibrated_prob
+            if decision.ml_calibrated_prob is not None
+            else decision.ml_prob
+        )
         out = {
             "sid": decision.sid,
             "symbol": decision.symbol,
@@ -172,6 +186,9 @@ class LabelJoinerService:
             "pnl": str(metrics["pnl"]),
             "rule_score": str(decision.rule_score),
             "ml_prob": str(decision.ml_prob),
+            "p_edge_raw": str(_ml_raw),
+            "p_edge_cal": str(_ml_cal),
+            "ml_version": str(decision.ml_version or ""),
             "final_permit": str(decision.final_permit),
             "ts_decision": str(decision.ts),
             "ts_close": str(metrics["close_ts"]),

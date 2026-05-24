@@ -196,7 +196,7 @@ def train_meta_lr(oof_v14: Any, oof_v5: Any, y: Any) -> dict[str, Any]:
 
     artifact = {
         "kind": "meta_lr_blend",
-        "schema_version": 1,
+        "schema_version": 2,
         "intercept": float(meta_final.intercept_[0]),
         "coef_v14": float(meta_final.coef_[0][0]),
         "coef_v5": float(meta_final.coef_[0][1]),
@@ -204,6 +204,33 @@ def train_meta_lr(oof_v14: Any, oof_v5: Any, y: Any) -> dict[str, Any]:
         "metrics": metrics,
     }
     return artifact
+
+
+def train_final_children(X14: Any, X5: Any, y: Any) -> dict[str, Any]:
+    """Re-fit child models on the full dataset for inference-time scoring.
+
+    The K-fold pass produces only OOF predictions; the meta-LR is trained on those.
+    For production inference we need single deterministic child models — those are
+    fit here on all rows with the same hyperparameters used per-fold.
+    """
+    from sklearn.ensemble import GradientBoostingClassifier
+    from sklearn.linear_model import LogisticRegression
+    from sklearn.preprocessing import StandardScaler
+
+    scaler_v14 = StandardScaler().fit(X14)
+    lr_v14 = LogisticRegression(
+        C=1.0, max_iter=2000, class_weight="balanced",
+        random_state=42, solver="liblinear",
+    )
+    lr_v14.fit(scaler_v14.transform(X14), y)
+
+    gb_v5 = GradientBoostingClassifier(
+        max_depth=2, n_estimators=50, learning_rate=0.05,
+        subsample=0.7, max_features="sqrt", random_state=42,
+    )
+    gb_v5.fit(X5, y)
+
+    return {"lr_v14": lr_v14, "scaler_v14": scaler_v14, "gb_v5": gb_v5}
 
 
 def main() -> int:
@@ -239,10 +266,23 @@ def main() -> int:
         art["coef_v14"], art["coef_v5"],
     )
 
-    # Persist artifact to disk.
+    logger.info("re-fitting final child models on full dataset for inference ...")
+    children = train_final_children(X14, X5, y)
+
+    # Persist artifact + child models to disk.
     ts_str = time.strftime("%Y%m%d_%H%M%S")
     out_dir = Path(args.out_root) / f"meta_lr_blend_{ts_str}"
     out_dir.mkdir(parents=True, exist_ok=True)
+
+    import joblib
+    lr_v14_path = out_dir / "lr_v14_final.joblib"
+    scaler_v14_path = out_dir / "scaler_v14_final.joblib"
+    gb_v5_path = out_dir / "gb_v5_final.joblib"
+    joblib.dump(children["lr_v14"], lr_v14_path)
+    joblib.dump(children["scaler_v14"], scaler_v14_path)
+    joblib.dump(children["gb_v5"], gb_v5_path)
+    logger.info("wrote child models: %s, %s, %s", lr_v14_path, scaler_v14_path, gb_v5_path)
+
     art_full = dict(art)
     art_full["run_id"] = f"meta_lr_blend_{ts_str}"
     art_full["created_ms"] = int(time.time() * 1000)
@@ -253,6 +293,18 @@ def main() -> int:
         ",".join(v5_keys).encode("utf-8")
     ).hexdigest()[:16]
     art_full["dataset_path"] = str(ds_path)
+    art_full["child_models"] = {
+        "v14": {
+            "model_path": str(lr_v14_path),
+            "scaler_path": str(scaler_v14_path),
+            "features": list(V14_BASE_FEATURES),
+        },
+        "v5": {
+            "model_path": str(gb_v5_path),
+            "scaler_path": None,
+            "features": list(v5_keys),
+        },
+    }
 
     artifact_path = out_dir / "meta_lr_blend.json"
     artifact_path.write_text(json.dumps(art_full, indent=2, ensure_ascii=False))
@@ -268,7 +320,7 @@ def main() -> int:
             r = _redis.from_url(redis_url, socket_timeout=3.0)
             candidate = {
                 "kind": "meta_lr_blend",
-                "schema_version": 1,
+                "schema_version": 2,
                 "run_id": art_full["run_id"],
                 "mode": "SHADOW",
                 "model_path": str(artifact_path),

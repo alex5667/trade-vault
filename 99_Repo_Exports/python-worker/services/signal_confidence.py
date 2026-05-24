@@ -404,7 +404,17 @@ class ConfidenceScorer:
             _original_mode = _ml_mode
             if _ml_mode == "canary":
                 import random
-                _canary_rate = float(_os.getenv("ML_SCORER_CANARY_RATE", "0.05"))
+                _default_rate = float(_os.getenv("ML_SCORER_CANARY_RATE", "0.05"))
+                # Runtime override: ml_canary_autopromoter_v1 may publish a
+                # higher rate to `autocal:ml_canary:state` once the ML cohort
+                # shows statistically-significant lift over the rule-based
+                # control. Reader is fail-open: returns env default if disabled
+                # or the override is shadow-only.
+                try:
+                    from core.ml_canary_runtime_overrides import get_canary_rate as _get_canary_rate
+                    _canary_rate = _get_canary_rate(default=_default_rate)
+                except Exception:
+                    _canary_rate = _default_rate
                 if random.random() < _canary_rate:
                     _ml_mode = "enforce"
                 else:

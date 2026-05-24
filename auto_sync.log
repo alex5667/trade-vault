@@ -727,3 +727,30 @@ fatal: Could not read from remote repository.
 Please make sure you have the correct access rights
 and the repository exists.
 2026-05-22 05:45:03 - Синхронизация завершена успешно.
+[main fb1314a4] Auto-sync vault notes 2026-05-23 05:45:01
+ 71 files changed, 4866 insertions(+), 532 deletions(-)
+ create mode 100644 99_Automation/logs/update_2026-05-23_03-37-15.log
+ create mode 100644 99_Repo_Exports/python-worker/core/scorer_categorical_features.py
+ create mode 100644 99_Repo_Exports/python-worker/migrations/20260522_01_create_trade_performance.sql
+ create mode 100644 99_Repo_Exports/python-worker/migrations/20260522_02_add_v_gate_reason.sql
+ create mode 100644 99_Repo_Exports/python-worker/migrations/20260522_03_add_p0_strong_gate_ok.sql
+ create mode 100644 99_Repo_Exports/python-worker/orderflow_services/atr_floor_enrichment_autocal_v1.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_atr_floor_enrichment_autocal.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_atr_floor_enrichment_helper.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_confidence_scorer_ml_loader.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_ml_scoring_gate_v14_of.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_ml_train_ips_phase2.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_promote_v14_of.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_scorer_categorical_features.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_signal_pipeline_regime_bridge.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_train_ml_scorer_v3_cap.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_train_scorer_model_v1.py
+ create mode 100644 99_Repo_Exports/python-worker/tools/bench_atr_floor_enrichment.py
+ create mode 100644 99_Repo_Exports/python-worker/tools/promote_v14_of_to_live.py
+ create mode 100644 99_Repo_Exports/python-worker/tools/scorer_model_watcher.py
+git@github.com: Permission denied (publickey).
+fatal: Could not read from remote repository.
+
+Please make sure you have the correct access rights
+and the repository exists.
+2026-05-23 05:45:03 - Синхронизация завершена успешно.

@@ -146,6 +146,8 @@ def calibration_regression(
             beta_new = np.linalg.solve(lhs, rhs)
         except np.linalg.LinAlgError:
             return {"calibration_slope": 1.0, "calibration_intercept": 0.0}
+        if not np.all(np.isfinite(beta_new)):
+            return {"calibration_slope": 1.0, "calibration_intercept": 0.0}
         if float(np.max(np.abs(beta_new - beta))) <= float(tol):
             beta = beta_new
             break

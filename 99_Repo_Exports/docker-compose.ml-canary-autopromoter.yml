@@ -1,0 +1,78 @@
+services:
+  ml-canary-autopromoter:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    image: scanner-python-worker:latest
+    container_name: scanner-ml-canary-autopromoter
+    restart: unless-stopped
+    environment:
+      - PYTHONUNBUFFERED=1
+      # Main loop gate. ENABLED by default — service publishes recommendations
+      # with enforce=0 (shadow). Auto-promote (write enforce=1) is controlled
+      # by ML_CANARY_AUTOCAL_ENFORCE separately.
+      - ML_CANARY_AUTOCAL_ENABLE=${ML_CANARY_AUTOCAL_ENABLE:-1}
+      # When 1, the published state.enforce=1 → reader applies the dynamic rate.
+      # DEFAULT 0 — autopromoter writes recommendations in shadow; signal_confidence
+      # continues to use ML_SCORER_CANARY_RATE env var.
+      - ML_CANARY_AUTOCAL_ENFORCE=${ML_CANARY_AUTOCAL_ENFORCE:-0}
+      # Cycle cadence + lookback window.
+      - ML_CANARY_AUTOCAL_INTERVAL_S=${ML_CANARY_AUTOCAL_INTERVAL_S:-900}
+      - ML_CANARY_AUTOCAL_LOOKBACK_H=${ML_CANARY_AUTOCAL_LOOKBACK_H:-24}
+      # Decision thresholds.
+      - ML_CANARY_AUTOCAL_MIN_SAMPLES=${ML_CANARY_AUTOCAL_MIN_SAMPLES:-200}
+      - ML_CANARY_AUTOCAL_MIN_LIFT_R=${ML_CANARY_AUTOCAL_MIN_LIFT_R:-0.05}
+      - ML_CANARY_AUTOCAL_MAX_PVALUE=${ML_CANARY_AUTOCAL_MAX_PVALUE:-0.10}
+      - ML_CANARY_AUTOCAL_DWELL_H=${ML_CANARY_AUTOCAL_DWELL_H:-24.0}
+      - ML_CANARY_AUTOCAL_COOLDOWN_H=${ML_CANARY_AUTOCAL_COOLDOWN_H:-12.0}
+      # Ladder bounds (default 0.05 → 0.40).
+      - ML_CANARY_AUTOCAL_RATE_FLOOR=${ML_CANARY_AUTOCAL_RATE_FLOOR:-0.05}
+      - ML_CANARY_AUTOCAL_RATE_CEILING=${ML_CANARY_AUTOCAL_RATE_CEILING:-0.40}
+      # Streams + keys.
+      - ML_CANARY_SIGNALS_STREAM=${ML_CANARY_SIGNALS_STREAM:-signals:of:inputs}
+      - ML_CANARY_TRADES_STREAM=${ML_CANARY_TRADES_STREAM:-trades:closed}
+      - AUTOCAL_ML_CANARY_KEY=${AUTOCAL_ML_CANARY_KEY:-autocal:ml_canary:state}
+      - REDIS_URL=${REDIS_URL:-redis://redis-worker-1:6379/0}
+      - ML_CANARY_AUTOCAL_HMAC_SECRET=${ML_CANARY_AUTOCAL_HMAC_SECRET:-${LAYERS_CAL_HMAC_SECRET:-${RECS_HMAC_SECRET:-}}}
+      - METRICS_PORT=9864
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - TZ=UTC
+    ports:
+      - "9864:9864"
+    depends_on:
+      redis-worker-1:
+        condition: service_healthy
+    networks:
+      - scanner-core
+      - scanner-infra
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.2'
+        reservations:
+          memory: 64M
+    command:
+      - sh
+      - -c
+      - |
+        sleep 15
+        if [ "$${ML_CANARY_AUTOCAL_ENABLE:-1}" = "0" ]; then
+          echo "ML_CANARY_AUTOCAL_ENABLE=0 — idle"
+          while true; do sleep 3600; done
+        fi
+        python -m orderflow_services.ml_canary_autopromoter_v1
+    labels:
+      - com.scanner.service=ml-canary-autopromoter
+      - com.scanner.description=Adaptive ML_SCORER_CANARY_RATE promoter (Welch t-test on ml_canary_enforce vs canary_shadow)
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '3'
+
+networks:
+  scanner-core:
+    external: true
+  scanner-infra:
+    external: true

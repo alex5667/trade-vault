@@ -292,6 +292,37 @@ def ensure_decision_ctx_fields(
         _maybe_set("decision_exec_risk_norm", indicators.get("exec_risk_norm") or ctx.get("exec_risk_norm"))
 
         # ------------------------------------------------------------------
+        # 5b) Data-Quality snapshot (dq_level + tick/book seq EMAs + tick gap p95).
+        # These fields drive soak_dq_level_share analysis and DQ threshold calibration.
+        # Without them the NDJSON capture loses all DQ context (`nan` quantiles).
+        # ------------------------------------------------------------------
+        dq_level_val = indicators.get("dq_level")
+        if dq_level_val is None:
+            dq_level_val = ctx.get("dq_level")
+        if dq_level_val is None and runtime is not None:
+            dq_level_val = getattr(runtime, "dq_level", None)
+        if dq_level_val is not None and "decision_dq_level" not in ctx:
+            iv = _safe_i(dq_level_val)
+            if iv is not None:
+                ctx["decision_dq_level"] = int(iv)
+
+        _maybe_set(
+            "decision_book_missing_seq_ema",
+            indicators.get("book_missing_seq_ema")
+            or (getattr(runtime, "book_missing_seq_ema", None) if runtime is not None else None),
+        )
+        _maybe_set(
+            "decision_tick_missing_seq_ema",
+            indicators.get("tick_missing_seq_ema")
+            or (getattr(runtime, "tick_missing_seq_ema", None) if runtime is not None else None),
+        )
+        _maybe_set(
+            "decision_tick_gap_p95_ms",
+            indicators.get("tick_gap_p95_ms")
+            or (getattr(runtime, "tick_gap_p95_ms", None) if runtime is not None else None),
+        )
+
+        # ------------------------------------------------------------------
         # 6) Annotation-only sanity flags
         # ------------------------------------------------------------------
         flags: list[str] = []

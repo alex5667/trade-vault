@@ -69,6 +69,25 @@ except Exception:  # pragma: no cover
     joblib = None  # type: ignore
 
 
+# Dual-emit observability: tracks parallel challenger scoring outcomes so
+# operators can detect when the challenger SHADOW path drops out silently —
+# distinct from champion-side errors.
+try:
+    if PROMETHEUS_AVAILABLE:
+        _ml_dual_emit_total = Counter(
+            "ml_confirm_dual_emit_total",
+            "Challenger SHADOW scoring outcomes alongside champion",
+            ["role", "kind", "outcome"],
+        )
+    else:
+        _ml_dual_emit_total = _MockMetric()
+except ValueError:
+    from prometheus_client import REGISTRY
+    _ml_dual_emit_total = REGISTRY._names_to_collectors.get(  # type: ignore[assignment]
+        "ml_confirm_dual_emit_total"
+    ) or _MockMetric()
+
+
 
 from .decision_policy import MLConfirmDecision, DecisionPolicyMixin
 from .config_loader import ConfigLoaderMixin
@@ -177,6 +196,25 @@ class MLConfirmGate(ConfigLoaderMixin, ModelLoaderMixin, FeatureVectorizerMixin,
         self._calibrate_enabled = int(os.getenv("ML_CALIBRATION_ENABLE", "1") or 1) == 1
         self._calib_type = "none"
 
+        # Dual-emit (Patch 3 follow-up): challenger scored alongside champion in
+        # SHADOW so ml_outcome_*{kind=<challenger>} becomes observable for the
+        # v14_of_auto_promote live PR-AUC/ECE gate. Decoupled cfg/model storage —
+        # champion path is untouched; challenger is fire-and-forget.
+        self._chal_cfg: dict[str, Any] = {}
+        self._chal_model: Any = None
+        self._chal_model_load_error: str = ""
+        self._chal_cache_loaded_ms: int = 0
+        self._chal_cfg_raw_len: int = 0
+        self._dual_emit_enabled: bool = (
+            int(os.getenv("ML_DUAL_EMIT_CHALLENGER", "0") or 0) == 1
+        )
+        try:
+            self._dual_emit_sample: float = float(
+                os.getenv("ML_DUAL_EMIT_CHALLENGER_SAMPLE", "1.0") or 1.0
+            )
+        except Exception:
+            self._dual_emit_sample = 1.0
+
         # Use centralized metrics from registry (fail-open if not available)
         # Note: metrics_registry defines metrics with same names, so we can use them directly
         # We keep local references for backward compatibility and to handle mock metrics
@@ -244,6 +282,217 @@ class MLConfirmGate(ConfigLoaderMixin, ModelLoaderMixin, FeatureVectorizerMixin,
     def _fail_allow(self) -> bool:
         # FAIL_OPEN => allow, FAIL_CLOSED => block
         return self.fail_policy != "CLOSED"
+
+    def _load_challenger_only_sync(self) -> None:
+        """Sync-load `cfg:ml_confirm:challenger` into self._chal_cfg/_chal_model.
+
+        Independent of champion path: champion stays primary for the gate
+        decision; challenger is read solely so we can score it in SHADOW and
+        emit a parallel `metrics:ml_confirm` row. All failures are silent —
+        a broken challenger must never affect champion outcomes.
+        """
+        if not self._dual_emit_enabled:
+            return
+        if self._cfg_source == "challenger":
+            self._chal_cfg = {}
+            self._chal_model = None
+            return
+        if self.challenger_key == self.champion_key:
+            return
+        now = _now_ms()
+        if self._chal_cache_loaded_ms and (now - self._chal_cache_loaded_ms) < self._cache_ttl_ms:
+            return
+        import logging
+        logger = logging.getLogger("ml_confirm_gate")
+        try:
+            raw_p = self.r.get(self.challenger_key)
+            if not raw_p:
+                self._chal_cfg = {}
+                self._chal_model = None
+                self._chal_model_load_error = "no_cfg"
+                self._chal_cache_loaded_ms = now
+                return
+            saved_key_used = self._cfg_key_used
+            self._cfg_key_used = self.challenger_key
+            try:
+                cfg, model = self._parse_and_load_from_payload(raw_p, id(self.r), logger)
+            finally:
+                self._cfg_key_used = saved_key_used
+            self._chal_cfg = cfg or {}
+            self._chal_model = model
+            with contextlib.suppress(Exception):
+                self._chal_cfg_raw_len = len(raw_p)  # type: ignore[arg-type]
+            self._chal_cache_loaded_ms = now
+            self._chal_model_load_error = (
+                "" if model is not None else (self._model_load_error or "no_model_loaded")
+            )
+        except Exception as e:
+            self._chal_model_load_error = f"load_err:{type(e).__name__}"
+            self._chal_cache_loaded_ms = now
+
+    async def _load_challenger_only_async(self, redis_async: Any) -> None:
+        """Async sibling of `_load_challenger_only_sync`. Fire-and-forget."""
+        if not self._dual_emit_enabled:
+            return
+        if self._cfg_source == "challenger":
+            self._chal_cfg = {}
+            self._chal_model = None
+            return
+        if self.challenger_key == self.champion_key:
+            return
+        now = _now_ms()
+        if self._chal_cache_loaded_ms and (now - self._chal_cache_loaded_ms) < self._cache_ttl_ms:
+            return
+        import logging
+        logger = logging.getLogger("ml_confirm_gate")
+        try:
+            raw_p = await redis_async.get(self.challenger_key)
+            if not raw_p:
+                self._chal_cfg = {}
+                self._chal_model = None
+                self._chal_model_load_error = "no_cfg"
+                self._chal_cache_loaded_ms = now
+                return
+            loop = asyncio.get_running_loop()
+            saved_key_used = self._cfg_key_used
+            self._cfg_key_used = self.challenger_key
+            try:
+                cfg, model = await loop.run_in_executor(
+                    None,
+                    self._parse_and_load_from_payload,
+                    raw_p,
+                    id(redis_async),
+                    logger,
+                )
+            finally:
+                self._cfg_key_used = saved_key_used
+            self._chal_cfg = cfg or {}
+            self._chal_model = model
+            with contextlib.suppress(Exception):
+                self._chal_cfg_raw_len = len(raw_p)  # type: ignore[arg-type]
+            self._chal_cache_loaded_ms = now
+            self._chal_model_load_error = (
+                "" if model is not None else (self._model_load_error or "no_model_loaded")
+            )
+        except Exception as e:
+            self._chal_model_load_error = f"load_err:{type(e).__name__}"
+            self._chal_cache_loaded_ms = now
+
+    def _score_challenger_shadow(
+        self,
+        *,
+        symbol: str,
+        ts_ms: int,
+        direction: str,
+        scenario: str,
+        indicators: dict[str, Any],
+        rule_score: float,
+        rule_have: int,
+        rule_need: int,
+        cancel_spike_veto: int,
+        ok_rule: int,
+        sid: str,
+    ) -> None:
+        """Score challenger in SHADOW and emit a parallel `metrics:ml_confirm`
+        row tagged with the challenger's kind. Champion path is untouched.
+
+        Mechanism: temporarily swap `self._cfg`/`self._model`/cfg-diagnostic
+        fields to challenger state, invoke the matching `_decide_*` mixin
+        method (always SHADOW — challenger never affects `allow`), emit, then
+        restore. No await between swap/restore → race-free in single-task
+        Python execution. All exceptions are swallowed; champion is unaffected.
+        """
+        if not self._dual_emit_enabled:
+            return
+        if not self._chal_cfg or self._chal_model is None:
+            return
+        chal_kind = str(self._chal_cfg.get("kind", "") or "").lower()
+        if not chal_kind:
+            return
+        try:
+            sr = float(self._dual_emit_sample)
+            if sr <= 0.0:
+                return
+            if sr < 1.0:
+                if not _stable_sample(sid or f"{symbol}|{ts_ms}", sr, salt="ml_dual_emit"):
+                    return
+        except Exception:
+            pass
+
+        saved_cfg = self._cfg
+        saved_model = self._model
+        saved_cfg_source = self._cfg_source
+        saved_cfg_key_used = self._cfg_key_used
+        saved_cfg_raw_len = self._cfg_raw_len
+        saved_model_load_error = self._model_load_error
+        outcome_label = "ok"
+        try:
+            self._cfg = self._chal_cfg
+            self._model = self._chal_model
+            self._cfg_source = "challenger"
+            self._cfg_key_used = self.challenger_key
+            self._cfg_raw_len = self._chal_cfg_raw_len
+            self._model_load_error = self._chal_model_load_error or ""
+
+            if chal_kind == "edge_stack_v1":
+                dec = self._decide_edge_stack_v1(  # type: ignore[attr-defined]
+                    symbol=symbol, ts_ms=ts_ms, direction=direction,
+                    scenario=scenario, indicators=indicators,
+                    effective_mode="SHADOW",
+                )
+            elif chal_kind.startswith("util_mh"):
+                dec = self._decide_util_mh(  # type: ignore[attr-defined]
+                    symbol=symbol, ts_ms=ts_ms, direction=direction,
+                    scenario=scenario, indicators=indicators,
+                    effective_mode="SHADOW",
+                )
+            elif chal_kind == "meta_lr":
+                dec = self._decide_meta_lr(  # type: ignore[attr-defined]
+                    symbol=symbol, ts_ms=ts_ms, direction=direction,
+                    scenario=scenario, indicators=indicators,
+                    effective_mode="SHADOW",
+                )
+            elif chal_kind == "meta_lr_blend":
+                dec = self._decide_meta_lr_blend(  # type: ignore[attr-defined]
+                    symbol=symbol, ts_ms=ts_ms, direction=direction,
+                    scenario=scenario, indicators=indicators,
+                    effective_mode="SHADOW",
+                )
+            elif chal_kind.startswith("edge_stack_mh"):
+                dec = self._decide_edge_stack_mh(  # type: ignore[attr-defined]
+                    symbol=symbol, ts_ms=ts_ms, direction=direction,
+                    scenario=scenario, indicators=indicators,
+                    effective_mode="SHADOW",
+                )
+            else:
+                outcome_label = "skip"
+                return
+
+            dec.cfg_key_used = self._cfg_key_used
+            dec.cfg_source = "challenger"
+            self._emit_metrics(  # type: ignore[attr-defined]
+                dec, symbol=symbol, ts_ms=ts_ms, direction=direction,
+                scenario=scenario, rule_score=rule_score,
+                rule_have=rule_have, rule_need=rule_need,
+                cancel_spike_veto=cancel_spike_veto, ok_rule=ok_rule,
+                sid=sid, indicators=indicators,
+            )
+        except Exception:
+            outcome_label = "err"
+        finally:
+            self._cfg = saved_cfg
+            self._model = saved_model
+            self._cfg_source = saved_cfg_source
+            self._cfg_key_used = saved_cfg_key_used
+            self._cfg_raw_len = saved_cfg_raw_len
+            self._model_load_error = saved_model_load_error
+            if METRICS_REGISTRY_AVAILABLE:
+                with contextlib.suppress(Exception):
+                    _ml_dual_emit_total.labels(  # type: ignore[union-attr]
+                        role="challenger",
+                        kind=chal_kind,
+                        outcome=outcome_label,
+                    ).inc()
 
     def check(
         self,
@@ -400,6 +649,12 @@ class MLConfirmGate(ConfigLoaderMixin, ModelLoaderMixin, FeatureVectorizerMixin,
             self._capture_replay_input(dec, symbol=symbol, ts_ms=ts_ms, direction=direction, scenario=scenario,
                                        indicators=indicators, rule_score=rule_score, rule_have=rule_have,
                                        rule_need=rule_need, cancel_spike_veto=cancel_spike_veto, ok_rule=ok_rule)
+            self._score_challenger_shadow(
+                symbol=symbol, ts_ms=ts_ms, direction=direction, scenario=scenario,
+                indicators=indicators, rule_score=rule_score,
+                rule_have=rule_have, rule_need=rule_need,
+                cancel_spike_veto=cancel_spike_veto, ok_rule=ok_rule, sid=sid,
+            )
             return dec
 
         if kind.lower() == "edge_stack_v1":
@@ -440,10 +695,19 @@ class MLConfirmGate(ConfigLoaderMixin, ModelLoaderMixin, FeatureVectorizerMixin,
             self._capture_replay_input(dec, symbol=symbol, ts_ms=ts_ms, direction=direction, scenario=scenario,
                                        indicators=indicators, rule_score=rule_score, rule_have=rule_have,
                                        rule_need=rule_need, cancel_spike_veto=cancel_spike_veto, ok_rule=ok_rule)
+            self._score_challenger_shadow(
+                symbol=symbol, ts_ms=ts_ms, direction=direction, scenario=scenario,
+                indicators=indicators, rule_score=rule_score,
+                rule_have=rule_have, rule_need=rule_need,
+                cancel_spike_veto=cancel_spike_veto, ok_rule=ok_rule, sid=sid,
+            )
             return dec
 
-        if kind == "meta_lr":
-            dec = self._decide_meta_lr(symbol=symbol, ts_ms=ts_ms, direction=direction, scenario=scenario, indicators=indicators, effective_mode=effective_mode)
+        if kind in ("meta_lr", "meta_lr_blend"):
+            if kind == "meta_lr_blend":
+                dec = self._decide_meta_lr_blend(symbol=symbol, ts_ms=ts_ms, direction=direction, scenario=scenario, indicators=indicators, effective_mode=effective_mode)
+            else:
+                dec = self._decide_meta_lr(symbol=symbol, ts_ms=ts_ms, direction=direction, scenario=scenario, indicators=indicators, effective_mode=effective_mode)
             self._apply_selective(dec, ok_rule=ok_rule)
             dec.cfg_key_used = self._cfg_key_used
             dec.cfg_source = self._cfg_source
@@ -476,6 +740,12 @@ class MLConfirmGate(ConfigLoaderMixin, ModelLoaderMixin, FeatureVectorizerMixin,
             self._capture_replay_input(dec, symbol=symbol, ts_ms=ts_ms, direction=direction, scenario=scenario,
                                        indicators=indicators, rule_score=rule_score, rule_have=rule_have,
                                        rule_need=rule_need, cancel_spike_veto=cancel_spike_veto, ok_rule=ok_rule)
+            self._score_challenger_shadow(
+                symbol=symbol, ts_ms=ts_ms, direction=direction, scenario=scenario,
+                indicators=indicators, rule_score=rule_score,
+                rule_have=rule_have, rule_need=rule_need,
+                cancel_spike_veto=cancel_spike_veto, ok_rule=ok_rule, sid=sid,
+            )
             return dec
 
         if kind.lower().startswith("edge_stack_mh"):
@@ -516,6 +786,12 @@ class MLConfirmGate(ConfigLoaderMixin, ModelLoaderMixin, FeatureVectorizerMixin,
             self._capture_replay_input(dec, symbol=symbol, ts_ms=ts_ms, direction=direction, scenario=scenario,
                                        indicators=indicators, rule_score=rule_score, rule_have=rule_have,
                                        rule_need=rule_need, cancel_spike_veto=cancel_spike_veto, ok_rule=ok_rule)
+            self._score_challenger_shadow(
+                symbol=symbol, ts_ms=ts_ms, direction=direction, scenario=scenario,
+                indicators=indicators, rule_score=rule_score,
+                rule_have=rule_have, rule_need=rule_need,
+                cancel_spike_veto=cancel_spike_veto, ok_rule=ok_rule, sid=sid,
+            )
             return dec
 
         # если когда-то будут другие kind — можно расширить, но для v10.4 достаточно util_mh

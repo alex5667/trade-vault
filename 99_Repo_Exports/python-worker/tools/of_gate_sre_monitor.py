@@ -487,6 +487,13 @@ def main() -> None:
 
     ap = argparse.ArgumentParser()
     ap.add_argument("--redis-url", default=os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0"))
+    ap.add_argument(
+        "--metrics-redis-url",
+        default=os.getenv("OF_GATE_METRICS_REDIS_URL", ""),
+        help="Optional separate Redis URL for reading metrics:of_gate stream. "
+        "Falls back to --redis-url when empty. Needed on minik where REDIS_URL "
+        "points to main redis but metrics:of_gate lives on redis-worker-1.",
+    )
     ap.add_argument("--metrics-stream", default=os.getenv("OF_GATE_METRICS_STREAM", RS.OF_GATE_METRICS))
     ap.add_argument("--notify-stream", default=os.getenv("NOTIFY_TELEGRAM_STREAM", RS.NOTIFY_TELEGRAM))
     ap.add_argument("--state-key", default=os.getenv("SRE_OF_GATE_STATE_KEY", "sre:of_gate:last_stats"))
@@ -512,9 +519,15 @@ def main() -> None:
     args = ap.parse_args()
 
     r = redis.Redis.from_url(args.redis_url, decode_responses=True)
+    metrics_url = (args.metrics_redis_url or "").strip() or args.redis_url
+    metrics_r = (
+        r
+        if metrics_url == args.redis_url
+        else redis.Redis.from_url(metrics_url, decode_responses=True)
+    )
     window_ms = int(args.window_min) * 60_000
     start_ms = _now_ms() - window_ms
-    rows = _read_stream_window(r, args.metrics_stream, start_ms, window_ms)
+    rows = _read_stream_window(metrics_r, args.metrics_stream, start_ms, window_ms)
 
     prev: dict[str, Any] | None = None
     try:

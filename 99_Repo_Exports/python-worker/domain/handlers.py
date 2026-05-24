@@ -510,10 +510,10 @@ def maybe_arm_trailing_after_tp1(pos, *, spec, ts_ms: int) -> TradeEvent | None:
         try:
             comm_rate = getattr(spec, "commission_rate", None)
             if comm_rate is None:
-                comm_rate = 0.0005
+                comm_rate = 0.0003
 
             fees_bps = comm_rate * 2.0
-            slip_bps = 0.0005
+            slip_bps = 0.0003
             total_verify_bps = fees_bps + slip_bps
             entry_price = float(pos.entry_price or 0.0)
 
@@ -1739,7 +1739,7 @@ def process_tick(
             else:
                 pnl_gross_bps = (pos.entry_price - mid) / pos.entry_price * 10000.0
 
-            comm_rate = getattr(spec, "commission_rate", 0.0005)
+            comm_rate = getattr(spec, "commission_rate", 0.0003)
             fees_bps = comm_rate * 2.0 * 10000.0
             slip_bps = 0.5  # conservative estimation
             pnl_net_bps = pnl_gross_bps - fees_bps - slip_bps
@@ -2029,7 +2029,7 @@ def finalize_trade(
         if fees <= 0.0:
             comm_rate = getattr(spec, "commission_rate", None)
             if comm_rate is None:
-                comm_rate = 0.0005
+                comm_rate = 0.0003
             fees = turnover_roundtrip * float(comm_rate)
 
     # net = gross - fees
@@ -2249,6 +2249,7 @@ def finalize_trade(
         turnover_entry=turnover_entry,
         turnover_roundtrip=turnover_roundtrip,
 
+        pnl_if_fixed_exit=pnl_if_fixed_exit,
         pnl_net_baseline=pnl_if_fixed_exit,
         mgmt_edge=(pnl_net - pnl_if_fixed_exit),
         tp1_hit=bool(getattr(pos, "tp1_hit", False)),

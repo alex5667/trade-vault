@@ -500,6 +500,7 @@ def save_trade_closed(closed: TradeClosed) -> None:  # type: ignore
             config_json = COALESCE(EXCLUDED.config_json, trades_closed.config_json),
             policy_mode = COALESCE(EXCLUDED.policy_mode, trades_closed.policy_mode),
             policy_raw = COALESCE(EXCLUDED.policy_raw, trades_closed.policy_raw),
+            v_gate_reason = COALESCE(EXCLUDED.v_gate_reason, trades_closed.v_gate_reason),
             is_orphan_cleanup = trades_closed.is_orphan_cleanup OR EXCLUDED.is_orphan_cleanup,
             exclude_from_ml_labels = trades_closed.exclude_from_ml_labels OR EXCLUDED.exclude_from_ml_labels,
             timeout_age_ms = COALESCE(EXCLUDED.timeout_age_ms, trades_closed.timeout_age_ms),
@@ -523,7 +524,11 @@ def save_trade_closed(closed: TradeClosed) -> None:  # type: ignore
             is_virtual,
             meta_enforce_cov_bucket,
             meta_enforce_applied,
+            trailing_surface_applied, trailing_surface_reason_code,
+            baseline_trailing_offset_atr, selected_trailing_offset_atr,
+            policy_mode, policy_raw,
             strong_gate_ok,
+            v_gate_reason,
             updated_at
         ) VALUES (
             %s,
@@ -535,6 +540,10 @@ def save_trade_closed(closed: TradeClosed) -> None:  # type: ignore
             %s,
             %s,
             %s, %s,
+            %s, %s,
+            %s, %s,
+            %s, %s,
+            %s,
             %s,
             now()
         )
@@ -555,7 +564,14 @@ def save_trade_closed(closed: TradeClosed) -> None:  # type: ignore
             is_virtual = EXCLUDED.is_virtual,
             meta_enforce_cov_bucket = EXCLUDED.meta_enforce_cov_bucket,
             meta_enforce_applied = EXCLUDED.meta_enforce_applied,
+            trailing_surface_applied = EXCLUDED.trailing_surface_applied,
+            trailing_surface_reason_code = COALESCE(EXCLUDED.trailing_surface_reason_code, trades_closed_p0.trailing_surface_reason_code),
+            baseline_trailing_offset_atr = COALESCE(EXCLUDED.baseline_trailing_offset_atr, trades_closed_p0.baseline_trailing_offset_atr),
+            selected_trailing_offset_atr = COALESCE(EXCLUDED.selected_trailing_offset_atr, trades_closed_p0.selected_trailing_offset_atr),
+            policy_mode = COALESCE(EXCLUDED.policy_mode, trades_closed_p0.policy_mode),
+            policy_raw = COALESCE(EXCLUDED.policy_raw, trades_closed_p0.policy_raw),
             strong_gate_ok = COALESCE(EXCLUDED.strong_gate_ok, trades_closed_p0.strong_gate_ok),
+            v_gate_reason = COALESCE(EXCLUDED.v_gate_reason, trades_closed_p0.v_gate_reason),
             updated_at = now()
     """
 
@@ -806,7 +822,14 @@ def save_trade_closed(closed: TradeClosed) -> None:  # type: ignore
         getattr(closed, "is_virtual", False),
         getattr(closed, "meta_enforce_cov_bucket", ""),
         bool(getattr(closed, "meta_enforce_applied", False)),
+        bool(getattr(closed, "trailing_surface_applied", False)),
+        getattr(closed, "trailing_surface_reason_code", None) or None,
+        getattr(closed, "baseline_trailing_offset_atr", None) or None,
+        getattr(closed, "selected_trailing_offset_atr", None) or None,
+        policy_mode_val,
+        policy_raw_val,
         _strong_gate_ok,
+        getattr(closed, "v_gate_reason", None) or None,
     )
 
     # Sanitize parameters: replace empty tuples `()` with `None`, and unbox 1-element tuples `(x,)`

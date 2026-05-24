@@ -212,10 +212,10 @@ services:
     # Live gate stays strict (CRYPTO_SIGNAL_MIN_CONF above).
     # VIRTUAL_SIGNAL_MIN_CONF widens near-miss collection without changing real execution.
     # Rollback: set VIRTUAL_SIGNAL_MIN_CONF=${CRYPTO_SIGNAL_MIN_CONF}
-    - VIRTUAL_SIGNAL_MIN_CONF=${VIRTUAL_SIGNAL_MIN_CONF:-35}
+    - VIRTUAL_SIGNAL_MIN_CONF=${VIRTUAL_SIGNAL_MIN_CONF:-45}
     - SHADOW_GATED_OUT_ENABLE=1
     - CRYPTO_NOTIFY_SKIP_VIRTUAL=1
-    - CRYPTO_OF_VIRTUAL_ENFORCE=0
+    - CRYPTO_OF_VIRTUAL_ENFORCE=1
     - BINANCE_VIRTUAL_ORDERS_ENABLED=0
     - BINANCE_VIRTUAL_MIRROR_ALL=0
     # ── Phase 2: Deep Exploration Sampling (2026-05-21) ───────────────
@@ -767,10 +767,10 @@ services:
     - CRYPTO_SIGNAL_MIN_CONF=${CRYPTO_SIGNAL_MIN_CONF}
     - CRYPTO_NOTIFY_SIGNAL_EVERY_N=${CRYPTO_NOTIFY_SIGNAL_EVERY_N:-100}
     # ── Phase 1: Virtual ML Data Collection (2026-05-21) ─────────────
-    - VIRTUAL_SIGNAL_MIN_CONF=${VIRTUAL_SIGNAL_MIN_CONF:-35}
+    - VIRTUAL_SIGNAL_MIN_CONF=${VIRTUAL_SIGNAL_MIN_CONF:-45}
     - SHADOW_GATED_OUT_ENABLE=1
     - CRYPTO_NOTIFY_SKIP_VIRTUAL=1
-    - CRYPTO_OF_VIRTUAL_ENFORCE=0
+    - CRYPTO_OF_VIRTUAL_ENFORCE=1
     - BINANCE_VIRTUAL_ORDERS_ENABLED=0
     - BINANCE_VIRTUAL_MIRROR_ALL=0
     # ── Phase 2: Deep Exploration Sampling (2026-05-21) ───────────────
@@ -3534,7 +3534,7 @@ services:
     container_name: scanner-atr-policy-telegram-callback
     environment:
     - REDIS_URL=${REDIS_URL}
-    - PG_DSN=postgresql://trading:${TRADING_PASSWORD}@scanner-postgres:5432/trade
+    - PG_DSN=postgresql://trading:${TRADING_PASSWORD}@scanner-postgres:5432/scanner_analytics
     - ANALYTICS_DSN=postgresql://trading:${TRADING_PASSWORD}@scanner-postgres:5432/scanner_analytics
     - ATR_POLICY_TELEGRAM_CALLBACK_STREAM=bot:callbacks
     - ATR_POLICY_TELEGRAM_CALLBACK_GROUP=atr_policy_ops
@@ -3767,7 +3767,7 @@ services:
     container_name: scanner-atr-policy-budget-controller
     environment:
     - REDIS_URL=${REDIS_URL}
-    - PG_DSN=postgresql://trading:${TRADING_PASSWORD}@scanner-postgres:5432/trade
+    - PG_DSN=postgresql://trading:${TRADING_PASSWORD}@scanner-postgres:5432/scanner_analytics
     - ATR_BUDGET_SYNC_INTERVAL=60
     - TZ=UTC
     depends_on:
@@ -3796,7 +3796,7 @@ services:
     container_name: scanner-atr-policy-budget-monitor
     environment:
     - REDIS_URL=${REDIS_URL}
-    - PG_DSN=postgresql://trading:${TRADING_PASSWORD}@scanner-postgres:5432/trade
+    - PG_DSN=postgresql://trading:${TRADING_PASSWORD}@scanner-postgres:5432/scanner_analytics
     - ATR_BUDGET_MONITOR_INTERVAL_SEC=15
     - TZ=UTC
     depends_on:
@@ -3825,7 +3825,7 @@ services:
     container_name: scanner-daily-dd-killswitch
     environment:
     - REDIS_URL=${REDIS_URL}
-    - PG_DSN=postgresql://trading:${TRADING_PASSWORD}@scanner-postgres:5432/trade
+    - PG_DSN=postgresql://trading:${TRADING_PASSWORD}@scanner-postgres:5432/scanner_analytics
     - DAILY_DD_KILLSWITCH_ENABLED=${DAILY_DD_KILLSWITCH_ENABLED:-1}
     - DAILY_DD_KILLSWITCH_MODE=${DAILY_DD_KILLSWITCH_MODE:-shadow}
     - KILL_DAILY_R_LIMIT=${KILL_DAILY_R_LIMIT:-15}
@@ -3861,7 +3861,7 @@ services:
     container_name: scanner-atr-policy-budget-telegram-digest
     environment:
     - REDIS_URL=${REDIS_URL}
-    - PG_DSN=postgresql://trading:${TRADING_PASSWORD}@scanner-postgres:5432/trade
+    - PG_DSN=postgresql://trading:${TRADING_PASSWORD}@scanner-postgres:5432/scanner_analytics
     - ATR_BUDGET_DIGEST_INTERVAL_SEC=3600
     - ATR_POLICY_EXEC_BUDGET_FAIL_POLICY=${ATR_POLICY_EXEC_BUDGET_FAIL_POLICY:-CLOSED}
     - TZ=UTC
@@ -3944,8 +3944,7 @@ services:
     container_name: scanner-atr-invariant-violation-writer
     environment:
     - REDIS_URL=${REDIS_URL}
-    - TRADES_DB_DSN=postgresql://trading:${TRADING_PASSWORD}@scanner-postgres:5432/trade
-    - PG_DSN=postgresql://trading:${TRADING_PASSWORD}@scanner-postgres:5432/trade
+    - PG_DSN=postgresql://trading:${TRADING_PASSWORD}@scanner-postgres:5432/scanner_analytics
     - TZ=UTC
     command: python -m services.atr_invariant_violation_writer
     depends_on:
@@ -4122,7 +4121,7 @@ services:
     - TRADES_DB_DSN=${ANALYTICS_DB_DSN}
     - ATR_GO_LIVE_READINESS_ENABLE=1
     - ATR_GO_LIVE_READINESS_ENFORCE=0
-    - ATR_GO_LIVE_READINESS_PROM_PORT=9848
+    - ATR_GO_LIVE_READINESS_PROM_PORT=9883
     - TZ=UTC
     command: python /app/services/atr_go_live_readiness_service.py
     volumes:
@@ -4879,6 +4878,142 @@ services:
         reservations:
           memory: 64M
     command: python -u orderflow_services/p_edge_threshold_calibrator_v1.py
+
+  # ────────────────────────────────────────────────────────────────────────
+  # meta_lr_blend posterior isotonic calibrator refit (2026-05-23 stop-bleed)
+  # Reads trades:closed (last 7d), fits IsotonicCalibrator on (p_edge_raw, win)
+  # pairs from results ∈ {WIN, LOSS}. On acceptance (Δbrier≥0.005, Δece≥0.01,
+  # n≥300) atomically writes /var/lib/trade/ml_models/<model_dir>/calibrator.json
+  # which is auto-discovered by ml_confirm/config_loader sibling logic.
+  # Bootstrap (one-off) and continuous refit (default every 6h) share the
+  # same entrypoint; this service runs in continuous mode.
+  # ────────────────────────────────────────────────────────────────────────
+  scanner-meta-lr-blend-calibrator-refit:
+    build: *id001
+    container_name: scanner-meta-lr-blend-calibrator-refit
+    environment:
+    # trades:closed lives on the same Redis as p-edge-cal (worker-1)
+    - REDIS_URL=${REDIS_URL:-redis://redis-worker-1:6379/0}
+    # REQUIRED. Path to the meta_lr_blend artifact. Refit writes calibrator.json
+    # next to this file. Update when promoting a new meta_lr_blend version.
+    - META_LR_BLEND_REFIT_MODEL_PATH=${META_LR_BLEND_REFIT_MODEL_PATH:-/var/lib/trade/ml_models/meta_lr_blend_20260516_191237/meta_lr_blend.json}
+    # Cadence (default 6h). Lower during bootstrap (e.g. 1800) if you want
+    # faster turnaround while data accumulates.
+    - META_LR_BLEND_REFIT_INTERVAL_S=${META_LR_BLEND_REFIT_INTERVAL_S:-21600}
+    - META_LR_BLEND_REFIT_LOOKBACK_H=${META_LR_BLEND_REFIT_LOOKBACK_H:-168}
+    - META_LR_BLEND_REFIT_MIN_N=${META_LR_BLEND_REFIT_MIN_N:-300}
+    # Empty default during initial rollout: trades:closed entries written
+    # before label_joiner ml_version propagation lack the field; restricting
+    # to "meta_lr_blend" would drop everything. After 7d of new writes (i.e.
+    # ~2026-05-30) set this to "meta_lr_blend" to scope to that model.
+    - META_LR_BLEND_REFIT_TARGET_VER=${META_LR_BLEND_REFIT_TARGET_VER:-}
+    - META_LR_BLEND_REFIT_BRIER_DELTA=${META_LR_BLEND_REFIT_BRIER_DELTA:-0.005}
+    - META_LR_BLEND_REFIT_ECE_DELTA=${META_LR_BLEND_REFIT_ECE_DELTA:-0.01}
+    - META_LR_BLEND_REFIT_PORT=9867
+    - REFIT_STREAM=trades:closed
+    - REFIT_REPORT_DIR=/var/lib/trade/of_reports
+    - PYTHONPATH=.:/app
+    - PYTHONUNBUFFERED=1
+    - TZ=UTC
+    working_dir: /app
+    volumes:
+    - ./python-worker:/app
+    # Match scanner-crypto-orderflow-service mount so calibrator.json lands
+    # in the same path the OF workers read from.
+    - /var/lib/trade/ml_models:/var/lib/trade/ml_models
+    - /var/lib/trade:/var/lib/trade
+    ports:
+    - 9867:9867
+    networks:
+    - scanner-core
+    - scanner-infra
+    restart: on-failure:5
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - python -c "import urllib.request; urllib.request.urlopen('http://localhost:9867/metrics',
+        timeout=3).read()" >/dev/null 2>&1 || exit 1
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.2'
+        reservations:
+          memory: 64M
+    command: python -u orderflow_services/meta_lr_blend_calibrator_refit_v1.py
+
+  # ────────────────────────────────────────────────────────────────────────
+  # ML Calibrator Autopilot (2026-05-23 follow-up to meta_lr_blend refit)
+  # Generalises posterior-isotonic refit to ALL active ml_confirm kinds:
+  # discovers champion + challenger from cfg:ml_confirm:* Redis keys,
+  # refits each, atomically writes calibrator.json next to its model.
+  # Auto-switches target_version=<kind> sticky lock once kind-matched
+  # rows in window ≥ ML_AUTOPILOT_AUTO_SWITCH_AFTER_N (default 300).
+  # Replaces the kind-specific scanner-meta-lr-blend-calibrator-refit
+  # — leave that service running side-by-side OR set
+  # ML_AUTOPILOT_SKIP_KINDS=meta_lr_blend to avoid double-refit.
+  # ────────────────────────────────────────────────────────────────────────
+  scanner-ml-calibrator-autopilot:
+    build: *id001
+    container_name: scanner-ml-calibrator-autopilot
+    environment:
+    - REDIS_URL=${REDIS_URL:-redis://redis-worker-1:6379/0}
+    # Master switch — 0 to disable without removing the container
+    - ML_CALIBRATOR_AUTOPILOT_ENABLED=${ML_CALIBRATOR_AUTOPILOT_ENABLED:-1}
+    - ML_AUTOPILOT_INTERVAL_S=${ML_AUTOPILOT_INTERVAL_S:-21600}
+    - ML_AUTOPILOT_LOOKBACK_H=${ML_AUTOPILOT_LOOKBACK_H:-168}
+    - ML_AUTOPILOT_MIN_N=${ML_AUTOPILOT_MIN_N:-300}
+    - ML_AUTOPILOT_BRIER_DELTA=${ML_AUTOPILOT_BRIER_DELTA:-0.005}
+    - ML_AUTOPILOT_ECE_DELTA=${ML_AUTOPILOT_ECE_DELTA:-0.01}
+    # Sticky lock once ≥ this many trades:closed rows in window match
+    # the kind's ml_version substring. Until then runs in broad mode
+    # (target_version="" = accept any model output).
+    - ML_AUTOPILOT_AUTO_SWITCH_AFTER_N=${ML_AUTOPILOT_AUTO_SWITCH_AFTER_N:-300}
+    # CSV of kinds to skip — set to "meta_lr_blend" to avoid double-refit
+    # while scanner-meta-lr-blend-calibrator-refit is also running.
+    - ML_AUTOPILOT_SKIP_KINDS=${ML_AUTOPILOT_SKIP_KINDS:-meta_lr_blend}
+    - ML_AUTOPILOT_PORT=9868
+    - ML_AUTOPILOT_CHAMPION_KEY=${ML_AUTOPILOT_CHAMPION_KEY:-cfg:ml_confirm:champion}
+    - ML_AUTOPILOT_CHALLENGER_KEY=${ML_AUTOPILOT_CHALLENGER_KEY:-cfg:ml_confirm:challenger}
+    - REFIT_STREAM=trades:closed
+    - REFIT_REPORT_DIR=/var/lib/trade/of_reports
+    - PYTHONPATH=.:/app
+    - PYTHONUNBUFFERED=1
+    - TZ=UTC
+    working_dir: /app
+    volumes:
+    - ./python-worker:/app
+    # Match scanner-crypto-orderflow mounts so calibrator.json artifacts
+    # land where the OF workers' sibling-discovery loader expects them.
+    - /var/lib/trade/ml_models:/var/lib/trade/ml_models
+    - /var/lib/trade:/var/lib/trade
+    ports:
+    - 9868:9868
+    networks:
+    - scanner-core
+    - scanner-infra
+    restart: on-failure:5
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - python -c "import urllib.request; urllib.request.urlopen('http://localhost:9868/metrics',
+        timeout=3).read()" >/dev/null 2>&1 || exit 1
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 384M
+          cpus: '0.3'
+        reservations:
+          memory: 96M
+    command: python -u orderflow_services/ml_calibrator_autopilot_v1.py
 
   scanner-ctx-tighten-cal:
     build: *id001

@@ -193,7 +193,7 @@ def build_trades_closed_payload(
         "drift_state": norm_state(pick(decision, "drift_state")),
         "drift_mode": compute_drift_mode(decision),
         "meta_enforce_cov_bucket": c.get(MetaKeys.ENFORCE_COV_BUCKET) or pick(decision, "meta_enforce_cov_bucket"),
-        "meta_enforce_applied": bool(int(c.get(MetaKeys.ENFORCE_APPLIED))) if (c.get(MetaKeys.ENFORCE_APPLIED)).isdigit() else bool(c.get(MetaKeys.ENFORCE_APPLIED, False)),
+        "meta_enforce_applied": bool(int(c.get(MetaKeys.ENFORCE_APPLIED))) if (c.get(MetaKeys.ENFORCE_APPLIED) or "").isdigit() else bool(c.get(MetaKeys.ENFORCE_APPLIED) or False),
         "actual_action": pick(decision, "actual_action"),
         "actual_reason_code": pick(decision, "actual_reason_code"),
         "source": "close_backfill_replay",

@@ -66,19 +66,25 @@ class _HealthHandler(BaseHTTPRequestHandler):
 
     def _send_json(self, status: int, body: dict[str, Any]) -> None:
         raw = json.dumps(body, default=str).encode('utf-8')
-        self.send_response(status)
-        self.send_header('Content-Type', 'application/json')
-        self.send_header('Content-Length', str(len(raw)))
-        self.end_headers()
-        self.wfile.write(raw)
+        try:
+            self.send_response(status)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Content-Length', str(len(raw)))
+            self.end_headers()
+            self.wfile.write(raw)
+        except BrokenPipeError:
+            pass
 
     def _send_text(self, status: int, text: str) -> None:
         raw = text.encode('utf-8')
-        self.send_response(status)
-        self.send_header('Content-Type', 'text/plain; charset=utf-8')
-        self.send_header('Content-Length', str(len(raw)))
-        self.end_headers()
-        self.wfile.write(raw)
+        try:
+            self.send_response(status)
+            self.send_header('Content-Type', 'text/plain; charset=utf-8')
+            self.send_header('Content-Length', str(len(raw)))
+            self.end_headers()
+            self.wfile.write(raw)
+        except BrokenPipeError:
+            pass
 
     def do_GET(self) -> None:  # noqa: N802
         path = self.path.split('?')[0]

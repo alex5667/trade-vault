@@ -50,6 +50,49 @@ def _get_floor(util_floors: dict[str, Any], bucket: str) -> float:
 def _now_ms() -> int:
     return get_ny_time_millis()
 
+
+def _coerce_feat(v: Any) -> float:
+    """Match the trainer's `_coerce` so train==serve feature extraction agrees."""
+    if v is None:
+        return 0.0
+    if isinstance(v, bool):
+        return 1.0 if v else 0.0
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _predict_blend_children(pack: dict[str, Any], indicators: dict[str, Any]) -> tuple[float, float]:
+    """Run the v14 LR and v5 GBDT child models from a self-contained blend pack.
+
+    Returns (p_v14, p_v5) — both `predict_proba(...)[:, 1]` scalars.
+    Raises if either child or its feature list is absent (caller already
+    verified presence via `_v14_model`/`_v5_model` keys).
+    """
+    v14_model = pack["_v14_model"]
+    v14_features = pack["_v14_features"]
+    v14_scaler = pack.get("_v14_scaler")
+    v5_model = pack["_v5_model"]
+    v5_features = pack["_v5_features"]
+
+    x14 = np.asarray(
+        [[_coerce_feat(indicators.get(k)) for k in v14_features]],
+        dtype=np.float64,
+    )
+    x5 = np.asarray(
+        [[_coerce_feat(indicators.get(k)) for k in v5_features]],
+        dtype=np.float64,
+    )
+
+    if v14_scaler is not None:
+        x14 = v14_scaler.transform(x14)
+
+    p14 = float(v14_model.predict_proba(x14)[0, 1])
+    p5 = float(v5_model.predict_proba(x5)[0, 1])
+    return p14, p5
+
+
 class DecisionPolicy:
     def __init__(self, gate):
         # We hold a reference to the main facade or its fields
@@ -1065,6 +1108,173 @@ class DecisionPolicy:
         dec.status = "ALLOW" if dec.allow else "BLOCK"
         dec.reason = f"meta_lr(p={dec.p_edge:.4f},thr={dec.p_min:.4f},bucket={bucket})"
 
+        return dec
+
+    def _decide_meta_lr_blend(
+        self,
+        dec: MLConfirmDecision,
+        *,
+        symbol: str,
+        ts_ms: int,
+        direction: str,
+        scenario: str,
+        indicators: dict[str, Any],
+        effective_mode: str | None = None,
+        cfg: dict[str, Any] | None = None,
+        model: Any | None = None,
+        **kwargs,
+    ) -> MLConfirmDecision:
+        """Decision logic for meta_lr_blend artifact (2-coef LR over child probas).
+
+        Artifact (JSON dict):
+            kind=meta_lr_blend, intercept, coef_v14, coef_v5,
+            feature_names=["p_v14","p_v5"] (input keys to read from indicators).
+
+        Upstream MUST populate the two feature_names in indicators (child
+        v14_of/v5_of probas). Missing inputs in ENFORCE mode follow the same
+        abstain/block policy as other gates.
+        """
+        cfg = cfg if cfg is not None else self.gate._cfg
+        model = model if model is not None else getattr(self.gate, "_model", None)
+
+        mode = effective_mode if effective_mode else self.gate.mode
+        dec.kind = "meta_lr_blend"
+        dec.model_run_id = (cfg.get("run_id", "") or "")
+        dec.model_path = (cfg.get("model_path", "") or "")
+
+        if model is None:
+            dec.mode = "ERR"
+            dec.allow = self._fail_allow()
+            error_reason = getattr(self.gate, "_model_load_error", None) or "no_model_loaded"
+            dec.reason = error_reason
+            dec.error = error_reason
+            dec.status = "ERR_NO_MODEL"
+            dec.p_edge = 0.0
+            dec.p_min = 0.0
+            dec.p_margin = 0.0
+            dec.conf = 0.0
+            dec.missing = []
+            return dec
+
+        if not isinstance(model, dict) or model.get("kind") != "meta_lr_blend":
+            dec.mode = "ERR"
+            dec.allow = self._fail_allow()
+            dec.error = "bad_model_type"
+            dec.reason = f"bad_model_type(expected=meta_lr_blend dict,got={type(model).__name__})"
+            dec.status = "ERR_BAD_MODEL"
+            dec.p_edge = 0.0
+            dec.p_min = 0.0
+            dec.p_margin = 0.0
+            dec.conf = 0.0
+            return dec
+
+        feat_names = list(model.get("feature_names") or ["p_v14", "p_v5"])
+        if len(feat_names) != 2:
+            feat_names = ["p_v14", "p_v5"]
+
+        # If the artifact ships child models, score them inline so the blend
+        # is self-contained. Otherwise (legacy schema_version=1 artifact) fall
+        # back to reading p_v14/p_v5 directly from indicators (some upstream
+        # multi-schema scorer is expected to populate them).
+        children_used = False
+        if "_v14_model" in model and "_v5_model" in model:
+            try:
+                p14_child, p5_child = _predict_blend_children(model, indicators)
+            except Exception as e:
+                dec.mode = "ERR"
+                dec.allow = self._fail_allow()
+                dec.error = "child_prediction_failed"
+                dec.reason = f"child_prediction_failed({str(e)[:100]})"
+                dec.status = "ERR_PRED"
+                return dec
+            indicators = dict(indicators)
+            indicators[feat_names[0]] = p14_child
+            indicators[feat_names[1]] = p5_child
+            children_used = True
+
+        missing = [n for n in feat_names if indicators.get(n) is None]
+        dec.missing = missing
+
+        if missing and mode == "ENFORCE":
+            if self.gate._abstain_on_missing:
+                dec.allow = True
+                dec.abstain = True
+                dec.status = "ABSTAIN_MISSING_CRITICAL"
+                dec.reason = f"ml_abstain_missing_critical({','.join(missing)})"
+            else:
+                dec.allow = False
+                dec.status = "MISSING_CRITICAL_BLOCK"
+                dec.reason = f"missing_critical({','.join(missing)})"
+            dec.p_edge = 0.0
+            dec.p_min = max(0.0, self.gate._p_min_hard_floor)
+            dec.p_margin = dec.p_edge - dec.p_min
+            dec.conf = self._conf_from_margin(dec.p_margin)
+            dec.score = 0.0
+            dec.floor = dec.p_min
+            return dec
+
+        try:
+            p14 = _f(indicators.get(feat_names[0]), 0.0)
+            p5 = _f(indicators.get(feat_names[1]), 0.0)
+            intercept = _f(model.get("intercept"), 0.0)
+            c14 = _f(model.get("coef_v14"), 0.0)
+            c5 = _f(model.get("coef_v5"), 0.0)
+            z = intercept + c14 * p14 + c5 * p5
+            if z >= 0.0:
+                p_edge_raw = 1.0 / (1.0 + math.exp(-z))
+            else:
+                ez = math.exp(z)
+                p_edge_raw = ez / (1.0 + ez)
+        except Exception as e:
+            dec.mode = "ERR"
+            dec.allow = self._fail_allow()
+            dec.error = "prediction_failed"
+            dec.reason = f"prediction_failed({str(e)[:100]})"
+            dec.status = "ERR_PRED"
+            return dec
+
+        if not math.isfinite(p_edge_raw):
+            dec.mode = "ERR"
+            dec.allow = self._fail_allow()
+            dec.error = "non_finite_pred"
+            dec.reason = f"non_finite_pred({p_edge_raw})"
+            dec.status = "ERR_NON_FINITE"
+            return dec
+
+        dec.p_edge_raw = p_edge_raw
+        dec.p_edge_cal = p_edge_raw
+        dec.calib_type = str(self.gate._calib_type or "none")
+
+        calibrate = cfg.get("calibrate_p_edge", None)
+        if calibrate is None:
+            calibrate = True if self.gate._calibrator is not None else False
+        if calibrate and self.gate._calibrator is not None:
+            dec.p_edge_cal = self.gate._calibrator.apply_one(dec.p_edge_raw)
+
+        dec.p_edge = dec.p_edge_cal
+
+        bucket = _bucket_from_scenario(scenario)
+        dec.bucket = bucket
+
+        floor = _get_floor(cfg.get("util_floors", {}) or {}, bucket)
+        if floor == 0.0:
+            floor = float(cfg.get("p_min", 0.55))
+
+        with contextlib.suppress(Exception):
+            floor = max(floor, self.gate._p_min_hard_floor)
+
+        dec.p_min = floor
+        dec.floor = floor
+        dec.p_margin = dec.p_edge - dec.p_min
+        dec.conf = self._conf_from_margin(dec.p_margin)
+
+        dec.allow = dec.p_edge >= dec.p_min
+        dec.status = "ALLOW" if dec.allow else "BLOCK"
+        _src = "child" if children_used else "ind"
+        dec.reason = (
+            f"meta_lr_blend(p={dec.p_edge:.4f},thr={dec.p_min:.4f},"
+            f"bucket={bucket},p14={p14:.3f},p5={p5:.3f},src={_src})"
+        )
         return dec
 
 

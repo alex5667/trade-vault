@@ -85,7 +85,19 @@ def main() -> None:  # pragma: no cover
     interval_s = float(_env("OFC_CTX_ROLLOUT_EXPORTER_INTERVAL_S", "15") or 15)
     key = _env("OFC_CTX_ROLLOUT_SUMMARY_KEY", "metrics:ofc_contextual_rollout:last")
     runtime_key = _env("OFC_CTX_RUNTIME_SUMMARY_KEY", "metrics:ofc_contextual_runtime:last")
-    start_http_server(port)
+    bind_retries = int(_to_float(_env("OFC_CTX_ROLLOUT_EXPORTER_BIND_RETRIES", "10"), 10.0))
+    bind_backoff_s = _to_float(_env("OFC_CTX_ROLLOUT_EXPORTER_BIND_BACKOFF_S", "1.0"), 1.0)
+    last_err: Exception | None = None
+    for _ in range(max(1, bind_retries)):
+        try:
+            start_http_server(port)
+            last_err = None
+            break
+        except OSError as e:
+            last_err = e
+            time.sleep(bind_backoff_s)
+    if last_err is not None:
+        raise last_err
     while True:
         UP.set(1.0)
         client = _redis_client()

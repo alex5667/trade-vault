@@ -3,6 +3,7 @@ from __future__ import annotations
 # infra/redis_repo.py
 import json
 import logging
+import math
 import os
 from collections.abc import Mapping
 from dataclasses import asdict
@@ -1374,21 +1375,64 @@ class RedisTradeRepository:
         stream_data = _stringify(d)
 
         # ── Flat fields required by PEdgeThresholdCalibrator ─────────────────
-        # ml_prob: signal_payload → indicators → of_confirm → evidence → ml_decision → p_edge
-        # result:  WIN / LOSS / BE derived from r_multiple
-        # ts_close: alias for exit_ts_ms
-        # market_regime: explicit field (calibrator prefers this over "regime" alias)
+        # ml_prob:        deep path → ml_decision.p_edge; fallbacks: top-level
+        #                 p_edge / ml_prob / p_edge_cal / p_edge_raw on closed
+        #                 or signal_payload (covers signals that bypass MlConfirmGate)
+        # kind:           entry_reason → strategy → sid-prefix (NEW — was missing,
+        #                 causing all calibrator bins to collapse to kind="*")
+        # result:         WIN / LOSS / BE derived from r_multiple
+        # ts_close:       alias for exit_ts_ms
+        # market_regime:  explicit field (calibrator prefers this over "regime" alias)
         try:
             _sp = getattr(closed, "signal_payload", None) or {}
             if isinstance(_sp, str):
                 _sp = json.loads(_sp)
-            if isinstance(_sp, dict):
-                _ofc = (_sp.get("indicators") or {}).get("of_confirm") or {}
-                _mld = (_ofc.get("evidence") or {}).get("ml_decision") or {}
-                if isinstance(_mld, dict) and "p_edge" in _mld:
-                    stream_data["ml_prob"] = f"{float(_mld['p_edge']):.6f}"
+            if not isinstance(_sp, dict):
+                _sp = {}
+
+            _ml_prob_val: float | None = None
+            _ofc = (_sp.get("indicators") or {}).get("of_confirm") or {}
+            _mld = (_ofc.get("evidence") or {}).get("ml_decision") or {}
+            if isinstance(_mld, dict) and "p_edge" in _mld:
+                _ml_prob_val = float(_mld["p_edge"])
+            if _ml_prob_val is None:
+                for _src in (closed, _sp):
+                    for _k in ("p_edge_cal", "p_edge", "ml_prob", "p_edge_raw"):
+                        _cand = getattr(_src, _k, None) if not isinstance(_src, dict) else _src.get(_k)
+                        if _cand is not None:
+                            try:
+                                _ml_prob_val = float(_cand)
+                                break
+                            except (TypeError, ValueError):
+                                continue
+                    if _ml_prob_val is not None:
+                        break
+            if _ml_prob_val is not None and math.isfinite(_ml_prob_val):
+                stream_data["ml_prob"] = f"{_ml_prob_val:.6f}"
         except Exception:
             pass
+
+        try:
+            _kind_val = (
+                stream_data.get("kind")
+                or stream_data.get("signal_kind")
+                or stream_data.get("entry_tag")
+                or stream_data.get("entry_reason")
+                or ""
+            )
+            if not _kind_val:
+                _sid_str = stream_data.get("sid") or ""
+                if ":" in _sid_str:
+                    _head = _sid_str.split(":", 1)[0]
+                    if _head and _head not in ("of", "crypto-of"):
+                        _kind_val = _head
+            if not _kind_val:
+                _kind_val = stream_data.get("strategy") or ""
+            if _kind_val:
+                stream_data["kind"] = _kind_val
+        except Exception:
+            pass
+
         try:
             _r = float(getattr(closed, "r_multiple", 0.0) or 0.0)
             stream_data["result"] = "WIN" if _r > 0 else ("LOSS" if _r < 0 else "BE")

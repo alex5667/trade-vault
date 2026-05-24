@@ -475,8 +475,27 @@ async def _write_outputs(
     except Exception:
         pass
 
+    # 2026-05-23 calibrator refit support: persist BOTH raw and calibrated
+    # probabilities + ml_version so tools/refit_meta_lr_blend_calibrator.py
+    # can re-fit cleanly after a calibrator is already deployed. Falls back
+    # to `_p` (= label["p"]) for raw while no calibrator is attached upstream.
+    _p_raw = decision.get("p_edge_raw")
+    if _p_raw is None:
+        _p_raw = decision.get("ml_prob")
+    if _p_raw is None:
+        _p_raw = _p
+    _p_cal = decision.get("p_edge_cal")
+    if _p_cal is None:
+        _p_cal = decision.get("ml_calibrated_prob")
+    if _p_cal is None:
+        _p_cal = _p
+    _ml_version = str(decision.get("ml_version") or decision.get("model_ver") or model_ver or "")
+
     calib_fields: dict[str, str] = {
         "ml_prob":     "" if _p is None else f"{float(_p):.6f}",
+        "p_edge_raw":  "" if _p_raw is None else f"{float(_p_raw):.6f}",
+        "p_edge_cal":  "" if _p_cal is None else f"{float(_p_cal):.6f}",
+        "ml_version":  _ml_version,
         "r_multiple":  "" if r_mult is None else str(r_mult),
         "result":      _result,
         "ts_close":    str(close_ts_ms),

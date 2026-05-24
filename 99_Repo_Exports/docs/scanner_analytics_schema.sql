@@ -149,6 +149,39 @@ CREATE TABLE IF NOT EXISTS trades_closed (
     horizon_bucket                TEXT             DEFAULT '',
     atr_tf_ms                     BIGINT           DEFAULT 0,
 
+    -- ── Horizon runtime scalars (migration 043, non-sc variants) ─────────
+    contract_ver                  SMALLINT,
+    hold_target_ms                BIGINT,
+    alpha_half_life_ms            BIGINT,
+    max_signal_age_ms             BIGINT,
+    risk_horizon_bucket           TEXT,
+    horizon_profile_source        TEXT,
+    horizon_profile_conf          DOUBLE PRECISION,
+    horizon_reason_code           TEXT,
+
+    -- ── ATR runtime scalars (migration 043) ──────────────────────────────
+    atr_mode                      TEXT,
+    atr_value                     DOUBLE PRECISION,
+    atr_window_n                  INTEGER,
+    atr_age_ms                    BIGINT,
+    atr_source                    TEXT,
+    atr_pct                       DOUBLE PRECISION,
+    atr_regime_value              DOUBLE PRECISION,
+    atr_trail_value               DOUBLE PRECISION,
+    atr_regime_tf_ms              BIGINT,
+    atr_trail_tf_ms               BIGINT,
+    vol_ratio_fast_slow           DOUBLE PRECISION,
+    vol_ratio_z                   DOUBLE PRECISION,
+
+    -- ── ATR selection analytics (migration 051) ───────────────────────────
+    atr_sel_tf                    TEXT             DEFAULT '',
+    atr_sel_src                   TEXT             DEFAULT '',
+    atr_sel_age_ms                BIGINT           DEFAULT 0,
+
+    -- ── Policy provenance (migration 032) ─────────────────────────────────
+    policy_mode                   TEXT,
+    policy_raw                    TEXT,
+
     -- ── Phase 2.4: Live Surface Selection ─────────────────────────────────
     live_surface_applied          BOOLEAN          DEFAULT FALSE,
     live_surface_reason_code      TEXT             DEFAULT '',
@@ -173,7 +206,17 @@ CREATE TABLE IF NOT EXISTS trades_closed (
     strong_gate_ok                BOOLEAN,
 
     -- ── Gate veto reason (migration 058, 2026-05-22) ──────────────────────
-    v_gate_reason                 TEXT
+    v_gate_reason                 TEXT,
+
+    -- ── Timeout / orphan-cleanup flags (migration 20260521_01) ───────────
+    is_orphan_cleanup             BOOLEAN NOT NULL DEFAULT false,
+    exclude_from_ml_labels        BOOLEAN NOT NULL DEFAULT false,
+    timeout_age_ms                BIGINT,
+    timeout_max_hold_ms           BIGINT,
+    timeout_request_ts_ms         BIGINT,
+    timeout_close_latency_ms      BIGINT,
+    exit_order_ref                TEXT,
+    closed_trade_id               TEXT
 );
 
 -- Trigger ts populator (preserves entry_ts/exit_ts on UPSERT, see migrations)
@@ -242,9 +285,13 @@ CREATE TABLE IF NOT EXISTS trades_closed_p0 (
     baseline_trailing_offset_atr  DOUBLE PRECISION,
     selected_trailing_offset_atr  DOUBLE PRECISION,
 
+    -- ── Policy provenance (migration 032) ─────────────────────────────────
+    policy_mode                   TEXT,
+    policy_raw                    TEXT,
+
     strong_gate_ok                BOOLEAN,
 
-    -- ── Gate veto reason (migration 058, 2026-05-22) ──────────────────────
+    -- ── Gate veto reason (migration 20260522_04) ──────────────────────────
     v_gate_reason                 TEXT,
 
     PRIMARY KEY (order_id, exit_ts)

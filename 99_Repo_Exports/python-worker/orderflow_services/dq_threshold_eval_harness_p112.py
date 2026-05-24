@@ -366,10 +366,21 @@ def main() -> None:
         h = _utc_hour(ts_ms)
         ind = _indicators(p)
 
-        gap_p95 = ind.get("tick_gap_p95_ms")
-        gap_n = ind.get("tick_gap_n")
-        tick_seq = ind.get("tick_missing_seq_ema")
-        book_seq = ind.get("book_missing_seq_ema")
+        # Tolerate flat `decision_*`-prefixed layout: e.g. `latest_confirm_train_v7.ndjson`
+        # strips the nested `indicators` dict and surfaces DQ as top-level decision_<key>.
+        def _dq(canon: str) -> Any:
+            v = ind.get(canon)
+            if v is not None:
+                return v
+            v = p.get(f"decision_{canon}")
+            if v is not None:
+                return v
+            return p.get(canon)
+
+        gap_p95 = _dq("tick_gap_p95_ms")
+        gap_n = _dq("tick_gap_n")
+        tick_seq = _dq("tick_missing_seq_ema")
+        book_seq = _dq("book_missing_seq_ema")
 
         agg = by_symbol.get(sym)
         if agg is None:

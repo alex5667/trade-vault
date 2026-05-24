@@ -1169,7 +1169,7 @@ class EdgeCostGate:
                     continue
 
         # If EDGE_FEES_BPS_DEFAULT is not set, derive from CRYPTO_COMMISSION_RATE.
-        # Example: 0.0004 => 4 bps one-way => 8 bps round-trip.
+        # Example: 0.0005 => 5 bps one-way => 10 bps round-trip.
         if _cached_getenv("EDGE_FEES_BPS_DEFAULT") is None and _cached_getenv("CRYPTO_COMMISSION_RATE") is not None:
             try:
                 one_way_bps = _env_float("CRYPTO_COMMISSION_RATE", 0.0) * 10_000.0

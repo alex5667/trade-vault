@@ -301,7 +301,7 @@ def build_trades_closed_payload(cfg: Cfg, sid: str, close_ev: dict[str, Any], de
         "drift_state": drift_state,
         "drift_mode": drift_mode,
         "meta_enforce_cov_bucket": c.get(MetaKeys.ENFORCE_COV_BUCKET) or pick(decision, "meta_enforce_cov_bucket"),
-        "meta_enforce_applied": bool(int(c.get(MetaKeys.ENFORCE_APPLIED))) if (c.get(MetaKeys.ENFORCE_APPLIED)).isdigit() else bool(c.get(MetaKeys.ENFORCE_APPLIED, False)),
+        "meta_enforce_applied": bool(int(c.get(MetaKeys.ENFORCE_APPLIED))) if (c.get(MetaKeys.ENFORCE_APPLIED) or "").isdigit() else bool(c.get(MetaKeys.ENFORCE_APPLIED) or False),
         "actual_action": pick(decision, "actual_action"),
         "actual_reason_code": pick(decision, "actual_reason_code"),
         "source": "close_wait_drainer",

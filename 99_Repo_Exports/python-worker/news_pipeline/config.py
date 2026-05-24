@@ -47,7 +47,7 @@ GEMINI_API_KEY = env("GEMINI_API_KEY", "")
 GEMINI_MODEL = env("GEMINI_MODEL", "gemini-1.5-pro")
 
 NVIDIA_API_KEY = env("NVIDIA_API_KEY", "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")
-NVIDIA_MODEL = env("NVIDIA_MODEL", "qwen/qwen3.5-397b-a17b")
+NVIDIA_MODEL = env("NVIDIA_MODEL", "deepseek-ai/deepseek-r1")
 NVIDIA_MODEL_KIMI = env("NVIDIA_MODEL_KIMI", "moonshotai/kimi-k2.5")
 LLM_FALLBACK_ENABLED = env("LLM_FALLBACK_ENABLED", "1") == "1"
 

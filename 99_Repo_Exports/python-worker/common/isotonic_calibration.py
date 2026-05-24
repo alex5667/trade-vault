@@ -3,6 +3,7 @@ from __future__ import annotations
 import bisect
 import math
 from dataclasses import dataclass
+from typing import Any
 
 
 def _clamp01(x: float) -> float:
@@ -19,10 +20,41 @@ class IsotonicCalibrator:
     mode:
       - "linear": линейная интерполяция между точками
       - "step": ступенчатая (piecewise-constant)
+
+    Совместим с интерфейсом PlattLogitCalibrator через `apply_one`/`apply`
+    (нужно для ml_confirm/decision_policy.py при подключении в meta_lr_blend).
     """
     x: list[float]
     p: list[float]
     mode: str = "linear"
+
+    def apply_one(self, p_raw: float) -> float:
+        """Compatibility shim for ml_confirm/decision_policy.py.
+
+        decision_policy ожидает калибратор с `apply_one(p_raw) → p_cal`.
+        Изотон работает на raw-вероятности (x≡p_raw, p≡p_cal).
+        """
+        return self.predict(float(p_raw))
+
+    def apply(self, probs: list[float]) -> list[float]:
+        return [self.apply_one(p) for p in probs]
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "type": "isotonic",
+            "x": [float(v) for v in self.x],
+            "p": [float(v) for v in self.p],
+            "mode": str(self.mode),
+        }
+
+    @staticmethod
+    def from_dict(d: dict[str, Any]) -> IsotonicCalibrator:
+        """Inverse of to_dict; fails-soft on missing keys via sanitize."""
+        xs = list(d.get("x") or [])
+        ps = list(d.get("p") or [])
+        mode = str(d.get("mode", "linear") or "linear")
+        cal = IsotonicCalibrator(x=xs, p=ps, mode=mode).sanitize()
+        return cal
 
     def predict(self, xq: float) -> float:
         if not self.x or not self.p or len(self.x) != len(self.p):

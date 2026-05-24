@@ -233,17 +233,32 @@ def _extract_dq_indicators(payload: dict[str, Any]) -> tuple[dict[str, float], d
         except Exception:
             return default
 
+    # Fallback for flat `decision_*`-prefixed payload layout (e.g. v7 NDJSON capture
+    # which strips nested `indicators`/`dq_components`). Looks at top-level `payload`
+    # for `decision_<key>` and then bare `<key>`.
+    def _f_with_fallback(k: str, default: float = 0.0) -> float:
+        if k in comp and comp.get(k) is not None:
+            return _f(comp, k, default)
+        for alt in (f"decision_{k}", k):
+            v = payload.get(alt)
+            if v is not None:
+                try:
+                    return float(v)
+                except Exception:
+                    pass
+        return default
+
     indicators = {
-        "tick_gap_p95_ms": _f(comp, "tick_gap_p95_ms"),
-        "tick_missing_seq_ema": _f(comp, "tick_missing_seq_ema"),
-        "book_missing_seq_ema": _f(comp, "book_missing_seq_ema"),
-        "tick_time_age_ms": _f(comp, "tick_time_age_ms"),
-        "skew_now_ema_ms": _f(comp, "skew_now_ema_ms"),
-        "skew_stream_ema_ms": _f(comp, "skew_stream_ema_ms"),
-        "data_health": _f(comp, "data_health", 1.0),
-        "book_health_ok": _f(comp, "book_health_ok", 1.0),
-        "feature_nan_rate_ema": _f(comp, "feature_nan_rate_ema"),
-        "feature_stuck_sec": _f(comp, "feature_stuck_sec"),
+        "tick_gap_p95_ms": _f_with_fallback("tick_gap_p95_ms"),
+        "tick_missing_seq_ema": _f_with_fallback("tick_missing_seq_ema"),
+        "book_missing_seq_ema": _f_with_fallback("book_missing_seq_ema"),
+        "tick_time_age_ms": _f_with_fallback("tick_time_age_ms"),
+        "skew_now_ema_ms": _f_with_fallback("skew_now_ema_ms"),
+        "skew_stream_ema_ms": _f_with_fallback("skew_stream_ema_ms"),
+        "data_health": _f_with_fallback("data_health", 1.0),
+        "book_health_ok": _f_with_fallback("book_health_ok", 1.0),
+        "feature_nan_rate_ema": _f_with_fallback("feature_nan_rate_ema"),
+        "feature_stuck_sec": _f_with_fallback("feature_stuck_sec"),
     }
     thr_raw = comp.get("thr") if isinstance(comp.get("thr"), dict) else {}
     thr = {k: float(v) for k, v in thr_raw.items() if isinstance(v, (int, float))}
@@ -272,7 +287,20 @@ def load_from_dataset_ndjson(path: str) -> list[DQSample]:
                 ind = rec.get("indicators") or {}
                 if not isinstance(ind, dict):
                     ind = {}
-                p_hat = _clamp01(float(ind.get("confidence") or ind.get("of_score_final") or 0.5))
+                # Top-level fallback for flat `decision_*`-style NDJSON (v7 capture)
+                _p_hat_raw = (
+                    ind.get("confidence")
+                    if ind.get("confidence") is not None
+                    else ind.get("of_score_final")
+                    if ind.get("of_score_final") is not None
+                    else rec.get("of_score_final")
+                    if rec.get("of_score_final") is not None
+                    else 0.5
+                )
+                try:
+                    p_hat = _clamp01(float(_p_hat_raw))
+                except Exception:
+                    p_hat = 0.5
                 dq_ind, thr = _extract_dq_indicators(rec)
                 # If dataset already has a label, propagate it (single-pass mode)
                 y_raw = rec.get("y_edge_cost_aware") or rec.get("y_edge")

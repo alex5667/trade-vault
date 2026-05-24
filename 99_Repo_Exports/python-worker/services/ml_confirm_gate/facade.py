@@ -221,6 +221,8 @@ class MLConfirmGate:
             t_start = time.time()
             if kind == "meta_lr":
                 self.policy._decide_meta_lr(dec, model=self._model, cfg=self._cfg, **dataclasses.asdict(input_dto))
+            elif kind == "meta_lr_blend":
+                self.policy._decide_meta_lr_blend(dec, model=self._model, cfg=self._cfg, **dataclasses.asdict(input_dto))
             elif kind.startswith("util_mh"):
                 self.policy._decide_util_mh(dec, model=self._model, cfg=self._cfg, **dataclasses.asdict(input_dto))
             elif kind == "edge_stack_v1":

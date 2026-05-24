@@ -236,7 +236,7 @@ def project_event_into_state(
             continue
         if value in (None, ''):
             continue
-        if key in STATE_PRIORITY_FIELDS or key.startswith('tp') or key.startswith('trail_') or key.startswith('fsm_'):
+        if key in STATE_PRIORITY_FIELDS or key.startswith('tp') or key.startswith('sl_') or key.startswith('trail_') or key.startswith('fsm_'):
             state[key] = value
     if _s(ev.get('action')):
         state['action'] = _s(ev.get('action'))
@@ -289,7 +289,7 @@ def replay_sid_state(events: Sequence[Mapping[str, Any]], *, base_state: Mapping
                 continue
             if value in (None, ''):
                 continue
-            if key in STATE_PRIORITY_FIELDS or key.startswith('tp') or key.startswith('trail_') or key.startswith('fsm_'):
+            if key in STATE_PRIORITY_FIELDS or key.startswith('tp') or key.startswith('sl_') or key.startswith('trail_') or key.startswith('fsm_'):
                 state[key] = value
         # Preserve action/status even when only emitted in generic fact events.
         if _s(ev.get('action')):

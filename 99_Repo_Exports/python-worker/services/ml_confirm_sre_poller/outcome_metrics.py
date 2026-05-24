@@ -84,6 +84,29 @@ async def _xrange_recent(r: Redis, stream: str, lookback_ms: int, batch: int = 5
     return out
 
 
+def _normalize_sid(raw_sid: Any) -> str:
+    """Canonicalize sid to `crypto-of:SYMBOL:ts_ms` for cross-stream join.
+
+    `metrics:ml_confirm` writes `crypto-of:SYMBOL:ts_ms`; `labels:tb` writes
+    `<kind>:SYMBOL:ts_ms[:DIR]` where kind ∈ {of, iceberg, delta_spike, …}.
+    Direct string compare misses all of them; collapse to a shared shape that
+    keys only on (symbol, signal_ts) — direction stays on the label side
+    via `r_mult`/`y_edge`.
+    """
+    s = str(raw_sid or "").strip()
+    if not s:
+        return ""
+    parts = s.split(":")
+    if len(parts) < 3:
+        return s
+    sym = (parts[1] or "").upper()
+    try:
+        t = int(parts[2])
+    except (TypeError, ValueError):
+        return s
+    return f"crypto-of:{sym}:{t}"
+
+
 def _parse_metrics_entry(fields: dict[str, Any]) -> dict[str, Any] | None:
     """metrics:ml_confirm fields are flat strings (XADD pairs). Return needed subset."""
     try:
@@ -94,7 +117,7 @@ def _parse_metrics_entry(fields: dict[str, Any]) -> dict[str, Any] | None:
         p = _f(fields.get("p_edge_cal"), _f(fields.get("p_edge"), float("nan")))
         if not math.isfinite(p):
             return None
-        return {"sid": sid, "kind": kind, "p_edge": p}
+        return {"sid": _normalize_sid(sid), "kind": kind, "p_edge": p}
     except Exception:
         return None
 
@@ -115,7 +138,7 @@ def _parse_label_entry(fields: dict[str, Any]) -> dict[str, Any] | None:
         r = _f(d.get("r_mult"), float("nan"))
         if not math.isfinite(r):
             return None
-        return {"sid": sid, "y": 1 if y > 0 else 0, "r_mult": r}
+        return {"sid": _normalize_sid(sid), "y": 1 if y > 0 else 0, "r_mult": r}
     except Exception:
         return None
 

@@ -126,6 +126,29 @@ def _to_float(value: Any) -> float | None:
     return None
 
 
+def _parse_tp_level(event_type: Any) -> int | None:
+    """Извлекает n из 'TPn_HIT' (1..9). Возвращает None для прочих событий.
+
+    Используется orchestrator-ом для per-profile фильтрации:
+    раньше был глобальный фильтр по BINANCE_TRAIL_ACTIVATE_TP — это ломало
+    профили вроде expansion_v1 (activate_after_tp=2), потому что listener
+    просто не дочитывал TP2_HIT.
+    """
+    if not isinstance(event_type, str):
+        return None
+    et = event_type.strip().upper()
+    if not (et.startswith("TP") and et.endswith("_HIT")):
+        return None
+    mid = et[2:-4]
+    try:
+        n = int(mid)
+    except ValueError:
+        return None
+    if n < 1 or n > 9:
+        return None
+    return n
+
+
 class TpHitTrailingOrchestrator:
     """
     Получает событие от исполнителя (TP1_HIT) → 
@@ -159,6 +182,15 @@ class TpHitTrailingOrchestrator:
             self.profiles = TrailingProfilesRegistry()
         else:
             self.profiles = profiles
+
+        # Phase A: fail-fast если DEFAULT_TRAIL_PROFILE не существует.
+        # Раньше эта ошибка всплывала только при реальном TP1_HIT.
+        default_profile_env = os.getenv("DEFAULT_TRAIL_PROFILE", "protective_only")
+        try:
+            self.profiles.validate_default(default_profile_env)
+        except ValueError as exc:
+            log.error("❌ %s", exc)
+            raise
 
         # Dispatcher to gateway
         gateway_url = gateway_url or os.getenv("GATEWAY_URL", "http://scanner-go-gateway:8090")
@@ -236,35 +268,34 @@ class TpHitTrailingOrchestrator:
             log.info("🎯 Trailing sources: ALL")
         log.info("🗝️ Signal key prefixes: %s", ", ".join(self.signal_key_prefixes))
 
-        # Which TP level activates trailing (1=TP1, 2=TP2, 3=TP3)
+        # DEPRECATED глобальный override: BINANCE_TRAIL_ACTIVATE_TP.
+        # Phase A: убран глобальный фильтр event_type. Теперь listener принимает
+        # все TPn_HIT (n∈1..9), а решает на уровне профиля (profile.activate_after_tp).
+        # ENV оставлен как fallback ТОЛЬКО для сигналов, где профиль не найден.
         self.trail_activate_tp_level = max(1, int(os.getenv("BINANCE_TRAIL_ACTIVATE_TP", "1")))
-        self._expected_event_type = f"TP{self.trail_activate_tp_level}_HIT"
-        log.info("🎯 Trailing activates on: %s (level=%d)", self._expected_event_type, self.trail_activate_tp_level)
+        log.info(
+            "🎯 Trailing: per-profile activate_after_tp; BINANCE_TRAIL_ACTIVATE_TP=%d (legacy fallback only)",
+            self.trail_activate_tp_level,
+        )
 
-    def handle_event(self, event: dict[str, Any]) -> bool:
-        """
-        Обработать событие из Redis stream.
-        
+    def handle_event(self, event: dict[str, Any]) -> "TrailingResult":
+        """Обработать событие из Redis stream.
+
         Event format:
         {
             "event_type": "TP1_HIT" | "TP2_HIT" | "SL_HIT" | "POSITION_OPENED",
             "sid": "signal--1730222790",
             "symbol": "",
-            "position_id": "1234567",  # MT5 ticket
-            "ticket": "1234567",        # альтернативное поле
+            "position_id": "1234567",
             "price": "2769.9",
             "ts": "1730222790",
             "source": "paper_executor" | "mt5" | "backtest"
         }
-        
-        Args:
-            event: Словарь с данными события
-            
+
         Returns:
-            True если событие обработано успешно
+            TrailingResult — проверяй .success/.skipped/.error для DLQ-логики.
         """
-        result = self._process_tp1_event(event, record_stats=True)
-        return result.success or result.skipped
+        return self._process_tp1_event(event, record_stats=True)
 
     def start_trailing(
         self,
@@ -296,25 +327,28 @@ class TpHitTrailingOrchestrator:
         return self._process_tp1_event(event, record_stats=True)
 
     def _process_tp1_event(self, event: dict[str, Any], record_stats: bool) -> TrailingResult:
-        # Recommendation D: deduplication to prevent double processing of TP1_HIT
+        event_type = event.get("event_type")
+        # Phase A (Bug-1 fix): принимаем все TPn_HIT; per-profile фильтр ниже.
+        tp_level = _parse_tp_level(event_type)
+        if tp_level is None:
+            return TrailingResult(success=False, skipped=True, error="unsupported_event")
+
+        # Deduplication по фактическому tp_level (раньше использовался глобальный
+        # self.trail_activate_tp_level → коллизия TP1/TP2 для одного sid невозможна
+        # была обнаружить, теперь dedup корректен per-TP-уровень).
         sid = event.get("sid")
         if sid:
-            dedup_key = f"dedup:tp{self.trail_activate_tp_level}_trailing:{sid}"
-            # TTL: 3 days to match recommendation idea or enough for typical trade duration
-            if not self.r.set(dedup_key, "1", nx=True, ex=86400*3):
+            dedup_key = f"dedup:tp{tp_level}_trailing:{sid}"
+            if not self.r.set(dedup_key, "1", nx=True, ex=86400 * 3):
                 return TrailingResult(success=True, skipped=True, reason="dedup_hit")
 
         self.stats["events_processed"] += 1
 
-        event_type = event.get("event_type")
         symbol_raw = event.get("symbol", "UNKNOWN")
         symbol = _normalize_symbol(symbol_raw) or "UNKNOWN"
 
         if HAS_METRICS:
             TrailingMetrics.record_event(event_type, symbol)  # type: ignore
-
-        if event_type != self._expected_event_type:
-            return TrailingResult(success=False, skipped=True, error="unsupported_event")
 
         if self.symbol_filter_enabled and symbol not in self.trailing_symbols:
             log.debug("Skipping event for symbol %s (not in trailing list)", symbol)
@@ -391,6 +425,22 @@ class TpHitTrailingOrchestrator:
                 if record_stats:
                     self.stats["trailing_failed"] += 1
                 return TrailingResult(success=False, skipped=False, error="profile_not_found")
+
+        # Phase A (Bug-1 fix): per-profile gate.
+        # Раньше: глобальный фильтр BINANCE_TRAIL_ACTIVATE_TP принимал ровно один
+        # уровень → expansion_v1 (activate_after_tp=2) при дефолте =1 не активировался.
+        # Теперь: orchestrator принимает все TPn_HIT, но trailing запускается ТОЛЬКО
+        # если profile.activate_after_tp совпадает с уровнем фактического события.
+        if profile.activate_after_tp != tp_level:
+            log.debug(
+                "Skip TP%d_HIT for sid=%s: profile=%s expects activate_after_tp=%d",
+                tp_level, sid, profile.name, profile.activate_after_tp,
+            )
+            return TrailingResult(
+                success=False,
+                skipped=True,
+                error=f"tp_level_mismatch:profile={profile.activate_after_tp},event={tp_level}",
+            )
 
         side = (signal.get("side", "LONG")).upper()
         if side not in ("LONG", "SHORT"):
@@ -580,14 +630,50 @@ class TpHitTrailingOrchestrator:
             event_type="TRAILING_STARTED",
             metadata={
                 "tp1_price": price,
+                "tp_level": tp_level,
                 "position_id": position_id,
                 "source": source,
+                "side": side,
+                "previous_sl": original_sl_value,
                 "new_sl": f"{new_sl:.10f}" if new_sl is not None else "",
+                "trail_distance_price": trail_distance_price,
+                "atr_value": atr_value if (atr_value and atr_value > 0) else None,
+                "atr_mult": active_atr_mult,
                 "tp_levels_cleared": is_rocket,
                 "clear_tp_levels": is_rocket,
                 "trail_atr_mult": active_atr_mult if (atr_value and atr_value > 0) else None,
+                "profile_hash": profile.profile_hash(),
+                "policy_hash": self.profiles.policy_hash(),
+                "schema_ver": 2,
             }
         )
+
+        # ── Watermark FSM: arm and persist so WatermarkTrackerRunner drives continuous SL ──
+        if os.getenv("WATERMARK_TRAILING_ENABLED", "0") == "1":
+            try:
+                import time as _time
+                from services.watermark_trailing import fsm_from_signal as _wm_from_signal
+                from services.watermark_trailing_store import WatermarkStore as _WMStore
+                _wm_fsm = _wm_from_signal(
+                    sid=sid,
+                    side=side,
+                    entry_price=entry_price or 0.0,
+                    original_sl=original_sl_value,
+                    atr=atr_value or 0.0,
+                    atr_mult=active_atr_mult,
+                    profile_name=profile.name,
+                    symbol=symbol,
+                    position_id=position_id or "",
+                    point_size=point_size,
+                )
+                _wm_fsm.arm(price=price, now_ms=int(_time.time() * 1000))
+                _WMStore(self.r).save(_wm_fsm.snap)
+                log.info(
+                    "✅ Watermark FSM armed: sid=%s symbol=%s side=%s wm=%s",
+                    sid, symbol, side, _wm_fsm.snap.high_wm or _wm_fsm.snap.low_wm,
+                )
+            except Exception as _wm_err:
+                log.warning("⚠️ Watermark FSM arm failed (fail-open): %s", _wm_err)
 
         if self.events_logger:
             self.events_logger.log_trailing_started(
@@ -739,6 +825,87 @@ class TpHitTrailingOrchestrator:
 
         except Exception as e:
             log.warning("Failed to write trailing event: %s", e)
+
+        # Phase C.1: Persist to trailing_decisions hypertable (fail-open).
+        if event_type == "TRAILING_STARTED":
+            self._write_trailing_decision_pg(sid=sid, symbol=symbol, profile_name=profile_name,
+                                             metadata=metadata or {})
+
+    # ─── Phase C.1: trailing_decisions hypertable writer ─────────────────────
+
+    _INSERT_TD_SQL = """
+        INSERT INTO trailing_decisions (
+            ts, sid, symbol, position_id, event_type, profile, side, tp_level,
+            old_sl, new_sl, trail_distance, atr_value, atr_mult,
+            idempotency_key, policy_hash, profile_hash, schema_ver, payload
+        ) VALUES (
+            now(), %s, %s, %s, %s, %s, %s, %s,
+            %s, %s, %s, %s, %s,
+            %s, %s, %s, %s, %s
+        )
+        ON CONFLICT (idempotency_key, ts) DO NOTHING
+    """
+
+    def _write_trailing_decision_pg(
+        self,
+        sid: str,
+        symbol: str,
+        profile_name: str,
+        metadata: dict,
+    ) -> None:
+        """Вставляет строку TRAILING_STARTED в trailing_decisions (fail-open)."""
+        try:
+            import psycopg2
+            from psycopg2.extras import Json
+        except ImportError:
+            return
+        try:
+            dsn = os.getenv("TRADES_DB_DSN") or os.getenv("ANALYTICS_DB_DSN")
+            if not dsn:
+                return
+            tp_level = metadata.get("tp_level")
+            _pos_id = metadata.get("position_id") or ""
+            idempotency_key = f"{sid}:{_pos_id}:{tp_level}:TRAILING_STARTED"
+            conn = psycopg2.connect(dsn, connect_timeout=3)
+            cur = conn.cursor()
+            _new_sl_raw = metadata.get("new_sl")
+            _new_sl: float | None = None
+            if _new_sl_raw:
+                try:
+                    _new_sl = float(_new_sl_raw)
+                except (TypeError, ValueError):
+                    pass
+            # Correct field mapping (fixes audit finding):
+            # trail_distance ← trail_distance_price (ATR × mult in price units)
+            # atr_value      ← atr_value (raw ATR)
+            # atr_mult       ← atr_mult or trail_atr_mult (the multiplier)
+            _trail_dist_raw = metadata.get("trail_distance_price")
+            _atr_val_raw = metadata.get("atr_value")
+            _atr_mult_raw = metadata.get("atr_mult") or metadata.get("trail_atr_mult")
+            cur.execute(self._INSERT_TD_SQL, (
+                sid,
+                symbol,
+                metadata.get("position_id") or "",
+                "TRAILING_STARTED",
+                profile_name,
+                metadata.get("side"),
+                int(tp_level) if tp_level is not None else None,
+                metadata.get("previous_sl"),
+                _new_sl,
+                float(_trail_dist_raw) if _trail_dist_raw is not None else None,
+                float(_atr_val_raw) if _atr_val_raw is not None else None,
+                float(_atr_mult_raw) if _atr_mult_raw is not None else None,
+                idempotency_key,
+                metadata.get("policy_hash"),
+                metadata.get("profile_hash"),
+                int(metadata.get("schema_ver", 2)),
+                Json(metadata),
+            ))
+            conn.commit()
+            cur.close()
+            conn.close()
+        except Exception as e:
+            log.debug("trailing_decisions insert skipped: %s", e)
 
     @staticmethod
     def _normalize_tp_levels(raw_levels: Any | None) -> list[float]:

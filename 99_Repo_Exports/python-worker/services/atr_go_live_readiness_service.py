@@ -325,7 +325,7 @@ if __name__ == "__main__":
     import time
     enable = os.getenv("ATR_GO_LIVE_READINESS_ENABLE", "1").lower() in ("1", "true", "yes")
     enforce = os.getenv("ATR_GO_LIVE_READINESS_ENFORCE", "0").lower() in ("1", "true", "yes")
-    prom_port = int(os.getenv("ATR_GO_LIVE_READINESS_PROM_PORT", "9848"))
+    prom_port = int(os.getenv("ATR_GO_LIVE_READINESS_PROM_PORT", "9883"))
 
     if not enable:
         logger.info("ATR Go-Live Readiness Service bypassed via ENV: ATR_GO_LIVE_READINESS_ENABLE=0")

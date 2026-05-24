@@ -17,7 +17,7 @@ def test_pnl_math_defaults():
     info = get_symbol_info("BTCUSDT")
     rate = info.get("commission_rate")
     print(f"Default CRYPTO_COMMISSION_RATE: {rate}")
-    assert rate == 0.0005, f"Expected 0.0005, got {rate}"
+    assert rate == 0.0003, f"Expected 0.0003, got {rate}"
 
     # Test override
     os.environ["CRYPTO_COMMISSION_RATE"] = "0.0001"

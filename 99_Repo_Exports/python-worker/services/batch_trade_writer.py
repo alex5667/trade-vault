@@ -379,84 +379,29 @@ class BatchTradeWriter:
                 atr_mode, atr_value, atr_window_n, atr_age_ms, atr_source, atr_pct,
                 vol_ratio_fast_slow, vol_ratio_z,
                 atr_regime_value, atr_trail_value, atr_regime_tf_ms, atr_trail_tf_ms,
-                policy_mode, policy_raw
+                policy_mode, policy_raw,
+                v_gate_reason,
+                is_orphan_cleanup, exclude_from_ml_labels,
+                timeout_age_ms, timeout_max_hold_ms, timeout_request_ts_ms, timeout_close_latency_ms,
+                exit_order_ref, closed_trade_id
             ) VALUES %s
             ON CONFLICT (order_id) DO NOTHING
-        """
-
-        sql_p0 = """
-            INSERT INTO trades_closed_p0 (
-                order_id,
-                exit_ts,
-                exit_ts_ms,
-                scenario, regime, session, entry_reason,
-                mae_bps, mfe_bps, time_to_mfe_ms, hold_ms,
-                spread_bps_at_entry, slippage_bps_est, book_age_ms,
-                features_json,
-                is_virtual,
-                meta_enforce_cov_bucket,
-                meta_enforce_applied,
-                trailing_surface_applied,
-                trailing_surface_reason_code,
-                baseline_trailing_offset_atr,
-                selected_trailing_offset_atr,
-                atr_policy_tag,
-                atr_policy_source,
-                atr_policy_scenario,
-                atr_policy_regime,
-                atr_policy_bucket,
-                atr_stop_ttl_mode,
-                atr_trailing_mode,
-                atr_recovery_run_id,
-                atr_restore_cert_id,
-                atr_restore_cert_status,
-                updated_at
-            ) VALUES %s
-            ON CONFLICT (order_id, exit_ts)
-            DO UPDATE SET
-                scenario = EXCLUDED.scenario,
-                regime = EXCLUDED.regime,
-                session = EXCLUDED.session,
-                entry_reason = EXCLUDED.entry_reason,
-                mae_bps = EXCLUDED.mae_bps,
-                mfe_bps = EXCLUDED.mfe_bps,
-                time_to_mfe_ms = EXCLUDED.time_to_mfe_ms,
-                hold_ms = EXCLUDED.hold_ms,
-                spread_bps_at_entry = EXCLUDED.spread_bps_at_entry,
-                slippage_bps_est = EXCLUDED.slippage_bps_est,
-                book_age_ms = EXCLUDED.book_age_ms,
-                features_json = EXCLUDED.features_json,
-                is_virtual = EXCLUDED.is_virtual,
-                meta_enforce_cov_bucket = EXCLUDED.meta_enforce_cov_bucket,
-                meta_enforce_applied = EXCLUDED.meta_enforce_applied,
-                atr_policy_tag = EXCLUDED.atr_policy_tag,
-                atr_policy_source = EXCLUDED.atr_policy_source,
-                atr_policy_scenario = EXCLUDED.atr_policy_scenario,
-                atr_policy_regime = EXCLUDED.atr_policy_regime,
-                atr_policy_bucket = EXCLUDED.atr_policy_bucket,
-                atr_stop_ttl_mode = EXCLUDED.atr_stop_ttl_mode,
-                atr_trailing_mode = EXCLUDED.atr_trailing_mode,
-                atr_recovery_run_id = EXCLUDED.atr_recovery_run_id,
-                atr_restore_cert_id = EXCLUDED.atr_restore_cert_id,
-                atr_restore_cert_status = EXCLUDED.atr_restore_cert_status,
-                updated_at = now()
         """
 
         with analytics_db.get_conn() as conn, conn.cursor() as cur:
             psycopg2.extras.execute_values(cur, sql_main, main_rows, page_size=200)  # type: ignore
             if p0_rows and analytics_db.ANALYTICS_P0_ENABLED:
                 try:
-                    # Адаптированный вариант для exit_ts: передаём как литерал to_timestamp(%s/1000.0)
-                    # execute_values не поддерживает смешанные функции в шаблоне,
-                    # поэтому адаптируем exit_ts_ms → datetime в Python
                     import datetime as _dt
+                    # _build_p0_row returns 25 items: [0]=order_id [1]=exit_ts_ms [2..24]=payload
+                    # Adapt exit_ts_ms → datetime for exit_ts column (TimescaleDB needs timestamptz)
                     p0_rows_adapted = [
                         (
-                            r[0],                                            # order_id
-                            _dt.datetime.fromtimestamp(r[1] / 1000.0, tz=_dt.timezone.utc),  # exit_ts (timestamp)
-                            r[1],                                            # exit_ts_ms
-                            *r[2:],                                          # scenario..meta_enforce_applied
-                            _dt.datetime.now(_dt.timezone.utc),                           # updated_at
+                            r[0],                                                              # order_id
+                            _dt.datetime.fromtimestamp(r[1] / 1000.0, tz=_dt.timezone.utc),  # exit_ts
+                            r[1],                                                              # exit_ts_ms
+                            *r[2:],                                                            # [2..24] scenario..v_gate_reason
+                            _dt.datetime.now(_dt.timezone.utc),                               # updated_at
                         )
                         for r in p0_rows
                     ]
@@ -476,6 +421,10 @@ class BatchTradeWriter:
                             trailing_surface_reason_code,
                             baseline_trailing_offset_atr,
                             selected_trailing_offset_atr,
+                            policy_mode,
+                            policy_raw,
+                            strong_gate_ok,
+                            v_gate_reason,
                             updated_at
                         ) VALUES %s
                         ON CONFLICT (order_id, exit_ts)
@@ -499,6 +448,10 @@ class BatchTradeWriter:
                             trailing_surface_reason_code = EXCLUDED.trailing_surface_reason_code,
                             baseline_trailing_offset_atr = EXCLUDED.baseline_trailing_offset_atr,
                             selected_trailing_offset_atr = EXCLUDED.selected_trailing_offset_atr,
+                            policy_mode = COALESCE(EXCLUDED.policy_mode, trades_closed_p0.policy_mode),
+                            policy_raw = COALESCE(EXCLUDED.policy_raw, trades_closed_p0.policy_raw),
+                            strong_gate_ok = COALESCE(EXCLUDED.strong_gate_ok, trades_closed_p0.strong_gate_ok),
+                            v_gate_reason = COALESCE(EXCLUDED.v_gate_reason, trades_closed_p0.v_gate_reason),
                             updated_at = now()
                     """
                     psycopg2.extras.execute_values(cur, sql_p0_adapted, p0_rows_adapted, page_size=200)  # type: ignore
@@ -566,7 +519,7 @@ def _build_main_row(closed: Any) -> tuple:
     atr_tf_ms_val = extract_atr_tf_ms(horizon_contract)
     _cs_bw = sp.get("config_snapshot") or {}
     _meta_sp = (sp.get("meta") or _cs_bw.get("meta") or {})
-    policy_mode_val = _meta_sp.get("policy_effective_mode") or _meta_sp.get("policy_regime") or _meta_sp.get("policy_mode") or None
+    policy_mode_val = _meta_sp.get("policy_effective_mode") or _meta_sp.get("policy_regime") or _meta_sp.get("policy_mode") or sp.get("policy_mode") or sp.get("policy_regime") or getattr(closed, "policy_mode", None) or None
     policy_raw_val = json.dumps(_meta_sp, ensure_ascii=False) if _meta_sp else None
     config_snapshot = dict(sp.get("config_snapshot", {}) or {})
     if horizon_contract:
@@ -634,7 +587,7 @@ def _build_main_row(closed: Any) -> tuple:
         # Horizon contract columns
         json.dumps(horizon_contract, ensure_ascii=False, sort_keys=True),
         horizon_bucket or getattr(closed, "risk_horizon_bucket", None) or None,
-        atr_tf_ms_val or (getattr(closed, "atr_tf_ms", 0) or None),
+        (atr_tf_ms_val if "atr_profile" in horizon_contract and "atr_tf_ms" in horizon_contract.get("atr_profile", {}) else (0 if getattr(closed, "atr_tf_ms", None) == 0 else getattr(closed, "atr_tf_ms", None))),
         getattr(closed, "is_virtual", False),
         _get_metric(closed, sp, "meta_enforce_cov_bucket", ""),
         bool(getattr(closed, "meta_enforce_applied", False)) if getattr(closed, "meta_enforce_applied", None) is not None else None,
@@ -693,6 +646,15 @@ def _build_main_row(closed: Any) -> tuple:
         getattr(closed, "atr_trail_tf_ms", 0) or 0,
         policy_mode_val,
         policy_raw_val,
+        getattr(closed, "v_gate_reason", "") or "",
+        bool(getattr(closed, "is_orphan_cleanup", False)),
+        bool(getattr(closed, "exclude_from_ml_labels", False)),
+        getattr(closed, "timeout_age_ms", None) or None,
+        getattr(closed, "timeout_max_hold_ms", None) or None,
+        getattr(closed, "timeout_request_ts_ms", None) or None,
+        getattr(closed, "timeout_close_latency_ms", None) or None,
+        getattr(closed, "exit_order_ref", None) or None,
+        getattr(closed, "closed_trade_id", None) or None,
     )
     return tuple(None if val == () else val for val in res)
 
@@ -743,7 +705,7 @@ def _build_p0_row(closed: Any) -> tuple:
     except (ValueError, TypeError):
         strong_gate_ok = None
         
-    policy_mode = meta.get("policy_effective_mode") or meta.get("policy_regime") or meta.get("policy_mode") or None
+    policy_mode = meta.get("policy_effective_mode") or meta.get("policy_regime") or meta.get("policy_mode") or sp.get("policy_mode") or sp.get("policy_regime") or getattr(closed, "policy_mode", None) or None
     policy_raw = json.dumps(meta, ensure_ascii=False) if meta else None
 
     res = (
@@ -768,16 +730,10 @@ def _build_p0_row(closed: Any) -> tuple:
         _get_metric(closed, sp, "trailing_surface_reason_code", None),       # [18]
         _get_metric(closed, sp, "baseline_trailing_offset_atr", None),       # [19]
         _get_metric(closed, sp, "selected_trailing_offset_atr", None),       # [20]
-        _get_metric(closed, sp, "atr_policy_tag", ""),                       # [21]
-        _get_metric(closed, sp, "atr_policy_source", ""),                    # [22]
-        _get_metric(closed, sp, "atr_policy_scenario", ""),                  # [23]
-        _get_metric(closed, sp, "atr_policy_regime", ""),                    # [24]
-        _get_metric(closed, sp, "atr_policy_bucket", ""),                    # [25]
-        _get_metric(closed, sp, "atr_stop_ttl_mode", ""),                    # [26]
-        _get_metric(closed, sp, "atr_trailing_mode", ""),                    # [27]
-        _get_metric(closed, sp, "atr_recovery_run_id", ""),                  # [28]
-        _get_metric(closed, sp, "atr_restore_cert_id", ""),                  # [29]
-        _get_metric(closed, sp, "atr_restore_cert_status", ""),              # [30]
+        policy_mode,                                                          # [21]
+        policy_raw,                                                           # [22]
+        strong_gate_ok,                                                       # [23]
+        _get_metric(closed, sp, "v_gate_reason", None) or None,              # [24]
         # NOTE: updated_at is added by the caller as now() literal
     )
     return tuple(None if val == () else val for val in res)

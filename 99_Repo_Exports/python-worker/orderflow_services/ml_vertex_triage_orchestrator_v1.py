@@ -67,7 +67,7 @@ async def _write_result_db_if_possible(payload: dict[str, Any]) -> None:
 
 
 async def main() -> None:
-    start_http_server(int(os.getenv("ML_VERTEX_TRIAGE_METRICS_PORT", "9848")))
+    start_http_server(int(os.getenv("ML_VERTEX_TRIAGE_METRICS_PORT", "9884")))
     r = redis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379/0"), decode_responses=False)
     provider = VertexGenAIProviderV1()
     helper = AsyncRedisStreamHelper(client=r, group=GROUP, consumer=CONSUMER)

@@ -80,7 +80,8 @@ def test_decision_get():
         close_wait_stream="", decision_key_prefix="decision:",
         join_dedup_prefix="", seen_event_prefix="", seen_ttl_sec=0,
         dedup_ttl_sec=0, label_win_r_min=0, direct_join=True,
-        scan_batch=0, max_count=0, metrics_hash=""
+        scan_batch=0, max_count=0, metrics_hash="",
+        write_ml_replay_inputs=False, ml_replay_inputs_stream="",
     )
 
     # Test GET

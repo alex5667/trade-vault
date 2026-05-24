@@ -116,6 +116,70 @@ _SHARED_CONFIG_PAYLOADS: dict[str, bytes] = {}  # key -> last raw payload
 _SHARED_MODEL_STATS: dict[str, tuple[float, int]] = {} # path -> (mtime, size)
 
 
+def _load_blend_child_models(pack: dict[str, Any], *, logger: Any = None) -> None:
+    """Load child v14/v5 joblib models referenced by meta_lr_blend pack.
+
+    Populates pack with private keys consumed by `_decide_meta_lr_blend`:
+      _v14_model, _v14_scaler, _v14_features, _v5_model, _v5_features
+    Backward-compatible: if `child_models` absent (legacy schema_version=1
+    artifact), nothing is loaded.
+    """
+    children = pack.get("child_models")
+    if not isinstance(children, dict):
+        return
+    if joblib is None:
+        if logger:
+            logger.error("ML gate: joblib unavailable; cannot load meta_lr_blend child models")
+        return
+
+    v14_cfg = children.get("v14") if isinstance(children.get("v14"), dict) else None
+    v5_cfg = children.get("v5") if isinstance(children.get("v5"), dict) else None
+
+    if v14_cfg:
+        v14_model_path = str(v14_cfg.get("model_path") or "")
+        v14_scaler_path = str(v14_cfg.get("scaler_path") or "")
+        v14_features = list(v14_cfg.get("features") or [])
+        if v14_model_path and os.path.exists(v14_model_path) and v14_features:
+            try:
+                pack["_v14_model"] = joblib.load(v14_model_path)
+                pack["_v14_features"] = v14_features
+                if v14_scaler_path and os.path.exists(v14_scaler_path):
+                    pack["_v14_scaler"] = joblib.load(v14_scaler_path)
+                else:
+                    pack["_v14_scaler"] = None
+            except Exception as e:
+                if logger:
+                    logger.error(f"ML gate: meta_lr_blend child v14 load failed ({v14_model_path}): {e}")
+                pack.pop("_v14_model", None)
+                pack.pop("_v14_scaler", None)
+                pack.pop("_v14_features", None)
+        elif logger and (v14_model_path or v14_features):
+            logger.warning(
+                f"ML gate: meta_lr_blend v14 child unavailable "
+                f"(path_exists={os.path.exists(v14_model_path) if v14_model_path else False}, "
+                f"n_features={len(v14_features)})"
+            )
+
+    if v5_cfg:
+        v5_model_path = str(v5_cfg.get("model_path") or "")
+        v5_features = list(v5_cfg.get("features") or [])
+        if v5_model_path and os.path.exists(v5_model_path) and v5_features:
+            try:
+                pack["_v5_model"] = joblib.load(v5_model_path)
+                pack["_v5_features"] = v5_features
+            except Exception as e:
+                if logger:
+                    logger.error(f"ML gate: meta_lr_blend child v5 load failed ({v5_model_path}): {e}")
+                pack.pop("_v5_model", None)
+                pack.pop("_v5_features", None)
+        elif logger and (v5_model_path or v5_features):
+            logger.warning(
+                f"ML gate: meta_lr_blend v5 child unavailable "
+                f"(path_exists={os.path.exists(v5_model_path) if v5_model_path else False}, "
+                f"n_features={len(v5_features)})"
+            )
+
+
 def _load_model_cached(model_path: str, kind: str, logger: Any = None) -> Any | None:
     """Load model from disk or return from process-level cache if unchanged."""
     if not model_path or not os.path.exists(model_path):
@@ -146,6 +210,32 @@ def _load_model_cached(model_path: str, kind: str, logger: Any = None) -> Any | 
         if kind == "meta_lr":
             from core.meta_model_lr import MetaModelLR
             model = MetaModelLR.load(model_path)
+        elif kind == "meta_lr_blend":
+            try:
+                with open(model_path, "r", encoding="utf-8") as f:
+                    pack = json.load(f)
+            except Exception as e:
+                if logger:
+                    logger.error(f"ML gate: meta_lr_blend JSON load failed for {model_path}: {e}")
+                return None
+            if not isinstance(pack, dict):
+                if logger:
+                    logger.error(f"ML gate: meta_lr_blend at {model_path} is not a JSON object (got {type(pack).__name__})")
+                return None
+            if pack.get("kind") != "meta_lr_blend":
+                if logger:
+                    logger.error(f"ML gate: meta_lr_blend at {model_path} has wrong kind={pack.get('kind')!r}")
+                return None
+            for _k in ("intercept", "coef_v14", "coef_v5"):
+                if _k not in pack:
+                    if logger:
+                        logger.error(f"ML gate: meta_lr_blend at {model_path} missing required key '{_k}'")
+                    return None
+            fn = pack.get("feature_names")
+            if not (isinstance(fn, list) and len(fn) == 2 and all(isinstance(x, str) for x in fn)):
+                pack["feature_names"] = ["p_v14", "p_v5"]
+            _load_blend_child_models(pack, logger=logger)
+            model = pack
         elif kind.startswith("util_mh_fastlinear") or model_path.lower().endswith(".json"):
             from core.fast_linear_util_mh import FastLinearUtilMHModel
             model = FastLinearUtilMHModel.load(model_path)
@@ -260,4 +350,11 @@ class ModelLoaderMixin:
 
         self._refresh_selective_knobs_from_cfg()  # type: ignore
         self._load_calibrator_sync(logger)  # type: ignore
+
+        # Dual-emit: independently load challenger cfg/model so it can be
+        # scored in SHADOW alongside the champion. No-op when flag disabled.
+        try:
+            self._load_challenger_only_sync()  # type: ignore[attr-defined]
+        except Exception as ce:
+            logger.debug(f"ML gate: challenger sync load skipped: {ce}")
 

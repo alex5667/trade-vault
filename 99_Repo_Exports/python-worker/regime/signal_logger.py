@@ -69,12 +69,34 @@ class SignalLogger:
 
             # Optional fields
             meta = data.get('meta', {})
+            extra = data.get('extra', {})
+            if not isinstance(extra, dict): extra = {}
+            inds = extra.get('indicators', {})
+            if not isinstance(inds, dict): inds = {}
+
             def _get_f(key, fallback_key=None, fallback_meta=None):
+                # 1. Root
                 val = data.get(key)
                 if val is not None: return val
                 if fallback_key and data.get(fallback_key) is not None: return data.get(fallback_key)
-                if fallback_meta and meta.get(fallback_meta) is not None: return meta.get(fallback_meta)
-                if meta.get(key) is not None: return meta.get(key)
+                
+                # 2. Indicators (most ml features are here)
+                val = inds.get(key)
+                if val is not None: return val
+                if fallback_key and inds.get(fallback_key) is not None: return inds.get(fallback_key)
+
+                # 3. Extra
+                val = extra.get(key)
+                if val is not None: return val
+                if fallback_key and extra.get(fallback_key) is not None: return extra.get(fallback_key)
+
+                # 4. Meta (legacy)
+                if isinstance(meta, dict):
+                    if fallback_meta and meta.get(fallback_meta) is not None: return meta.get(fallback_meta)
+                    val = meta.get(key)
+                    if val is not None: return val
+                    if fallback_key and meta.get(fallback_key) is not None: return meta.get(fallback_key)
+
                 return None
 
             def _first_not_none(*keys):

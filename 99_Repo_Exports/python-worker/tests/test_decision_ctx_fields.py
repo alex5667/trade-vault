@@ -59,6 +59,38 @@ class DecisionCtxFieldsTests(unittest.TestCase):
         self.assertEqual(ctx["decision_bid"], 122.0)
         self.assertEqual(ctx["decision_ask"], 124.0)
 
+    def test_dq_fields_from_indicators(self):
+        ctx = {"tick_ts": 1700000000000, "best_bid": 100.0, "best_ask": 101.0}
+        ind = {
+            "dq_level": 2,
+            "book_missing_seq_ema": 0.12,
+            "tick_missing_seq_ema": 0.05,
+            "tick_gap_p95_ms": 250.0,
+        }
+        ensure_decision_ctx_fields(ctx, indicators=ind, runtime=None, now_ms=1700000000000)
+        self.assertEqual(ctx["decision_dq_level"], 2)
+        self.assertAlmostEqual(ctx["decision_book_missing_seq_ema"], 0.12, places=6)
+        self.assertAlmostEqual(ctx["decision_tick_missing_seq_ema"], 0.05, places=6)
+        self.assertAlmostEqual(ctx["decision_tick_gap_p95_ms"], 250.0, places=6)
+
+    def test_dq_fields_from_runtime_fallback(self):
+        from types import SimpleNamespace
+        rt = SimpleNamespace(
+            symbol="BTCUSDT",
+            last_book=None,
+            book_state=None,
+            dq_level=1,
+            book_missing_seq_ema=0.07,
+            tick_missing_seq_ema=0.02,
+            tick_gap_p95_ms=180.0,
+        )
+        ctx = {"tick_ts": 1700000000000}
+        ensure_decision_ctx_fields(ctx, indicators={}, runtime=rt, now_ms=1700000000000)
+        self.assertEqual(ctx["decision_dq_level"], 1)
+        self.assertAlmostEqual(ctx["decision_book_missing_seq_ema"], 0.07, places=6)
+        self.assertAlmostEqual(ctx["decision_tick_missing_seq_ema"], 0.02, places=6)
+        self.assertAlmostEqual(ctx["decision_tick_gap_p95_ms"], 180.0, places=6)
+
 
 if __name__ == "__main__":
     unittest.main()

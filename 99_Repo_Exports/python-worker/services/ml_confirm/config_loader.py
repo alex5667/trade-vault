@@ -23,6 +23,7 @@ from core.feature_engineering import (
 )
 from core.meta_model_lr import MetaModelLR
 from services.ml_calibration import PlattLogitCalibrator
+from common.isotonic_calibration import IsotonicCalibrator
 from utils.time_utils import get_ny_time_millis
 import contextlib
 from core.redis_keys import RedisStreams as RS
@@ -83,6 +84,48 @@ try:
 except Exception:  # pragma: no cover
     joblib = None  # type: ignore
 
+
+def _read_calibrator_file(path: str) -> dict[str, Any] | None:
+    """Read calibrator artifact (.json/.joblib) → raw dict, fail-soft.
+
+    Used both by ConfigLoaderMixin._load_calibrator_sync for sibling-file
+    auto-discovery and by tools/refit_meta_lr_blend_calibrator.py for
+    artifact round-trip checks.
+    """
+    try:
+        if path.endswith(".json"):
+            with open(path, encoding="utf-8") as f:
+                obj = json.load(f)
+            return obj if isinstance(obj, dict) else None
+        if path.endswith(".joblib") and joblib is not None:
+            obj = joblib.load(path)
+            return obj if isinstance(obj, dict) else None
+    except Exception:
+        return None
+    return None
+
+
+def _build_calibrator_from_dict(
+    cal: dict[str, Any], *, logger: Any = None, src: str = "",
+) -> Any | None:
+    """Build a calibrator instance from its serialized dict.
+
+    Supports type ∈ {platt_logit, isotonic}. Returned object exposes
+    apply_one(p_raw) → p_cal. Returns None for unknown/invalid payloads.
+    """
+    try:
+        ctype = (cal.get("type", "") or "").lower()
+        if ctype == "platt_logit":
+            return PlattLogitCalibrator.from_dict(cal)
+        if ctype == "isotonic":
+            return IsotonicCalibrator.from_dict(cal)
+        if logger is not None:
+            logger.warning(f"ML gate: unknown calibrator type={ctype!r} src={src!r}")
+        return None
+    except Exception as e:
+        if logger is not None:
+            logger.warning(f"ML gate: calibrator build failed src={src!r}: {e}")
+        return None
 
 
 from .decision_policy import MLConfirmDecision
@@ -343,6 +386,12 @@ class ConfigLoaderMixin:  # type: ignore
             if self._calibrate_enabled:  # type: ignore
                  await loop.run_in_executor(None, self._load_calibrator_sync, logger)
 
+            # Dual-emit: independent challenger load (fire-and-forget).
+            try:
+                await self._load_challenger_only_async(redis_async)  # type: ignore[attr-defined]
+            except Exception as ce:
+                logger.debug(f"ML gate: challenger async load skipped: {ce}")
+
         except Exception as e:
             logger.error(f"ML gate: Async parse failed: {e}")
 
@@ -399,15 +448,11 @@ class ConfigLoaderMixin:  # type: ignore
 
         # Priority 1: cfg.calibrator
         cal = self._cfg.get("calibrator", None)
-        if isinstance(cal, dict) and (cal.get("type", "") or "") == "platt_logit":
-            try:
-                self._calibrator = PlattLogitCalibrator.from_dict(cal)
-                self._calib_type = "cfg_calibrator"
-                logger.info("ML gate: Calibrator loaded from cfg.calibrator (type=platt_logit)")
-            except Exception as e:
-                self._calibrator = None
-                self._calib_type = "none"
-                logger.warning(f"ML gate: Failed to load calibrator from cfg.calibrator: {e}")
+        if isinstance(cal, dict):
+            built = _build_calibrator_from_dict(cal, logger=logger, src="cfg.calibrator")
+            if built is not None:
+                self._calibrator, self._calib_type = built, f"cfg_calibrator:{cal.get('type', '?')}"
+                logger.info(f"ML gate: Calibrator loaded from cfg.calibrator (type={cal.get('type')})")
 
         # Priority 2: cfg.calibrator_path
         if self._calibrator is None:
@@ -415,17 +460,13 @@ class ConfigLoaderMixin:  # type: ignore
             if cal_path and isinstance(cal_path, str) and cal_path.strip():
                 try:
                     if os.path.exists(cal_path):
-                        if cal_path.endswith(".json"):
-                            with open(cal_path, encoding="utf-8") as f:
-                                cal_dict = json.load(f)
-                            if isinstance(cal_dict, dict) and (cal_dict.get("type", "") or "") == "platt_logit":
-                                self._calibrator = PlattLogitCalibrator.from_dict(cal_dict)
-                                self._calib_type = "cfg_calibrator_path"
-                                logger.info(f"ML gate: Calibrator loaded from cfg.calibrator_path={cal_path}")
-                        elif cal_path.endswith(".joblib") and joblib is not None:
-                            cal_obj = joblib.load(cal_path)
-                            if isinstance(cal_obj, dict) and (cal_obj.get("type", "") or "") == "platt_logit":
-                                self._calibrator = PlattLogitCalibrator.from_dict(cal_obj)
+                        cal_dict = _read_calibrator_file(cal_path)
+                        if cal_dict is not None:
+                            built = _build_calibrator_from_dict(
+                                cal_dict, logger=logger, src=f"path:{cal_path}",
+                            )
+                            if built is not None:
+                                self._calibrator = built
                                 self._calib_type = "cfg_calibrator_path"
                                 logger.info(f"ML gate: Calibrator loaded from cfg.calibrator_path={cal_path}")
                 except Exception as e:
@@ -434,23 +475,80 @@ class ConfigLoaderMixin:  # type: ignore
         # Priority 3: model pack
         if self._calibrator is None and self._model is not None:
             try:
+                cal_dict = None
                 if isinstance(self._model, dict):
                     cal_dict = self._model.get("calibrator", None)
-                    if isinstance(cal_dict, dict) and (cal_dict.get("type", "") or "") == "platt_logit":
-                        self._calibrator = PlattLogitCalibrator.from_dict(cal_dict)
+                elif hasattr(self._model, "calibrator"):
+                    cal_dict = getattr(self._model, "calibrator", None)
+                if isinstance(cal_dict, dict):
+                    built = _build_calibrator_from_dict(cal_dict, logger=logger, src="model_pack")
+                    if built is not None:
+                        self._calibrator = built
                         self._calib_type = "model_pack_calibrator"
                         logger.info("ML gate: Calibrator loaded from model pack")
-                elif hasattr(self._model, "calibrator"):
-                     cal_obj = getattr(self._model, "calibrator", None)
-                     if isinstance(cal_obj, dict) and (cal_obj.get("type", "") or "") == "platt_logit":
-                        self._calibrator = PlattLogitCalibrator.from_dict(cal_obj)
-                        self._calib_type = "model_pack_calibrator"
-                        logger.info("ML gate: Calibrator loaded from model.calibrator attribute")
             except Exception as e:
                 logger.warning(f"ML gate: Failed to load calibrator from model: {e}")
 
-
+        # Priority 4 (2026-05-23 fix): sibling file next to model_path.
+        # Tried in order:
+        #   a) {model_dir}/calibrator_{model_basename_no_ext}.json — model-
+        #      specific name, written by ml_calibrator_autopilot_v1 when
+        #      multiple kinds share a registry dir.
+        #   b) {model_dir}/calibrator.json — generic name, written by the
+        #      original meta_lr_blend_calibrator_refit_v1 and as a back-
+        #      compat alias by the autopilot.
+        # First match wins. tools/refit_*_calibrator.py promote artifacts
+        # without touching the cfg payload — sibling discovery picks them
+        # up on the next cfg cache refresh.
+        if self._calibrator is None and self._model is not None:
+            try:
+                model_path = ""
+                if isinstance(self._model, dict):
+                    model_path = str(self._model.get("model_path") or self._cfg.get("model_path") or "")
+                if not model_path:
+                    model_path = str(self._cfg.get("model_path") or "")
+                if model_path and os.path.exists(model_path):
+                    model_basename = os.path.splitext(os.path.basename(model_path))[0]
+                    candidates = [
+                        os.path.join(os.path.dirname(model_path), f"calibrator_{model_basename}.json"),
+                        os.path.join(os.path.dirname(model_path), "calibrator.json"),
+                    ]
+                    for sib in candidates:
+                        if not os.path.exists(sib):
+                            continue
+                        cal_dict = _read_calibrator_file(sib)
+                        if cal_dict is None:
+                            continue
+                        built = _build_calibrator_from_dict(
+                            cal_dict, logger=logger, src=f"sibling:{sib}",
+                        )
+                        if built is not None:
+                            self._calibrator = built
+                            self._calib_type = "sibling_calibrator"
+                            logger.info(f"ML gate: Calibrator loaded from sibling file {sib}")
+                            break
+            except Exception as e:
+                logger.warning(f"ML gate: Failed to load sibling calibrator: {e}")
 
         if self._calibrator is None:
              logger.debug("ML gate: No calibrator loaded")
+
+        # 2026-05-23: kind-generic gauge so dashboards / alerts can spot
+        # uncalibrated kinds across the full ml_confirm matrix (not just
+        # meta_lr_blend). Kind is resolved from cfg → model pack → "unknown".
+        with contextlib.suppress(Exception):
+            from services.observability.metrics_registry import ml_confirm_calibrator_loaded
+            if ml_confirm_calibrator_loaded is not None:
+                kind = ""
+                try:
+                    kind = str(self._cfg.get("kind") or "")
+                    if not kind and isinstance(self._model, dict):
+                        kind = str(self._model.get("kind") or "")
+                    if not kind and self._model is not None and hasattr(self._model, "kind"):
+                        kind = str(getattr(self._model, "kind", "") or "")
+                except Exception:
+                    pass
+                ml_confirm_calibrator_loaded.labels(kind=kind or "unknown").set(
+                    1 if self._calibrator is not None else 0,
+                )
 

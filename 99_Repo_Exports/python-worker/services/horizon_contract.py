@@ -254,7 +254,7 @@ def _coerce_contract_from_signal_payload(payload: dict[str, Any]) -> dict[str, A
         contract_ver = _CONTRACT_VER
 
     return {
-        "contract_ver": int(contract_ver or 0),
+        "contract_ver": (contract_ver or 0),
         "horizon": horizon,
         "atr_profile": atr_profile,
     }
@@ -267,7 +267,7 @@ def _apply_position_aliases(pos: Any, contract: dict[str, Any]) -> bool:
     if ver <= 0 and not hz and not ap:
         return False
 
-    pos.horizon_contract_ver = int(ver or _CONTRACT_VER)
+    pos.horizon_contract_ver = (ver or _CONTRACT_VER)
     pos.hold_target_ms = _safe_int(hz.get("hold_target_ms"), getattr(pos, "hold_target_ms", 0))
     pos.alpha_half_life_ms = _safe_int(hz.get("alpha_half_life_ms"), getattr(pos, "alpha_half_life_ms", 0))
     pos.max_signal_age_ms = _safe_int(hz.get("max_signal_age_ms"), getattr(pos, "max_signal_age_ms", 0))
@@ -290,7 +290,7 @@ def _apply_position_aliases(pos: Any, contract: dict[str, Any]) -> bool:
     pos.vol_ratio_fast_slow = _safe_float(ap.get("vol_ratio_fast_slow"), getattr(pos, "vol_ratio_fast_slow", 1.0))
     pos.vol_ratio_z = _safe_float(ap.get("vol_ratio_z"), getattr(pos, "vol_ratio_z", 0.0))
 
-    pos.horizon_contract = {"contract_ver": int(ver or _CONTRACT_VER), "horizon": hz, "atr_profile": ap}
+    pos.horizon_contract = {"contract_ver": (ver or _CONTRACT_VER), "horizon": hz, "atr_profile": ap}
     return True
 
 
@@ -462,7 +462,7 @@ def build_phase0_horizon_profile(
             "symbol": (symbol or "").upper(),
             "kind": (kind or "unknown"),
             "regime": (regime or "unknown"),
-            "ts_ms": int(now_ms),
+            "ts_ms": now_ms,
         },
     ),
     return asdict(hp)  # type: ignore
@@ -475,16 +475,16 @@ def build_phase0_atr_profile(
     atr_age_ms: int,
 ) -> dict[str, Any]:
     """Legacy builder — kept for back-compat callers outside attach_phase0_contract."""
-    atr_pct = float(atr_value / price) if price > 0.0 else 0.0
+    atr_pct = (atr_value / price) if price > 0.0 else 0.0
     ap = ATRProfileV1(
         mode="legacy",
-        atr_value=float(atr_value),
+        atr_value=atr_value,
         atr_tf_ms=_DEFAULT_TF_MS,
         atr_window_n=_DEFAULT_WINDOW_N,
-        atr_age_ms=max(0, int(atr_age_ms)),
+        atr_age_ms=max(0, atr_age_ms),
         atr_source="legacy",
-        atr_regime_value=float(atr_value),
-        atr_trail_value=float(atr_value),
+        atr_regime_value=atr_value,
+        atr_trail_value=atr_value,
         atr_regime_tf_ms=_DEFAULT_TF_MS,
         atr_trail_tf_ms=_DEFAULT_TF_MS,
         atr_pct=atr_pct,
@@ -687,6 +687,10 @@ def extract_horizon_contract_from_payload(payload: dict[str, Any]) -> dict[str, 
     horizon = _ensure_dict(meta.get("horizon"))
     atr_profile = _ensure_dict(meta.get("atr_profile"))
     if not horizon and not atr_profile and not meta.get("contract_ver"):
+        # Fallback to coerce logic if missing in meta
+        coerced = _coerce_contract_from_signal_payload(payload)
+        if coerced.get("horizon") or coerced.get("atr_profile"):
+            return coerced
         return {}
     return {
         "contract_ver": _safe_int(meta.get("contract_ver"), _CONTRACT_VER),
@@ -807,7 +811,7 @@ def apply_position_horizon_scalars_from_hash(pos: Any, h: dict[str, Any], *, sou
     if not has_any:
         if _M_SCALAR_MISSING is not None:
             with contextlib.suppress(Exception):
-                _M_SCALAR_MISSING.labels(source=str(source)).inc()
+                _M_SCALAR_MISSING.labels(source=source).inc()
         return False
     try:
         pos.horizon_contract_ver = _safe_int(h.get("contract_ver"), _CONTRACT_VER)
@@ -829,7 +833,7 @@ def apply_position_horizon_scalars_from_hash(pos: Any, h: dict[str, Any], *, sou
         pos.vol_ratio_z = _safe_float(h.get("vol_ratio_z"), 0.0)
         if _M_SCALAR_RECOVER is not None:
             with contextlib.suppress(Exception):
-                _M_SCALAR_RECOVER.labels(source=str(source)).inc()
+                _M_SCALAR_RECOVER.labels(source=source).inc()
         return True
     except Exception:
         return False

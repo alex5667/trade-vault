@@ -124,7 +124,7 @@ FOREX_SWAP_SHORT=0.00005  # +0.005% за день для SHORT
 ### Defaults (для других инструментов)
 
 ```bash
-DEFAULT_COMMISSION_RATE=0.0005  # 0.05%
+DEFAULT_COMMISSION_RATE=0.0003  # 0.05%
 DEFAULT_COMMISSION_PER_LOT=
 DEFAULT_SWAP_LONG=0.0
 DEFAULT_SWAP_SHORT=0.0
@@ -158,7 +158,7 @@ DEFAULT_SWAP_SHORT=0.0
 
 ```python
 {
-    "commission_rate": 0.0005,      # 0.05% (или из ENV)
+    "commission_rate": 0.0003,      # 0.05% (или из ENV)
     "swap_long": 0.0,
     "swap_short": 0.0,
 }
@@ -500,7 +500,7 @@ docker exec scanner-signal-tracker env | grep SWAP
 
 ```bash
 redis-cli SET "symbol_specs:BTCUSDT" '{
-  "commission_rate": 0.0005,
+  "commission_rate": 0.0003,
   "swap_long": 0.0,
   "swap_short": 0.0
 }'

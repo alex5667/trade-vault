@@ -10,6 +10,8 @@ from utils.time_utils import get_ny_time_millis
 - Retry logic с exponential backoff
 """
 
+import contextlib
+import json
 import os
 import time
 from typing import Any
@@ -17,9 +19,38 @@ from typing import Any
 import requests
 
 from common.log import setup_logger
+from core.redis_keys import STREAM_RETENTION
+from core.redis_keys import RedisStreams as RS
 from services.trailing_profiles import TrailingProfile
 
 log = setup_logger("order_trailing_dispatcher")
+
+# Phase B: метрики DLQ. Best-effort — если prometheus_client недоступен,
+# счётчики становятся no-op.
+try:
+    from prometheus_client import Counter
+
+    TRAILING_DISPATCH_FAIL_TOTAL = Counter(
+        "trailing_dispatch_fail_total",
+        "Total trailing gateway failures pushed to DLQ.",
+        ["label", "reason"],
+    )
+    TRAILING_DISPATCH_RETRY_TOTAL = Counter(
+        "trailing_dispatch_retry_total",
+        "Total trailing gateway retry attempts (status 5xx, timeout, connection error).",
+        ["label", "reason"],
+    )
+except Exception:  # pragma: no cover - prometheus opt-out
+
+    class _Noop:
+        def labels(self, *a, **kw):
+            return self
+
+        def inc(self, *a, **kw):
+            return None
+
+    TRAILING_DISPATCH_FAIL_TOTAL = _Noop()  # type: ignore[assignment]
+    TRAILING_DISPATCH_RETRY_TOTAL = _Noop()  # type: ignore[assignment]
 
 
 class OrderTrailingDispatcher:
@@ -59,7 +90,18 @@ class OrderTrailingDispatcher:
         log.info("✅ OrderTrailingDispatcher initialized: gateway=%s", self.gateway_url)
 
     def _post_to_gateway(self, payload: dict[str, Any], label: str) -> bool:
-        """Отправка payload в gateway с retry."""
+        """Отправка payload в gateway с retry + exponential backoff.
+
+        Phase B (P2): при окончательном фейле (исчерпаны все retries) payload
+        отправляется в DLQ `events:trailing:dlq`. Раньше gateway-failed modify
+        логировался и тихо терялся — это могло оставить позицию с устаревшим SL.
+
+        Backoff (status 5xx): 1s, 2s, 4s (exp от 2^(attempt-1)).
+        Backoff (timeout):    1s каждая попытка.
+        Backoff (conn err):   2s каждая попытка.
+        """
+        last_error: str = "unknown"
+        last_status: int | None = None
         for attempt in range(1, self.max_retries + 1):
             try:
                 log.debug(
@@ -73,56 +115,116 @@ class OrderTrailingDispatcher:
                     timeout=self.timeout,
                     headers={"Content-Type": "application/json"}
                 )
+                last_status = resp.status_code
 
                 if resp.status_code // 100 == 2:
                     log.info("✅ %s sent: sid=%s", label, payload.get("sid"))
                     return True
 
+                last_error = f"http_{resp.status_code}:{resp.text[:200]}"
                 log.warning(
                     "⚠️  Gateway returned status %d (attempt %d/%d): %s",
                     resp.status_code, attempt, self.max_retries, resp.text[:200]
                 )
 
                 if resp.status_code >= 500 and attempt < self.max_retries:
+                    TRAILING_DISPATCH_RETRY_TOTAL.labels(label=label, reason="http_5xx").inc()
                     backoff = 2 ** (attempt - 1)
                     log.debug("Retrying in %ds...", backoff)
                     time.sleep(backoff)
                     continue
 
+                # 4xx — не ретраим, сразу в DLQ.
+                self._push_dlq(payload, label, last_error, last_status, attempts=attempt)
                 return False
 
             except requests.exceptions.Timeout:
+                last_error = "timeout"
                 log.warning(
                     "⚠️  Gateway timeout (attempt %d/%d) for %s",
                     attempt, self.max_retries, label
                 )
                 if attempt < self.max_retries:
+                    TRAILING_DISPATCH_RETRY_TOTAL.labels(label=label, reason="timeout").inc()
                     time.sleep(1.0)
                     continue
-                return False
+                break
 
             except requests.exceptions.ConnectionError as exc:
+                last_error = f"connection_error:{exc}"
                 log.warning(
                     "⚠️  Gateway connection error (attempt %d/%d) for %s: %s",
                     attempt, self.max_retries, label, exc
                 )
                 if attempt < self.max_retries:
+                    TRAILING_DISPATCH_RETRY_TOTAL.labels(label=label, reason="conn_error").inc()
                     time.sleep(2.0)
                     continue
-                return False
+                break
 
             except Exception as exc:
+                last_error = f"unexpected:{type(exc).__name__}:{exc}"
                 log.error(
                     "❌ Unexpected error sending %s: %s",
                     label, exc, exc_info=True
                 )
+                # На unexpected — сразу в DLQ, ретраить незачем.
+                self._push_dlq(payload, label, last_error, last_status, attempts=attempt)
                 return False
 
         log.error(
-            "❌ Failed to send %s after %d attempts: sid=%s",
-            label, self.max_retries, payload.get("sid")
+            "❌ Failed to send %s after %d attempts: sid=%s last_error=%s",
+            label, self.max_retries, payload.get("sid"), last_error
         )
+        self._push_dlq(payload, label, last_error, last_status, attempts=self.max_retries)
         return False
+
+    def _push_dlq(
+        self,
+        payload: dict[str, Any],
+        label: str,
+        last_error: str,
+        last_status: int | None,
+        attempts: int,
+    ) -> None:
+        """Best-effort запись в events:trailing:dlq + Prometheus.
+
+        Не падает если Redis недоступен — это последняя линия защиты, и она
+        не должна разрушить вызов orchestrator-а.
+        """
+        reason = "unknown"
+        if last_status is not None:
+            reason = f"http_{last_status // 100}xx"
+        elif last_error.startswith("timeout"):
+            reason = "timeout"
+        elif last_error.startswith("connection_error"):
+            reason = "conn_error"
+        elif last_error.startswith("unexpected"):
+            reason = "unexpected"
+
+        with contextlib.suppress(Exception):
+            TRAILING_DISPATCH_FAIL_TOTAL.labels(label=label, reason=reason).inc()
+
+        try:
+            entry: dict[str, Any] = {
+                "label": label,
+                "sid": str(payload.get("sid", "")),
+                "symbol": str(payload.get("symbol", "")),
+                "position_id": str(payload.get("position_id", "")),
+                "attempts": str(attempts),
+                "last_error": last_error[:500],
+                "status_code": str(last_status) if last_status is not None else "",
+                "ts_ms": str(int(time.time() * 1000)),
+                "payload_json": json.dumps(payload, default=str)[:4000],
+            }
+            maxlen = STREAM_RETENTION.get(RS.EVENTS_TRAILING_DLQ, 5000)
+            self.r.xadd(RS.EVENTS_TRAILING_DLQ, entry, maxlen=maxlen, approximate=True)  # type: ignore[arg-type]
+            log.warning(
+                "📮 DLQ: %s sid=%s reason=%s attempts=%d (stream=%s)",
+                label, payload.get("sid"), reason, attempts, RS.EVENTS_TRAILING_DLQ,
+            )
+        except Exception as exc:
+            log.error("❌ Failed to push to trailing DLQ: %s", exc)
 
     def send_trailing_command(
         self,

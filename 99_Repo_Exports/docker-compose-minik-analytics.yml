@@ -540,8 +540,7 @@ services:
     - AB_EVAL_LOCK_TTL_SEC=3300
     - TZ=UTC
     command: python3 tools/run_with_minik_failover.py --job-name ab_winner_v2_cron
-      --is-minik -- sh -c while true; do echo 'Running AB Winner V2...'; python tools/ab_winner_eval_once.py;
-      echo 'Done. Sleeping 1h...'; sleep 3600; done
+      --is-minik -- sh -c "while true; do echo 'Running AB Winner V2...'; python tools/ab_winner_eval_once.py; echo 'Done. Sleeping 1h...'; sleep 3600; done"
     networks:
     - scanner-core
     - scanner-infra
@@ -770,6 +769,15 @@ services:
       04\" ]; then python -m tools.ml_calibration_health_monitor || echo 'ML monitor\
       \ failed'; fi\n    fi\n    \n    sleep 60\n  done\n\"\n"
 
+
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.4'
+        reservations:
+          memory: 32M
+
   scanner-redis-reconnect-watchdog:
     image: docker:27-cli
     restart: unless-stopped
@@ -799,6 +807,416 @@ services:
       $$CHECK_INTERVAL; done"
 
       '
+
+  # ── Tier 2A: Risk-reporting timers ─────────────────────────────────────────
+  risk-engine-canary-report:
+    image: *id001
+    restart: unless-stopped
+    container_name: risk-engine-canary-report
+    working_dir: /app
+    environment:
+    - PYTHONUNBUFFERED=1
+    - PYTHONPATH=.:/app
+    - RISK_AUDIT_SQL_DSN=${RISK_AUDIT_SQL_DSN:-${EXECUTION_JOURNAL_DSN:-}}
+    - RISK_CANARY_LOOKBACK_HOURS=${RISK_CANARY_LOOKBACK_HOURS:-24}
+    - TZ=UTC
+    networks: *id002
+    dns: *id003
+    volumes:
+    - ./python-worker:/app
+    - ./var/runbook-reports:/var/lib/trade-runbook/reports:rw
+    command: "python3 tools/run_daemon_with_minik_failover.py --job-name risk_engine_canary
+      --is-minik -- sh -c \"sleep 600 && while true; do python3 scripts/build_risk_engine_canary_report.py
+      --hours $$RISK_CANARY_LOOKBACK_HOURS --out /var/lib/trade-runbook/reports/latest_risk_engine_canary.json
+      || true; sleep 900; done\""
+    deploy:
+      resources:
+        limits:
+          cpus: '0.15'
+          memory: 128M
+        reservations:
+          memory: 24M
+
+  risk-decision-summary-refresh:
+    image: *id001
+    restart: unless-stopped
+    container_name: risk-decision-summary-refresh
+    working_dir: /app
+    environment:
+    - PYTHONUNBUFFERED=1
+    - PYTHONPATH=.:/app
+    - RISK_AUDIT_SQL_DSN=${RISK_AUDIT_SQL_DSN:-${EXECUTION_JOURNAL_DSN:-}}
+    - TZ=UTC
+    networks: *id002
+    dns: *id003
+    volumes:
+    - ./python-worker:/app
+    - ./var/runbook-reports:/var/lib/trade-runbook/reports:rw
+    command: "python3 tools/run_daemon_with_minik_failover.py --job-name risk_decision_summary
+      --is-minik -- sh -c \"sleep 600 && while true; do if [ -n \\\"$$RISK_AUDIT_SQL_DSN\\\"
+      ]; then python3 scripts/refresh_risk_decision_summary.py --out /var/lib/trade-runbook/reports/latest_risk_decision_summary.json
+      || true; fi; sleep 1800; done\""
+    deploy:
+      resources:
+        limits:
+          cpus: '0.15'
+          memory: 128M
+        reservations:
+          memory: 24M
+
+  risk-signal-consistency-timer:
+    image: *id001
+    restart: unless-stopped
+    container_name: scanner-risk-signal-consistency-timer
+    working_dir: /app
+    environment:
+    - PYTHONUNBUFFERED=1
+    - PYTHONPATH=/app
+    - REDIS_URL=${REDIS_URL}
+    - RISK_AUDIT_SQL_DSN=${RISK_AUDIT_SQL_DSN:-${EXECUTION_JOURNAL_DSN:-}}
+    - ORDERS_QUARANTINE_PREFIX=${ORDERS_QUARANTINE_PREFIX:-orders:quarantine:state:}
+    - RISK_CONSISTENCY_LIMIT=${RISK_CONSISTENCY_LIMIT:-250}
+    - RISK_CONSISTENCY_REPEAT_THRESHOLD=${RISK_CONSISTENCY_REPEAT_THRESHOLD:-3}
+    - RISK_CONSISTENCY_QUARANTINE_ON_REPEATED=${RISK_CONSISTENCY_QUARANTINE_ON_REPEATED:-0}
+    - TZ=UTC
+    networks: *id002
+    dns: *id003
+    volumes:
+    - ./python-worker:/app
+    - ./var/runbook-reports:/var/lib/trade-runbook/reports:rw
+    command: "python3 tools/run_daemon_with_minik_failover.py --job-name risk_signal_consistency
+      --is-minik -- sh -c \"sleep 600 && while true; do if [ -n \\\"$$RISK_AUDIT_SQL_DSN\\\"
+      ]; then python3 -u scripts/check_risk_signal_snapshot_consistency.py --out
+      /var/lib/trade-runbook/reports/latest_risk_signal_consistency.json || true;
+      fi; sleep 50; done\""
+    deploy:
+      resources:
+        limits:
+          cpus: '0.15'
+          memory: 128M
+        reservations:
+          memory: 24M
+
+  risk-audit-retention-timer:
+    image: *id001
+    restart: unless-stopped
+    container_name: scanner-risk-audit-retention-timer
+    working_dir: /app
+    environment:
+    - PYTHONUNBUFFERED=1
+    - PYTHONPATH=/app
+    - RISK_AUDIT_SQL_DSN=${RISK_AUDIT_SQL_DSN:-${EXECUTION_JOURNAL_DSN:-}}
+    - RISK_AUDIT_RETENTION_DAYS=${RISK_AUDIT_RETENTION_DAYS:-21}
+    - RISK_AUDIT_RETENTION_APPLY=${RISK_AUDIT_RETENTION_APPLY:-0}
+    - TZ=UTC
+    networks: *id002
+    dns: *id003
+    volumes:
+    - ./python-worker:/app
+    command: "python3 tools/run_daemon_with_minik_failover.py --job-name risk_audit_retention
+      --is-minik -- sh -c \"sleep 600 && while true; do HOUR=$$(date +%-H); MIN=$$(date
+      +%-M); if [ \\\"$$HOUR\\\" -eq 3 ] && [ \\\"$$MIN\\\" -ge 40 ] && [ \\\"$$MIN\\\"
+      -lt 55 ]; then if [ -n \\\"$$RISK_AUDIT_SQL_DSN\\\" ]; then python3 -u scripts/purge_risk_audit_hot_tables.py
+      --retention-days $$RISK_AUDIT_RETENTION_DAYS --dry-run || true; fi; sleep 82800;
+      else sleep 600; fi; done\""
+    deploy:
+      resources:
+        limits:
+          cpus: '0.15'
+          memory: 128M
+        reservations:
+          memory: 24M
+
+  operator-score-report-timer:
+    image: *id001
+    restart: unless-stopped
+    container_name: scanner-operator-score-report-timer
+    working_dir: /app
+    environment:
+    - PYTHONUNBUFFERED=1
+    - PYTHONPATH=/app
+    - RUNBOOK_REPORT_DIR=/var/lib/trade-runbook/reports
+    - TZ=UTC
+    networks: *id002
+    dns: *id003
+    volumes:
+    - ./python-worker:/app
+    - ./var/runbook-reports:/var/lib/trade-runbook/reports:rw
+    command: "python3 tools/run_daemon_with_minik_failover.py --job-name operator_score_report
+      --is-minik -- sh -c \"sleep 600 && while true; do python3 -u scripts/build_operator_score_report.py
+      --report-dir /var/lib/trade-runbook/reports --out /var/lib/trade-runbook/reports/latest_operator_score.json
+      || true; sleep 900; done\""
+    deploy:
+      resources:
+        limits:
+          cpus: '0.15'
+          memory: 128M
+        reservations:
+          memory: 24M
+
+  risk-mismatch-summary-refresh-timer:
+    image: *id001
+    restart: unless-stopped
+    container_name: scanner-risk-mismatch-summary-refresh-timer
+    working_dir: /app
+    environment:
+    - PYTHONUNBUFFERED=1
+    - PYTHONPATH=/app
+    - RISK_AUDIT_SQL_DSN=${RISK_AUDIT_SQL_DSN:-${EXECUTION_JOURNAL_DSN:-}}
+    - RISK_MISMATCH_SUMMARY_STALE_SEC=${RISK_MISMATCH_SUMMARY_STALE_SEC:-1800}
+    - TZ=UTC
+    networks: *id002
+    dns: *id003
+    volumes:
+    - ./python-worker:/app
+    - ./var/runbook-reports:/var/lib/trade-runbook/reports:rw
+    command: "python3 tools/run_daemon_with_minik_failover.py --job-name risk_mismatch_summary
+      --is-minik -- sh -c \"sleep 600 && while true; do if [ -n \\\"$$RISK_AUDIT_SQL_DSN\\\"
+      ]; then python3 -u scripts/refresh_risk_mismatch_summary.py --out /var/lib/trade-runbook/reports/latest_risk_mismatch_summary.json
+      --freshness-stale-threshold-sec $$RISK_MISMATCH_SUMMARY_STALE_SEC || true;
+      fi; sleep 900; done\""
+    deploy:
+      resources:
+        limits:
+          cpus: '0.15'
+          memory: 128M
+        reservations:
+          memory: 24M
+
+  risk-mismatch-retention-timer:
+    image: *id001
+    restart: unless-stopped
+    container_name: scanner-risk-mismatch-retention-timer
+    working_dir: /app
+    environment:
+    - PYTHONUNBUFFERED=1
+    - PYTHONPATH=/app
+    - RISK_AUDIT_SQL_DSN=${RISK_AUDIT_SQL_DSN:-${EXECUTION_JOURNAL_DSN:-}}
+    - RISK_MISMATCH_RETENTION_DAYS=${RISK_MISMATCH_RETENTION_DAYS:-30}
+    - RISK_MISMATCH_RETENTION_APPLY=${RISK_MISMATCH_RETENTION_APPLY:-0}
+    - TZ=UTC
+    networks: *id002
+    dns: *id003
+    volumes:
+    - ./python-worker:/app
+    - ./var/runbook-reports:/var/lib/trade-runbook/reports:rw
+    command: "python3 tools/run_daemon_with_minik_failover.py --job-name risk_mismatch_retention
+      --is-minik -- sh -c \"sleep 600 && while true; do HOUR=$$(date +%-H); MIN=$$(date
+      +%-M); if [ \\\"$$HOUR\\\" -eq 3 ] && [ \\\"$$MIN\\\" -ge 35 ] && [ \\\"$$MIN\\\"
+      -lt 50 ]; then if [ -n \\\"$$RISK_AUDIT_SQL_DSN\\\" ]; then python3 -u scripts/purge_risk_mismatch_hot_tables.py
+      --retention-days $$RISK_MISMATCH_RETENTION_DAYS --dry-run --out /var/lib/trade-runbook/reports/latest_risk_mismatch_retention.json
+      || true; fi; sleep 82800; else sleep 600; fi; done\""
+    deploy:
+      resources:
+        limits:
+          cpus: '0.15'
+          memory: 128M
+        reservations:
+          memory: 24M
+
+  risk-mismatch-archive-consistency-timer:
+    image: *id001
+    restart: unless-stopped
+    container_name: scanner-risk-mismatch-archive-consistency-timer
+    working_dir: /app
+    environment:
+    - PYTHONUNBUFFERED=1
+    - PYTHONPATH=/app
+    - RISK_AUDIT_SQL_DSN=${RISK_AUDIT_SQL_DSN:-${EXECUTION_JOURNAL_DSN:-}}
+    - TZ=UTC
+    networks: *id002
+    dns: *id003
+    volumes:
+    - ./python-worker:/app
+    - ./var/runbook-reports:/var/lib/trade-runbook/reports:rw
+    command: "python3 tools/run_daemon_with_minik_failover.py --job-name risk_mismatch_archive_consistency
+      --is-minik -- sh -c \"sleep 600 && while true; do if [ -n \\\"$$RISK_AUDIT_SQL_DSN\\\"
+      ]; then python3 -u scripts/check_risk_mismatch_summary_archive_consistency.py
+      --out /var/lib/trade-runbook/reports/latest_risk_mismatch_archive_consistency.json
+      || true; fi; sleep 1800; done\""
+    deploy:
+      resources:
+        limits:
+          cpus: '0.15'
+          memory: 128M
+        reservations:
+          memory: 24M
+
+  # ── Tier 2B: AB/policy batch evaluators ────────────────────────────────────
+  ab-winner-evaluator:
+    image: *id001
+    restart: unless-stopped
+    container_name: ab-winner-evaluator
+    environment:
+    - PYTHONUNBUFFERED=1
+    - REDIS_URL=${REDIS_URL}
+    - TZ=UTC
+    networks: *id002
+    dns: *id003
+    volumes:
+    - ./python-worker:/app
+    command: "python3 tools/run_daemon_with_minik_failover.py --job-name ab_winner_evaluator
+      --is-minik -- sh -c \"while true; do python3 -m tools.ab_winner_evaluate_once;
+      sleep 3600; done\""
+    deploy:
+      resources:
+        limits:
+          cpus: '0.20'
+          memory: 128M
+        reservations:
+          memory: 24M
+
+  ab-winner-apply-runner:
+    image: *id001
+    restart: unless-stopped
+    container_name: ab-winner-apply-runner
+    environment:
+    - PYTHONUNBUFFERED=1
+    - REDIS_URL=${REDIS_URL}
+    - AB_APPLY_RUNNER_INTERVAL_SEC=10
+    - AB_ACTIVE_ARM_LOCK_SEC=21600
+    - AB_ACTIVE_ARM_TTL_SEC=0
+    - AB_APPLIED_TTL_SEC=604800
+    - ENTRY_POLICY_APPROVALS_REQUIRED=2
+    - AB_APPLY_METRICS_ENABLE=0
+    - AB_APPLY_ALERT_ON_LOCKED=1
+    - AB_APPLY_LOCK_ALERT_GAP_SEC=600
+    - TZ=UTC
+    networks: *id002
+    dns: *id003
+    volumes:
+    - ./python-worker:/app
+    command: python3 tools/run_daemon_with_minik_failover.py --job-name ab_winner_apply_runner
+      --is-minik -- python -m services.ab_winner_apply_runner
+    deploy:
+      resources:
+        limits:
+          cpus: '0.20'
+          memory: 128M
+        reservations:
+          memory: 24M
+
+  ab-winner-evaluator-v2-timer:
+    image: *id001
+    restart: unless-stopped
+    container_name: scanner-ab-winner-evaluator-v2-timer
+    environment:
+    - PYTHONUNBUFFERED=1
+    - PYTHONPATH=/app
+    - REDIS_URL=${REDIS_URL}
+    - AB_EVAL_INTERVAL_SEC=3600
+    - AB_EVAL_LOCK_KEY=lock:ab_winner_evaluator:v2
+    - AB_EVAL_LOCK_TTL_SEC=3300
+    - AB_EVENTS_STREAM=events:trades
+    - AB_WINNER_GROUP=ab-winner-v2-timer
+    - TZ=UTC
+    networks: *id002
+    dns: *id003
+    volumes:
+    - ./python-worker:/app
+    command: python3 tools/run_daemon_with_minik_failover.py --job-name ab_winner_evaluator_v2
+      --is-minik -- python -u -m tools.ab_winner_evaluator_runner
+    deploy:
+      resources:
+        limits:
+          cpus: '0.20'
+          memory: 256M
+        reservations:
+          memory: 24M
+
+  ab-winner-lcb-timer:
+    image: *id001
+    restart: unless-stopped
+    container_name: scanner-ab-winner-lcb-timer
+    working_dir: /app
+    environment:
+    - PYTHONUNBUFFERED=1
+    - PYTHONPATH=.:/app
+    - REDIS_URL=${REDIS_URL}
+    - AB_EVENTS_STREAM=events:trades
+    - LCB_COST_AWARE_ENABLE=${LCB_COST_AWARE_ENABLE:-0}
+    - LCB_Z=${LCB_Z:-1.28}
+    - LCB_MIN_N=${LCB_MIN_N:-40}
+    - LCB_FLOOR_R=${LCB_FLOOR_R:-0.00}
+    - LCB_MIN_DELTA_LCB=${LCB_MIN_DELTA_LCB:-0.05}
+    - LCB_LOOKBACK_HOURS=${LCB_LOOKBACK_HOURS:-24}
+    - TZ=UTC
+    networks: *id002
+    dns: *id003
+    volumes:
+    - ./python-worker:/app
+    command: "python3 tools/run_daemon_with_minik_failover.py --job-name ab_winner_lcb
+      --is-minik -- sh -c \"sleep 264 && while true; do python3 services/ab_winner_suggester_service_v2.py
+      --run-once; sleep 3600; done\""
+    deploy:
+      resources:
+        limits:
+          cpus: '0.20'
+          memory: 256M
+        reservations:
+          memory: 24M
+
+  ab-policy-suggester-timer:
+    image: *id001
+    restart: unless-stopped
+    container_name: scanner-ab-policy-suggester-timer
+    working_dir: /app
+    environment:
+    - PYTHONUNBUFFERED=1
+    - PYTHONPATH=.:/app
+    - REDIS_URL=${REDIS_URL}
+    - TZ=UTC
+    networks: *id002
+    dns: *id003
+    volumes:
+    - ./python-worker:/app
+    command: "python3 tools/run_daemon_with_minik_failover.py --job-name ab_policy_suggester
+      --is-minik -- sh -c \"sleep 272 && while true; do python3 -m tools.ab_suggest_entry_policy;
+      sleep 900; done\""
+    deploy:
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 256M
+        reservations:
+          memory: 24M
+
+  ab-rollback-guard-v2:
+    image: *id001
+    restart: unless-stopped
+    container_name: scanner-ab-rollback-guard-v2
+    environment:
+    - PYTHONUNBUFFERED=1
+    - PYTHONPATH=/app
+    - REDIS_URL=${REDIS_URL}
+    - TRADE_EVENTS_STREAM=${TRADE_EVENTS_STREAM:-events:trades}
+    - AB_RB_GROUP=${AB_RB_GROUP:-ab-rb-v2}
+    - AB_RB_MODE=${AB_RB_MODE:-enforce}
+    - AB_RB_WINDOW_N=${AB_RB_WINDOW_N:-60}
+    - AB_RB_COOLDOWN_SEC=${AB_RB_COOLDOWN_SEC:-7200}
+    - AB_LAST_APPLIED_PREFIX=${AB_LAST_APPLIED_PREFIX:-cfg:entry_policy:last_applied:v1}
+    - AB_ACTIVE_PREFIX=${AB_ACTIVE_PREFIX:-cfg:entry_policy:active_arm}
+    - AB_POST_PREFIX=${AB_POST_PREFIX:-ab:postapply:r:v2}
+    - AB_RB_AUDIT_STREAM=${AB_RB_AUDIT_STREAM:-stream:ab:rollback_audit}
+    - NOTIFY_STREAM=${NOTIFY_STREAM:-notify:telegram}
+    - AB_RB_SUG_LATEST_PREFIX=${AB_RB_SUG_LATEST_PREFIX:-cfg:suggestions:entry_policy:latest:rollback}
+    - AB_META_PREFIX=${AB_META_PREFIX:-cfg:suggestions:entry_policy:meta}
+    - AB_APPROVALS_PREFIX=${AB_APPROVALS_PREFIX:-cfg:suggestions:entry_policy:approvals}
+    - AB_APPLIED_PREFIX=${AB_APPLIED_PREFIX:-cfg:suggestions:entry_policy:applied}
+    - TZ=UTC
+    networks: *id002
+    dns: *id003
+    volumes:
+    - ./python-worker:/app
+    command: "python3 tools/run_daemon_with_minik_failover.py --job-name ab_rollback_guard_v2
+      --is-minik -- sh -c \"sleep 200 && python3 -m services.entry_policy_rollback_guard_v2\""
+    deploy:
+      resources:
+        limits:
+          cpus: '0.15'
+          memory: 128M
+        reservations:
+          memory: 24M
 
 networks:
   scanner-timers:

@@ -3904,6 +3904,10 @@ class OrderFlowStrategy:
             }
             if "ml_shadow_conf01" in parts:
                 indicators["confidence_breakdown"]["ml_shadow_conf01"] = round(float(parts["ml_shadow_conf01"]), 4)
+            # Forward scorer_mode so ml_canary_autopromoter_v1 can join trades→signals
+            # by sid to compute mean(R | ml_canary_enforce) vs mean(R | canary_shadow).
+            if "scorer_mode" in parts:
+                indicators["confidence_breakdown"]["scorer_mode"] = str(parts["scorer_mode"])  # type: ignore[assignment]
 
             # Z-mapping calibrator: expose shadow bounds in breakdown + counterfactual log
             try:

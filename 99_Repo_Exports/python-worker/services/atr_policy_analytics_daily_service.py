@@ -77,7 +77,7 @@ def run_once() -> int:
                   coalesce(t.atr_restore_cert_status, ''),
                   count(*)::int,
                   avg(t.pnl_pct * 10000),
-                  avg(p0.slippage_bps_est),
+                  coalesce(avg(p0.slippage_bps_est), 0.0),
                   avg(CASE WHEN t.pnl_net > 0 THEN 1.0 ELSE 0.0 END),
                   avg(CASE WHEN t.close_reason = 'stop_loss' THEN 1.0 ELSE 0.0 END),
                   avg(CASE WHEN t.close_reason = 'tp1_hit' THEN 1.0 ELSE 0.0 END)

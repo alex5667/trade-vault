@@ -28,9 +28,9 @@ import signal
 import time
 from typing import Any
 
+import redis  # type: ignore
 from prometheus_client import Counter, Gauge, Histogram, start_http_server  # type: ignore
 
-from core.redis_client import get_redis
 from core.redis_keys import RS
 from core.score_component_weight_calibrator import (
     DEFAULT_WEIGHTS,
@@ -255,7 +255,7 @@ def run(
     snapshot_sec: int,
     auto_promote: bool,
 ) -> None:
-    r = get_redis(redis_url)
+    r = redis.Redis.from_url(redis_url, decode_responses=True)
 
     stream = RS.TRADES_CLOSED if hasattr(RS, "TRADES_CLOSED") else "stream:trades:closed"
 

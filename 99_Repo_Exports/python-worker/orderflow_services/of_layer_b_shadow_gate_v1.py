@@ -46,7 +46,7 @@ ENV:
 
   OF_LAYER_B_MIN_CLAMP              0.2
   OF_LAYER_B_REPORT_PATH            /var/lib/trade/of_reports/of_layer_b_shadow.json
-  OF_LAYER_B_PROM_PORT              9848
+  OF_LAYER_B_PROM_PORT              9885
   OF_LAYER_B_BATCH                  2000
 """
 
@@ -148,7 +148,7 @@ def load_cfg() -> Cfg:
         min_clamp    = _env_float("OF_LAYER_B_MIN_CLAMP", 0.2),
         report_path  = _env("OF_LAYER_B_REPORT_PATH",
                             "/var/lib/trade/of_reports/of_layer_b_shadow.json"),
-        prom_port    = _env_int("OF_LAYER_B_PROM_PORT", 9848),
+        prom_port    = _env_int("OF_LAYER_B_PROM_PORT", 9885),
         batch        = _env_int("OF_LAYER_B_BATCH", 2000),
     )
 

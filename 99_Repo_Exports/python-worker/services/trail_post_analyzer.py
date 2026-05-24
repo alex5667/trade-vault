@@ -518,7 +518,7 @@ class TrailPostAnalyzer:
                 lines.append(
                     f"  {b.regime}: hit={b.trail_hit_rate * 100:.0f}%, "
                     f"gb={b.avg_giveback_bps:.1f}bps, "
-                    f"vs_TP2={b.trail_vs_tp2_delta_r:+.2f}R, "
+                    f"vs_Base={b.trail_vs_tp2_delta_r:+.2f}R, "
                     f"n={b.n_total} {emoji}"
                 )
                 lines.append(
