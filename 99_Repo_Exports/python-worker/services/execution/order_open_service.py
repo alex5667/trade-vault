@@ -12,6 +12,7 @@ Responsibilities:
 from __future__ import annotations
 
 import contextlib
+import math
 import time
 from typing import TYPE_CHECKING, Any
 
@@ -30,6 +31,16 @@ if TYPE_CHECKING:
     from services.execution.protection_service import ProtectionService
     from services.execution.reconcile_service import ReconcileService
     from services.execution.active_symbol_guard import ActiveSymbolGuard
+
+try:
+    from prometheus_client import Counter as _Counter
+    _maker_decision_total = _Counter(
+        "exec_maker_only_decision_total",
+        "Maker-only execution decisions by outcome (item 4 canary)",
+        ["maker_mode", "kind"],
+    )
+except Exception:
+    _maker_decision_total = None  # type: ignore[assignment]
 
 
 def _ms_now() -> int:
@@ -254,6 +265,55 @@ class OrderOpenService:
         }
         if pos_side:
             params["positionSide"] = pos_side
+
+        # ── Maker-only branch (item 4, 2026-05-24) ────────────────────────
+        # Switch MARKET → LIMIT timeInForce=GTX when payload demands maker-only
+        # execution. GTX (Post-Only) tells Binance to reject any portion that
+        # would cross spread → guarantees maker fill or rejection.
+        # Fallback to MARKET (with telemetry) when:
+        #   - maker_price missing/invalid (upstream didn't populate it), OR
+        #   - tick_size unknown (filter cache miss)
+        # Shadow-only mode (shadow=1, enforce=0) leaves params=MARKET; the
+        # counter still increments so we can observe how often maker-only
+        # WOULD have fired in prod.
+        maker_enforce = _i(payload.get("exec_maker_only"), 0)
+        maker_shadow = _i(payload.get("exec_maker_only_shadow"), 0)
+        maker_price = _f(payload.get("maker_price"), 0.0)
+        maker_mode = "off"
+        if maker_enforce and maker_price > 0 and sf.tick_size > 0:
+            # Round to tick. For LONG (BUY): floor below market (passive bid);
+            # for SHORT (SELL): ceil above market (passive ask). Using _round_down
+            # for BUY and an explicit ceil for SELL ensures GTX does not cross.
+            if binance_side == "BUY":
+                limit_px = _round_down(maker_price, sf.tick_size)
+            else:
+                limit_px = math.ceil(maker_price / sf.tick_size) * sf.tick_size
+            if limit_px > 0:
+                params["type"] = "LIMIT"
+                params["timeInForce"] = "GTX"
+                params["price"] = _format_float(limit_px, sf.tick_size)
+                maker_mode = "enforce"
+            else:
+                maker_mode = "fallback_market_bad_px"
+        elif maker_enforce:
+            # Asked to enforce but couldn't (no price / no tick) — explicit fallback.
+            maker_mode = "fallback_market_no_price" if maker_price <= 0 else "fallback_market_no_tick"
+        elif maker_shadow:
+            maker_mode = "shadow"
+
+        _kind_label = str(payload.get("kind") or payload.get("reason") or "unknown")
+        if _maker_decision_total is not None:
+            _maker_decision_total.labels(maker_mode=maker_mode, kind=_kind_label).inc()
+        self._write_event({
+            "sid": sid, "symbol": symbol, "action": "open",
+            "event_type": "MAKER_ONLY_DECISION",
+            "severity": "info",
+            "maker_mode": maker_mode,
+            "maker_price": maker_price,
+            "order_type": params.get("type"),
+            "tif": params.get("timeInForce", ""),
+            "kind": _kind_label,
+        })
 
         # Submit entry
         self._transition(sid, symbol=symbol, action="open", next_state=FSM_ENTRY_SUBMITTED,

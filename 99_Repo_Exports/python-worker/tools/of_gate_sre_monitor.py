@@ -225,7 +225,7 @@ def compute_stats(rows: list[dict[str, Any]], prev: dict[str, Any] | None, *, dh
         prev_dist = prev.get("scenario_dist", {}) if isinstance(prev.get("scenario_dist", {}), dict) else {}
 
     scenario_l1 = 0.0
-    if prev_dist:
+    if n > 0 and prev_dist:
         try:
             prev_dist2 = {str(k): float(v) for k, v in prev_dist.items()}
             scenario_l1 = _dist_l1(scen_dist, prev_dist2)
@@ -288,8 +288,10 @@ def build_alerts(stats: dict[str, Any], *, cfg: dict[str, Any]) -> list[dict[str
     book_bad_max = float(cfg.get("book_bad_max", 0.02))
     dh_bad_max = float(cfg.get("dh_bad_max", 0.10))
 
-    if _i(stats.get("no_data_total", 0), 0) == 1:
+    if _i(stats.get("no_data_total", 0), 0) == 1 and n_total_raw > 0:
         alerts.append({"code": "no_data_total", "sev": "warn", "msg": f"no valid rows (raw={n_total_raw} invalid={n_invalid})"})
+        return alerts
+    if n_total_raw == 0 and n_invalid == 0:
         return alerts
     if _i(stats.get("no_data", 0), 0) == 1:
         alerts.append({"code": "no_data", "sev": "warn", "msg": f"no eligible rows (non-dn_veto) (total_valid={n_total})"})

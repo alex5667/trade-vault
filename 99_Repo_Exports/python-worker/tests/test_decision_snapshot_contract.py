@@ -27,7 +27,11 @@ def test_decision_snapshot_contract_v1():
         "strong_gate_ok": 1,
         # ML Stage 4 fields (будущие или текущие)
         "ml_p_edge": 0.65,
-        "ml_status": "ALLOW"
+        "ml_status": "ALLOW",
+        "liqmap_5m_total_usd": 123456.0,
+        "liqmap_5m_near_imb": -0.25,
+        "liqmap_gate_rr": 1.8,
+        "liqmap_gate_veto_reason": "too_close"
     }
 
     runtime = SimpleNamespace(symbol="BTCUSDT")
@@ -64,6 +68,12 @@ def test_decision_snapshot_contract_v1():
         # ml_p_edge НЕ в белом списке (по текущей реализации в decision_snapshot.py)
         # Это ожидаемое поведение: мы не раздуваем снапшот всем мусором.
         assert "ml_p_edge" not in snap["indicators_small"]
+        # v9 liqmap train features are allowed because they are decision-time
+        # replay inputs, but non-numeric diagnostic strings stay out.
+        assert snap["indicators_small"]["liqmap_5m_total_usd"] == 123456.0
+        assert snap["indicators_small"]["liqmap_5m_near_imb"] == -0.25
+        assert snap["indicators_small"]["liqmap_gate_rr"] == 1.8
+        assert "liqmap_gate_veto_reason" not in snap["indicators_small"]
 
 def test_decision_snapshot_missing_critical_fields():
     """Проверяет fail-safe поведение при отсутствии цен."""

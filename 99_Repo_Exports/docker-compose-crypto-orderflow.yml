@@ -4499,6 +4499,7 @@ services:
     - /var/lib/trade:/var/lib/trade
     environment:
     - REDIS_URL=redis://redis-worker-1:6379/0
+    - LOCK_REDIS_URL=redis://redis:6379/0
     - PYTHONUNBUFFERED=1
     - PYTHONPATH=/app
     - PERIODIC_REPORT_CHECK_INTERVAL_SEC=0
@@ -4516,9 +4517,8 @@ services:
     - ANALYTICS_DB_DSN=${ANALYTICS_DB_DSN}
     - OF_SCORE_MIN=${OF_SCORE_MIN:-0.45}
     - TZ=UTC
-    command: 'sh -c "sleep 120 && python -m services.periodic_reporter"
+    command: python3 tools/run_daemon_with_minik_failover.py --job-name periodic_reporter -- python -m services.periodic_reporter
 
-      '
     depends_on:
       redis-worker-1:
         condition: service_healthy

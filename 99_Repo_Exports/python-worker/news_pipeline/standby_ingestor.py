@@ -38,6 +38,7 @@ import json
 import logging
 import os
 import time
+from calendar import timegm as _timegm
 from dataclasses import dataclass
 from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
@@ -576,9 +577,9 @@ def fetch_rss(cfg: RSSCfg) -> list[dict[str, Any]]:
                 ts = 0
                 try:
                     if getattr(e, "published_parsed", None):
-                        ts = int(time.mktime(e.published_parsed) * 1000)
+                        ts = int(_timegm(e.published_parsed) * 1000)  # type: ignore[arg-type]
                     elif getattr(e, "updated_parsed", None):
-                        ts = int(time.mktime(e.updated_parsed) * 1000)
+                        ts = int(_timegm(e.updated_parsed) * 1000)  # type: ignore[arg-type]
                 except Exception:
                     ts = 0
                 if not ts:

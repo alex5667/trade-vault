@@ -122,7 +122,86 @@ _lag_hist = Histogram(
 # Payload parsing
 # ---------------------------------------------------------------------------
 
-def _parse_trade(raw: dict[str, Any]) -> dict[str, Any] | None:
+def _lookup_signal_score_components(
+    redis_client: Any | None,
+    *,
+    symbol: str,
+    sid: str | None,
+    ts_close_ms: int,
+) -> dict[str, Any]:
+    """Best-effort fallback: scan signals:of:inputs to find score_components by sid.
+
+    Producers do not propagate `score_components` into the trades:closed flat
+    schema — they live only inside the original signal payload. We search the
+    last ~30 minutes of `signals:of:inputs` (cheap XRANGE) for a matching sid
+    and return `confidence_breakdown` / `score_components` from indicators.
+    """
+    if redis_client is None or not sid:
+        return {}
+    try:
+        # Signals are XADD'd around signal-time ≤ trade-open-time. The trade
+        # we are processing closed at ts_close_ms; the signal predates it by
+        # at most a few hours. Search a 6h window backward from ts_close.
+        since_ms = max(0, int(ts_close_ms) - 6 * 3600 * 1000)
+        cursor = f"{since_ms}-0"
+        # bound the scan so a hot loop never stalls
+        MAX_SCAN = 5000
+        scanned = 0
+        norm_sid_target = str(sid).split(":")
+        target_symbol = norm_sid_target[1] if len(norm_sid_target) >= 2 else symbol
+        target_ts = norm_sid_target[2] if len(norm_sid_target) >= 3 else ""
+        while scanned < MAX_SCAN:
+            chunk = redis_client.xrange("signals:of:inputs", min=cursor, count=500)
+            if not chunk:
+                break
+            for entry_id, fields in chunk:
+                scanned += 1
+                if scanned >= MAX_SCAN:
+                    break
+                payload = fields.get("payload") if isinstance(fields, dict) else None
+                if not payload:
+                    continue
+                try:
+                    p = json.loads(payload)
+                except Exception:
+                    continue
+                inner = p.get("data", p) if isinstance(p, dict) else p
+                if isinstance(inner, str):
+                    try:
+                        inner = json.loads(inner)
+                    except Exception:
+                        continue
+                if not isinstance(inner, dict):
+                    continue
+                ssid = str(inner.get("sid") or inner.get("signal_id") or "")
+                # Normalize comparison: ignore kind-prefix + direction-suffix
+                ssid_parts = ssid.split(":")
+                if len(ssid_parts) < 3:
+                    continue
+                if ssid_parts[1] != target_symbol:
+                    continue
+                if target_ts and ssid_parts[2] != target_ts:
+                    continue
+                ind = inner.get("indicators") or {}
+                if isinstance(ind, dict):
+                    out: dict[str, Any] = {}
+                    out.update(dict(ind.get("score_components") or {}))
+                    out.update(dict(ind.get("confidence_breakdown") or {}))
+                    for k in ("s_z", "s_obi20", "s_obi", "s_l3", "s_l3_pressure",
+                              "s_microprice", "s_micro_block", "s_mp", "s_mode",
+                              "regime_class_raw", "regime"):
+                        if k in ind:
+                            out.setdefault(k, ind[k])
+                    return out
+            cursor = f"{chunk[-1][0].split('-')[0]}-{int(chunk[-1][0].split('-')[1]) + 1}"
+            if len(chunk) < 500:
+                break
+    except Exception:
+        return {}
+    return {}
+
+
+def _parse_trade(raw: dict[str, Any], *, redis_client: Any | None = None) -> dict[str, Any] | None:
     """Extract fields needed by the calibrator from a trades:closed entry."""
     try:
         payload_raw = raw.get("data") or raw.get("payload")
@@ -186,8 +265,20 @@ def _parse_trade(raw: dict[str, Any]) -> dict[str, Any] | None:
                 score_parts.setdefault(k, cs_ind[k])
 
         if not score_parts:
-            _trades_skipped.labels(reason="no_score_parts").inc()
-            return None
+            # Fallback: producer didn't propagate score_components into
+            # trades:closed flat schema; look up the original signal payload
+            # in signals:of:inputs by sid.
+            sid = payload.get("sid") or payload.get("signal_id") or raw.get("sid")
+            score_parts = _lookup_signal_score_components(
+                redis_client,
+                symbol=symbol,
+                sid=sid,
+                ts_close_ms=int(ts_close_ms),
+            )
+            if not score_parts:
+                _trades_skipped.labels(reason="no_score_parts").inc()
+                return None
+            _trades_skipped.labels(reason="recovered_via_sid_lookup").inc()
 
         return {
             "symbol": symbol,
@@ -312,7 +403,7 @@ def run(
         for _stream, entries in msgs:
             for msg_id, raw in entries:
                 try:
-                    trade = _parse_trade(raw)
+                    trade = _parse_trade(raw, redis_client=r)
                     if trade is None:
                         r.xack(stream, group, msg_id)
                         continue

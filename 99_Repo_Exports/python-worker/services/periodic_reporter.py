@@ -592,11 +592,12 @@ class PeriodicReporter:
              self._check_and_trigger_report(src, "ALL", counter_type, order_id)
 
 
-    def send_report_for_pair(self, source: str, symbol: str, window_seconds: int | None = None, silent_locked: bool = False, demo_only: bool = False):
+    def send_report_for_pair(self, source: str, symbol: str, window_seconds: int | None = None, silent_locked: bool = False, demo_only: bool = False, force: bool = False):
         """
         Public wrapper to send a report manually or via legacy calls.
         Acquires lock to ensure single execution if called concurrently.
         NOTE: demo_only is deprecated and ignored. Unified report always includes virtual/real breakdown.
+        force=True: bypass all dedup checks (hourly loop passes this after verifying fresh trades).
         """
         sym = canon_symbol(symbol)
         src = self._source_from_strategy(source, sym)
@@ -610,7 +611,7 @@ class PeriodicReporter:
             return
 
         try:
-            self._generate_and_send_report_internal(src, sym, window_seconds=window_seconds)
+            self._generate_and_send_report_internal(src, sym, window_seconds=window_seconds, force=force)
         finally:
             self._release_lock(lock_key)
 
@@ -642,10 +643,57 @@ class PeriodicReporter:
                     is_v_flag = True
         return is_v_flag
 
-    def _generate_and_send_report_internal(self, source: str, symbol: str, window_seconds: int | None = None):
+    def _count_real_trades_in_window(self, source: str, symbol: str, window_s: int = 3600) -> int:
+        """
+        Quick lightweight check: count real (non-virtual) closed trades in the
+        trades:closed stream for source/symbol in the last window_s seconds.
+        Returns count >= 0, or -1 on error (caller should proceed on error).
+        Used by the hourly loop to skip dedup and send only when data exists.
+        """
+        try:
+            now_ms = int(time.time() * 1000)
+            cutoff_ms = now_ms - window_s * 1000
+            min_id = f"{cutoff_ms}-0"
+            entries = self.redis.xrange(RS.TRADES_CLOSED, min=min_id, max="+", count=5000) or []  # type: ignore[union-attr]
+            sym_canon = canon_symbol(symbol)
+            req_src = canon_source(source)
+            count = 0
+            for _, fields in entries:  # type: ignore[misc]
+                if symbol != "ALL":
+                    t_sym = canon_symbol(fields.get("symbol") or "")
+                    if t_sym != sym_canon:
+                        continue
+                t_src_raw = fields.get("strategy") or fields.get("source") or ""
+                t_src = canon_source(t_src_raw)
+                if t_src != req_src and t_src not in ("binance", "bybit", "mt5", "binance_real", "binance_paper"):
+                    continue
+                is_v = (fields.get("is_virtual") or "0").lower() in ("1", "true", "yes")
+                if not is_v:
+                    count += 1
+            return count
+        except Exception as e:
+            logger.debug(f"⚠️ _count_real_trades_in_window failed for {source}/{symbol}: {e}")
+            return -1  # unknown → caller should proceed
+
+    def _clear_hourly_report_dedup(self, source: str, symbol: str) -> None:
+        """Clear all dedup keys for a source/symbol hourly report slot."""
+        src = canon_source(source)
+        sym = canon_symbol(symbol)
+        keys = [
+            f"report_dedup_sent:{src}:{sym}:3600",
+            f"report_last_hourly_hour:{src}:{sym}",
+            f"report_last_ts:{src}:{sym}",
+        ]
+        try:
+            self.redis.delete(*keys)
+        except Exception as e:
+            logger.debug(f"⚠️ _clear_hourly_report_dedup failed for {src}/{sym}: {e}")
+
+    def _generate_and_send_report_internal(self, source: str, symbol: str, window_seconds: int | None = None, force: bool = False):
         """
         Internal method to generate and send report.
         ASSUMES LOCK IS ALREADY ACQUIRED by caller.
+        force=True: bypass all dedup checks (used by hourly loop after explicit trade-count check).
         """
         src = canon_source(source)
         sym = canon_symbol(symbol)
@@ -653,7 +701,8 @@ class PeriodicReporter:
         # --- ATOMIC DEDUPLICATION ---
         # Prevents duplicates if multiple parallel workers/timers (e.g., SignalPerformanceTracker and
         # _reporter_timer_loop) attempt to generate the same periodic report.
-        if window_seconds is not None and window_seconds > 0:
+        # Skipped when force=True (hourly loop already verified fresh trades exist).
+        if not force and window_seconds is not None and window_seconds > 0:
             dedup_val = str(int(time.time()) // window_seconds)
             dedup_key = f"report_dedup_sent:{src}:{sym}:{window_seconds}"
 
@@ -3803,31 +3852,19 @@ def main():
                         count_sent_hourly = 0
                         for src, sym in hourly_pairs:
                             try:
-                                # Унифицированные ключи такие же как в _check_and_trigger_report
-                                hour_key = f"report_last_hourly_hour:{src}:{sym}"
-                                current_hour_str = current_utc.strftime("%Y-%m-%d-%H")
-                                last_hour_val = reporter.redis.get(hour_key)
-
-                                if last_hour_val == current_hour_str:
-                                    logger.debug(f"⏭️ Skipping hourly report for {src}/{sym} (already sent for {current_hour_str})")
+                                # Явно проверяем наличие свежих реальных сделок в окне —
+                                # независимо от dedup-ключей. Если сделок нет → пропускаем.
+                                real_count = reporter._count_real_trades_in_window(src, sym, window_s=3600)
+                                if real_count == 0:
+                                    logger.debug(f"⏭️ No real trades in 1h window for {src}/{sym}, skipping hourly report")
                                     continue
 
-                                # Также проверяем timestamp для полной уверенности
-                                last_ts_key = f"report_last_ts:{src}:{sym}"
-                                try:
-                                    last_ts = float(reporter.redis.get(last_ts_key) or 0)
-                                except Exception:
-                                    last_ts = 0.0
-
-                                if (time.time() - last_ts) < 1800 and last_hour_val is not None:
-                                    continue
-
-                                logger.info(f"📤 Sending hourly report for {src}/{sym} (60m window via main loop)")
-                                reporter.send_report_for_pair(src, sym, window_seconds=3600, silent_locked=True)
-                                # send_report_for_pair вызывает _generate_and_send_report_internal,
-                                # но НЕ проставляет ключи hour_key/last_ts_key. Проставим их здесь.
-                                reporter.redis.set(hour_key, current_hour_str, ex=172800)
-                                reporter.redis.set(last_ts_key, str(time.time()), ex=172800)
+                                trades_label = str(real_count) if real_count > 0 else "?"
+                                logger.info(f"📤 Sending hourly report for {src}/{sym} (60m window, {trades_label} real trades found)")
+                                # Сбрасываем dedup-ключи, чтобы _generate_and_send_report_internal
+                                # не пропустил отчёт из-за устаревшего состояния.
+                                reporter._clear_hourly_report_dedup(src, sym)
+                                reporter.send_report_for_pair(src, sym, window_seconds=3600, silent_locked=True, force=True)
                                 count_sent_hourly += 1
                             except Exception as e:
                                 logger.error(f"❌ Error sending hourly report for {src}/{sym}: {e}")

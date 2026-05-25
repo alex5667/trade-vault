@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 
 class LLMClient:
-    def analyze(self, *, title: str, url: str, source: str) -> dict[str, Any]:
+    def analyze(self, *, title: str, url: str, source: str, summary: str = "") -> dict[str, Any]:
         raise NotImplementedError
 
 
@@ -75,7 +75,7 @@ class _TokenBucket:
     """
 
     def __init__(self, rpm: float) -> None:
-        self.capacity = max(1.0, float(rpm))
+        self.capacity = max(1.0, rpm)
         self.tokens = self.capacity
         self.fill_rate = self.capacity / 60.0  # tokens per second
         self.last = time.monotonic()
@@ -664,15 +664,43 @@ class FallbackLLMClient(LLMClient):
     """
 
     # Маркеры ошибок всех клиентов
-    _ERR_MARKERS = ("llm_error:", "nv_qwen_error:", "nv_kimi_error:", "deepseek_error:", "ollama_error:", "ollama_minipc_error:")
+    _ERR_MARKERS = (
+        "llm_error:", "nv_qwen_error:", "nv_kimi_error:", "deepseek_error:",
+        "ollama_error:", "ollama_minipc_error:",
+        "playwright_qwen_error:", "playwright_deepseek_error:",
+        "playwright_chatgpt_error:", "playwright_gemini_error:",
+        "playwright_base_error:", "playwright_deepseek_web_no_json:", "all_llms_failed",
+    )
 
     def __init__(self, clients: list[LLMClient]) -> None:
         self.clients = clients
 
     @classmethod
     def build_default(cls) -> FallbackLLMClient:
-        """Создать цепочку из всех доступных клиентов в том порядке, в котором они пробуются."""
-        return cls([
+        """
+        Цепочка LLM-клиентов по убыванию приоритета:
+          1. Playwright web UI — DeepSeek/ChatGPT/Gemini (без API-лимитов, браузер)
+          2. Gemini HTTP API (облако)
+          3. Nvidia Integrate API — Qwen / Kimi / DeepSeek
+          4. Ollama local — main host / minik
+        """
+        clients: list[LLMClient] = []
+
+        # ── Tier 1: Playwright browser UI (highest priority, no rate limits) ──
+        if os.getenv("USE_PLAYWRIGHT_LLM", "0") == "1":
+            try:
+                from news_pipeline.playwright_llm_client import (
+                    RoundRobinPlaywrightClient,
+                    build_playwright_clients,
+                )
+                pw = build_playwright_clients()
+                if pw:
+                    clients.append(RoundRobinPlaywrightClient(pw))  # type: ignore[arg-type]
+            except Exception as exc:
+                logger.warning("playwright LLM clients unavailable: %r", exc)
+
+        # ── Tier 2-4: API-based fallbacks ────────────────────────────────────
+        clients.extend([
             GeminiHTTPClient(),
             NvidiaQwenClient(),
             NvidiaKimiClient(),
@@ -680,6 +708,13 @@ class FallbackLLMClient(LLMClient):
             OllamaDeepSeekClient(),
             OllamaMinipcClient(),
         ])
+
+        logger.info(
+            "FallbackLLMClient chain (%d): %s",
+            len(clients),
+            [type(c).__name__ for c in clients],
+        )
+        return cls(clients)
 
     def analyze(self, *, title: str, url: str, source: str, summary: str = "") -> dict[str, Any]:
         last_res = None

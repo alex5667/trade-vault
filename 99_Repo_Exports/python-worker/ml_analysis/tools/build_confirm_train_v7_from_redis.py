@@ -151,6 +151,89 @@ def _decode_fields(fields: dict[Any, Any]) -> dict[str, Any]:
     return out
 
 
+_LIQMAP_WINDOWS = ("5m", "1h")
+_LIQMAP_WINDOW_FIELDS = (
+    "age_ms",
+    "levels_n",
+    "total_usd",
+    "near_total_usd",
+    "near_long_usd",
+    "near_short_usd",
+    "near_imb",
+    "dist_up_bps",
+    "dist_dn_bps",
+    "peak_up1_usd",
+    "peak_dn1_usd",
+    "peak_up1_share",
+    "peak_dn1_share",
+    "peaks_up",
+    "peaks_dn",
+)
+_LIQMAP_GATE_FIELDS = (
+    "liqmap_gate_shadow_veto",
+    "liqmap_gate_veto",
+    "liqmap_gate_rr",
+    "liqmap_gate_risk_bps",
+    "liqmap_gate_reward_bps",
+    "liqmap_gate_adverse_peak_usd",
+    "liqmap_gate_favorable_peak_usd",
+)
+_LIQMAP_FEATURE_KEYS = tuple(
+    [f"liqmap_{window}_{field}" for window in _LIQMAP_WINDOWS for field in _LIQMAP_WINDOW_FIELDS]
+    + list(_LIQMAP_GATE_FIELDS)
+)
+
+
+def _copy_liqmap_features_from_dict(rec: dict[str, Any], src: Any) -> int:
+    if not isinstance(src, dict):
+        return 0
+    added = 0
+    for key in _LIQMAP_FEATURE_KEYS:
+        if key in src and key not in rec:
+            rec[key] = src.get(key)
+            added += 1
+    return added
+
+
+def _promote_nested_liqmap_record(rec: dict[str, Any]) -> int:
+    lm = rec.get("liqmap") if isinstance(rec.get("liqmap"), dict) else {}
+    if not lm:
+        return 0
+    added = 0
+    gate = lm.get("gate") if isinstance(lm.get("gate"), dict) else {}
+    gate_map = {
+        "liqmap_gate_shadow_veto": "shadow_veto",
+        "liqmap_gate_veto": "veto",
+        "liqmap_gate_rr": "rr",
+        "liqmap_gate_risk_bps": "risk_bps",
+        "liqmap_gate_reward_bps": "reward_bps",
+        "liqmap_gate_adverse_peak_usd": "adverse_peak_usd",
+        "liqmap_gate_favorable_peak_usd": "favorable_peak_usd",
+    }
+    for out_key, in_key in gate_map.items():
+        if out_key not in rec and in_key in gate:
+            rec[out_key] = gate.get(in_key)
+            added += 1
+    for window, nested_key in (("5m", "w5m"), ("1h", "w1h")):
+        wsrc = lm.get(nested_key) if isinstance(lm.get(nested_key), dict) else {}
+        for field in _LIQMAP_WINDOW_FIELDS:
+            out_key = f"liqmap_{window}_{field}"
+            if out_key not in rec and field in wsrc:
+                rec[out_key] = wsrc.get(field)
+                added += 1
+    return added
+
+
+def _promote_decision_time_liqmap_features(rec: dict[str, Any]) -> int:
+    added = 0
+    added += _copy_liqmap_features_from_dict(rec, rec.get("indicators_small"))
+    added += _copy_liqmap_features_from_dict(rec, rec.get("indicators"))
+    ofc = rec.get("of_confirm") if isinstance(rec.get("of_confirm"), dict) else {}
+    added += _copy_liqmap_features_from_dict(rec, ofc.get("indicators") if isinstance(ofc, dict) else None)
+    added += _promote_nested_liqmap_record(rec)
+    return added
+
+
 # ─── Redis stream reader ─────────────────────────────────────────────────────
 
 def _xrevrange_recent(r: Any, stream: str, *, count: int) -> list[tuple[str, dict[str, Any]]]:
@@ -302,6 +385,11 @@ def parse_decision(fields: dict[str, Any]) -> dict[str, Any] | None:
     if "of_score_final" not in rec:
         rule = rec.get("rule") if isinstance(rec.get("rule"), dict) else {}
         rec["of_score_final"] = _as_float(rule.get("score") or 0.0)
+
+    # Preserve only decision-time liqmap features that were already captured in
+    # the decision payload. Do not read current Redis liqmap snapshots here:
+    # that would mix future/current state into historical training rows.
+    _promote_decision_time_liqmap_features(rec)
 
     return rec
 

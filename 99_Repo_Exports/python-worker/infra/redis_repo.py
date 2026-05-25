@@ -58,7 +58,13 @@ def _canon_regime(v: Any) -> str:
 def _extract_entry_regime_from_obj(obj: Any) -> str:
     """
     Extract entry regime from position/closed-trade object.
-    Priority: entry_regime -> regime -> market_regime -> regime_label.
+    Priority: entry_regime -> regime -> market_regime -> regime_label
+            -> signal_payload.regime -> signal_payload.indicators.regime.
+
+    The trailing two are the upstream-fix-aware paths: `_publish_of_inputs`
+    writes regime into `indicators.regime` even when top-level is None at
+    emit time. Mirror that priority here so trades:closed.market_regime
+    is populated reliably for downstream calibrators.
     """
     for k in ("entry_regime", "regime", "market_regime", "regime_label"):
         try:
@@ -67,6 +73,27 @@ def _extract_entry_regime_from_obj(obj: Any) -> str:
             v = None
         if v:
             return _canon_regime(v)
+    # Last-resort: dig into the stored signal_payload (some pipelines drop
+    # regime from top-level position state but keep the original payload).
+    try:
+        sp = getattr(obj, "signal_payload", None)
+        if isinstance(sp, str):
+            try:
+                sp = json.loads(sp)
+            except Exception:
+                sp = None
+        if isinstance(sp, dict):
+            for k in ("entry_regime", "regime", "market_regime"):
+                v = sp.get(k)
+                if v and str(v).lower() not in ("", "na", "none", "null"):
+                    return _canon_regime(v)
+            _ind = sp.get("indicators")
+            if isinstance(_ind, dict):
+                v = _ind.get("regime")
+                if v and str(v).lower() not in ("", "na", "none", "null", "unknown"):
+                    return _canon_regime(v)
+    except Exception:
+        pass
     return "na"
 
 

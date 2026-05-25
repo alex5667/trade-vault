@@ -754,3 +754,60 @@ fatal: Could not read from remote repository.
 Please make sure you have the correct access rights
 and the repository exists.
 2026-05-23 05:45:03 - Синхронизация завершена успешно.
+[main d8be4fae] Auto-sync vault notes 2026-05-24 05:45:02
+ 130 files changed, 18142 insertions(+), 602 deletions(-)
+ create mode 100644 99_Automation/logs/update_2026-05-24_03-37-22.log
+ create mode 100644 99_Repo_Exports/docker-compose.ml-canary-autopromoter.yml
+ create mode 100644 99_Repo_Exports/python-worker/core/ml_canary_runtime_overrides.py
+ create mode 100644 99_Repo_Exports/python-worker/migrations/065_trailing_state_transitions.sql
+ create mode 100644 99_Repo_Exports/python-worker/migrations/20260522_04_add_p0_v_gate_reason.sql
+ create mode 100644 99_Repo_Exports/python-worker/migrations/20260523_01_phase_c_strategy_bucket_and_trailing_decisions.sql
+ create mode 100644 99_Repo_Exports/python-worker/migrations/20260523_02_phase_c_strategy_bucket_view.sql
+ create mode 100644 99_Repo_Exports/python-worker/migrations/20260523_03_fix_archive_metadata_last_error.sql
+ create mode 100644 99_Repo_Exports/python-worker/orderflow_services/meta_lr_blend_calibrator_refit_v1.py
+ create mode 100644 99_Repo_Exports/python-worker/orderflow_services/ml_calibrator_autopilot_v1.py
+ create mode 100644 99_Repo_Exports/python-worker/orderflow_services/ml_canary_autopromoter_v1.py
+ create mode 100644 99_Repo_Exports/python-worker/orderflow_services/ml_confirm_p_edge_vs_actual_wr_poller_v1.py
+ create mode 100644 99_Repo_Exports/python-worker/orderflow_services/trailing_state_autocal_v1.py
+ create mode 100644 99_Repo_Exports/python-worker/runners/regime_exec_promotion_runner.py
+ create mode 100644 99_Repo_Exports/python-worker/runners/watermark_tracker_runner.py
+ create mode 100644 99_Repo_Exports/python-worker/services/entry_profile_classifier.py
+ create mode 100644 99_Repo_Exports/python-worker/services/regime_exec_promotion_v1.py
+ create mode 100644 99_Repo_Exports/python-worker/services/risk_overlay_v1.py
+ create mode 100644 99_Repo_Exports/python-worker/services/trailing_command_consumer.py
+ create mode 100644 99_Repo_Exports/python-worker/services/trailing_state_worker.py
+ create mode 100644 99_Repo_Exports/python-worker/services/trailing_state_writer.py
+ create mode 100644 99_Repo_Exports/python-worker/services/watermark_trailing.py
+ create mode 100644 99_Repo_Exports/python-worker/services/watermark_trailing_store.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/integration/__init__.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/integration/test_hwm_live_canary.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_dq_gate_calibrator_v1_layout.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_dq_threshold_eval_harness_p112_layout.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_meta_lr_blend_calibrator_refit.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_meta_lr_blend_runtime.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_ml_calibrator_autopilot.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_ml_canary_autopromoter_v1.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_ml_canary_runtime_overrides.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_ml_confirm_gate_dual_emit.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_phase_a_trailing_profile_v2.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_phase_b_trailing_dlq_and_watermark.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_phase_c_promotion.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_phase_d_entry_profile.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_phase_e_risk_overlay.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_phase_f_listener_and_trailing_fixes.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_phase_g_tp_geometry_and_poison_cap.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_repo_calibrator_flat_fields.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_tp_event_listener.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_tp_hit_trailing_orchestrator.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_trailing_command_consumer.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_trailing_state_machine.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_trailing_state_worker.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_trailing_state_writer.py
+ create mode 100644 99_Repo_Exports/python-worker/tools/refit_meta_lr_blend_calibrator.py
+ create mode 100644 99_Repo_Exports/python-worker/tools/refit_ml_calibrator.py
+git@github.com: Permission denied (publickey).
+fatal: Could not read from remote repository.
+
+Please make sure you have the correct access rights
+and the repository exists.
+2026-05-24 05:45:03 - Синхронизация завершена успешно.

@@ -2,6 +2,7 @@ import hashlib
 import logging
 import os
 import time
+from calendar import timegm as _timegm
 from typing import Any
 
 import feedparser
@@ -133,7 +134,8 @@ def main() -> None:
                     if not title or not link:
                         continue
 
-                    published = int(it.get("published_parsed") and time.mktime(it.published_parsed) or time.time())
+                    _pp = it.get("published_parsed")
+                    published = int(_timegm(_pp) if _pp else time.time())  # type: ignore[arg-type]
                     bucket = ts_bucket_sec(published, 300)
                     uid = stable_uid(f"rss:{rss_url}", link, title, bucket)
 

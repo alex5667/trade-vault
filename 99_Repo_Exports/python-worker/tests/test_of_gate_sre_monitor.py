@@ -228,6 +228,25 @@ def test_build_alerts_ok_rate_low():
     assert any(a["code"] == "ok_rate_low" for a in alerts)
 
 
+def test_build_alerts_empty_raw_window_is_not_actionable():
+    stats = {"n": 0, "n_total": 0, "n_total_raw": 0, "n_invalid": 0, "no_data_total": 1, "no_data": 1}
+    alerts = build_alerts(stats, cfg={"min_n": 50})
+    assert alerts == []
+
+
+def test_build_alerts_invalid_raw_rows_still_warns():
+    stats = {"n": 0, "n_total": 0, "n_total_raw": 3, "n_invalid": 3, "no_data_total": 1, "no_data": 1}
+    alerts = build_alerts(stats, cfg={"min_n": 50})
+    assert len(alerts) == 1
+    assert alerts[0]["code"] == "no_data_total"
+
+
+def test_compute_stats_empty_current_window_does_not_drift_from_previous_distribution():
+    prev = {"scenario_dist": {"range": 1.0}}
+    result = compute_stats([], prev, dh_bad_th=0.70)
+    assert result["scenario_l1"] == 0.0
+
+
 def test_f_helpers():
     assert _f("1.5", 0.0) == 1.5
     assert _f("invalid", 0.0) == 0.0

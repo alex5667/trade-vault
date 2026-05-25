@@ -366,6 +366,13 @@ def update_adverse_bps_snapshots(pos: PositionState, *, mid: float, ts_ms: int) 
         else:
             adverse = max(0.0, (mid_f - pos.entry_price) / pos.entry_price * 10_000.0)
 
+        # track first adverse touch (fail-open, set once)
+        if adverse > 0.0 and getattr(pos, "first_adverse_ts_ms", 0) == 0:
+            try:
+                pos.first_adverse_ts_ms = ts_ms
+            except Exception:
+                pass
+
         for b in buckets:
             # пока не достигли бакета — копим running max
             if elapsed <= b:
@@ -2225,6 +2232,14 @@ def finalize_trade(
         exit_price=exit_price,
         lot=pos.lot,
         notional_usd=notional_usd,
+        signal_ts_ms=pos.entry_ts_ms,
+        fill_ts_ms=int(
+            (getattr(pos, "signal_payload", None) or {}).get("ts_emit_ms") or
+            pos.entry_ts_ms
+        ),
+        adverse_ms_first_touch=max(0, (
+            getattr(pos, "first_adverse_ts_ms", 0) - pos.entry_ts_ms
+        )) if getattr(pos, "first_adverse_ts_ms", 0) > pos.entry_ts_ms else 0,
 
         # pnl
         pnl_net=pnl_net,

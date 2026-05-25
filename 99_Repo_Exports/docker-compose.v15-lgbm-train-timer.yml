@@ -1,0 +1,109 @@
+services:
+  v15-lgbm-train-timer:
+    # Daily online-adaptation refit for v15_lgbm.
+    #
+    # Each cycle:
+    #   1. Acquires Redis mutex `lock:v15_lgbm_train` (skip if held).
+    #   2. Preflight: counts trades:closed positives per regime (last 30d).
+    #      Skips cycle if total < V15_MIN_POSITIVES.
+    #   3. Runs `tools.nightly_v15_lgbm_train_bundle` which invokes
+    #      `tools.train_v15_lgbm --per-regime --source=postgres`.
+    #   4. If verdict.status=ACCEPT AND V15_PROMOTE_AUTO=1 → invokes
+    #      `tools.promote_v15_lgbm_to_live` (atomic copy + .prev backup).
+    #   5. Writes Telegram notify + Redis audit metric.
+    #
+    # Default cadence: 24h. Override V15_TRAIN_INTERVAL_SEC to retune.
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    image: scanner-python-worker:latest
+    container_name: scanner-v15-lgbm-train-timer
+    restart: unless-stopped
+    environment:
+    - PYTHONUNBUFFERED=1
+    - PYTHONPATH=.:/app
+    - TZ=UTC
+    - REDIS_URL=${REDIS_URL:-redis://redis-worker-1:6379/0}
+    - ANALYTICS_DB_DSN=${ANALYTICS_DB_DSN:-postgresql://trading:${TRADING_PASSWORD}@scanner-pgbouncer:5432/scanner_analytics?sslmode=disable}
+    # Timer loop config
+    - V15_TRAIN_ENABLED=${V15_TRAIN_ENABLED:-1}
+    - V15_TRAIN_INTERVAL_SEC=${V15_TRAIN_INTERVAL_SEC:-86400}
+    # Bundle config
+    - V15_TRAIN_LOOKBACK_DAYS=${V15_TRAIN_LOOKBACK_DAYS:-30}
+    - V15_LABEL_THRESHOLD_R=${V15_LABEL_THRESHOLD_R:-0.3}
+    - V15_TRAIN_PER_REGIME=${V15_TRAIN_PER_REGIME:-1}
+    - V15_PER_REGIME_MIN=${V15_PER_REGIME_MIN:-60}
+    - V15_MIN_POSITIVES=${V15_MIN_POSITIVES:-100}
+    - V15_REGIME_DEGRADATION_FLOOR=${V15_REGIME_DEGRADATION_FLOOR:-30}
+    # Promotion
+    - V15_PROMOTE_AUTO=${V15_PROMOTE_AUTO:-0}
+    - V15_PROMOTE_MIN_ROC_AUC=${V15_PROMOTE_MIN_ROC_AUC:-0.55}
+    # Paths
+    - V15_LIVE_MODEL_PATH=${V15_LIVE_MODEL_PATH:-/var/lib/trade/ml_models/scorer_v15_lgbm/scorer_v15_lgbm.joblib}
+    - V15_CANDIDATE_DIR=${V15_CANDIDATE_DIR:-/var/lib/trade/of_reports/models}
+    - V15_VERDICT_PATH=${V15_VERDICT_PATH:-/var/lib/trade/of_reports/v15_lgbm_last_verdict.json}
+    # Concurrency
+    - V15_LOCK_KEY=${V15_LOCK_KEY:-lock:v15_lgbm_train}
+    - V15_LOCK_TTL_SEC=${V15_LOCK_TTL_SEC:-3600}
+    - V15_METRICS_KEY=${V15_METRICS_KEY:-metrics:v15_lgbm_train:last}
+    # Notify
+    - V15_NOTIFY_STREAM=${V15_NOTIFY_STREAM:-notify:telegram}
+    - V15_NOTIFY_ON_PROMOTE=${V15_NOTIFY_ON_PROMOTE:-1}
+    - V15_NOTIFY_ON_REJECT=${V15_NOTIFY_ON_REJECT:-1}
+    - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    depends_on:
+      redis-worker-1:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    networks:
+      - scanner-core
+      - scanner-infra
+    deploy:
+      resources:
+        limits:
+          memory: 1024M
+          cpus: '1.0'
+        reservations:
+          memory: 256M
+    volumes:
+      - ./python-worker:/app
+      - /var/lib/trade/of_reports:/var/lib/trade/of_reports
+      # Live model dir — shared with all crypto-orderflow services so the
+      # promoted joblib is visible at the same path.
+      - /var/lib/trade/ml_models:/var/lib/trade/ml_models
+    command:
+      - sh
+      - -c
+      - |
+        sleep 30
+        if [ "$${V15_TRAIN_ENABLED:-1}" = "0" ]; then
+          echo "[v15-lgbm-train-timer] V15_TRAIN_ENABLED=0 — idle"
+          while true; do sleep 3600; done
+        fi
+        # Stagger start so multiple timers don't pile up
+        sleep $$((RANDOM % 60))
+        while true; do
+          echo "[v15-lgbm-train-timer] $$(date -u) — starting cycle"
+          T0=$$(date +%s)
+          python3 -m tools.nightly_v15_lgbm_train_bundle \
+            --auto-promote $${V15_PROMOTE_AUTO:-0} \
+            && echo "[v15-lgbm-train-timer] $$(date -u) — done in $$(($$(date +%s)-$$T0))s" \
+            || echo "[v15-lgbm-train-timer] $$(date -u) — FAILED (see logs)"
+          echo "[v15-lgbm-train-timer] sleeping $${V15_TRAIN_INTERVAL_SEC:-86400}s before next cycle"
+          sleep $${V15_TRAIN_INTERVAL_SEC:-86400}
+        done
+    labels:
+      - com.scanner.service=v15-lgbm-train-timer
+      - com.scanner.description=Daily refit + per-regime ensemble for v15_lgbm. Online-adaptation against non-stationarity.
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '5'
+
+networks:
+  scanner-core:
+    external: true
+  scanner-infra:
+    external: true

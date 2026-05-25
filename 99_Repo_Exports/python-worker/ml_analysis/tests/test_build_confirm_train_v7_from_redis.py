@@ -98,6 +98,48 @@ class TestParseDecision:
         assert rec is not None
         assert rec["of_confirm"]["score"] == 0.88
 
+    def test_promotes_decision_time_liqmap_features(self):
+        fields = {
+            "payload": json.dumps({
+                "sid": "crypto-of:BTCUSDT:3000",
+                "symbol": "BTCUSDT",
+                "ts_ms": 3000,
+                "direction": "BUY",
+                "indicators_small": {
+                    "liqmap_5m_total_usd": 1000.0,
+                    "liqmap_5m_near_imb": -0.2,
+                    "liqmap_gate_rr": 1.7,
+                },
+            }),
+        }
+        rec = parse_decision(fields)
+        assert rec is not None
+        assert rec["liqmap_5m_total_usd"] == 1000.0
+        assert rec["liqmap_5m_near_imb"] == -0.2
+        assert rec["liqmap_gate_rr"] == 1.7
+
+    def test_promotes_legacy_nested_liqmap_record(self):
+        fields = {
+            "payload": json.dumps({
+                "sid": "crypto-of:ETHUSDT:4000",
+                "symbol": "ETHUSDT",
+                "ts_ms": 4000,
+                "direction": "SELL",
+                "liqmap": {
+                    "gate": {"shadow_veto": 1, "veto": 0, "rr": 2.1, "risk_bps": 8.0, "reward_bps": 16.8},
+                    "w5m": {"age_ms": 500.0, "near_total_usd": 2000.0, "dist_up_bps": 4.5},
+                    "w1h": {"age_ms": 1500.0, "peak_dn1_usd": 9000.0},
+                },
+            }),
+        }
+        rec = parse_decision(fields)
+        assert rec is not None
+        assert rec["liqmap_gate_shadow_veto"] == 1
+        assert rec["liqmap_gate_rr"] == 2.1
+        assert rec["liqmap_5m_near_total_usd"] == 2000.0
+        assert rec["liqmap_5m_dist_up_bps"] == 4.5
+        assert rec["liqmap_1h_peak_dn1_usd"] == 9000.0
+
 
 # ─── Outcome parsing ─────────────────────────────────────────────────────────
 

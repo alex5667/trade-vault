@@ -26,35 +26,35 @@ class TestAnalyzerWorkerLease:
         # Should not attempt lease or processing
         assert not self.redis.set.called
 
-    def test_handle_message_lease_prevents_concurrent_processing(self):
-        """Test lease prevents concurrent processing of same uid"""
+    def test_handle_message_llm_failure_is_nonfatal(self):
+        """LLM failure is non-fatal: rule classifier still runs, done_key is set.
+
+        Design: deterministic rules run first; LLM is shadow enrichment only.
+        A message is marked done if rule classification + Redis writes succeed,
+        regardless of LLM outcome.
+        """
         msg_id = "msg123"
         fields = {"uid": "test-uid", "title": "Test", "url": "http://test.com"}
 
-        # First call gets lease
         self.redis.get.return_value = None
-        self.redis.set.return_value = True  # lease acquired
+        self.redis.set.return_value = True
+        self.redis.setex.return_value = None
+        self.redis.xadd.return_value = "123-0"
 
-        # Mock LLM to raise exception (simulating failure)
         self.worker.llm = Mock()
         self.worker.llm.analyze.side_effect = Exception("LLM failed")
 
-        with patch('news_pipeline.analyzer_worker._parse_symbols_json', return_value=["GLOBAL"]), \
-             patch('time.time', return_value=1000):
-
-            # Should not raise exception due to try/finally
+        with patch('news_pipeline.analyzer_worker._parse_symbols_json', return_value=["GLOBAL"]):
             self.worker.handle_message(msg_id, fields)
 
-        # Lease should be acquired then released on failure
+        # Lease must be acquired and released
         lease_calls = [call for call in self.redis.set.call_args_list if "lease" in str(call)]
         assert len(lease_calls) >= 1
-
-        # Lease should be deleted on failure
         self.redis.delete.assert_called_with("news:analysis:lease:test-uid")
 
-        # Done key should NOT be set on failure
+        # Done key IS set because rule classifier succeeded (LLM failure is non-fatal)
         done_calls = [call for call in self.redis.set.call_args_list if "done:" in str(call)]
-        assert len(done_calls) == 0
+        assert len(done_calls) == 1
 
     def test_handle_message_success_sets_done_after_writes(self):
         """Test done key is set only after successful writes"""

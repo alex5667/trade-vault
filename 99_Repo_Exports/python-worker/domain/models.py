@@ -187,6 +187,10 @@ class TradeClosed:
     # times/prices
     entry_ts_ms: int = 0
     exit_ts_ms: int = 0
+    # signal emit time (ts_emit_ms from signal_payload); entry fill latency = fill_ts_ms - entry_ts_ms
+    fill_ts_ms: int = 0
+    signal_ts_ms: int = 0        # alias: signal event time (= entry_ts_ms)
+    adverse_ms_first_touch: int = 0  # ms from entry_ts_ms to first adverse price move
     entry_price: float = 0.0
     exit_price: float = 0.0
     lot: float = 0.0
@@ -604,6 +608,9 @@ class PositionState:
     # -------------------------------------------------------------------------
     adverse_bps_running: dict[int, float] = field(default_factory=dict)
     adverse_bps_t: dict[int, float] = field(default_factory=dict)
+
+    # first time price went adverse against position (epoch ms; 0 = not yet touched)
+    first_adverse_ts_ms: int = 0
 
     # -- tick activity tracking (orphan guard) --
     # Обновляются при каждом тике on_tick. Используются _is_orphan_expired(),

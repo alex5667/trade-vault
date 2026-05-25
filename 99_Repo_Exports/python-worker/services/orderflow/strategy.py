@@ -3908,6 +3908,21 @@ class OrderFlowStrategy:
             # by sid to compute mean(R | ml_canary_enforce) vs mean(R | canary_shadow).
             if "scorer_mode" in parts:
                 indicators["confidence_breakdown"]["scorer_mode"] = str(parts["scorer_mode"])  # type: ignore[assignment]
+            # Forward score sub-components so score_component_weight_calibrator_v1 can
+            # learn per-(symbol, regime) weights from the trades:closed stream.
+            # Calibrator reads from indicators.score_components first (see
+            # orderflow_services/score_component_weight_calibrator_v1.py:166).
+            _score_components: dict[str, float] = {}
+            for _k in ("s_z", "s_obi20", "s_obi", "s_microprice", "s_l3",
+                       "s_l3_pressure", "s_micro_block", "s_mp", "s_mode",
+                       "s_depletion", "s_refill_good"):
+                if _k in parts:
+                    try:
+                        _score_components[_k] = round(float(parts[_k]), 4)
+                    except (TypeError, ValueError):
+                        pass
+            if _score_components:
+                indicators["score_components"] = _score_components  # type: ignore[assignment]
 
             # Z-mapping calibrator: expose shadow bounds in breakdown + counterfactual log
             try:

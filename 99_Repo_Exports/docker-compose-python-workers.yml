@@ -883,7 +883,7 @@ services:
     - OUTBOX_CONTRACT_MODE=warn
     - PUBLISH_OF_INPUTS=1
     - OF_INPUTS_STREAM=signals:of:inputs
-    - OF_INPUTS_STREAM_MAXLEN=5000
+    - OF_INPUTS_STREAM_MAXLEN=15000
     # ── Confirmation Barrier (audit 2026-05-18) ─────────────────────────────
     - CONFIRMATION_BARRIER_MODE=${CONFIRMATION_BARRIER_MODE:-shadow}
     - CONFIRMATION_BARRIER_TIMEOUT_MS=${CONFIRMATION_BARRIER_TIMEOUT_MS:-5000}
@@ -1083,6 +1083,8 @@ services:
     - python
     - geometry/htf_zones_publisher.py
   post-sl-analyzer:
+    profiles:
+    - disabled
     build:
       context: .
       dockerfile: python-worker/Dockerfile
@@ -1161,6 +1163,79 @@ services:
     - sh
     - -c
     - sleep 45 && python services/sl_quantile_aggregator.py
+  signal-performance-tracker:
+    profiles:
+    - disabled
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    container_name: scanner-signal-tracker
+    environment:
+    - PYTHONUNBUFFERED=1
+    - REDIS_URL=${REDIS_URL}
+    - REDIS_HOST=redis-worker-1
+    - REDIS_PORT=6379
+    - REDIS_TICKS_URL=redis://redis-ticks:6379/0
+    - REDIS_TICKS_HOST=redis-ticks
+    - REDIS_TICKS_PORT=6379
+    - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+    - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID}
+    - TRACKER_CONFIG_PATH=/app/config/signal_tracker_config.json
+    - STRATEGIES=orderflow,ta,aggregated,cryptoorderflow
+    - PERIODIC_REPORT_HOURS=1
+    - TP_RATIO=${TP_RATIO:-0.5,0.3,0.2}
+    - ENTRY_TAG_ANALYTICS_ENABLED=true
+    - ENTRY_TAG_ANALYTICS_LIMIT=2000
+    - ENTRY_TAG_MIN_TRADES=10
+    - TRAILING_AFTER_TP1_SOURCES=CryptoOrderFlow
+    - DATABASE_URL=${ANALYTICS_DB_DSN}
+    - ANALYTICS_DB_DSN=${ANALYTICS_DB_DSN}
+    - TRADES_DB_DSN=${ANALYTICS_DB_DSN}
+    - ENABLE_CLOSED_ZSET_INDEX=1
+    - BASELINE_HORIZON_DAYS=180
+    - DEBUG_DB_CONN=1
+    - CRYPTO_COMMISSION_RATE=0.0005
+    - TM_ORPHAN_TIMEOUT_ENABLED=1
+    - LOG_DIR=/app/logs
+    - TM_NAMESPACE=signal-tracker
+    - TICK_READ_COUNT=100
+    - EVENTS_CLOSED_READ_COUNT=200
+    - OF_INPUTS_STREAM_MAXLEN=15000
+    - TZ=UTC
+    depends_on:
+      redis:
+        condition: service_healthy
+      redis-worker-1:
+        condition: service_healthy
+    networks:
+    - scanner-core
+    - scanner-infra
+    volumes:
+    - ./logs:/app/logs
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 3G
+          cpus: '0.5'
+        reservations:
+          memory: 24M
+    ulimits:
+      nofile:
+        soft: 4096
+        hard: 4096
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - test -f /app/services/signal_performance_tracker.py
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    command:
+    - sh
+    - -c
+    - sleep 90 && python -m services.signal_performance_tracker
   smt-entry-candidate-service:
     build:
       context: .
@@ -4764,6 +4839,7 @@ services:
     environment:
       - PYTHONUNBUFFERED=1
       - REDIS_URL=redis://redis-worker-1:6379/0
+      - LOCK_REDIS_URL=redis://redis:6379/0
       - V14_DRIFT_INTERVAL_SEC=1800
       - V14_DRIFT_WINDOW_HOURS=6
       - V14_DRIFT_BASELINE_HOURS=168
@@ -4790,9 +4866,14 @@ services:
         reservations:
           memory: 256M
     command:
-      - sh
-      - -c
-      - sleep 10 && python -m tools.ml_drift_monitor_v14_of
+      - python3
+      - tools/run_daemon_with_minik_failover.py
+      - --job-name
+      - v14_of_drift_monitor
+      - --
+      - python
+      - -m
+      - tools.ml_drift_monitor_v14_of
 
   # ────────────────────────────────────────────────────────────────────────
   # ADR-0004 ML v5_of cross-context services + outcome tracker
@@ -5212,6 +5293,7 @@ services:
     - HAWKES_GROUP=of-hawkes-vpin
     - HAWKES_CONSUMER=of-hawkes-vpin-1
     - HAWKES_MAX_LAG_MS=30000
+    - LOCK_REDIS_URL=redis://redis:6379/0
     - PYTHONPATH=.:/app
     - PYTHONUNBUFFERED=1
     - TZ=UTC

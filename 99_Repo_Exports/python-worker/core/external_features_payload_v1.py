@@ -364,6 +364,50 @@ _V12_BASE_OPTIONAL_KEYS: tuple[str, ...] = (
     "book_health_veto_book_evidence", "data_health_veto_book_evidence",
     # Triple-barrier labels (only present when outcome is back-filled)
     "mae_r", "mfe_r",
+    # ── v14_of schema-completeness backfill (2026-05-24) ─────────────────
+    # 56 keys named in v14_of feature_cols but never propagated to publish.
+    # Added here so when their producer eventually feeds runtime_indicators
+    # the bridge picks them up automatically (no second wiring needed).
+    # `_is_present` semantics: only emitted if source dict has the key —
+    # missing keys do NOT get fake 0.0 (which would create train/serve drift
+    # for cells that genuinely have no value).
+    #
+    # adverse / amihud
+    "adverse_drift_ms", "amihud_x_oi_delta",
+    # book / depth
+    "bid_ask_depth_ratio", "book_imbalance_5lvl", "book_refresh_rate_hz",
+    "depth_pull_ratio", "cancel_to_fill_ratio",
+    # cross-asset / macro context
+    "alt_season_index", "btc_corr_5m", "crypto_fear_greed",
+    "cross_asset_vol_ratio", "funding_rate_bps", "open_interest_delta",
+    # execution telemetry
+    "conf_ma_ratio", "confidence_x_of_score", "expectancy_bps",
+    "fill_time_p90_ms", "gate_hardness_score",
+    "slippage_realized_bps", "model_calibration_err",
+    # microstructure / hurst / kyle
+    "hurst_exp_50", "hurst_x_vol_regime",
+    "kelly_fraction_roll", "kyle_lambda", "kyle_x_vpin", "taker_lambda",
+    "tick_autocorr_lag1", "roll_spread_est",
+    # liquidation / liq mapping
+    "liq_score_x_spread", "liqmap_1h_age_ms", "liquidation_usd_1m",
+    # maker / market
+    "maker_cancel_ratio", "market_breadth_score",
+    # microbar
+    "microbar_body_bps", "microbar_range_bps", "microbar_vwap_mid_bps",
+    # momentum / ofi
+    "momentum_10s", "momentum_x_vol_ratio",
+    "ofi", "ofi_stability_score", "ofi_stable_secs",
+    # price / signal
+    "price_to_ema_bps", "signal_cluster_flag", "source_jump_usd",
+    # rolling stats
+    "profit_factor_roll20", "recovery_factor_roll",
+    # rsi / sweep
+    "rsi_cvd", "sweep_div_match", "sweep_velocity_bps_s",
+    # trade
+    "trade_freq_per_hr", "trade_size_skew",
+    # vol / vpin
+    "vol_fast_bps", "vol_regime_code", "vol_slow_bps",
+    "vpin_rolling", "vpin_x_funding",
 )
 
 

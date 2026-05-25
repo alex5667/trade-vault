@@ -32,7 +32,7 @@ import json
 import math
 import os
 import time
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass
 from enum import Enum
 from typing import Any
 
@@ -389,6 +389,25 @@ class TrailingStateWorker:
 
     # ── State persistence ────────────────────────────────────────────────────
 
+    _SIGNAL_KEY_PREFIXES = (
+        "signals:",
+        "signals:audit:",
+        "signals:crypto:",
+        "signal:",
+        "signal:snap:",
+    )
+
+    def _lookup_signal(self, sid: str) -> dict[str, Any] | None:
+        """Try to read signal hash from Redis using known key prefixes."""
+        for prefix in self._SIGNAL_KEY_PREFIXES:
+            try:
+                raw = self.r.get(f"{prefix}{sid}")
+                if raw:
+                    return json.loads(raw if isinstance(raw, str) else raw.decode())  # type: ignore[union-attr]
+            except Exception:
+                pass
+        return None
+
     # ── Autocal reader ───────────────────────────────────────────────────────
 
     def _refresh_autocal_shadow(self) -> None:
@@ -664,10 +683,35 @@ class TrailingStateWorker:
             log.warning("on_tp_hit: missing sid in event=%s", event)
             return None
 
-        symbol = event.get("symbol", "")
-        side = event.get("side", "")
-        if not symbol or not side:
-            log.warning("on_tp_hit: missing symbol/side sid=%s", sid)
+        # Field normalization — TP_HIT stream events use lowercase `direction`
+        # (long/short) instead of `side`. Some events also miss `symbol` if the
+        # listener parsed a flat-only payload; derive from `sid` (format
+        # "<kind>:SYMBOL:ts:L|S") as last-resort fallback.
+        symbol = event.get("symbol") or ""
+        side_raw = event.get("side") or event.get("direction") or ""
+        side = side_raw.upper() if isinstance(side_raw, str) else ""
+        if side in ("LONG", "BUY", "L"):
+            side = "LONG"
+        elif side in ("SHORT", "SELL", "S"):
+            side = "SHORT"
+        # sid-tail fallback for side (only if still missing)
+        if not side and ":" in sid:
+            tail = sid.rsplit(":", 1)[-1].upper()
+            if tail == "L":
+                side = "LONG"
+            elif tail == "S":
+                side = "SHORT"
+        # symbol fallback from sid: kind:SYMBOL:ts:dir
+        if not symbol and sid.count(":") >= 2:
+            parts = sid.split(":")
+            if len(parts) >= 2:
+                symbol = parts[1]
+
+        if not symbol or side not in ("LONG", "SHORT"):
+            log.warning(
+                "on_tp_hit: missing symbol/side sid=%s symbol=%r side=%r",
+                sid, symbol, side,
+            )
             return None
 
         # Load existing or create new
@@ -698,6 +742,32 @@ class TrailingStateWorker:
         state.current_sl = float(event.get("current_sl", state.current_sl) or 0)
         state.atr_value = float(event.get("atr_value", state.atr_value) or 0)
         state.atr_mult = float(event.get("atr_mult", state.atr_mult) or 1.0)
+
+        # TP_HIT events rarely carry atr_value / original SL; look up the signal.
+        if state.atr_value == 0 or state.current_sl == 0:
+            sig = self._lookup_signal(sid)
+            if sig:
+                ind = sig.get("indicators") or {}
+                if isinstance(ind, str):
+                    try:
+                        ind = json.loads(ind)
+                    except Exception:
+                        ind = {}
+                if state.atr_value == 0:
+                    atr_from_sig = float(
+                        sig.get("atr") or sig.get("atr_value")
+                        or ind.get("atr") or ind.get("atr_value") or 0
+                    )
+                    if atr_from_sig > 0:
+                        state.atr_value = atr_from_sig
+                        log.debug("on_tp_hit: atr_value=%.5f from signal lookup sid=%s", atr_from_sig, sid)
+                # Seed initial SL from signal so first SL_MOVE has a meaningful old_sl.
+                if state.current_sl == 0:
+                    sl_from_sig = float(sig.get("sl") or sig.get("current_sl") or 0)
+                    if sl_from_sig > 0:
+                        state.current_sl = sl_from_sig
+                        state.last_sent_sl = sl_from_sig
+
         state.profile = event.get("profile", state.profile) or ""
         state.profile_hash = event.get("profile_hash", state.profile_hash) or ""
         state.policy_hash = event.get("policy_hash", state.policy_hash) or ""
@@ -719,16 +789,27 @@ class TrailingStateWorker:
         elif state.atr_value > 0 and state.atr_mult > 0:
             state.trail_distance = state.atr_value * state.atr_mult
 
-        # Seed watermarks from current price if provided
-        price = event.get("price")
+        # Seed watermarks from current price if provided.
+        # TP_HIT events carry fill_price / tp_price, not `price`.
+        price = (
+            event.get("price")
+            or event.get("fill_price")
+            or event.get("tp_price")
+        )
         if price is not None:
-            px = float(price)
-            if state.side == "LONG":
-                state.high_watermark = max(state.high_watermark or px, px)
-            else:
-                state.low_watermark = min(state.low_watermark if state.low_watermark is not None else px, px)
+            try:
+                px = float(price)
+            except (TypeError, ValueError):
+                px = 0.0
+            if px > 0:
+                if state.side == "LONG":
+                    state.high_watermark = max(state.high_watermark or px, px)
+                else:
+                    state.low_watermark = min(state.low_watermark if state.low_watermark is not None else px, px)
+                # Also seed entry_price if missing
+                if not state.entry_price:
+                    state.entry_price = px
 
-        from_state = state.state
         was_new = existing is None
         self._transition(
             state,

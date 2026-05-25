@@ -127,7 +127,18 @@ def _to_bool(v: Any, default: bool = False) -> bool | None:
         return False
     return default
 
+def _first_present(*values: Any) -> Any:
+    for value in values:
+        if value is None:
+            continue
+        if isinstance(value, str) and value.strip() == "":
+            continue
+        return value
+    return None
+
 def _normalize_row(evt: dict[str, Any]) -> tuple[dict[str, Any] | None, str]:
+    ml = evt.get("ml") if isinstance(evt.get("ml"), dict) else {}
+    meta = evt.get("meta") if isinstance(evt.get("meta"), dict) else {}
     sid = str(evt.get("sid") or evt.get("signal_id") or "").strip()
     symbol = str(evt.get("symbol") or evt.get("sym") or "").strip()
     ts_ms = _to_int(evt.get("ts_ms") or evt.get("timestamp_ms"))
@@ -143,16 +154,25 @@ def _normalize_row(evt: dict[str, Any]) -> tuple[dict[str, Any] | None, str]:
         "ts_ms": ts_ms,
         "sid": sid,
         "symbol": symbol,
-        "model_ver": str(evt.get("model_ver") or evt.get("model_version") or evt.get("meta_model_ver") or evt.get("meta_model_version") or evt.get("ml_model_run_id") or ""),
-        "mode": (evt.get("mode") or evt.get("meta_mode") or evt.get("ml_mode") or ""),
-        "p_edge": _to_float(evt.get("p_edge") or evt.get("meta_p_edge") or evt.get("ml_p_edge") or evt.get("final_score")),
-        "p_min": _to_float(evt.get("p_min") or evt.get("meta_p_min") or evt.get("ml_p_min")),
-        "p_margin": _to_float(evt.get("p_margin") or evt.get("meta_p_margin") or evt.get("ml_p_margin")),
-        "allow": _to_bool(evt.get("allow") if "allow" in evt else evt.get("ml_allow")),
-        "bucket": (evt.get("bucket") or evt.get("ml_bucket") or ""),
-        "missing": _to_bool(evt.get("missing") if "missing" in evt else (bool(evt.get("ml_missing")) if evt.get("ml_missing") else False), False),
-        "latency_us": _to_int(evt.get("latency_us") or evt.get("ml_latency_us")),
+        "model_ver": str(_first_present(
+            evt.get("model_ver"), evt.get("model_version"),
+            evt.get("meta_model_ver"), evt.get("meta_model_version"),
+            evt.get("ml_model_run_id"), evt.get("ml_model_ver"),
+            ml.get("model_run_id"), ml.get("model_ver"), ml.get("model_version"),
+            meta.get("model_ver"), meta.get("model_version"),
+            "unknown",
+        )),
+        "mode": (_first_present(evt.get("mode"), evt.get("meta_mode"), evt.get("ml_mode"), ml.get("mode")) or ""),
+        "p_edge": _to_float(_first_present(evt.get("p_edge"), evt.get("meta_p_edge"), evt.get("ml_p_edge"), evt.get("final_score"), ml.get("p_edge"))),
+        "p_min": _to_float(_first_present(evt.get("p_min"), evt.get("meta_p_min"), evt.get("ml_p_min"), ml.get("p_min"), ml.get("floor"))),
+        "p_margin": _to_float(_first_present(evt.get("p_margin"), evt.get("meta_p_margin"), evt.get("ml_p_margin"), ml.get("p_margin"))),
+        "allow": _to_bool(_first_present(evt.get("allow") if "allow" in evt else None, evt.get("ml_allow"), ml.get("allow"))),
+        "bucket": (_first_present(evt.get("bucket"), evt.get("ml_bucket"), ml.get("bucket")) or ""),
+        "missing": _to_bool(_first_present(evt.get("missing") if "missing" in evt else None, evt.get("ml_missing"), bool(ml.get("missing")) if ml.get("missing") else None), False),
+        "latency_us": _to_int(_first_present(evt.get("latency_us"), evt.get("ml_latency_us"), ml.get("latency_us"))),
     }
+    if row["p_margin"] is None and row["p_edge"] is not None and row["p_min"] is not None:
+        row["p_margin"] = float(row["p_edge"]) - float(row["p_min"])
     return row, ""
 
 class PgWriter:

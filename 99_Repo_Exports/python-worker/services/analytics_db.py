@@ -10,6 +10,7 @@ Usage:
 """
 
 import json
+import hashlib
 import logging
 import math
 import os
@@ -19,6 +20,34 @@ import psycopg2
 from psycopg2.extras import Json, RealDictCursor
 
 logger = logging.getLogger("analytics_db")
+
+def _stable_closed_trade_id(closed: Any) -> str:
+    existing = getattr(closed, "closed_trade_id", None)
+    if existing:
+        return str(existing)
+    raw = "|".join(
+        str(x or "")
+        for x in (
+            getattr(closed, "sid", ""),
+            getattr(closed, "exit_order_ref", ""),
+            getattr(closed, "exit_ts_ms", ""),
+            getattr(closed, "close_reason", ""),
+        )
+    )
+    return "ctid:" + hashlib.sha1(raw.encode("utf-8")).hexdigest()[:24]
+
+def _payload_metric(signal_payload: dict[str, Any], key: str, default: Any = None) -> Any:
+    for source in (
+        signal_payload,
+        signal_payload.get("meta") or {},
+        (signal_payload.get("config_snapshot") or {}).get("meta") or {},
+    ):
+        if not isinstance(source, dict):
+            continue
+        value = source.get(key)
+        if value not in (None, ""):
+            return value
+    return default
 
 def _sanitize_floats(obj: Any) -> Any:
     """Recursively replace NaN/Infinity with None so json.dumps produces valid JSON."""
@@ -434,7 +463,8 @@ def save_trade_closed(closed: TradeClosed) -> None:  # type: ignore
             v_gate_reason,
             is_orphan_cleanup, exclude_from_ml_labels,
             timeout_age_ms, timeout_max_hold_ms, timeout_request_ts_ms, timeout_close_latency_ms,
-            exit_order_ref, closed_trade_id
+            exit_order_ref, closed_trade_id,
+            entry_regime
         ) VALUES (
             %s, %s, %s, %s, %s, %s, %s,
             %s, %s, %s, %s, %s, %s,
@@ -474,7 +504,8 @@ def save_trade_closed(closed: TradeClosed) -> None:  # type: ignore
             %s,
             %s, %s,
             %s, %s, %s, %s,
-            %s, %s
+            %s, %s,
+            %s
         )
         ON CONFLICT (order_id) DO UPDATE SET
             exit_ts_ms = CASE
@@ -508,7 +539,8 @@ def save_trade_closed(closed: TradeClosed) -> None:  # type: ignore
             timeout_request_ts_ms = COALESCE(EXCLUDED.timeout_request_ts_ms, trades_closed.timeout_request_ts_ms),
             timeout_close_latency_ms = COALESCE(EXCLUDED.timeout_close_latency_ms, trades_closed.timeout_close_latency_ms),
             exit_order_ref = COALESCE(EXCLUDED.exit_order_ref, trades_closed.exit_order_ref),
-            closed_trade_id = COALESCE(EXCLUDED.closed_trade_id, trades_closed.closed_trade_id)
+            closed_trade_id = COALESCE(EXCLUDED.closed_trade_id, trades_closed.closed_trade_id),
+            entry_regime = COALESCE(EXCLUDED.entry_regime, trades_closed.entry_regime)
         WHERE EXCLUDED.is_final_close OR trades_closed.is_final_close = false
     """
 
@@ -746,15 +778,19 @@ def save_trade_closed(closed: TradeClosed) -> None:  # type: ignore
         getattr(closed, "atr_trail_tf_ms", 0) or 0,
         policy_mode_val,
         policy_raw_val,
-        getattr(closed, "v_gate_reason", "") or "",
+        _payload_metric(signal_payload, "v_gate_reason", getattr(closed, "v_gate_reason", None)),
         bool(getattr(closed, "is_orphan_cleanup", False)),
         bool(getattr(closed, "exclude_from_ml_labels", False)),
         getattr(closed, "timeout_age_ms", None) or None,
         getattr(closed, "timeout_max_hold_ms", None) or None,
         getattr(closed, "timeout_request_ts_ms", None) or None,
         getattr(closed, "timeout_close_latency_ms", None) or None,
-        getattr(closed, "exit_order_ref", None) or None,
-        getattr(closed, "closed_trade_id", None) or None,
+        getattr(closed, "exit_order_ref", None) or (f"virt:exit:{getattr(closed, 'sid', '')}" if getattr(closed, "is_virtual", False) else None),
+        _stable_closed_trade_id(closed) if getattr(closed, "is_final_close", True) else None,
+        # entry_regime: prefer attribute, fall back to "na" → NULL in DB
+        (lambda v: v if v and str(v).lower() not in ("", "na", "none", "null", "unknown") else None)(
+            getattr(closed, "entry_regime", None) or getattr(closed, "regime", None)
+        ),
     )
 
     # ---- P0 extraction (robust fallbacks) ----
@@ -829,7 +865,7 @@ def save_trade_closed(closed: TradeClosed) -> None:  # type: ignore
         policy_mode_val,
         policy_raw_val,
         _strong_gate_ok,
-        getattr(closed, "v_gate_reason", None) or None,
+        _payload_metric(signal_payload, "v_gate_reason", getattr(closed, "v_gate_reason", None)) or None,
     )
 
     # Sanitize parameters: replace empty tuples `()` with `None`, and unbox 1-element tuples `(x,)`

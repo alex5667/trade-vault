@@ -629,8 +629,25 @@ class EntryPolicyGate:
                 for k in (os.getenv("EXEC_MAKER_ONLY_KINDS") or "").split(",")
                 if k.strip()
             }
-            if _mo_kinds and str(kind).lower() in _mo_kinds:
-                _mo_enforce = _env_bool("EXEC_MAKER_ONLY_ENFORCE", False)
+            _kind_lc = str(kind).lower()
+            if _mo_kinds and _kind_lc in _mo_kinds:
+                # Two-level enforce gate:
+                #   EXEC_MAKER_ONLY_ENFORCE        — global on/off
+                #   EXEC_MAKER_ONLY_KINDS_ENFORCE  — CSV canary subset; when set,
+                #     only kinds listed here flip from SHADOW to ENFORCE.
+                #     Empty/unset → all matched kinds enforce (when global=1).
+                # Canary rollout (2026-05-24): start with "iceberg" alone, watch
+                # exec_maker_only_required_total{decision="ENFORCE"} + fill rate +
+                # MAKER_TIMEOUT events for 24-48h before expanding the list.
+                _global_enforce = _env_bool("EXEC_MAKER_ONLY_ENFORCE", False)
+                _canary_csv = (os.getenv("EXEC_MAKER_ONLY_KINDS_ENFORCE") or "").strip()
+                if _canary_csv:
+                    _canary_kinds = {
+                        k.strip().lower() for k in _canary_csv.split(",") if k.strip()
+                    }
+                    _mo_enforce = _global_enforce and _kind_lc in _canary_kinds
+                else:
+                    _mo_enforce = _global_enforce
                 try:
                     ctx.exec_maker_only_required = 1
                     ctx.exec_maker_only_enforce = 1 if _mo_enforce else 0

@@ -1,0 +1,416 @@
+# Feature producers — fill v14_of dead-feature gap.
+# Each service writes to a Redis snapshot key that core/feature_enricher_v1.py reads.
+# See docs/feature_producer_backlog.md.
+
+services:
+
+  execution-stats-updater:
+    # Consumes trades:closed → maintains stats:execution:{symbol} HASH.
+    # Unlocks: expectancy_bps, profit_factor_roll20, recovery_factor_roll,
+    # kelly_fraction_roll, slippage_realized_bps, fill_time_p90_ms, adverse_drift_ms.
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    image: scanner-python-worker:latest
+    container_name: scanner-execution-stats-updater
+    restart: unless-stopped
+    environment:
+      - PYTHONUNBUFFERED=1
+      - REDIS_URL=${REDIS_URL:-redis://redis-worker-1:6379/0}
+      - ESU_STREAM=${ESU_STREAM:-trades:closed}
+      - ESU_GROUP=${ESU_GROUP:-execution-stats-updater}
+      - ESU_CONSUMER=${ESU_CONSUMER:-esu-1}
+      - ESU_WINDOW_SIZE=${ESU_WINDOW_SIZE:-50}
+      - ESU_FLUSH_INTERVAL_S=${ESU_FLUSH_INTERVAL_S:-30}
+      - ESU_MIN_TRADES_TO_PUBLISH=${ESU_MIN_TRADES_TO_PUBLISH:-10}
+      - METRICS_PORT=9878
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - TZ=UTC
+    ports:
+      - "9878:9878"
+    depends_on:
+      redis-worker-1:
+        condition: service_healthy
+    networks:
+      - scanner-core
+      - scanner-infra
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.2'
+        reservations:
+          memory: 64M
+    command:
+      - sh
+      - -c
+      - |
+        sleep 20
+        python -m services.execution_stats_updater
+    labels:
+      - com.scanner.service=execution-stats-updater
+      - com.scanner.description=Rolling per-symbol exec stats from trades:closed
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '3'
+
+  fear-greed-exporter:
+    # Hourly fetch from alternative.me → cache:fear_greed JSON.
+    # Unlocks: crypto_fear_greed, market_breadth_score.
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    image: scanner-python-worker:latest
+    container_name: scanner-fear-greed-exporter
+    restart: unless-stopped
+    environment:
+      - PYTHONUNBUFFERED=1
+      - REDIS_URL=${REDIS_URL:-redis://redis-worker-1:6379/0}
+      - FGE_INTERVAL_S=${FGE_INTERVAL_S:-3600}
+      - FGE_TTL_SEC=${FGE_TTL_SEC:-7200}
+      - METRICS_PORT=9879
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - TZ=UTC
+    ports:
+      - "9879:9879"
+    depends_on:
+      redis-worker-1:
+        condition: service_healthy
+    networks:
+      - scanner-core
+      - scanner-infra
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+          cpus: '0.1'
+        reservations:
+          memory: 32M
+    command:
+      - sh
+      - -c
+      - |
+        sleep 15
+        python -m services.fear_greed_exporter
+    labels:
+      - com.scanner.service=fear-greed-exporter
+      - com.scanner.description=Crypto Fear&Greed daily from alternative.me
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '3'
+
+  crossasset-ctx-writer:
+    # Cross-asset features vs BTC: btc_corr_5m, alt_season_index, cross_asset_vol_ratio.
+    # Reads stream:kline_1m:{SYMBOL} → writes crossasset:ctx:{SYMBOL} JSON.
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    image: scanner-python-worker:latest
+    container_name: scanner-crossasset-ctx-writer
+    restart: unless-stopped
+    environment:
+      - PYTHONUNBUFFERED=1
+      - REDIS_URL=${REDIS_URL:-redis://redis-worker-1:6379/0}
+      - CCW_BTC_SYMBOL=${CCW_BTC_SYMBOL:-BTCUSDT}
+      - CCW_SYMBOLS=${CCW_SYMBOLS:-ETHUSDT,SOLUSDT,1000PEPEUSDT,APTUSDT,DOGEUSDT,WIFUSDT,ARBUSDT,1000BONKUSDT,1000SHIBUSDT}
+      - CCW_TICKS_URL=${CCW_TICKS_URL:-redis://redis-ticks:6379/0}
+      - CCW_WINDOW_BARS=${CCW_WINDOW_BARS:-30}
+      - CCW_INTERVAL_S=${CCW_INTERVAL_S:-60}
+      - CCW_TTL_SEC=${CCW_TTL_SEC:-180}
+      - METRICS_PORT=9880
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - TZ=UTC
+    ports:
+      - "9880:9880"
+    depends_on:
+      redis-worker-1:
+        condition: service_healthy
+    networks:
+      - scanner-core
+      - scanner-infra
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.2'
+        reservations:
+          memory: 64M
+    command:
+      - sh
+      - -c
+      - |
+        sleep 25
+        python -m services.crossasset_ctx_writer
+    labels:
+      - com.scanner.service=crossasset-ctx-writer
+      - com.scanner.description=BTC correlation + alt-season + cross-vol per symbol
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '3'
+
+  microstructure-metrics-v2:
+    # Tick-buffer consumer: kyle_lambda, vpin_rolling, hurst, roll_spread, tick_autocorr.
+    # Writes microstruct:ctx:{SYMBOL} JSON.
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    image: scanner-python-worker:latest
+    container_name: scanner-microstructure-metrics-v2
+    restart: unless-stopped
+    environment:
+      - PYTHONUNBUFFERED=1
+      - REDIS_URL=${MSV2_READ_URL:-redis://redis-ticks:6379/0}
+      - MSV2_PUBLISH_URL=${MSV2_PUBLISH_URL:-redis://redis-worker-1:6379/0}
+      - MSV2_SYMBOLS=${MSV2_SYMBOLS:-BTCUSDT,ETHUSDT,SOLUSDT,1000PEPEUSDT}
+      - MSV2_WINDOW_TICKS=${MSV2_WINDOW_TICKS:-200}
+      - MSV2_INTERVAL_S=${MSV2_INTERVAL_S:-30}
+      - MSV2_TTL_SEC=${MSV2_TTL_SEC:-120}
+      - METRICS_PORT=9881
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - TZ=UTC
+    ports:
+      - "9881:9881"
+    depends_on:
+      redis-ticks:
+        condition: service_healthy
+      redis-worker-1:
+        condition: service_healthy
+    networks:
+      - scanner-core
+      - scanner-infra
+    deploy:
+      resources:
+        limits:
+          memory: 384M
+          cpus: '0.3'
+        reservations:
+          memory: 96M
+    command:
+      - sh
+      - -c
+      - |
+        sleep 30
+        python -m core.microstructure_metrics_v2
+    labels:
+      - com.scanner.service=microstructure-metrics-v2
+      - com.scanner.description=Kyle lambda, VPIN, Hurst, Roll spread per symbol
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '3'
+
+  orderflow-pressure-v2:
+    # Trade-flow stats: trade_freq_per_hr, trade_size_skew, ofi_stability.
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    image: scanner-python-worker:latest
+    container_name: scanner-orderflow-pressure-v2
+    restart: unless-stopped
+    environment:
+      - PYTHONUNBUFFERED=1
+      - REDIS_URL=${OPV2_READ_URL:-redis://redis-ticks:6379/0}
+      - OPV2_PUBLISH_URL=${OPV2_PUBLISH_URL:-redis://redis-worker-1:6379/0}
+      - OPV2_SYMBOLS=${OPV2_SYMBOLS:-BTCUSDT,ETHUSDT,SOLUSDT,1000PEPEUSDT}
+      - OPV2_WINDOW_SEC=${OPV2_WINDOW_SEC:-600}
+      - OPV2_INTERVAL_S=${OPV2_INTERVAL_S:-30}
+      - METRICS_PORT=9882
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - TZ=UTC
+    ports:
+      - "9882:9882"
+    depends_on:
+      redis-ticks:
+        condition: service_healthy
+      redis-worker-1:
+        condition: service_healthy
+    networks:
+      - scanner-core
+      - scanner-infra
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.2'
+        reservations:
+          memory: 64M
+    command:
+      - sh
+      - -c
+      - |
+        sleep 30
+        python -m services.orderflow_pressure_v2
+    labels:
+      - com.scanner.service=orderflow-pressure-v2
+      - com.scanner.description=Trade flow + OFI stability per symbol
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '3'
+
+  book-rate-ema-producer:
+    # Book event-rate EMAs: depth_pull, cancel_to_fill, maker_cancel, refresh_rate.
+    # Writes book_rates:{SYMBOL} JSON.
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    image: scanner-python-worker:latest
+    container_name: scanner-book-rate-ema-producer
+    restart: unless-stopped
+    environment:
+      - PYTHONUNBUFFERED=1
+      - REDIS_URL=${BRE_READ_URL:-redis://redis-ticks:6379/0}
+      - BRE_PUBLISH_URL=${BRE_PUBLISH_URL:-redis://redis-worker-1:6379/0}
+      - BRE_SYMBOLS=${BRE_SYMBOLS:-BTCUSDT,ETHUSDT,SOLUSDT,1000PEPEUSDT}
+      - BRE_HALF_LIFE_SEC=${BRE_HALF_LIFE_SEC:-60}
+      - BRE_INTERVAL_S=${BRE_INTERVAL_S:-10}
+      - METRICS_PORT=9884
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - TZ=UTC
+    ports:
+      - "9884:9884"
+    depends_on:
+      redis-ticks:
+        condition: service_healthy
+      redis-worker-1:
+        condition: service_healthy
+    networks:
+      - scanner-core
+      - scanner-infra
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.2'
+        reservations:
+          memory: 64M
+    command:
+      - sh
+      - -c
+      - |
+        sleep 30
+        python -m services.book_rate_ema_producer
+    labels:
+      - com.scanner.service=book-rate-ema-producer
+      - com.scanner.description=Book event rate EMAs per symbol
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '3'
+
+  liquidation-ctx-writer:
+    # Liquidation 1-min aggregator. Writes ctx:liq:{SYMBOL} JSON.
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    image: scanner-python-worker:latest
+    container_name: scanner-liquidation-ctx-writer
+    restart: unless-stopped
+    environment:
+      - PYTHONUNBUFFERED=1
+      - REDIS_URL=${LCW_READ_URL:-redis://redis:6379/0}
+      - LCW_PUBLISH_URL=${LCW_PUBLISH_URL:-redis://redis-worker-1:6379/0}
+      - LCW_SYMBOLS=${LCW_SYMBOLS:-BTCUSDT,ETHUSDT,SOLUSDT,1000PEPEUSDT}
+      - LCW_LIQ_STREAM=${LCW_LIQ_STREAM:-stream:liq_evt}
+      - LCW_WINDOW_SEC=${LCW_WINDOW_SEC:-60}
+      - LCW_INTERVAL_S=${LCW_INTERVAL_S:-10}
+      - METRICS_PORT=9885
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - TZ=UTC
+    ports:
+      - "9885:9885"
+    depends_on:
+      redis-worker-1:
+        condition: service_healthy
+    networks:
+      - scanner-core
+      - scanner-infra
+    deploy:
+      resources:
+        limits:
+          memory: 192M
+          cpus: '0.15'
+        reservations:
+          memory: 48M
+    command:
+      - sh
+      - -c
+      - |
+        sleep 30
+        python -m services.liquidation_ctx_writer
+    labels:
+      - com.scanner.service=liquidation-ctx-writer
+      - com.scanner.description=Liquidation 1m USD + liqmap age per symbol
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '3'
+
+  sweep-detector-v2:
+    # Sweep detector + signal clustering. Reads ticks + signals:of:inputs.
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    image: scanner-python-worker:latest
+    container_name: scanner-sweep-detector-v2
+    restart: unless-stopped
+    environment:
+      - PYTHONUNBUFFERED=1
+      - REDIS_URL=${SDV2_READ_URL:-redis://redis-ticks:6379/0}
+      - SDV2_PUBLISH_URL=${SDV2_PUBLISH_URL:-redis://redis-worker-1:6379/0}
+      - SDV2_SIGNALS_URL=${SDV2_SIGNALS_URL:-redis://redis-worker-1:6379/0}
+      - SDV2_SYMBOLS=${SDV2_SYMBOLS:-BTCUSDT,ETHUSDT,SOLUSDT,1000PEPEUSDT}
+      - SDV2_TICK_WINDOW_SEC=${SDV2_TICK_WINDOW_SEC:-60}
+      - SDV2_SIGNAL_WINDOW_SEC=${SDV2_SIGNAL_WINDOW_SEC:-60}
+      - SDV2_CLUSTER_MIN_COUNT=${SDV2_CLUSTER_MIN_COUNT:-3}
+      - SDV2_INTERVAL_S=${SDV2_INTERVAL_S:-15}
+      - METRICS_PORT=9883
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - TZ=UTC
+    ports:
+      - "9883:9883"
+    depends_on:
+      redis-ticks:
+        condition: service_healthy
+      redis-worker-1:
+        condition: service_healthy
+    networks:
+      - scanner-core
+      - scanner-infra
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.2'
+        reservations:
+          memory: 64M
+    command:
+      - sh
+      - -c
+      - |
+        sleep 30
+        python -m services.sweep_detector_v2
+    labels:
+      - com.scanner.service=sweep-detector-v2
+      - com.scanner.description=Sweep velocity + signal cluster + CVD div per symbol
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '3'
+
+networks:
+  scanner-core:
+    external: true
+  scanner-infra:
+    external: true

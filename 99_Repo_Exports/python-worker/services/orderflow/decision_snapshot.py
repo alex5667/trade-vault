@@ -29,6 +29,44 @@ def _safe_int(x: Any) -> int | None:
         return None
     return int(i)
 
+
+_LIQMAP_WINDOWS = ("5m", "1h")
+_LIQMAP_WINDOW_FIELDS = (
+    "age_ms",
+    "levels_n",
+    "total_usd",
+    "near_total_usd",
+    "near_long_usd",
+    "near_short_usd",
+    "near_imb",
+    "dist_up_bps",
+    "dist_dn_bps",
+    "peak_up1_usd",
+    "peak_dn1_usd",
+    "peak_up1_share",
+    "peak_dn1_share",
+    "peaks_up",
+    "peaks_dn",
+)
+_LIQMAP_GATE_FIELDS = (
+    "liqmap_gate_shadow_veto",
+    "liqmap_gate_veto",
+    "liqmap_gate_rr",
+    "liqmap_gate_risk_bps",
+    "liqmap_gate_reward_bps",
+    "liqmap_gate_adverse_peak_usd",
+    "liqmap_gate_favorable_peak_usd",
+)
+_LIQMAP_INDICATOR_KEYS = {
+    *(f"liqmap_{window}_{field}" for window in _LIQMAP_WINDOWS for field in _LIQMAP_WINDOW_FIELDS),
+    *_LIQMAP_GATE_FIELDS,
+}
+_INDICATORS_SMALL_ALLOW = {
+    "delta_z", "obi", "ofi_z", "ofi_stability_score", "obi_stability_score",
+    "book_ts_gap_ms", "book_stale_ms", "spread_bps", "confidence_raw", "confidence_cal",
+    *_LIQMAP_INDICATOR_KEYS,
+}
+
 @dataclass(slots=True)
 class DecisionSnapshotContractDTO:
     """Dataclass Type-Checked payload for decision_snapshot."""
@@ -307,12 +345,9 @@ def build_decision_snapshot_event(
     }
 
     if include_indicators:
-        # Keep small allow-list to avoid massive payloads by accident.
-        allow = {
-            "delta_z", "obi", "ofi_z", "ofi_stability_score", "obi_stability_score",
-            "book_ts_gap_ms", "book_stale_ms", "spread_bps", "confidence_raw", "confidence_cal",
-        }
-        out["indicators_small"] = {k: indicators.get(k) for k in allow if k in indicators}
+        # Keep small allow-list to avoid massive payloads by accident while
+        # preserving decision-time v9 liqmap features for replay/train datasets.
+        out["indicators_small"] = {k: indicators.get(k) for k in _INDICATORS_SMALL_ALLOW if k in indicators}
 
     # Validate output through strict dataclass initialization before returning
     try:

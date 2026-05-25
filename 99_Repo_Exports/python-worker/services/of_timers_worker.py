@@ -2964,9 +2964,8 @@ def run_ml_train_edge_stack_v1_oof() -> bool:
     schema_ver = os.getenv(
         "ML_EDGE_STACK_OOF_FEATURE_SCHEMA_VER",
         os.getenv("FEATURE_SCHEMA_VER", os.getenv("ML_FEATURE_SCHEMA_VER", "")),
-    ),
-    schema_ver = (schema_ver or "").strip()  # type: ignore
-  # type: ignore
+    )
+    schema_ver = (schema_ver or "").strip()
     feature_cols = os.getenv("ML_EDGE_STACK_OOF_FEATURE_COLS_JSON", "/var/lib/trade/ml_models/edge_stack_v1_oof/feature_cols.json")
     # Если schema_ver задан — тренируем без feature_cols.json (registry-derived columns)
     if not schema_ver:
@@ -2982,7 +2981,7 @@ def run_ml_train_edge_stack_v1_oof() -> bool:
         os.getenv("ML_EDGE_STACK_OOF_MODELS_ROOT", "/var/lib/trade/ml_models"),
         "edge_stack_v1_oof",
         f"edge_stack_v1_{datetime.now().strftime('%Y%m%d_%H%M%S')}.joblib",
-    ),
+    )
     args = [
         "--data_jsonl", dataset,
         "--out_model", out_model,
@@ -2998,6 +2997,23 @@ def run_ml_train_edge_stack_v1_oof() -> bool:
     ]
 
     if schema_ver:
+        gate_enabled = int(os.getenv("ML_EDGE_STACK_OOF_FEATURE_COVERAGE_GATE", "1") or 1) == 1
+        if gate_enabled:
+            gate_args = [
+                "--data_jsonl", dataset,
+                "--feature_schema_ver", schema_ver,
+                "--count", os.getenv("ML_EDGE_STACK_OOF_FEATURE_COVERAGE_COUNT", "200000"),
+                "--min_present_rate", os.getenv("ML_EDGE_STACK_OOF_FEATURE_MIN_PRESENT_RATE", "0.995"),
+                "--critical_features", os.getenv("ML_EDGE_STACK_OOF_FEATURE_CRITICAL_FEATURES", "__all__"),
+                "--min_nonzero_sample_n", os.getenv("ML_EDGE_STACK_OOF_FEATURE_MIN_NONZERO_SAMPLE_N", "500"),
+                "--fail_on_mixed_schema", os.getenv("ML_EDGE_STACK_OOF_FEATURE_FAIL_ON_MIXED_SCHEMA", "1"),
+            ]
+            gate_report = os.getenv("ML_EDGE_STACK_OOF_FEATURE_COVERAGE_REPORT_JSON", "")
+            if gate_report:
+                gate_args += ["--out_report_json", gate_report]
+            if not run_tool("ml_analysis.tools.feature_coverage_gate_v1", gate_args, timeout=600):
+                return False
+
         # Registry-режим: передаём schema_ver и связанные параметры
         args += [
             "--feature_schema_ver", schema_ver,

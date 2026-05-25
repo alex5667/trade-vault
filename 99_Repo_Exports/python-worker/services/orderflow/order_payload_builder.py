@@ -56,18 +56,36 @@ class OrderPayloadBuilder:
             )
         )
 
+        # Maker-only branch (item 4, 2026-05-24): when signal carries
+        # `exec_maker_only=1` (set by EntryPolicyGate via ctx.exec_maker_only_enforce
+        # AND in-canary kind), switch the order command from MARKET → LIMIT and
+        # propagate `maker_price` so OrderOpenService can place
+        # `timeInForce=GTX` (Post-Only). If maker_price absent, executor falls
+        # back to MARKET with a counter — never silently turn maker-only into
+        # taker without telemetry.
+        exec_maker_only = int(signal.get("exec_maker_only") or 0)
+        maker_price = 0.0
+        if exec_maker_only:
+            try:
+                maker_price = float(signal.get("entry") or signal.get("entry_price") or 0.0)
+            except (TypeError, ValueError):
+                maker_price = 0.0
+
         order_cmd = {
             "id": f"order-{symbol}-{ts_value}",
             "sid": signal_id,
             "signal_id": signal_id,
             "symbol": symbol,
-            "type": "market",
+            "type": "limit" if exec_maker_only and maker_price > 0 else "market",
             "direction": direction,
             "side": side_norm.side.value,
             "side_int": side_norm.side_int,
             "source": "CryptoOrderFlow",
             "venue": venue,
             "reason": reason,
+            "exec_maker_only": exec_maker_only,
+            "exec_maker_only_shadow": int(signal.get("exec_maker_only_shadow") or 0),
+            "maker_price": maker_price,
         }
 
         try:

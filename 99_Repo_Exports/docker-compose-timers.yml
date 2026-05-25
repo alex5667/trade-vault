@@ -5769,7 +5769,7 @@ services:
     command:
     - sh
     - -c
-    - sleep 272 && 'exec python3 -m orderflow_services.ml_inventory_exporter_v1'
+    - sleep 272 && exec python3 -m orderflow_services.ml_inventory_exporter_v1
     depends_on:
       redis-worker-1:
         condition: service_healthy
@@ -5779,7 +5779,7 @@ services:
   scanner-ml-health-rollup-v1:
     build:
       context: .
-      dockerfile: python-worker/Dockerfile.gpu
+      dockerfile: python-worker/Dockerfile
     container_name: scanner-ml-health-rollup-v1
     restart: always
     deploy:

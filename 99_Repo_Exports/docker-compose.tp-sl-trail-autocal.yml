@@ -22,6 +22,7 @@ services:
       - TP_SL_TRAIL_AUTOCAL_REDIS_URL=redis://redis-worker-1:6379/0
       - TP_SL_TRAIL_AUTOCAL_HMAC_SECRET=${TP_SL_TRAIL_AUTOCAL_HMAC_SECRET:-${RECS_HMAC_SECRET:-}}
       - TP_SL_TRAIL_AUTOCAL_PROM_PORT=9861
+      - LOCK_REDIS_URL=redis://redis:6379/0
       - TZ=UTC
     ports:
       - "9861:9861"
@@ -39,15 +40,14 @@ services:
         reservations:
           memory: 128M
     command:
-      - sh
-      - -c
-      - |
-        sleep 15
-        if [ "$${TP_SL_TRAIL_AUTOCAL_ENABLE:-1}" = "0" ]; then
-          echo "TP_SL_TRAIL_AUTOCAL_ENABLE=0 — idle (set =1 to start)"
-          while true; do sleep 3600; done
-        fi
-        python -m orderflow_services.tp_sl_trailing_autocal_v1
+      - python3
+      - tools/run_daemon_with_minik_failover.py
+      - --job-name
+      - tp_sl_trail_autocal
+      - --
+      - python
+      - -m
+      - orderflow_services.tp_sl_trailing_autocal_v1
     labels:
       - com.scanner.service=tp-sl-trail-autocal
       - com.scanner.description=TP/SL/trailing autocalibrator with auto-promote

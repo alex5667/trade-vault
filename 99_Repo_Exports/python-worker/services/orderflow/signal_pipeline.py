@@ -680,6 +680,61 @@ class SignalPipeline:
                 # confidence_v1 bridge: strategy.py sets indicators["confidence"] not indicators["confidence_v1"]
                 # Calibration trainer expects confidence_v1 as the raw pre-calibration confidence key.
                 _inds.setdefault("confidence_v1", _inds.get("confidence"))
+
+                # ── v14_of schema completeness invariant ──────────────────
+                # `of_confirm_engine.build()` invokes `build_external_features_payload`
+                # but mutates a LOCAL `indicators` dict; whether that dict survives
+                # into the published `enriched_signal["indicators"]` depends on the
+                # signal kind path (of/iceberg/delta_spike). Coverage audit (2026-05-24)
+                # confirmed 77/359 v14_of features missing in `signals:of:inputs`
+                # uniformly across kinds — meaning the bridge enrichment is LOST
+                # before publish.
+                #
+                # Step 1 — run the per-group feature enricher (Redis HSET lookups +
+                #          cheap computables from already-published keys). This
+                #          backfills funding_rate_bps, book ratios, microbar, etc.
+                try:
+                    from core.feature_enricher_v1 import enrich_indicators
+                    _sync_redis = getattr(self, "_sync_redis_client", None)
+                    if _sync_redis is None:
+                        # Best-effort sync client for HASH/GET lookups
+                        try:
+                            import redis as _redis_mod
+                            _sync_redis = _redis_mod.from_url(
+                                getattr(self, "redis_url", os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")),
+                                decode_responses=True, socket_connect_timeout=1,
+                                socket_timeout=0.5,
+                            )
+                            self._sync_redis_client = _sync_redis  # cache on pipeline
+                        except Exception:
+                            _sync_redis = None
+                    _enriched = enrich_indicators(
+                        indicators=_inds,
+                        symbol=symbol,
+                        redis_client=_sync_redis,
+                    )
+                    for _ek, _ev in _enriched.items():
+                        _inds.setdefault(_ek, _ev)
+                except Exception as _enr_exc:
+                    logger.debug("⚠️ _publish_of_inputs feature_enricher fail-open: %s", _enr_exc)
+
+                # Step 2 — re-invoke the bridge as a final invariant. `setdefault`
+                # keeps already-populated values intact; missing _NUM_KEYS default
+                # to 0.0 (train/serve consistency — model was trained on padded vectors).
+                try:
+                    from core.external_features_payload_v1 import (
+                        build_external_features_payload,
+                    )
+                    _bridge_out = build_external_features_payload(
+                        indicators_with_v4=None,
+                        runtime_indicators=_inds,
+                    )
+                    for _bk, _bv in _bridge_out.items():
+                        # `setdefault` semantics — never overwrite existing populated value.
+                        _inds.setdefault(_bk, _bv)
+                except Exception as _ext_exc:
+                    # Fail-open: bridge unavailable should not block publish.
+                    logger.debug("⚠️ _publish_of_inputs ext-bridge fail-open: %s", _ext_exc)
             await publisher.xadd_json(
                 sink=StreamSink(name=self.of_inputs_stream, field="payload", maxlen=self.of_inputs_stream_maxlen),
                 payload=enriched_signal,
@@ -3528,6 +3583,13 @@ class SignalPipeline:
                 "regime": rg_for_overrides if rg_for_overrides != "na" else (indicators.get("regime") or "na"),
                 "scenario": (indicators.get("strong_gate_scn") or "na"),
                 "entry_tag": str(signal.get("entry_tag") or indicators.get("entry_tag") or "na"),
+                # Maker-only execution flag (item 4, 2026-05-24): propagated from
+                # EntryPolicyGate (ctx.exec_maker_only_enforce). Downstream
+                # OrderPayloadBuilder → OrderOpenService reads this to switch
+                # entry order to LIMIT+timeInForce=GTX (Post-Only / Binance maker).
+                # 0 = MARKET path; 1 = enforce maker-only (LIMIT GTX).
+                "exec_maker_only": int(bool(getattr(ctx, "exec_maker_only_enforce", 0))),
+                "exec_maker_only_shadow": int(bool(getattr(ctx, "exec_maker_only_required", 0))),
             }
         )
 
@@ -3959,6 +4021,7 @@ class SignalPipeline:
                     runtime=runtime,
                     indicators=indicators,
                     schema_version=self.decision_snapshot_schema_version,
+                    include_indicators=True,
                 )
                 safe_create_task(
                     publish_decision_snapshot(

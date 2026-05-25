@@ -1983,20 +1983,20 @@ class TickDecisionEngine:
                     except Exception:
                         pass
 
-                        # Persist last strong-gate diagnostics for SMT snapshot / entry policy.
-                        try:
-                            indicators["strong_gate_have"] = getattr(dec, "have", 0)
-                            indicators["strong_gate_need"] = locals().get('eff_need', getattr(dec, "need", 0))
-                            indicators["strong_gate_scn"] = str(getattr(dec, "scenario", "") or "")
-                            indicators["strong_need_reason"] = str(getattr(dec, "need_reason", "") or "")
+                    # Persist last strong-gate diagnostics for SMT snapshot / entry policy.
+                    try:
+                        indicators["strong_gate_have"] = getattr(dec, "have", 0)
+                        indicators["strong_gate_need"] = locals().get('eff_need', getattr(dec, "need", 0))
+                        indicators["strong_gate_scn"] = str(getattr(dec, "scenario", "") or "")
+                        indicators["strong_need_reason"] = str(getattr(dec, "need_reason", "") or "")
 
-                            runtime.last_of_confirm_score = indicators.get("of_confirm_score", 0.0) or 0.0
-                            runtime.last_of_confirm_have_need_ratio = indicators.get("of_confirm_have_need_ratio", 0.0) or 0.0
-                            runtime.last_strong_gate_have = indicators.get("strong_gate_have", 0) or 0
-                            runtime.last_strong_gate_need = indicators.get("strong_gate_need", 0) or 0
-                            runtime.last_strong_gate_scn = (indicators.get("strong_gate_scn", "") or "")
-                        except Exception:
-                            pass
+                        runtime.last_of_confirm_score = indicators.get("of_confirm_score", 0.0) or 0.0
+                        runtime.last_of_confirm_have_need_ratio = indicators.get("of_confirm_have_need_ratio", 0.0) or 0.0
+                        runtime.last_strong_gate_have = indicators.get("strong_gate_have", 0) or 0
+                        runtime.last_strong_gate_need = indicators.get("strong_gate_need", 0) or 0
+                        runtime.last_strong_gate_scn = (indicators.get("strong_gate_scn", "") or "")
+                    except Exception:
+                        pass
                     indicators["strong_gate_bits"] = getattr(ofc, "gate_bits", 0)
                     indicators["strong_gate_reason"] = str(getattr(ofc, "reason", "") or "")
                     # indicators["strong_gate_ok"] already updated if needed

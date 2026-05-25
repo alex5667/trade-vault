@@ -11,6 +11,7 @@ The target table is append-only; no ON CONFLICT clause is used.
 """
 
 import asyncio
+import hashlib
 import json
 import logging
 import os
@@ -159,6 +160,12 @@ def _to_int(v: Any) -> int | None:
     except Exception:
         return None
 
+def _clean_text(v: Any) -> str | None:
+    if v is None:
+        return None
+    s = str(v).strip()
+    return s or None
+
 
 # Required fields for a valid trailing-state audit row.
 _REQUIRED_FIELDS = (
@@ -200,16 +207,31 @@ def _normalize_row(fields: dict[str, Any]) -> tuple[dict[str, Any] | None, str]:
     except Exception:
         payload_json = json.dumps({}, ensure_ascii=False)
 
+    sid = str(fields.get("sid") or "").strip()
+    event_type = str(fields.get("event_type") or "").strip()
+    to_state = str(fields.get("to_state") or "").strip()
+    reason_code = str(fields.get("reason_code") or "").strip()
+    profile = _clean_text(fields.get("profile")) or "unknown"
+    idempotency_key = _clean_text(fields.get("idempotency_key"))
+    if idempotency_key is None:
+        idempotency_key = f"{sid}:{ts_ms}:{event_type}:{to_state}:{reason_code}"
+
+    profile_hash = _clean_text(fields.get("profile_hash"))
+    if profile_hash is None:
+        profile_hash = hashlib.sha1(profile.encode("utf-8")).hexdigest()[:16]
+    policy_hash = _clean_text(fields.get("policy_hash"))
+    if policy_hash is None:
+        policy_hash = hashlib.sha1(payload_json.encode("utf-8")).hexdigest()[:16]
+
     row = {
         "ts_ms": ts_ms,
-        "sid": str(fields.get("sid") or "").strip(),
-        "position_id": str(fields.get("position_id") or "").strip() or None,
+        "sid": sid,
+        "position_id": _clean_text(fields.get("position_id")) or sid,
         "symbol": str(fields.get("symbol") or "").strip(),
         "side": str(fields.get("side") or "").strip(),
-        "from_state": (str(fields.get("from_state")).strip()
-                       if fields.get("from_state") is not None else None) or None,
-        "to_state": str(fields.get("to_state") or "").strip(),
-        "event_type": str(fields.get("event_type") or "").strip(),
+        "from_state": _clean_text(fields.get("from_state")),
+        "to_state": to_state,
+        "event_type": event_type,
         "price": _to_float(fields.get("price")),
         "old_sl": _to_float(fields.get("old_sl")),
         "new_sl": _to_float(fields.get("new_sl")),
@@ -217,9 +239,11 @@ def _normalize_row(fields: dict[str, Any]) -> tuple[dict[str, Any] | None, str]:
         "low_watermark": _to_float(fields.get("low_watermark")),
         "atr_value": _to_float(fields.get("atr_value")),
         "atr_mult": _to_float(fields.get("atr_mult")),
-        "reason_code": str(fields.get("reason_code") or "").strip(),
-        "profile": (str(fields.get("profile")).strip()
-                    if fields.get("profile") is not None else None) or None,
+        "reason_code": reason_code,
+        "idempotency_key": idempotency_key,
+        "profile": profile,
+        "profile_hash": profile_hash,
+        "policy_hash": policy_hash,
         "payload": payload_json,
     }
     return row, ""
@@ -232,12 +256,13 @@ _INSERT_SQL = (
     "INSERT INTO trailing_state_transitions ("
     "ts, sid, position_id, symbol, side, from_state, to_state, event_type, "
     "price, old_sl, new_sl, high_watermark, low_watermark, "
-    "atr_value, atr_mult, reason_code, profile, payload"
+    "atr_value, atr_mult, reason_code, idempotency_key, profile, profile_hash, policy_hash, payload"
     ") VALUES ("
     "to_timestamp(%(ts_ms)s / 1000.0), %(sid)s, %(position_id)s, %(symbol)s, %(side)s, "
     "%(from_state)s, %(to_state)s, %(event_type)s, "
     "%(price)s, %(old_sl)s, %(new_sl)s, %(high_watermark)s, %(low_watermark)s, "
-    "%(atr_value)s, %(atr_mult)s, %(reason_code)s, %(profile)s, %(payload)s"
+    "%(atr_value)s, %(atr_mult)s, %(reason_code)s, %(idempotency_key)s, "
+    "%(profile)s, %(profile_hash)s, %(policy_hash)s, %(payload)s"
     ")"
 )
 

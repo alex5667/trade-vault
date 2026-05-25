@@ -1410,6 +1410,7 @@ def join_signals_with_closes_v2(
                 "symbol": str(s.symbol),
                 "direction": str(s.direction),
                 "scenario": str(s.scenario),
+                "feature_schema_version": str(s.feature_schema_version or ""),
                 "indicators": s.indicators or {},
                 "pnl": float(c.pnl),
                 "risk_usd": float(c.risk_usd),
@@ -1749,6 +1750,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     ap.add_argument(
         "--feature_schema_ver",
         default=os.environ.get("ML_FEATURE_SCHEMA_VER", ""),
+        # choices come from schema_choices_v1 and include aliases like "v4".
         choices=_schema_choices(include_empty=True),
         help="Если задан, feature_cols берётся из Feature Registry (детерминированно), "
             "а не из infer_feature_cols() (sample-зависимый). Empty = прежнее поведение.",

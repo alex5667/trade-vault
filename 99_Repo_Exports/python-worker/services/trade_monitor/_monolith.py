@@ -3174,9 +3174,26 @@ class TradeMonitorService:
             #   - else keep empty and downstream will fallback to "regime"/"na"
             # ---------------------------------------------------------------------
             try:
-                rg = getattr(sig, "entry_regime", None) or getattr(sig, "regime", None) or (raw_signal.get("entry_regime") if isinstance(raw_signal, dict) else None) or (raw_signal.get("regime") if isinstance(raw_signal, dict) else None)
+                # Regime sources, in priority order:
+                #   1. sig.entry_regime / sig.regime  (normalized DTO fields)
+                #   2. raw_signal.entry_regime / raw_signal.regime  (top-level legacy)
+                #   3. raw_signal.indicators.regime  ← upstream-fix-aware path:
+                #      `_publish_of_inputs` writes regime into indicators dict;
+                #      top-level may stay None when regime resolved late.
+                rg = (
+                    getattr(sig, "entry_regime", None)
+                    or getattr(sig, "regime", None)
+                    or (raw_signal.get("entry_regime") if isinstance(raw_signal, dict) else None)
+                    or (raw_signal.get("regime") if isinstance(raw_signal, dict) else None)
+                )
+                if not rg and isinstance(raw_signal, dict):
+                    _ind = raw_signal.get("indicators")
+                    if isinstance(_ind, dict):
+                        _ind_rg = _ind.get("regime")
+                        if _ind_rg and str(_ind_rg).lower() not in ("", "na", "none", "null", "unknown"):
+                            rg = _ind_rg
                 if rg is not None and not getattr(pos, "entry_regime", None):
-                    pos.entry_regime = str(rg)
+                    pos.entry_regime = str(rg).lower()
             except Exception:
                 pass
 

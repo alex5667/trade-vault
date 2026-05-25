@@ -355,6 +355,190 @@ services:
         reservations:
           memory: 24M
           cpus: '0.1'
+  # ── Playwright browser worker: news page fetching + LLM web UI enrichment ──
+  news-browser-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.news-browser
+    image: trade-news-browser:latest
+    pull_policy: build
+    container_name: news-browser-worker
+    restart: unless-stopped
+    shm_size: 2gb           # Chromium needs shared memory for renderer
+    environment:
+    - REDIS_URL=${GO_GATEWAY_REDIS_URL}
+    - NEWS_RAW_STREAM=news:raw
+    - NEWS_RAW_DLQ=news:raw:dlq
+    - NEWS_STREAM_MAXLEN=100000
+    - NEWS_BROWSER_POLL_SEC=120
+    - NEWS_BROWSER_DEDUPE_TTL=1800
+    - NEWS_BROWSER_DOMAIN_GAP_SEC=12
+    - NEWS_BROWSER_METRICS_PORT=9831
+    - PLAYWRIGHT_HEADLESS=1
+    - PLAYWRIGHT_BROWSER_SESSIONS=/data/playwright_sessions
+    - PLAYWRIGHT_LLM_TIMEOUT_SEC=90
+    - PLAYWRIGHT_FETCH_TIMEOUT_MS=45000
+    - PLAYWRIGHT_CONTEXT_TTL_MIN=30
+    # Playwright LLM web UI — Qwen3-235B (highest priority, Google OAuth)
+    - USE_PLAYWRIGHT_QWEN=1
+    - QWEN_EMAIL=${QWEN_EMAIL:-}
+    - QWEN_PASSWORD=${QWEN_PASSWORD:-}
+    - QWEN_MODEL=${QWEN_MODEL:-qwen3-235b-a22b}
+    - QWEN_THINKING=1
+    # Playwright LLM web UI — DeepSeek
+    - USE_PLAYWRIGHT_DEEPSEEK=1
+    - DEEPSEEK_EMAIL=${DEEPSEEK_EMAIL:-}
+    - DEEPSEEK_PASSWORD=${DEEPSEEK_PASSWORD:-}
+    # Playwright LLM web UI — ChatGPT (free tier, no login needed)
+    - USE_PLAYWRIGHT_CHATGPT=1
+    - CHATGPT_EMAIL=${CHATGPT_EMAIL:-}
+    - CHATGPT_PASSWORD=${CHATGPT_PASSWORD:-}
+    # Playwright LLM web UI — Gemini (opt-in, Google login required)
+    - USE_PLAYWRIGHT_GEMINI=0
+    - GEMINI_GOOGLE_EMAIL=${GEMINI_GOOGLE_EMAIL:-}
+    - GEMINI_GOOGLE_PASSWORD=${GEMINI_GOOGLE_PASSWORD:-}
+    # News sources to fetch via browser (add anti-bot protected sites here)
+    - NEWS_BROWSER_SOURCES=${NEWS_BROWSER_SOURCES:-}
+    - LOG_LEVEL=INFO
+    - TZ=UTC
+    env_file:
+    - ./news-pipeline.env
+    volumes:
+    - playwright_sessions:/data/playwright_sessions
+    networks:
+    - scanner-ops
+    - scanner-infra
+    depends_on:
+      redis:
+        condition: service_healthy
+    deploy:
+      placement:
+        constraints:
+        - node.hostname == minik
+      resources:
+        limits:
+          memory: 3G
+          cpus: '2.0'
+        reservations:
+          memory: 512M
+          cpus: '0.5'
+
+  # ── news-analyzer with Playwright LLM tier enabled ──────────────────────────
+  # ── news-analyzer-playwright: analyzer worker with Playwright async enrichment ─
+  # Режим NEWS_LLM_PLAYWRIGHT_ENABLE=0 → classic inline LLM (Gemini→Nvidia→Ollama)
+  # Режим NEWS_LLM_PLAYWRIGHT_ENABLE=1 → только rules, jobs → playwright-enrichment-worker
+  news-analyzer-playwright:
+    build:
+      context: .
+      dockerfile: Dockerfile.news-browser
+    image: trade-news-browser:latest
+    pull_policy: never
+    container_name: news-analyzer-playwright
+    restart: unless-stopped
+    shm_size: 512mb
+    environment:
+    - REDIS_URL=${GO_GATEWAY_REDIS_URL}
+    - NEWS_RAW_STREAM=news:raw
+    - NEWS_ANALYSIS_STREAM=news:analysis
+    - NEWS_RAW_DLQ=news:raw:dlq
+    - NEWS_ANALYZER_GROUP=news-analyzer
+    - NEWS_ANALYZER_CONSUMER=news-analyzer-playwright-1
+    - NEWS_ANALYSIS_TTL_SEC=604800
+    - NEWS_LLM_ENRICH_ENABLED=1
+    - LLM_FALLBACK_ENABLED=1
+    # Classic inline LLM (used when NEWS_LLM_PLAYWRIGHT_ENABLE=0)
+    - USE_PLAYWRIGHT_LLM=1
+    - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+    - NVIDIA_API_KEY=${NVIDIA_API_KEY:-}
+    - LOG_LEVEL=INFO
+    - TZ=UTC
+    env_file:
+    - ./news-pipeline.env
+    volumes:
+    - playwright_sessions:/data/playwright_sessions
+    networks:
+    - scanner-ops
+    - scanner-infra
+    depends_on:
+      redis:
+        condition: service_healthy
+    working_dir: /app/python-worker
+    command:
+    - python
+    - -m
+    - news_pipeline.analyzer_worker
+    deploy:
+      placement:
+        constraints:
+        - node.hostname == minik
+      resources:
+        limits:
+          memory: 1G
+          cpus: '1.0'
+        reservations:
+          memory: 256M
+          cpus: '0.2'
+
+  # ── playwright-enrichment-worker: async Playwright LLM enrichment ────────────
+  # Запускается только при NEWS_LLM_PLAYWRIGHT_ENABLE=1
+  # Читает news:llm:jobs → Playwright LLM (Qwen/DeepSeek/ChatGPT) → news:llm:results
+  # НЕ участвует в hot-path торговли.
+  playwright-enrichment-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.news-browser
+    image: trade-news-browser:latest
+    pull_policy: never
+    container_name: playwright-enrichment-worker
+    restart: unless-stopped
+    shm_size: 2gb
+    # Credentials and provider toggles come from env_file (news-pipeline.env).
+    # Only override vars that are NOT in env_file here to avoid shadowing with empty strings.
+    environment:
+    - REDIS_URL=${GO_GATEWAY_REDIS_URL}
+    - NEWS_LLM_PLAYWRIGHT_ENABLE=1
+    - NEWS_LLM_WORKER_GROUP=playwright-enrichment
+    - NEWS_LLM_WORKER_CONSUMER=pw-worker-1
+    - PLAYWRIGHT_HEADLESS=1
+    - PLAYWRIGHT_BROWSER_SESSIONS=/data/playwright_sessions
+    - PLAYWRIGHT_QWEN_TIMEOUT_SEC=300
+    - PLAYWRIGHT_CHATGPT_TIMEOUT_SEC=300
+    - PLAYWRIGHT_ENRICHMENT_METRICS_PORT=9869
+    - LOG_LEVEL=INFO
+    - TZ=UTC
+    env_file:
+    - ./news-pipeline.env
+    ports:
+    - "9869:9869"
+    volumes:
+    - playwright_sessions:/data/playwright_sessions
+    networks:
+    - scanner-ops
+    - scanner-infra
+    depends_on:
+      redis:
+        condition: service_healthy
+    working_dir: /app/python-worker
+    command:
+    - python
+    - -m
+    - services.playwright_enrichment_worker.main
+    deploy:
+      placement:
+        constraints:
+        - node.hostname == minik
+      resources:
+        limits:
+          memory: 4G
+          cpus: '2.0'
+        reservations:
+          memory: 512M
+          cpus: '0.5'
+
+volumes:
+  playwright_sessions:
+    driver: local
+
 networks:
   scanner-ops:
     external: true

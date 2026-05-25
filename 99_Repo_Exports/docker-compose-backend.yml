@@ -232,7 +232,7 @@ services:
     - TM_NAMESPACE=signal-tracker
     - TICK_READ_COUNT=100
     - EVENTS_CLOSED_READ_COUNT=200
-    - OF_INPUTS_STREAM_MAXLEN=5000
+    - OF_INPUTS_STREAM_MAXLEN=15000
     - TZ=UTC
     depends_on:
       postgres:
@@ -356,7 +356,7 @@ services:
     - sleep 30 && python -m services.signal_dispatcher
   periodic-reporter:
     profiles:
-    - default
+    - disabled
     build:
       context: .
       dockerfile: python-worker/Dockerfile

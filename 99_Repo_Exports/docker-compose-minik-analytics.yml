@@ -12,6 +12,178 @@ x-default-python-worker:
   - 8.8.8.8
   - 8.8.4.4
 services:
+  gc-redis-swap:
+    image: *id001
+    container_name: scanner-gc-redis-swap
+    restart: unless-stopped
+    privileged: true
+    pid: host
+    environment:
+    - PYTHONUNBUFFERED=1
+    - REDIS_URL=${REDIS_URL}
+    - GC_REDIS_INTERVAL_S=1800
+    - GC_PEL_INTERVAL_S=7200
+    - GC_SWAP_INTERVAL_S=3600
+    - GC_SWAP_FLUSH_TRIGGER_PCT=15.0
+    - GC_SWAP_FREE_RAM_HEADROOM_MB=1500
+    - GC_SWAP_FLUSH_ENABLED=1
+    - HOST_MEMINFO_PATH=/host_meminfo
+    - GC_PROM_FILE=/tmp/gc_redis_swap.prom
+    - TZ=UTC
+    networks: *id002
+    dns: *id003
+    volumes:
+    - ./python-worker/services:/app/services
+    - ./python-worker/core:/app/core
+    - /proc/meminfo:/host_meminfo:ro
+    command: python services/gc_redis_swap.py
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.2'
+        reservations:
+          memory: 32M
+
+  scanner-hawkes-vpin:
+    image: *id001
+    container_name: scanner-hawkes-vpin
+    restart: unless-stopped
+    environment:
+    - PYTHONUNBUFFERED=1
+    - PYTHONPATH=.:/app
+    - REDIS_URL=redis://192.168.0.168:63791/0
+    - REDIS_TICKS_URL=redis://192.168.0.168:6380/0
+    - LOCK_REDIS_URL=redis://192.168.0.168:6379/0
+    - HAWKES_SYMBOLS=${HAWKES_SYMBOLS:-${CRYPTO_SYMBOLS:-}}
+    - HAWKES_BETA=${HAWKES_BETA:-0.0333}
+    - HAWKES_ALPHA=${HAWKES_ALPHA:-0.5}
+    - HAWKES_VPIN_ALPHA=${HAWKES_VPIN_ALPHA:-0.05}
+    - HAWKES_TTL_SEC=30
+    - HAWKES_PORT=9148
+    - HAWKES_GROUP=of-hawkes-vpin
+    - HAWKES_CONSUMER=of-hawkes-vpin-minik-1
+    - HAWKES_MAX_LAG_MS=30000
+    - TZ=UTC
+    networks: *id002
+    dns: *id003
+    volumes:
+    - ./python-worker:/app
+    working_dir: /app
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.3'
+        reservations:
+          memory: 64M
+    command: python3 tools/run_daemon_with_minik_failover.py --job-name hawkes_vpin --is-minik -- python -u orderflow_services/of_hawkes_vpin_v1.py
+
+  scanner-v14-of-drift-monitor:
+    image: *id001
+    container_name: scanner-v14-of-drift-monitor
+    restart: unless-stopped
+    environment:
+    - PYTHONUNBUFFERED=1
+    - REDIS_URL=redis://192.168.0.168:63791/0
+    - LOCK_REDIS_URL=redis://192.168.0.168:6379/0
+    - V14_DRIFT_INTERVAL_SEC=1800
+    - V14_DRIFT_WINDOW_HOURS=6
+    - V14_DRIFT_BASELINE_HOURS=168
+    - V14_DRIFT_MAX_SCAN=80000
+    - V14_DRIFT_KINDS=meta_lr,edge_stack_v1
+    - V14_DRIFT_STREAM_PRED=metrics:ml_confirm
+    - V14_DRIFT_STREAM_TRADES=trades:closed
+    - V14_DRIFT_OUT_KEY=metrics:ml_drift:v14_of:last
+    - V14_DRIFT_PORT=9844
+    - TZ=UTC
+    networks: *id002
+    dns: *id003
+    volumes:
+    - ./python-worker:/app
+    working_dir: /app
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.3'
+        reservations:
+          memory: 256M
+    command: python3 tools/run_daemon_with_minik_failover.py --job-name v14_of_drift_monitor --is-minik -- python -m tools.ml_drift_monitor_v14_of
+
+  scanner-periodic-reporter-timer:
+    image: *id001
+    container_name: scanner-periodic-reporter-timer
+    restart: unless-stopped
+    environment:
+    - PYTHONUNBUFFERED=1
+    - PYTHONPATH=/app
+    - REDIS_URL=redis://192.168.0.168:63791/0
+    - LOCK_REDIS_URL=redis://192.168.0.168:6379/0
+    - ANALYTICS_DB_DSN=${ANALYTICS_DB_DSN}
+    - PERIODIC_REPORT_CHECK_INTERVAL_SEC=0
+    - DAILY_REPORT_ENABLED=true
+    - DAILY_REPORT_UTC_HOUR=17
+    - DAILY_REPORT_UTC_MINUTE=0
+    - DAILY_REPORT_SOURCE=CryptoOrderFlow
+    - HOURLY_REPORT_ENABLED=true
+    - PERIODIC_REPORT_WINDOW_SECONDS=3600
+    - PERIODIC_REPORT_SEND_VIRTUAL_ONLY=true
+    - PERIODIC_REPORT_USE_ZSET=1
+    - PERIODIC_REPORT_VIRTUAL_TP_BY_MFE=true
+    - REDIS_CLOSED_ZSETS_ENABLED=1
+    - REPORT_TRIGGER_COUNT=1000000
+    - OF_SCORE_MIN=${OF_SCORE_MIN:-0.45}
+    - TZ=UTC
+    networks: *id002
+    dns: *id003
+    volumes:
+    - ./python-worker:/app
+    - /var/lib/trade:/var/lib/trade
+    working_dir: /app
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.2'
+        reservations:
+          memory: 64M
+    command: python3 tools/run_daemon_with_minik_failover.py --job-name periodic_reporter --is-minik -- python -m services.periodic_reporter
+
+  scanner-tp-sl-trail-autocal:
+    image: *id001
+    container_name: scanner-tp-sl-trail-autocal
+    restart: unless-stopped
+    environment:
+    - PYTHONUNBUFFERED=1
+    - TP_SL_TRAIL_AUTOCAL_ENABLE=${TP_SL_TRAIL_AUTOCAL_ENABLE:-1}
+    - TP_SL_TRAIL_AUTOCAL_ENFORCE=${TP_SL_TRAIL_AUTOCAL_ENFORCE:-1}
+    - TP_SL_TRAIL_AUTOCAL_INTERVAL=${TP_SL_TRAIL_AUTOCAL_INTERVAL:-600}
+    - TP_SL_TRAIL_AUTOCAL_WINDOW_H=${TP_SL_TRAIL_AUTOCAL_WINDOW_H:-72.0}
+    - TP_SL_TRAIL_AUTOCAL_MIN_TRADES=${TP_SL_TRAIL_AUTOCAL_MIN_TRADES:-200}
+    - TP_SL_TRAIL_AUTOCAL_LIFT_R=${TP_SL_TRAIL_AUTOCAL_LIFT_R:-0.05}
+    - TP_SL_TRAIL_AUTOCAL_TOL_R=${TP_SL_TRAIL_AUTOCAL_TOL_R:-0.10}
+    - TP_SL_TRAIL_AUTOCAL_DWELL_H=${TP_SL_TRAIL_AUTOCAL_DWELL_H:-24.0}
+    - TP_SL_TRAIL_AUTOCAL_STREAM=trades:closed
+    - TP_SL_TRAIL_AUTOCAL_REDIS_URL=redis://192.168.0.168:63791/0
+    - TP_SL_TRAIL_AUTOCAL_HMAC_SECRET=${TP_SL_TRAIL_AUTOCAL_HMAC_SECRET:-${RECS_HMAC_SECRET:-}}
+    - TP_SL_TRAIL_AUTOCAL_PROM_PORT=9861
+    - LOCK_REDIS_URL=redis://192.168.0.168:6379/0
+    - TZ=UTC
+    networks: *id002
+    dns: *id003
+    volumes:
+    - ./python-worker:/app
+    working_dir: /app
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.3'
+        reservations:
+          memory: 128M
+    command: python3 tools/run_daemon_with_minik_failover.py --job-name tp_sl_trail_autocal --is-minik -- python -m orderflow_services.tp_sl_trailing_autocal_v1
+
   scanner-ml-confirm-calibrator:
     image: *id001
     restart: unless-stopped
@@ -369,7 +541,7 @@ services:
     - TM_NAMESPACE=signal-tracker
     - TICK_READ_COUNT=100
     - EVENTS_CLOSED_READ_COUNT=200
-    - OF_INPUTS_STREAM_MAXLEN=5000
+    - OF_INPUTS_STREAM_MAXLEN=15000
     - TZ=UTC
     networks:
     - scanner-core
@@ -706,6 +878,7 @@ services:
 
   scanner-bbo-ts-writer:
     image: *id001
+    profiles: [disabled]
     restart: unless-stopped
     environment:
     - PYTHONUNBUFFERED=1
@@ -817,7 +990,7 @@ services:
     environment:
     - PYTHONUNBUFFERED=1
     - PYTHONPATH=.:/app
-    - RISK_AUDIT_SQL_DSN=${RISK_AUDIT_SQL_DSN:-${EXECUTION_JOURNAL_DSN:-}}
+    - RISK_AUDIT_SQL_DSN=${RISK_AUDIT_SQL_DSN:-}
     - RISK_CANARY_LOOKBACK_HOURS=${RISK_CANARY_LOOKBACK_HOURS:-24}
     - TZ=UTC
     networks: *id002
@@ -845,7 +1018,7 @@ services:
     environment:
     - PYTHONUNBUFFERED=1
     - PYTHONPATH=.:/app
-    - RISK_AUDIT_SQL_DSN=${RISK_AUDIT_SQL_DSN:-${EXECUTION_JOURNAL_DSN:-}}
+    - RISK_AUDIT_SQL_DSN=${RISK_AUDIT_SQL_DSN:-}
     - TZ=UTC
     networks: *id002
     dns: *id003
@@ -873,7 +1046,7 @@ services:
     - PYTHONUNBUFFERED=1
     - PYTHONPATH=/app
     - REDIS_URL=${REDIS_URL}
-    - RISK_AUDIT_SQL_DSN=${RISK_AUDIT_SQL_DSN:-${EXECUTION_JOURNAL_DSN:-}}
+    - RISK_AUDIT_SQL_DSN=${RISK_AUDIT_SQL_DSN:-}
     - ORDERS_QUARANTINE_PREFIX=${ORDERS_QUARANTINE_PREFIX:-orders:quarantine:state:}
     - RISK_CONSISTENCY_LIMIT=${RISK_CONSISTENCY_LIMIT:-250}
     - RISK_CONSISTENCY_REPEAT_THRESHOLD=${RISK_CONSISTENCY_REPEAT_THRESHOLD:-3}
@@ -905,7 +1078,7 @@ services:
     environment:
     - PYTHONUNBUFFERED=1
     - PYTHONPATH=/app
-    - RISK_AUDIT_SQL_DSN=${RISK_AUDIT_SQL_DSN:-${EXECUTION_JOURNAL_DSN:-}}
+    - RISK_AUDIT_SQL_DSN=${RISK_AUDIT_SQL_DSN:-}
     - RISK_AUDIT_RETENTION_DAYS=${RISK_AUDIT_RETENTION_DAYS:-21}
     - RISK_AUDIT_RETENTION_APPLY=${RISK_AUDIT_RETENTION_APPLY:-0}
     - TZ=UTC
@@ -962,7 +1135,7 @@ services:
     environment:
     - PYTHONUNBUFFERED=1
     - PYTHONPATH=/app
-    - RISK_AUDIT_SQL_DSN=${RISK_AUDIT_SQL_DSN:-${EXECUTION_JOURNAL_DSN:-}}
+    - RISK_AUDIT_SQL_DSN=${RISK_AUDIT_SQL_DSN:-}
     - RISK_MISMATCH_SUMMARY_STALE_SEC=${RISK_MISMATCH_SUMMARY_STALE_SEC:-1800}
     - TZ=UTC
     networks: *id002
@@ -991,7 +1164,7 @@ services:
     environment:
     - PYTHONUNBUFFERED=1
     - PYTHONPATH=/app
-    - RISK_AUDIT_SQL_DSN=${RISK_AUDIT_SQL_DSN:-${EXECUTION_JOURNAL_DSN:-}}
+    - RISK_AUDIT_SQL_DSN=${RISK_AUDIT_SQL_DSN:-}
     - RISK_MISMATCH_RETENTION_DAYS=${RISK_MISMATCH_RETENTION_DAYS:-30}
     - RISK_MISMATCH_RETENTION_APPLY=${RISK_MISMATCH_RETENTION_APPLY:-0}
     - TZ=UTC
@@ -1022,7 +1195,7 @@ services:
     environment:
     - PYTHONUNBUFFERED=1
     - PYTHONPATH=/app
-    - RISK_AUDIT_SQL_DSN=${RISK_AUDIT_SQL_DSN:-${EXECUTION_JOURNAL_DSN:-}}
+    - RISK_AUDIT_SQL_DSN=${RISK_AUDIT_SQL_DSN:-}
     - TZ=UTC
     networks: *id002
     dns: *id003

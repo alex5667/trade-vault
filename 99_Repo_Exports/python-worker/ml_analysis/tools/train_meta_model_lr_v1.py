@@ -78,6 +78,214 @@ def _get_any(row: dict[str, Any], keys: list[str], default: Any = 0.0) -> Any:
     return default
 
 
+def _as_dict(x: Any) -> dict[str, Any]:
+    if isinstance(x, dict):
+        return x
+    if isinstance(x, str) and x.strip().startswith("{"):
+        try:
+            obj = json.loads(x)
+            return obj if isinstance(obj, dict) else {}
+        except Exception:
+            return {}
+    return {}
+
+
+def _flatten_indicator_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """Flatten current and legacy indicator payload columns into f_* scalars."""
+
+    out = df.copy()
+    for source_col in ("indicators", "indicators_small"):
+        if source_col not in out.columns:
+            continue
+        ind_series = out[source_col].apply(_as_dict)
+        ind_df = pd.json_normalize(ind_series)
+        for col in ind_df.columns:
+            target = f"f_{col}" if not str(col).startswith("f_") else str(col)
+            if target not in out.columns:
+                out[target] = pd.to_numeric(ind_df[col], errors="coerce").fillna(0.0)
+        print(f"[meta_lr] Flattened {len(ind_df.columns)} columns from {source_col}")
+    return out
+
+
+def _first_present_series(df: pd.DataFrame, names: list[str]) -> pd.Series | None:
+    for name in names:
+        if name in df.columns:
+            return pd.to_numeric(df[name], errors="coerce")
+    return None
+
+
+def _set_numeric_from_sources(out: pd.DataFrame, target: str, sources: list[str]) -> bool:
+    if target in out.columns:
+        return False
+    src = _first_present_series(out, sources)
+    if src is None:
+        return False
+    out[target] = src.fillna(0.0)
+    return True
+
+
+def _v9_liqmap_feature_names() -> list[str]:
+    try:
+        from core.meta_features_v9 import META_FEAT_V9_NEW_COLS
+
+        return [str(c) for c in META_FEAT_V9_NEW_COLS if str(c).startswith("liqmap_")]
+    except Exception:
+        windows = ("5m", "1h")
+        fields = (
+            "age_ms",
+            "levels_n",
+            "total_usd",
+            "near_total_usd",
+            "near_long_usd",
+            "near_short_usd",
+            "near_imb",
+            "dist_up_bps",
+            "dist_dn_bps",
+            "peak_up1_usd",
+            "peak_dn1_usd",
+            "peak_up1_share",
+            "peak_dn1_share",
+            "peaks_up",
+            "peaks_dn",
+        )
+        gate = (
+            "liqmap_gate_shadow_veto",
+            "liqmap_gate_veto",
+            "liqmap_gate_rr",
+            "liqmap_gate_risk_bps",
+            "liqmap_gate_reward_bps",
+            "liqmap_gate_adverse_peak_usd",
+            "liqmap_gate_favorable_peak_usd",
+        )
+        return [f"liqmap_{w}_{field}" for w in windows for field in fields] + list(gate)
+
+
+def _ensure_v9_liqmap_feature_columns(out: pd.DataFrame) -> tuple[int, int, int]:
+    ensured = 0
+    from_sources = 0
+    zero_filled = 0
+    for name in _v9_liqmap_feature_names():
+        target = f"f_{name}"
+        if target in out.columns:
+            continue
+        src = _first_present_series(out, [name, f"decision_{name}"])
+        if src is not None:
+            out[target] = src.fillna(0.0)
+            from_sources += 1
+        else:
+            out[target] = 0.0
+            zero_filled += 1
+        ensured += 1
+    return ensured, from_sources, zero_filled
+
+
+def _enrich_decision_feature_columns(df: pd.DataFrame, *, schema_name: str = "") -> pd.DataFrame:
+    """Map confirm_train_v7 decision-time scalars into meta feature names.
+
+    latest_confirm_train_v7 may have indicators_small=None while still carrying
+    decision_* scalars captured at decision time. These mappings avoid training
+    v8/v9 on all-zero microstructure features without using future outcomes.
+    """
+
+    out = df.copy()
+    added: list[str] = []
+
+    mappings = {
+        "f_spread_bps": ["decision_spread_bps", "spread_bps"],
+        "f_expected_slippage_bps": ["decision_expected_slippage_bps", "expected_slippage_bps"],
+        "f_exec_risk_norm": ["decision_exec_risk_norm"],
+        "f_depth_bid_5": ["decision_depth_bid_5"],
+        "f_depth_ask_5": ["decision_depth_ask_5"],
+        "f_book_slope_bid": ["decision_book_slope_bid"],
+        "f_book_slope_ask": ["decision_book_slope_ask"],
+        "f_ofi_ml_norm": ["decision_ofi_norm"],
+        "f_ofi": ["decision_ofi_norm"],
+        "f_ofi_z": ["decision_ofi_norm"],
+        "f_of_score_final_raw": ["of_score_final"],
+        "f_of_base_score": ["of_score_final"],
+        "f_rule_score": ["of_score_final"],
+        "rule_score": ["of_score_final"],
+        "exec_risk_norm": ["decision_exec_risk_norm"],
+    }
+    for target, sources in mappings.items():
+        if _set_numeric_from_sources(out, target, sources):
+            added.append(target)
+
+    bid5 = _first_present_series(out, ["decision_depth_bid_5"])
+    ask5 = _first_present_series(out, ["decision_depth_ask_5"])
+    if bid5 is not None and ask5 is not None:
+        denom = (bid5 + ask5).replace(0.0, np.nan)
+        qimb = ((bid5 - ask5) / denom).replace([np.inf, -np.inf], np.nan).fillna(0.0)
+        for target in ("f_qimb_l1", "f_qimb_wmean"):
+            if target not in out.columns:
+                out[target] = qimb
+                added.append(target)
+
+    if added:
+        print(f"[meta_lr] Enriched {len(added)} decision feature columns: {','.join(sorted(added))}")
+    else:
+        print("[meta_lr] Enriched 0 decision feature columns")
+
+    if str(schema_name) == "meta_feat_v9":
+        ensured, from_sources, zero_filled = _ensure_v9_liqmap_feature_columns(out)
+        print(
+            "[meta_lr] Ensured "
+            f"{ensured} v9 liqmap feature columns ({from_sources} from data, {zero_filled} zero-filled)"
+        )
+    return out
+
+
+def _ensure_label_column(
+    df: pd.DataFrame,
+    *,
+    y_col: str,
+    dataset_path: str,
+    outcomes_path: str,
+) -> pd.DataFrame:
+    """Create horizon utility labels for confirm_train_v7-style datasets.
+
+    Current confirm_train_v7 NDJSON stores decisions and outcomes separately.
+    Older meta LR timers still request y_util_pos_60000, so derive it from the
+    paired outcomes file instead of silently switching label semantics.
+    """
+
+    if y_col in df.columns:
+        return df
+
+    if not y_col.startswith("y_util_pos_"):
+        return df
+
+    resolved_outcomes = str(outcomes_path or "").strip()
+    if not resolved_outcomes:
+        resolved_outcomes = os.path.join(os.path.dirname(dataset_path), "latest_outcomes.ndjson")
+    if not os.path.isfile(resolved_outcomes):
+        print(f"[meta_lr] WARNING: outcomes file not found at {resolved_outcomes}")
+        return df
+    if "sid" not in df.columns:
+        print("[meta_lr] WARNING: cannot derive label without sid column")
+        return df
+
+    print(f"[meta_lr] Auto-joining with outcomes: {resolved_outcomes}")
+    df_out = pd.read_json(resolved_outcomes, lines=True)
+    if "sid" not in df_out.columns:
+        print("[meta_lr] WARNING: outcomes file has no sid column")
+        return df
+
+    df_out = df_out.rename(columns={c: f"outcome_{c}" for c in df_out.columns if c != "sid"})
+    joined = df.merge(df_out, on="sid", how="inner")
+    print(f"[meta_lr] Joined {len(joined)} rows")
+    if joined.empty:
+        return joined
+
+    pnl = pd.to_numeric(joined.get("outcome_pnl", 0), errors="coerce").fillna(0.0)
+    risk = pd.to_numeric(joined.get("outcome_risk_usd", 0), errors="coerce").fillna(1.0)
+    risk = risk.mask(risk == 0.0, 1.0)
+    joined["r_mult"] = pnl / risk
+    joined[y_col] = (joined["r_mult"] > 0.0).astype(int)
+    print(f"[meta_lr] Computed {y_col}: pos_rate={joined[y_col].mean():.4f}")
+    return joined
+
+
 def _get_meta_builder(schema_name: str):
     """Return (build_fn, cols, transforms) for schema_name."""
     s = str(schema_name)
@@ -154,7 +362,15 @@ def _build_xy_from_df(
         if ml_scenario:
             indicators["scenario_v4"] = ml_scenario
 
-        evidence = {"indicators": indicators}
+        meta_context = {}
+        session = str(row.get("session", "") or "").upper()
+        if session:
+            meta_context = {
+                "is_eu_hours": 1.0 if session == "EU" else 0.0,
+                "is_us_hours": 1.0 if session == "US" else 0.0,
+                "is_asia_hours": 1.0 if session == "ASIA" else 0.0,
+            }
+        evidence = {"indicators": indicators, "meta_context": meta_context}
 
         feat_out = build_fn(
             evidence=evidence,
@@ -363,43 +579,14 @@ def main() -> int:
         df = df.head(int(args.max_rows)).copy()
 
     # ── Auto-join with outcomes + flatten indicators for confirm_train_v7 ndjson ──
-    if y_col not in df.columns and "indicators" in df.columns:
-        # Determine outcomes path
-        outcomes_path = str(args.outcomes or "").strip()
-        if not outcomes_path:
-            _dir = os.path.dirname(_path)
-            outcomes_path = os.path.join(_dir, "latest_outcomes.ndjson")
-        if os.path.isfile(outcomes_path):
-            print(f"[meta_lr] Auto-joining with outcomes: {outcomes_path}")
-            df_out = pd.read_json(outcomes_path, lines=True)
-            # Join on sid
-            if "sid" in df.columns and "sid" in df_out.columns:
-                df_out = df_out.rename(columns={
-                    c: f"outcome_{c}" for c in df_out.columns if c != "sid"
-                })
-                df = df.merge(df_out, on="sid", how="inner")
-                print(f"[meta_lr] Joined {len(df)} rows")
-            # Compute r_mult and label
-            _pnl = pd.to_numeric(df.get("outcome_pnl", 0), errors="coerce").fillna(0.0)
-            _risk = pd.to_numeric(df.get("outcome_risk_usd", 0), errors="coerce").fillna(1.0)
-            _risk = _risk.replace(0.0, 1.0)
-            df["r_mult"] = _pnl / _risk
-            df[y_col] = (df["r_mult"] > 0).astype(int)
-            print(f"[meta_lr] Computed {y_col}: pos_rate={df[y_col].mean():.4f}")
-        else:
-            print(f"[meta_lr] WARNING: outcomes file not found at {outcomes_path}")
-
-        # Flatten nested indicators dict into f_* columns
-        if "indicators" in df.columns:
-            _ind_series = df["indicators"].apply(
-                lambda x: x if isinstance(x, dict) else {}
-            )
-            ind_df = pd.json_normalize(_ind_series)
-            for col in ind_df.columns:
-                target = f"f_{col}" if not col.startswith("f_") else col
-                if target not in df.columns:
-                    df[target] = pd.to_numeric(ind_df[col], errors="coerce").fillna(0.0)
-            print(f"[meta_lr] Flattened {len(ind_df.columns)} indicator columns")
+    df = _ensure_label_column(
+        df,
+        y_col=y_col,
+        dataset_path=_path,
+        outcomes_path=str(args.outcomes or "").strip(),
+    )
+    df = _flatten_indicator_columns(df)
+    df = _enrich_decision_feature_columns(df, schema_name=str(args.schema))
 
     if y_col not in df.columns:
         print(f"ERROR: label column not found: {y_col}")

@@ -14,6 +14,7 @@ CREATE TABLE IF NOT EXISTS candles_archive (
     timeframe VARCHAR(10) NOT NULL,
     open_time TIMESTAMPTZ NOT NULL,
     close_time TIMESTAMPTZ NOT NULL,
+    ts TIMESTAMPTZ NOT NULL,
     open NUMERIC(20, 8) NOT NULL,
     high NUMERIC(20, 8) NOT NULL,
     low NUMERIC(20, 8) NOT NULL,
@@ -53,8 +54,24 @@ SELECT add_retention_policy('candles_archive',
 -- Indexes
 CREATE INDEX IF NOT EXISTS idx_candles_symbol_tf_time 
     ON candles_archive (symbol, timeframe, open_time DESC);
+CREATE INDEX IF NOT EXISTS idx_candles_archive_ts
+    ON candles_archive (ts DESC) WHERE ts IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_candles_archived_at 
     ON candles_archive (archived_at) WHERE archived_at IS NOT NULL;
+
+CREATE OR REPLACE FUNCTION set_candles_archive_ts()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.ts := NEW.close_time;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_set_candles_archive_ts ON candles_archive;
+CREATE TRIGGER trg_set_candles_archive_ts
+BEFORE INSERT OR UPDATE OF close_time, ts ON candles_archive
+FOR EACH ROW
+EXECUTE FUNCTION set_candles_archive_ts();
 
 
 -- ============================================================================
@@ -125,6 +142,7 @@ ON CONFLICT (stream_name) DO NOTHING;
 -- 4. Comments
 -- ============================================================================
 COMMENT ON TABLE candles_archive IS 'Historical candles data archived from Redis stream';
+COMMENT ON COLUMN candles_archive.ts IS 'Canonical candle event timestamp for freshness checks; mirrors close_time in UTC.';
 COMMENT ON TABLE atr_archive IS 'Historical ATR calculations archived from Redis keys';
 COMMENT ON TABLE archive_metadata IS 'Track archiving progress and errors';
 

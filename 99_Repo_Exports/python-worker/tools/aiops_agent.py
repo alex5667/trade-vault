@@ -18,7 +18,7 @@ for env_path in ['/opt/trade-agent/compose/.env', '/home/alex/front/trade/scanne
     except Exception:
         pass
 
-VERSION = "15.7.1"
+VERSION = "15.8.0"
 
 # ── Настройки ─────────────────────────────────────────────────────────────────
 # Prometheus авто-обнаружение: сначала проверяет env var, затем сканирует известные порты
@@ -176,6 +176,17 @@ QUERIES: dict[str, str] = {
     "cg_requests":       'sum(rate(coingecko_requests_total[5m])) or vector(0)',
     "cg_429":            'sum(rate(coingecko_429_total[5m])) or vector(0)',
     "cg_skipped":        'sum(rate(coingecko_scheduler_skipped_total[5m])) or vector(0)',
+
+    # 19. Maker-Only Execution Canary (item 4, 2026-05-24) ──────────────────
+    # Shadow baseline: how many signals annotated for maker-only per minute.
+    "maker_shadow_rate":    'sum(rate(exec_maker_only_required_total{decision="SHADOW"}[5m])) or vector(0)',
+    # Enforce rate: non-zero only when EXEC_MAKER_ONLY_ENFORCE=1.
+    "maker_enforce_rate":   'sum(rate(exec_maker_only_required_total{decision="ENFORCE"}[5m])) or vector(0)',
+    # Executor decision: enforce (LIMIT+GTX placed), fallback_market_* (upstream issue).
+    "maker_exec_enforce":   'sum(rate(exec_maker_only_decision_total{maker_mode="enforce"}[15m])) or vector(0)',
+    "maker_exec_fallback":  'sum(rate(exec_maker_only_decision_total{maker_mode=~"fallback_market_.*"}[15m])) or vector(0)',
+    # Fallback rate = fallback / (enforce + fallback). Alert when > 0.05.
+    "maker_fallback_rate":  'sum(rate(exec_maker_only_decision_total{maker_mode=~"fallback_market_.*"}[15m])) / clamp_min(sum(rate(exec_maker_only_decision_total{maker_mode=~"enforce|fallback_market_.*"}[15m])), 0.001) or vector(0)',
 }
 
 
@@ -596,6 +607,45 @@ def run_cycle() -> None:
     if m.get('cg_skipped') is not None and m['cg_skipped'] > 5:
         alerts.append(f"🟠 ВНИМАНИЕ: Планировщик CoinGecko пропускает задачи (budget/cooldown skips: {m['cg_skipped']:.1f}/s).")
 
+    # 19. Maker-Only Execution Canary
+    _mo_fallback_rate = m.get('maker_fallback_rate')
+    _mo_exec_enforce = m.get('maker_exec_enforce')
+    _mo_exec_fallback = m.get('maker_exec_fallback')
+    _mo_enforce_rate = m.get('maker_enforce_rate')
+    _mo_shadow_rate = m.get('maker_shadow_rate')
+
+    # Только когда ENFORCE активен (maker_exec_enforce > 0 или enforce_rate > 0)
+    if _mo_exec_enforce is not None and _mo_exec_enforce > 0:
+        if _mo_fallback_rate is not None and _mo_fallback_rate > 0.10:
+            alerts.append(
+                f"🔴 КРИТИЧНО: Maker-only fallback rate {_mo_fallback_rate*100:.1f}% > 10%! "
+                f"Executor откатывается к MARKET — проблема с upstream pricing или FiltersCache."
+            )
+        elif _mo_fallback_rate is not None and _mo_fallback_rate > 0.05:
+            alerts.append(
+                f"🟠 ВНИМАНИЕ: Maker-only fallback rate {_mo_fallback_rate*100:.1f}% > 5%. "
+                f"Проверьте: entry price в enriched_signal, tick_size в FiltersCache. "
+                f"(enforce={_mo_exec_enforce:.3f}/s, fallback={_mo_exec_fallback:.3f}/s)"
+            )
+        elif _mo_exec_fallback is not None and _mo_exec_fallback > 0:
+            _rate_str = f"{_mo_fallback_rate*100:.1f}%" if _mo_fallback_rate is not None else "N/A"
+            alerts.append(
+                f"⚪ ИНФО: Maker-only fallback зафиксирован ({_mo_exec_fallback:.3f}/s). "
+                f"Fallback rate={_rate_str} в допустимом диапазоне."
+            )
+    # Shadow baseline: когда ENFORCE=0, только shadow счётчик растёт — показываем для информации
+    elif _mo_shadow_rate is not None and _mo_shadow_rate > 0:
+        alerts.append(
+            f"⚪ ИНФО: Maker-only SHADOW активен ({_mo_shadow_rate:.3f} сигналов/с). "
+            f"ENFORCE=0 — baseline для оценки blast radius перед canary flip."
+        )
+    # Аномально высокий enforce rate (scope leak)
+    if _mo_enforce_rate is not None and _mo_enforce_rate > 0.5:
+        alerts.append(
+            f"🟠 ВНИМАНИЕ: Maker-only ENFORCE rate аномально высок ({_mo_enforce_rate:.2f}/с > 0.5/с). "
+            f"Проверьте EXEC_MAKER_ONLY_KINDS_ENFORCE — возможно canary scope расширен больше ожидаемого."
+        )
+
     # Предупреждение о частично недоступных метриках
     if empty > 0:
         alerts.append(
@@ -688,6 +738,11 @@ def run_cycle() -> None:
     [COINGECKO API]
     - Requests/s: {fmt(m.get('cg_requests'), ".2f")} | 429 Errors/s: {fmt(m.get('cg_429'), ".2f")} | Skips/s: {fmt(m.get('cg_skipped'), ".2f")}
 
+    [MAKER-ONLY CANARY (item 4)]
+    - Shadow annotations/s: {fmt(m.get('maker_shadow_rate'), ".3f")} | Enforce annotations/s: {fmt(m.get('maker_enforce_rate'), ".3f")}
+    - Executor enforce/s: {fmt(m.get('maker_exec_enforce'), ".3f")} | Executor fallback/s: {fmt(m.get('maker_exec_fallback'), ".3f")}
+    - Fallback rate: {pct(m.get('maker_fallback_rate'))} (threshold: >5% = warn, >10% = crit)
+
     - Metrics coverage: {available}/{total} available, {empty} not exported
     """
 
@@ -763,6 +818,7 @@ def run_cycle() -> None:
     - ofconfirm_build_stages (все стадии): evidence > 15ms = неоптимальный расчет признаков; ml_confirm > 10ms = перегрузка ML/CPU; gates > 5ms = слишком длинная цепочка гейтов; io_export > 10ms = тормозит экспорт в Redis/Disk.
     - Phase 2 Validation: Adverse Veto > 0 (успех отсева токсики), MANIP Penalty > 0 (успех пенализации манипуляций), Feature Drift Tighten > 0 (безопасная деградация), Stressed Liq > 0 (включение умного Strong Gate).
     - CoinGecko API: 429 Errors > 0 = исчерпание лимитов CoinGecko, риск ослепления макро-метрик.
+    - Maker-Only Canary: Shadow annotations/s > 0 при ENFORCE=0 — нормальный baseline-сбор (норма). Enforce annotations/s > 0 — canary активен. Fallback rate > 5% = upstream проблема (entry price или tick_size не приходят в executor). Fallback rate > 10% = критично, GTX-ордера замещаются MARKET, экономия на комиссии потеряна. Enforce rate > 0.5/s = аномальное расширение canary scope, проверить EXEC_MAKER_ONLY_KINDS_ENFORCE.
 
     Формат ответа строго такой:
     Предложение 1: состояние Ingestion, Observability, DB Errors и лимитов CoinGecko (включая WS Disconnects, TCP Drops, 429 Errors).
@@ -771,6 +827,7 @@ def run_cycle() -> None:
     Предложение 4: итоговый вердикт по Signal Drift и ContCtx Vetoes с указанием, где именно система сейчас проливает деньги или где она ослепла.
     Предложение 5: анализ бутылочных горлышек OF Engine (на основе стадий из ofconfirm_build_stages_us) и состояние ATR Governance.
     Предложение 6: анализ результатов Phase 2 Validation (Adverse Selection, MANIP, Low Conf Share, Stressed Liq, Drift Tighten).
+    Предложение 7: состояние Maker-Only Canary — shadow baseline rate, enforce активность, fallback rate и вывод: pipeline здоров / есть upstream проблема / scope leak.
 
     Запрещено:
     - давать рекомендации;

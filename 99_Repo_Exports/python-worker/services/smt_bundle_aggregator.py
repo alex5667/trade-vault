@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import math
 import os
 from collections import deque
@@ -14,6 +15,23 @@ from news_pipeline.enricher_sync import NewsEnricherSync
 from services.smt_logic import decide_smt
 from utils.time_utils import get_ny_time_millis
 from core.redis_keys import RedisStreams as RS
+
+log = logging.getLogger(__name__)
+
+try:
+    from prometheus_client import Counter as _Counter
+    _smt_gate_errors = _Counter(
+        "smt_news_gate_errors_total",
+        "Errors in SMT V2 decision block (news gate / decide_smt)",
+        ["bundle_id", "reason"],
+    )
+except Exception:
+    class _FallbackCounter:  # type: ignore[no-redef]
+        def labels(self, **_kw: Any) -> "_FallbackCounter":
+            return self
+        def inc(self) -> None:
+            pass
+    _smt_gate_errors = _FallbackCounter()  # type: ignore[assignment]
 
 
 def _i(x: Any, d: int = 0) -> int:
@@ -290,8 +308,8 @@ class SmtBundleAggregator:
                 "payload": json.dumps(payload, ensure_ascii=False, separators=(",", ":")),
             }
             self.redis.xadd(self.smt_setup_stream, msg, maxlen=20000, approximate=True)
-        except Exception:
-            pass
+        except Exception as _exc:
+            log.debug("smt_setup publish failed bundle=%s err=%r", bundle_id, _exc)
 
     def _update_returns_from_latest(self, symbol: str) -> bool:
         mid, ts = _read_price_latest(self.redis, symbol)
@@ -647,8 +665,14 @@ class SmtBundleAggregator:
                     }
                     self._publish_smt_setup(out, b.bundle_id)
 
-            except Exception:
-                pass
+            except Exception as _exc:
+                _smt_gate_errors.labels(bundle_id=b.bundle_id, reason=type(_exc).__name__).inc()
+                log.warning(
+                    "smt_v2_decision_error bundle=%s err=%r",
+                    b.bundle_id,
+                    _exc,
+                    exc_info=True,
+                )
 
         return n
 

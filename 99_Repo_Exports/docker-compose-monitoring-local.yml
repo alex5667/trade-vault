@@ -63,7 +63,7 @@ services:
     - scanner-infra
     - scanner-ops
     command:
-    - --housekeeping_interval=15s
+    - --housekeeping_interval=60s
     - --global_housekeeping_interval=60s
     - --docker_only=true
     - --disable_metrics=disk,network,tcp,udp,percpu,sched,process,referenced_memory

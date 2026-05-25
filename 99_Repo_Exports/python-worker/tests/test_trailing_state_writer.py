@@ -60,6 +60,9 @@ class TestNormalizeRow:
         assert row["low_watermark"] == 64800.0
         assert row["atr_value"] == 150.25
         assert row["atr_mult"] == 1.5
+        assert row["idempotency_key"] == "of:BTCUSDT:1700000000000:LONG:1700000123456:transition:TRAILING:tp1_hit"
+        assert row["profile_hash"]
+        assert row["policy_hash"]
 
     def test_valid_minimal_payload(self):
         """Only required fields present — optional numerics should be None."""
@@ -83,8 +86,10 @@ class TestNormalizeRow:
         assert row["low_watermark"] is None
         assert row["atr_value"] is None
         assert row["atr_mult"] is None
-        assert row["position_id"] is None
-        assert row["profile"] is None
+        assert row["position_id"] == "sid-min"
+        assert row["profile"] == "unknown"
+        assert row["profile_hash"]
+        assert row["policy_hash"]
 
     def test_missing_sid_returns_reason(self):
         p = self._full_payload()
@@ -174,6 +179,9 @@ class TestPgWriter:
             "atr_mult": 1.5,
             "reason_code": "tp1_hit",
             "profile": "default",
+            "idempotency_key": "sid-1:1700000000000:transition:TRAILING:tp1_hit",
+            "profile_hash": "profilehash",
+            "policy_hash": "policyhash",
             "payload": "{}",
         }
         base.update(overrides)

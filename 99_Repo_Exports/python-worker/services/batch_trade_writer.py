@@ -27,6 +27,7 @@ ENV:
 """
 
 import json
+import hashlib
 import logging
 import os
 import queue
@@ -481,35 +482,65 @@ class BatchTradeWriter:
 # ------------------------------------------------------------------
 # Row builders (pure functions, testable without DB)
 def _get_metric(closed, sp, key, default):
+    allow_zero = key in {
+        "live_surface_applied",
+        "trailing_surface_applied",
+        "baseline_trailing_offset_atr",
+        "selected_trailing_offset_atr",
+    }
+    absent = (None, "") if allow_zero else (None, "", 0, 0.0)
     val = getattr(closed, key, None)
-    if val not in (None, "", 0, 0.0):
+    if val not in absent:
         return val
-    if key in sp and sp[key] not in (None, "", 0, 0.0):
+    if key in sp and sp[key] not in absent:
         return sp[key]
-    meta = sp.get("meta") or {}
-    if key in meta and meta[key] not in (None, "", 0, 0.0):
-        return meta[key]
     config_snapshot = sp.get("config_snapshot") or {}
+    meta_candidates = [
+        sp.get("meta") or {},
+        config_snapshot.get("meta") or {},
+    ]
+    for meta in meta_candidates:
+        if key in meta and meta[key] not in absent:
+            return meta[key]
+        risk_surface = meta.get("risk_surface_shadow") or {}
+        if key in risk_surface and risk_surface[key] not in absent:
+            return risk_surface[key]
     policy_provenance = config_snapshot.get("policy_provenance") or {}
     if key in policy_provenance and policy_provenance[key] not in (None, "", "None", 0, 0.0):
         return policy_provenance[key]
-    atr_policy = sp.get("atr_policy") or meta.get("atr_policy") or {}
-    if key in atr_policy and atr_policy[key] not in (None, "", 0, 0.0):
-        return atr_policy[key]
-    if "live_surface" in meta and key.startswith("live_surface_"):
-        k = key.replace("live_surface_", "")
-        if k in meta["live_surface"]:
-            return meta["live_surface"][k]
-    if "trailing_surface" in meta and key.startswith("trailing_surface_"):
-        k = key.replace("trailing_surface_", "")
-        if k in meta["trailing_surface"]:
-            return meta["trailing_surface"][k]
+    for meta in meta_candidates:
+        atr_policy = sp.get("atr_policy") or meta.get("atr_policy") or {}
+        if key in atr_policy and atr_policy[key] not in absent:
+            return atr_policy[key]
+        if "live_surface" in meta and key.startswith("live_surface_"):
+            k = key.replace("live_surface_", "")
+            if k in meta["live_surface"] and meta["live_surface"][k] not in absent:
+                return meta["live_surface"][k]
+        if "trailing_surface" in meta and key.startswith("trailing_surface_"):
+            k = key.replace("trailing_surface_", "")
+            if k in meta["trailing_surface"] and meta["trailing_surface"][k] not in absent:
+                return meta["trailing_surface"][k]
     # Remove 'atr_policy_' prefix if not found and check again in policy_provenance
     if key.startswith("atr_policy_"):
         short_key = key.replace("atr_policy_", "")
         if short_key in policy_provenance and policy_provenance[short_key] not in (None, "", "None", 0, 0.0):
             return policy_provenance[short_key]
     return default
+
+def _stable_closed_trade_id(closed: Any) -> str:
+    existing = getattr(closed, "closed_trade_id", None)
+    if existing:
+        return str(existing)
+    raw = "|".join(
+        str(x or "")
+        for x in (
+            getattr(closed, "sid", ""),
+            getattr(closed, "exit_order_ref", ""),
+            getattr(closed, "exit_ts_ms", ""),
+            getattr(closed, "close_reason", ""),
+        )
+    )
+    return "ctid:" + hashlib.sha1(raw.encode("utf-8")).hexdigest()[:24]
 
 def _build_main_row(closed: Any) -> tuple:
     """Строит кортеж параметров для INSERT INTO trades_closed."""
@@ -601,8 +632,8 @@ def _build_main_row(closed: Any) -> tuple:
         # Phase 2.6: trailing surface A/B analytics
         _get_metric(closed, sp, "trailing_surface_applied", None),
         _get_metric(closed, sp, "trailing_surface_reason_code", None),
-        _get_metric(closed, sp, "baseline_trailing_offset_atr", None),
-        _get_metric(closed, sp, "selected_trailing_offset_atr", None),
+        _get_metric(closed, sp, "baseline_trailing_offset_atr", 0.0),
+        _get_metric(closed, sp, "selected_trailing_offset_atr", 0.0),
 
         # --- NEW Analytics columns ---
         getattr(closed, "close_reason_detail", ""),
@@ -646,15 +677,15 @@ def _build_main_row(closed: Any) -> tuple:
         getattr(closed, "atr_trail_tf_ms", 0) or 0,
         policy_mode_val,
         policy_raw_val,
-        getattr(closed, "v_gate_reason", "") or "",
+        _get_metric(closed, sp, "v_gate_reason", None),
         bool(getattr(closed, "is_orphan_cleanup", False)),
         bool(getattr(closed, "exclude_from_ml_labels", False)),
         getattr(closed, "timeout_age_ms", None) or None,
         getattr(closed, "timeout_max_hold_ms", None) or None,
         getattr(closed, "timeout_request_ts_ms", None) or None,
         getattr(closed, "timeout_close_latency_ms", None) or None,
-        getattr(closed, "exit_order_ref", None) or None,
-        getattr(closed, "closed_trade_id", None) or None,
+        getattr(closed, "exit_order_ref", None) or (f"virt:exit:{getattr(closed, 'sid', '')}" if getattr(closed, "is_virtual", False) else None),
+        _stable_closed_trade_id(closed) if getattr(closed, "is_final_close", True) else None,
     )
     return tuple(None if val == () else val for val in res)
 
@@ -728,8 +759,8 @@ def _build_p0_row(closed: Any) -> tuple:
         bool(_get_metric(closed, sp, "meta_enforce_applied", False)) if _get_metric(closed, sp, "meta_enforce_applied", None) is not None else None,  # [16]
         _get_metric(closed, sp, "trailing_surface_applied", False),          # [17]
         _get_metric(closed, sp, "trailing_surface_reason_code", None),       # [18]
-        _get_metric(closed, sp, "baseline_trailing_offset_atr", None),       # [19]
-        _get_metric(closed, sp, "selected_trailing_offset_atr", None),       # [20]
+        _get_metric(closed, sp, "baseline_trailing_offset_atr", 0.0),        # [19]
+        _get_metric(closed, sp, "selected_trailing_offset_atr", 0.0),        # [20]
         policy_mode,                                                          # [21]
         policy_raw,                                                           # [22]
         strong_gate_ok,                                                       # [23]
