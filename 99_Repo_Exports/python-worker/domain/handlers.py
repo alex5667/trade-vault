@@ -143,6 +143,9 @@ def _update_excursions_and_adverse(pos: PositionState, tick) -> None:
     else:
         adverse_now = max(0.0, (mid - entry) / entry * 10000.0)
 
+    if adverse_now > 0.0 and not pos.first_adverse_ts_ms:
+        pos.first_adverse_ts_ms = ts_ms
+
     for b in ADVERSE_BUCKETS_MS:
         if b in pos.adverse_bps_t:
             continue

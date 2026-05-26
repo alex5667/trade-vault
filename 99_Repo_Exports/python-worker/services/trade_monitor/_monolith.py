@@ -1607,6 +1607,7 @@ class TradeMonitorService:
             object.__setattr__(closed, "exclude_from_ml_labels", False)
             object.__setattr__(closed, "timeout_age_ms", self._position_age_ms(pos, exit_ts_ms))
             object.__setattr__(closed, "timeout_max_hold_ms", self._resolve_max_hold_ms(pos))
+            object.__setattr__(closed, "timeout_request_ts_ms", int(exit_ts_ms))
         with contextlib.suppress(Exception):
             self._log_ab_closed_event(pos, closed, close_reason_raw)
         with contextlib.suppress(Exception):

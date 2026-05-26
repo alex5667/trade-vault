@@ -40,6 +40,7 @@ ENV
 from __future__ import annotations
 
 import collections
+import json
 import logging
 import math
 import os
@@ -258,6 +259,82 @@ def _sf(v: Any) -> float:
         return 0.0
 
 
+def _tick_ts_ms(fields: dict[str, str]) -> float:
+    """Canonical event time from Go tick (event_time_ms / ts), not ingest wall clock."""
+    for key in ("event_time_ms", "ts", "ts_ms"):
+        v = _sf(fields.get(key) or "0")
+        if v > 0:
+            return v
+    return float(get_ny_time_millis())
+
+
+def _tick_taker_qty(fields: dict[str, str]) -> tuple[float, float]:
+    """Map stream:tick_{sym} payload → (taker_buy_qty, taker_sell_qty).
+
+    Go ingest publishes ``side`` (BUY/SELL = aggressive taker) + ``qty`` only.
+    Legacy L3 fields (taker_buy_qty, …) are honoured when present.
+    """
+    buy = _sf(fields.get("taker_buy_qty") or fields.get("buy_qty") or "0")
+    sell = _sf(fields.get("taker_sell_qty") or fields.get("sell_qty") or "0")
+    if buy > 0.0 or sell > 0.0:
+        return buy, sell
+    qty = _sf(fields.get("qty") or fields.get("quantity") or "0")
+    if qty <= 0.0:
+        return 0.0, 0.0
+    side = (fields.get("side") or "").strip().upper()
+    if side in ("BUY", "B"):
+        return qty, 0.0
+    if side in ("SELL", "S"):
+        return 0.0, qty
+    return 0.0, 0.0
+
+
+_book_rates_cache: dict[str, tuple[float, dict[str, float]]] = {}
+
+
+def _book_rates_proxy(
+    redis_client: Any,
+    symbol: str,
+    dt_s: float,
+    *,
+    refresh_sec: float = 10.0,
+) -> tuple[float, float, float, float, float]:
+    """Bridge cancel/add Hawkes legs from ``book_rates:{symbol}`` (book_rate_ema_producer).
+
+    Rates are events/s EMAs; scale by inter-tick ``dt_s`` → pseudo event counts for O(1) kernel.
+    """
+    if dt_s <= 0.0:
+        return 0.0, 0.0, 0.0, 0.0, 0.0
+    now = time.monotonic()
+    cached = _book_rates_cache.get(symbol)
+    if cached is None or (now - cached[0]) >= refresh_sec:
+        data: dict[str, float] = {}
+        try:
+            raw = redis_client.get(f"book_rates:{symbol}")
+            if raw:
+                if isinstance(raw, (bytes, bytearray)):
+                    raw = raw.decode("utf-8", "ignore")
+                parsed = json.loads(raw)
+                if isinstance(parsed, dict):
+                    for k in (
+                        "cancel_bid_rate_ema",
+                        "cancel_ask_rate_ema",
+                        "added_bid_rate_ema",
+                        "added_ask_rate_ema",
+                    ):
+                        data[k] = _sf(parsed.get(k))
+        except Exception:
+            data = {}
+        _book_rates_cache[symbol] = (now, data)
+        cached = (now, data)
+    rates = cached[1]
+    cb = rates.get("cancel_bid_rate_ema", 0.0) * dt_s
+    ca = rates.get("cancel_ask_rate_ema", 0.0) * dt_s
+    la_bid = rates.get("added_bid_rate_ema", 0.0) * dt_s
+    la_ask = rates.get("added_ask_rate_ema", 0.0) * dt_s
+    return cb, ca, la_bid + la_ask, la_bid, la_ask
+
+
 # ---------------------------------------------------------------------------
 # Main loop
 # ---------------------------------------------------------------------------
@@ -346,18 +423,43 @@ def main() -> None:
                 ack_ids.append(msg_id)
                 try:
                     fields = {_decode(k): _decode(v) for k, v in fields.items()}
-                    ts_ms = _sf(fields.get("ts_ms") or str(get_ny_time_millis()))
+                    ts_ms = _tick_ts_ms(fields)
                     ts_s = ts_ms / 1000.0
+                    dt_s = (
+                        max(ts_s - state._last_ts_s, 0.0)
+                        if state._last_ts_s > 0
+                        else 0.0
+                    )
+                    taker_buy, taker_sell = _tick_taker_qty(fields)
+                    cancel_bid = _sf(fields.get("cancel_bid_qty") or "0")
+                    cancel_ask = _sf(fields.get("cancel_ask_qty") or "0")
+                    limit_add = _sf(fields.get("limit_add_qty") or fields.get("added_total") or "0")
+                    limit_add_bid = _sf(fields.get("add_bid_qty") or "0")
+                    limit_add_ask = _sf(fields.get("add_ask_qty") or "0")
+                    if (
+                        cancel_bid <= 0.0
+                        and cancel_ask <= 0.0
+                        and limit_add <= 0.0
+                        and limit_add_bid <= 0.0
+                        and limit_add_ask <= 0.0
+                    ):
+                        (
+                            cancel_bid,
+                            cancel_ask,
+                            limit_add,
+                            limit_add_bid,
+                            limit_add_ask,
+                        ) = _book_rates_proxy(redis_client, symbol, dt_s)
 
                     out = state.update(
                         ts_s,
-                        taker_buy_qty=_sf(fields.get("taker_buy_qty") or fields.get("buy_qty") or "0"),
-                        taker_sell_qty=_sf(fields.get("taker_sell_qty") or fields.get("sell_qty") or "0"),
-                        cancel_bid_qty=_sf(fields.get("cancel_bid_qty") or "0"),
-                        cancel_ask_qty=_sf(fields.get("cancel_ask_qty") or "0"),
-                        limit_add_qty=_sf(fields.get("limit_add_qty") or fields.get("added_total") or "0"),
-                        limit_add_bid_qty=_sf(fields.get("add_bid_qty") or "0"),
-                        limit_add_ask_qty=_sf(fields.get("add_ask_qty") or "0"),
+                        taker_buy_qty=taker_buy,
+                        taker_sell_qty=taker_sell,
+                        cancel_bid_qty=cancel_bid,
+                        cancel_ask_qty=cancel_ask,
+                        limit_add_qty=limit_add,
+                        limit_add_bid_qty=limit_add_bid,
+                        limit_add_ask_qty=limit_add_ask,
                     )
 
                     out["ts_ms"] = ts_ms
@@ -378,9 +480,9 @@ def main() -> None:
 
             if ack_ids:
                 try:
-                    redis_client.xack(sk, group, *ack_ids)
-                except Exception:
-                    pass
+                    redis_ticks_client.xack(sk, group, *ack_ids)
+                except Exception as e:
+                    logger.warning("XACK %s failed (%d ids): %s", sk, len(ack_ids), e)
 
     logger.info("Hawkes/VPIN service stopped")
 

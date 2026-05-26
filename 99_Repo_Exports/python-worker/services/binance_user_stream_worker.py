@@ -125,6 +125,20 @@ class BinanceUserStreamWorker:
     def _cache_key(self, kind: str, ref: str) -> str:
         return f"{self.cache_prefix}{kind}:{ref}"
 
+    def _state_key(self, sid: str) -> str:
+        prefix = (os.getenv("ORDERS_STATE_KEY_PREFIX") or "orders:state:").rstrip(":") + ":"
+        return f"{prefix}{sid}"
+
+    def _load_state_doc(self, sid: str) -> dict[str, Any]:
+        try:
+            raw = self.r.get(self._state_key(sid))
+            if not raw:
+                return {}
+            doc = json.loads(raw)
+            return doc if isinstance(doc, dict) else {}
+        except Exception:
+            return {}
+
     def _status_doc(self) -> dict[str, Any]:
         """Read the current status doc from Redis (returns {} on any error)."""
         try:
@@ -205,14 +219,23 @@ class BinanceUserStreamWorker:
                     sid = self.r.get(f"orders:cid_to_sid:{event.client_order_id}")
                     if sid:
                         order_data = event.raw.get("o") or {}
+                        state_doc = self._load_state_doc(str(sid))
                         exec_fields = {
                             "event_type": "EXCHANGE_FILL" if str(event.event_type).upper() == "ORDER_TRADE_UPDATE" else "EXCHANGE_ORDER_UPDATE",
                             "sid": sid,
                             "symbol": str(event.symbol),
+                            "side": str(event.side),
                             "action": "reconcile",
                             "status": str(event.status),
                             "filled_qty": (order_data.get("z") or "0"),
                             "avg_price": (order_data.get("ap") or "0"),
+                            "price": (order_data.get("ap") or "0"),
+                            "kind": str(
+                                state_doc.get("kind")
+                                or state_doc.get("scenario")
+                                or state_doc.get("signal_kind")
+                                or "default"
+                            ),
                             "client_order_id": str(event.client_order_id),
                             "binance_order_id": str(event.order_id) if event.order_id else "",
                             "ts_event_ms": str(event.event_time_ms),

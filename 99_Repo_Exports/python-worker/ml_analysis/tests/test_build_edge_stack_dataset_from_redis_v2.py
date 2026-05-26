@@ -219,4 +219,43 @@ def test_join_nearest_secondary_dir_scenario_strict_filters_candidates():
     assert rows[0]["join_method"] == "nearest"
 
 
+def test_join_nearest_uses_signal_ts_from_sid_as_anchor_for_long_held_close():
+    s = SignalRow(
+        sid=_make_sid("BTCUSDT", 1_000),
+        ts_ms=1_000,
+        symbol="BTCUSDT",
+        direction="BUY",
+        scenario="trend",
+        indicators={"x": 1},
+    )
+    late_signal = SignalRow(
+        sid=_make_sid("BTCUSDT", 100_000),
+        ts_ms=100_000,
+        symbol="BTCUSDT",
+        direction="BUY",
+        scenario="trend",
+        indicators={"x": 2},
+    )
+    c = CloseRow(
+        sid=_make_sid("BTCUSDT", 1_050),
+        close_ts_ms=100_020,
+        symbol="BTCUSDT",
+        pnl=0.2,
+        risk_usd=1.0,
+    )
+
+    rows, unmatched = join_signals_with_closes_v2(
+        [s, late_signal],
+        [c],
+        y_min_r=0.1,
+        join_strategy="sid_or_nearest",
+        join_tolerance_ms=100,
+        nearest_max_scan=10,
+    )
+    assert len(unmatched) == 0
+    assert len(rows) == 1
+    assert rows[0]["sid"] == s.sid
+    assert rows[0]["join_method"] == "nearest"
+    assert int(rows[0]["join_delta_ms"]) == int(c.close_ts_ms - s.ts_ms)
+
 

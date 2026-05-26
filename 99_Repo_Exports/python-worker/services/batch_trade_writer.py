@@ -384,7 +384,8 @@ class BatchTradeWriter:
                 v_gate_reason,
                 is_orphan_cleanup, exclude_from_ml_labels,
                 timeout_age_ms, timeout_max_hold_ms, timeout_request_ts_ms, timeout_close_latency_ms,
-                exit_order_ref, closed_trade_id
+                exit_order_ref, closed_trade_id,
+                entry_regime
             ) VALUES %s
             ON CONFLICT (order_id) DO NOTHING
         """
@@ -481,6 +482,38 @@ class BatchTradeWriter:
 
 # ------------------------------------------------------------------
 # Row builders (pure functions, testable without DB)
+
+_ENTRY_REGIME_SENTINELS = frozenset({"", "na", "none", "null", "unknown"})
+
+
+def _entry_regime_db_value(closed: Any) -> str | None:
+    """Meaningful entry_regime/regime only; skip sentinels (na/none/unknown)."""
+    for attr in ("entry_regime", "regime"):
+        raw = getattr(closed, attr, None)
+        if raw is None:
+            continue
+        s = str(raw).strip().lower()
+        if s not in _ENTRY_REGIME_SENTINELS:
+            return str(raw).strip()
+    return None
+
+
+def _policy_mode_raw_from_payload(sp: dict[str, Any]) -> tuple[Any, Any]:
+    """Mirror analytics_db.save_trade_closed policy extraction (risk_surface_shadow)."""
+    config_snapshot = sp.get("config_snapshot") or {}
+    meta = config_snapshot.get("meta") or sp.get("meta") or {}
+    rss = meta.get("risk_surface_shadow") or {}
+    mode = (
+        rss.get("mode")
+        or meta.get("policy_effective_mode")
+        or meta.get("policy_regime")
+        or meta.get("policy_mode")
+        or None
+    )
+    raw = json.dumps(rss, ensure_ascii=False) if rss else None
+    return mode, raw
+
+
 def _get_metric(closed, sp, key, default):
     allow_zero = key in {
         "live_surface_applied",
@@ -548,10 +581,9 @@ def _build_main_row(closed: Any) -> tuple:
     horizon_contract = extract_horizon_contract_from_payload(sp)
     horizon_bucket = extract_horizon_bucket(horizon_contract)
     atr_tf_ms_val = extract_atr_tf_ms(horizon_contract)
-    _cs_bw = sp.get("config_snapshot") or {}
-    _meta_sp = (sp.get("meta") or _cs_bw.get("meta") or {})
-    policy_mode_val = _meta_sp.get("policy_effective_mode") or _meta_sp.get("policy_regime") or _meta_sp.get("policy_mode") or sp.get("policy_mode") or sp.get("policy_regime") or getattr(closed, "policy_mode", None) or None
-    policy_raw_val = json.dumps(_meta_sp, ensure_ascii=False) if _meta_sp else None
+    policy_mode_val, policy_raw_val = _policy_mode_raw_from_payload(sp)
+    if policy_mode_val is None:
+        policy_mode_val = getattr(closed, "policy_mode", None)
     config_snapshot = dict(sp.get("config_snapshot", {}) or {})
     if horizon_contract:
         config_snapshot["_horizon_contract"] = horizon_contract
@@ -686,6 +718,7 @@ def _build_main_row(closed: Any) -> tuple:
         getattr(closed, "timeout_close_latency_ms", None) or None,
         getattr(closed, "exit_order_ref", None) or (f"virt:exit:{getattr(closed, 'sid', '')}" if getattr(closed, "is_virtual", False) else None),
         _stable_closed_trade_id(closed) if getattr(closed, "is_final_close", True) else None,
+        _entry_regime_db_value(closed),
     )
     return tuple(None if val == () else val for val in res)
 

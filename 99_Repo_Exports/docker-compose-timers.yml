@@ -869,9 +869,7 @@ services:
     command:
     - sh
     - -c
-    - sleep 176 && while true; do echo 'Running Meta Drift Guard v1...'; python3 tools/meta_drift_guard_v1.py
-      - -since-min 180 --emit-suggestion --unfreeze-on-ok --notify; echo 'Meta drift
-      guard done. Sleeping 30 minutes...'; sleep 1800; done
+    - sleep 176 && while true; do echo 'Running Meta Drift Guard v1...'; python3 tools/meta_drift_guard_v1.py --since-min 180 --emit-suggestion --unfreeze-on-ok --notify; echo 'Meta drift guard done. Sleeping 30 minutes...'; sleep 1800; done
     networks:
     - scanner-timers
     - scanner-infra
@@ -2625,6 +2623,9 @@ services:
     - config/generated/symbols.env
     environment:
     - REDIS_URL=${LIQMAP_SNAPSHOT_REDIS_URL:-redis://redis-worker-1:6379/0}
+    # stream:liq_evt lives on main redis:6379 (written by go-worker liquidation handler).
+    # Snapshots are written to redis-worker-1 (REDIS_URL above).
+    - LIQ_EVT_REDIS_URL=${LIQ_EVT_REDIS_URL:-redis://redis:6379/0}
     - LIQ_EVT_STREAM=stream:liq_evt
     - LIQMAP_GROUP=liqmap_group
     - LIQMAP_WINDOWS=5m,1h,4h,24h
@@ -7336,7 +7337,11 @@ services:
     working_dir: /app
     volumes:
     - ./python-worker:/app
-    command: "sh -c \"sleep 600 && while true; do\n  HOUR=$$(date +%-H);\n  MIN=$$(date\
+    command: "sh -c \"sleep 600;\n  echo 'Bootstrap PIT priors for last 25h window...';\n\
+      \  NOW_MS=$$(date +%s)000;\n  LOOKBACK_MS=$$((PIT_BUILDER_LOOKBACK_HOURS * 3600 * 1000));\n\
+      \  START_MS=$$((NOW_MS - LOOKBACK_MS));\n  END_MS=$$((NOW_MS - 3600000));\n\
+      \  python3 -m tools.build_pit_priors_v1 --start-ts-ms $$START_MS --end-ts-ms $$END_MS --embargo-ms $${PIT_EMBARGO_MS:-3600000} --ttl-sec $${PIT_TTL_SEC:-7776000} || true;\n\
+      \  while true; do\n  HOUR=$$(date +%-H);\n  MIN=$$(date\
       \ +%-M);\n  if [ \\\"$$HOUR\\\" -eq 2 ] && [ \\\"$$MIN\\\" -ge 0 ] && [ \\\"\
       $$MIN\\\" -lt 15 ]; then\n    echo 'Running PIT priors builder for prev day...';\n\
       \    NOW_MS=$$(date +%s)000;\n    LOOKBACK_MS=$$((PIT_BUILDER_LOOKBACK_HOURS\

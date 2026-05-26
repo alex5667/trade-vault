@@ -32,10 +32,11 @@ def _make_pre_parsed_payload(*, ts_ms: int) -> dict:
 class _FakeAsyncRedis:
     def __init__(self):
         self.mget_calls: list = []
+        self.payloads: dict[str, Any] = {}
 
     async def mget(self, *keys):
         self.mget_calls.extend(keys)
-        return [None] * len(keys)
+        return [self.payloads.get(k) for k in keys]
 
 
 def _make_strategy(fake_redis) -> Any:
@@ -87,6 +88,42 @@ def test_liqmap_features_extracted_from_pre_seeded_cache():
     assert "liqmap_1h_is_stale" in indicators
     # No Redis fetch — cache was fresh
     assert fake_redis.mget_calls == [], "Unexpected Redis mget in warm-cache test"
+
+
+def test_liqmap_features_extracted_on_first_cold_cache_call():
+    """Cold cache must populate liqmap_* on the same live tick, not one tick later."""
+    import json
+
+    fake_redis = _FakeAsyncRedis()
+    st = _make_strategy(fake_redis)
+    runtime = _Runtime()
+    now_ms = 1_500_000
+
+    snap = {
+        "ts_ms": now_ms - 500,
+        "symbol": "BTCUSDT",
+        "window": "1h",
+        "levels": [
+            {"price": 99.0, "long_usd": 300_000.0, "short_usd": 0.0},
+            {"price": 101.0, "long_usd": 0.0, "short_usd": 200_000.0},
+        ],
+    }
+    fake_redis.payloads["liqmap:snapshot:BTCUSDT:1h"] = json.dumps(snap)
+
+    indicators: dict[str, Any] = {}
+    asyncio.run(
+        st._maybe_add_liqmap_features(
+            runtime=runtime,
+            indicators=indicators,
+            mid_px=100.0,
+            now_ms=now_ms,
+        )
+    )
+
+    assert fake_redis.mget_calls == ["liqmap:snapshot:BTCUSDT:1h"]
+    assert indicators["liqmap_1h_levels_n"] == 2.0
+    assert indicators["liqmap_levels_n"] == 2.0
+    assert indicators["liqmap_ok"] == 1
 
 
 def test_liqmap_cache_prevents_redis_refetch_within_ttl():

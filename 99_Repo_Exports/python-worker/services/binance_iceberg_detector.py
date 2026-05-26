@@ -195,6 +195,9 @@ METRIC_BLOCKED_TREND = os.getenv("ICEBERG_METRIC_BLOCKED", "metrics:iceberg_bloc
 ORDERS_QUEUE = os.getenv("ORDERS_QUEUE_BINANCE") or os.getenv("ORDERS_QUEUE") or RS.ORDERS_QUEUE_BINANCE
 RAW_SIGNAL_STREAM = os.getenv("ICEBERG_RAW_STREAM", RS.CRYPTO_RAW)
 NOTIFY_STREAM = os.getenv("ICEBERG_NOTIFY_STREAM", RS.NOTIFY_TELEGRAM)
+# Publish iceberg signals to signals:of:inputs so ML dataset builder can join them.
+OF_INPUTS_STREAM = os.getenv("OF_INPUTS_STREAM", RS.OF_INPUTS)
+_OF_INPUTS_MAXLEN = int(os.getenv("OF_INPUTS_STREAM_MAXLEN", "1000000") or 1000000)
 
 
 class BestLevelState:
@@ -624,6 +627,19 @@ class BinanceIcebergDetector:
             except Exception as e:
                 log.warning("Iceberg outbox publish failed: %s", e)
 
+        # Publish to signals:of:inputs so ML dataset builder can join iceberg signals
+        # to trades:closed entries. Fail-open: never block the primary publish path.
+        if OF_INPUTS_STREAM:
+            try:
+                self.r_core.xadd(
+                    OF_INPUTS_STREAM,
+                    {"payload": json.dumps(signal_payload, ensure_ascii=False, default=str)},
+                    maxlen=_OF_INPUTS_MAXLEN,
+                    approximate=True,
+                )
+            except Exception as _oi_e:
+                log.debug("iceberg of_inputs publish failed: %s", _oi_e)
+
         if use_outbox:
             # Dispatcher will publish notify/raw/snapshot.
             order_payload = self.order_builder.build_order_from_signal(signal_payload)
@@ -771,4 +787,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

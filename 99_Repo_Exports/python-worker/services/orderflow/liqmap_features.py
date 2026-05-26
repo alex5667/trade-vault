@@ -12,6 +12,24 @@ import orjson
 
 logger = logging.getLogger(__name__)
 
+
+def _coerce_numeric_levels(levels: Any) -> tuple[list[tuple[float, float, float]], float, float]:
+    num_levels: list[tuple[float, float, float]] = []
+    tot_l = 0.0
+    tot_s = 0.0
+    for lvl in list(levels or []):
+        try:
+            p = float(lvl.get("price", 0))
+            l_usd = float(lvl.get("long_usd", 0))
+            s_usd = float(lvl.get("short_usd", 0))
+            num_levels.append((p, l_usd, s_usd))
+            tot_l += l_usd
+            tot_s += s_usd
+        except (ValueError, TypeError, AttributeError):
+            continue
+    num_levels.sort(key=lambda x: x[0])
+    return num_levels, tot_l, tot_s
+
 def try_parse_liqmap_snapshot_json(raw: bytes | str | None) -> dict | None:
     """Parse JSON payload securely."""
     if not raw:
@@ -21,21 +39,7 @@ def try_parse_liqmap_snapshot_json(raw: bytes | str | None) -> dict | None:
 
         # Pre-process levels to numbers to save time on every tick
         levels = obj.get("levels", [])
-        num_levels = []
-        tot_l = 0.0
-        tot_s = 0.0
-        for lvl in levels:
-            try:
-                p = float(lvl.get("price", 0))
-                l_usd = float(lvl.get("long_usd", 0))
-                s_usd = float(lvl.get("short_usd", 0))
-                num_levels.append((p, l_usd, s_usd))
-                tot_l += l_usd
-                tot_s += s_usd
-            except (ValueError, TypeError):
-                continue
-
-        num_levels.sort(key=lambda x: x[0])
+        num_levels, tot_l, tot_s = _coerce_numeric_levels(levels)
 
         obj["_num_levels"] = num_levels
         obj["_tot_long_usd"] = tot_l
@@ -85,6 +89,11 @@ def compute_liqmap_features_from_snapshot(
     is_stale = 1 if stale_ms > max_stale_ms else 0
     levels = payload.get("levels", [])
     num_levels = payload.get("_num_levels", [])
+    tot_long_usd = payload.get("_tot_long_usd", 0.0)
+    tot_short_usd = payload.get("_tot_short_usd", 0.0)
+
+    if not num_levels and levels:
+        num_levels, tot_long_usd, tot_short_usd = _coerce_numeric_levels(levels)
 
     feats = {
         "stale_ms": float(stale_ms),
@@ -123,8 +132,6 @@ def compute_liqmap_features_from_snapshot(
             best_short_liq_usd = s_usd
             best_short_liq_px = p
 
-    tot_long_usd = payload.get("_tot_long_usd", 0.0)
-    tot_short_usd = payload.get("_tot_short_usd", 0.0)
     total_usd = tot_long_usd + tot_short_usd
     if total_usd > 0:
         # bias > 0.5 means more shorts are liquidated (bullish overall positioning)

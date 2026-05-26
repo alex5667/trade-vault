@@ -22,8 +22,11 @@ ENV
   PIT_ROLLING_INTERVAL_S          (default 3600)
   PIT_ROLLING_EMBARGO_MS          (default 3600000 = 1h)
   PIT_ROLLING_MIN_SAMPLES         (default 20)
+  PIT_ROLLING_COLD_START_MIN_SAMPLES (default 10) — symbol:default:all only
   PIT_ROLLING_TTL_SEC             (default 90000 = 25h)
   PIT_ROLLING_MAX_TRADES          (default 200000)
+  PIT_ROLLING_PG_BOOTSTRAP        (default 1) — merge trades_closed PG history
+  PIT_ROLLING_PG_MAX_ROWS         (default 50000)
   REDIS_URL                       (default redis://redis-worker-1:6379/0)
 """
 from __future__ import annotations
@@ -40,10 +43,15 @@ logger = logging.getLogger("pit_priors_rolling")
 
 _EMBARGO_MS: int = int(os.getenv("PIT_ROLLING_EMBARGO_MS", "3_600_000").replace("_", ""))
 _MIN_SAMPLES: int = int(os.getenv("PIT_ROLLING_MIN_SAMPLES", "20"))
+_COLD_START_MIN_SAMPLES: int = int(os.getenv("PIT_ROLLING_COLD_START_MIN_SAMPLES", "10"))
 _TTL_SEC: int = int(os.getenv("PIT_ROLLING_TTL_SEC", "90000"))
 _MAX_TRADES: int = int(os.getenv("PIT_ROLLING_MAX_TRADES", "200000"))
+_PG_BOOTSTRAP: bool = os.getenv("PIT_ROLLING_PG_BOOTSTRAP", "1").strip().lower() in ("1", "true", "yes", "on")
+_PG_MAX_ROWS: int = int(os.getenv("PIT_ROLLING_PG_MAX_ROWS", "50000"))
 _7D_MS: int = 7 * 86_400_000
 _30D_MS: int = 30 * 86_400_000
+_SESS_MAP = {"asian": "asia", "european": "europe", "us_main": "us", "overnight": "asia"}
+_ROLLING_SESSIONS = ("asia", "europe", "us", "all")
 
 
 # ---------------------------------------------------------------------------
@@ -93,6 +101,110 @@ def _percentile(vals: list[float], p: float) -> float:
     return s[idx]
 
 
+def _kind_label(t: dict[str, str]) -> str:
+    """Align with build_pit_priors_v1 + of_confirm_engine scenario key."""
+    return (t.get("scenario") or t.get("kind") or "").strip() or "default"
+
+
+def _session_label(t: dict[str, str], ts_close: int) -> str:
+    sess_raw = (t.get("session") or "").strip().lower()
+    if sess_raw:
+        return _SESS_MAP.get(sess_raw, "asia")
+    return _session(ts_close)
+
+
+def _seed_symbols_from_env() -> list[str]:
+    for env_name in ("PIT_ROLLING_SYMBOLS", "PIT_PRIORS_SYMBOLS", "CANARY_SYMBOLS", "CRYPTO_SYMBOLS"):
+        raw = (os.getenv(env_name) or "").strip()
+        if not raw:
+            continue
+        out = [s.strip().upper() for s in raw.replace(";", ",").split(",") if s.strip()]
+        if out:
+            return out
+    return ["BTCUSDT", "ETHUSDT"]
+
+
+def _rolling_placeholder(now_ms: int) -> dict[str, str]:
+    return {
+        "winrate": "0.000000",
+        "ev_r": "0.000000",
+        "ev_r_median": "0.000000",
+        "sample_count": "0.000000",
+        "sl_hit_rate": "0.000000",
+        "profit_factor": "0.000000",
+        "tp1_hit_rate": "0.000000",
+        "slippage_p95_bps": "0.000000",
+        "median_mae_r_winners": "0.000000",
+        "p90_mae_r_winners": "0.000000",
+        "median_mfe_r": "0.000000",
+        "giveback_p75": "0.000000",
+        "p50_mae_bps_30d": "0.000000",
+        "p75_mae_bps_30d": "0.000000",
+        "p90_mae_bps_30d": "0.000000",
+        "ts_ms": f"{float(now_ms):.6f}",
+    }
+
+
+def _derive_r_from_bps(bps: float, t: dict[str, str]) -> float:
+    """Convert bps excursion to R using one_r_money or sl distance in bps."""
+    if not math.isfinite(bps) or bps <= 0.0:
+        return float("nan")
+    one_r = _f(t.get("one_r_money"))
+    entry = _f(t.get("entry_px") or t.get("entry_price"))
+    sl = _f(t.get("sl_price") or t.get("sl"))
+    if math.isfinite(one_r) and one_r > 1e-9 and math.isfinite(entry) and entry > 0:
+        return (bps / 10_000.0) * entry / one_r
+    if math.isfinite(entry) and entry > 0 and math.isfinite(sl) and sl > 0:
+        risk_bps = abs(entry - sl) / entry * 10_000.0
+        if risk_bps > 1e-6:
+            return bps / risk_bps
+    return float("nan")
+
+
+def _derive_mfe_r(t: dict[str, str]) -> float:
+    raw = t.get("mfe_r") or t.get("max_favorable_r")
+    if raw not in (None, ""):
+        v = _f(raw)
+        if math.isfinite(v):
+            return v
+    mfe_pnl = _f(t.get("mfe_pnl"))
+    one_r = _f(t.get("one_r_money"))
+    if math.isfinite(mfe_pnl) and math.isfinite(one_r) and one_r > 1e-9:
+        return mfe_pnl / one_r
+    return _derive_r_from_bps(_f(t.get("mfe_bps")), t)
+
+
+def _derive_mae_r(t: dict[str, str]) -> float:
+    raw = t.get("mae_r")
+    if raw not in (None, ""):
+        v = _f(raw)
+        if math.isfinite(v):
+            return v
+    mae_pnl = _f(t.get("mae_pnl"))
+    one_r = _f(t.get("one_r_money"))
+    if math.isfinite(mae_pnl) and math.isfinite(one_r) and one_r > 1e-9:
+        return abs(mae_pnl) / one_r
+    return _derive_r_from_bps(_f(t.get("mae_bps")), t)
+
+
+def _slippage_bps_sample(t: dict[str, str]) -> float:
+    for key in ("realized_slippage_bps", "slippage_bps_est", "p0_slippage_bps_est", "is_bps"):
+        v = _f(t.get(key))
+        if math.isfinite(v) and v >= 0.0:
+            return v
+    return float("nan")
+
+
+def _enrich_trade_fields(t: dict[str, str]) -> None:
+    """Normalize trades:closed rows for aggregation (in-place)."""
+    mfe_r = _derive_mfe_r(t)
+    if math.isfinite(mfe_r):
+        t["mfe_r"] = f"{mfe_r:.6f}"
+    mae_r = _derive_mae_r(t)
+    if math.isfinite(mae_r):
+        t["mae_r"] = f"{mae_r:.6f}"
+
+
 # ---------------------------------------------------------------------------
 # read
 # ---------------------------------------------------------------------------
@@ -117,6 +229,65 @@ def read_trades(redis_client: Any, since_ms: int, now_ms: int) -> list[dict[str,
         if len(entries) < 5_000:
             break
     return out
+
+
+def read_trades_postgres(since_ms: int, now_ms: int) -> list[dict[str, str]]:
+    """Bootstrap from trades_closed when Redis stream is thin (cold start)."""
+    if not _PG_BOOTSTRAP:
+        return []
+    try:
+        from psycopg2.extras import RealDictCursor
+        from services.analytics_db import get_conn
+    except Exception as e:
+        logger.debug("PG bootstrap unavailable: %s", e)
+        return []
+
+    sql = """
+        SELECT symbol, scenario, session, exit_ts_ms, r_multiple, result,
+               mfe_bps, mae_bps, mfe_pnl, mae_pnl, one_r_money,
+               slippage_bps_est, realized_slippage_bps, tp1_hit,
+               close_reason, sid
+        FROM trades_closed
+        WHERE exit_ts_ms >= %s AND exit_ts_ms < %s
+          AND symbol IS NOT NULL
+        ORDER BY exit_ts_ms ASC
+        LIMIT %s
+    """
+    out: list[dict[str, str]] = []
+    try:
+        with get_conn() as conn, conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute(sql, (since_ms, now_ms, _PG_MAX_ROWS))
+            for row in cur.fetchall() or []:
+                rec = {str(k): _s(v) for k, v in dict(row).items()}
+                rec["ts_close"] = rec.get("exit_ts_ms") or rec.get("ts_close") or "0"
+                if not (rec.get("result") or "").strip():
+                    r = _f(rec.get("r_multiple"))
+                    if math.isfinite(r) and r != 0.0:
+                        rec["result"] = "WIN" if r > 0 else "LOSS"
+                out.append(rec)
+    except Exception as e:
+        logger.warning("PG bootstrap read failed: %s", e)
+    return out
+
+
+def merge_trades_dedup(
+    redis_trades: list[dict[str, str]],
+    pg_trades: list[dict[str, str]],
+) -> list[dict[str, str]]:
+    """Prefer Redis rows; fill gaps from Postgres by sid."""
+    seen: set[str] = set()
+    merged: list[dict[str, str]] = []
+    for t in redis_trades:
+        sid = (t.get("sid") or t.get("signal_id") or "").strip()
+        if sid:
+            seen.add(sid)
+        merged.append(t)
+    for t in pg_trades:
+        sid = (t.get("sid") or t.get("signal_id") or "").strip()
+        if sid and sid in seen:
+            continue
+        merged.append(t)
+    return merged
 
 
 # ---------------------------------------------------------------------------
@@ -159,9 +330,8 @@ def compute_rolling_priors(
     b7: dict[tuple[str, str, str], list[dict]] = defaultdict(list)
     b30: dict[tuple[str, str, str], list[dict]] = defaultdict(list)
 
-    _SESS_MAP = {"asian": "asia", "european": "europe", "us_main": "us", "overnight": "asia"}
-
     for t in trades:
+        _enrich_trade_fields(t)
         ts_close = _f(t.get("ts_close") or t.get("close_ts") or t.get("exit_ts_ms"))
         if not math.isfinite(ts_close) or ts_close >= now_cutoff:
             continue
@@ -172,12 +342,8 @@ def compute_rolling_priors(
         sym = (t.get("symbol") or "").upper()
         if not sym:
             continue
-        # Engine's _kind_label = signal.scenario (continuation/na/range_meanrev).
-        # trades:closed.scenario matches. "kind" is a per-pipeline tag — ignore.
-        kind = (t.get("scenario") or "").strip() or "default"
-        # Engine's _session_label ∈ {asia,europe,us}. trades:closed uses asian/european/us_main/overnight.
-        sess_raw = (t.get("session") or "").strip().lower()
-        sess = _SESS_MAP.get(sess_raw, "asia")
+        kind = _kind_label(t)
+        sess = _session_label(t, int(ts_close))
 
         if cutoff_7d <= ts_close < now_cutoff:
             # Write to scenario-specific bucket
@@ -190,9 +356,15 @@ def compute_rolling_priors(
             b30[(sym, kind, "all")].append(t)
             b30[(sym, "default", "all")].append(t)
 
-    def _agg7(samples: list[dict]) -> dict[str, float] | None:
+    def _min_for_key(key: tuple[str, str, str]) -> int:
+        sym, kind, sess = key
+        if kind == "default" and sess == "all":
+            return _COLD_START_MIN_SAMPLES
+        return _MIN_SAMPLES
+
+    def _agg7(samples: list[dict], *, min_samples: int) -> dict[str, float] | None:
         n = len(samples)
-        if n < _MIN_SAMPLES:
+        if n < min_samples:
             return None
         wins = [s for s in samples if (s.get("result") or "").upper() == "WIN"]
         losses = [s for s in samples if (s.get("result") or "").upper() == "LOSS"]
@@ -208,6 +380,9 @@ def compute_rolling_priors(
         pf = gross_p / gross_l if gross_l > 1e-8 else (10.0 if gross_p > 0 else 0.0)
         tp1_hits = sum(1 for s in wins if _tp1_hit(s))
         tp1_rate = tp1_hits / len(wins) if wins else 0.0
+        slip_vals = [_slippage_bps_sample(s) for s in samples]
+        slip_vals = [v for v in slip_vals if math.isfinite(v)]
+        slip_p95 = _percentile(slip_vals, 95) if slip_vals else 0.0
         return {
             "winrate": winrate,
             "ev_r": ev_r,
@@ -216,12 +391,13 @@ def compute_rolling_priors(
             "sl_hit_rate": sl_hit,
             "profit_factor": pf,
             "tp1_hit_rate": tp1_rate,
+            "slippage_p95_bps": slip_p95,
             "ts_ms": float(now_ms),
         }
 
-    def _agg30(samples: list[dict]) -> dict[str, float] | None:
+    def _agg30(samples: list[dict], *, min_samples: int) -> dict[str, float] | None:
         n = len(samples)
-        if n < _MIN_SAMPLES:
+        if n < min_samples:
             return None
         wins = [s for s in samples if (s.get("result") or "").upper() == "WIN"]
         mae_winners = [_f(s.get("mae_r")) for s in wins]
@@ -257,13 +433,13 @@ def compute_rolling_priors(
 
     out7: dict[tuple[str, str, str], dict[str, float]] = {}
     for key, samples in b7.items():
-        agg = _agg7(samples)
+        agg = _agg7(samples, min_samples=_min_for_key(key))
         if agg is not None:
             out7[key] = agg
 
     out30: dict[tuple[str, str, str], dict[str, float]] = {}
     for key, samples in b30.items():
-        agg = _agg30(samples)
+        agg = _agg30(samples, min_samples=_min_for_key(key))
         if agg is not None:
             out30[key] = agg
 
@@ -301,6 +477,36 @@ def write_rolling_priors(
     return written
 
 
+def seed_rolling_placeholders(
+    redis_client: Any,
+    symbols: list[str],
+    *,
+    ttl_sec: int = _TTL_SEC,
+    now_ms: int | None = None,
+) -> int:
+    ts_ms = int(now_ms if now_ms is not None else time.time() * 1000)
+    payload = _rolling_placeholder(ts_ms)
+    written = 0
+    for sym in symbols:
+        sym = (sym or "").strip().upper()
+        if not sym:
+            continue
+        for sess in _ROLLING_SESSIONS:
+            if sess == "all":
+                key = f"pit_priors:rolling:30d:{sym}:default:all"
+            else:
+                key = f"pit_priors:rolling:7d:{sym}:default:{sess}"
+            try:
+                if redis_client.exists(key):
+                    continue
+                redis_client.hset(key, mapping=payload)
+                redis_client.expire(key, ttl_sec)
+                written += 1
+            except Exception as e:
+                logger.debug("seed placeholder failed for %s: %s", key, e)
+    return written
+
+
 # ---------------------------------------------------------------------------
 # service loop
 # ---------------------------------------------------------------------------
@@ -308,17 +514,25 @@ def write_rolling_priors(
 def run_once(redis_client: Any) -> int:
     now_ms = int(time.time() * 1000)
     since_ms = now_ms - _30D_MS - _EMBARGO_MS - 3_600_000
-    trades = read_trades(redis_client, since_ms, now_ms)
-    logger.info("Read %d trades from trades:closed (30d window)", len(trades))
+    trades_redis = read_trades(redis_client, since_ms, now_ms)
+    trades_pg = read_trades_postgres(since_ms, now_ms)
+    trades = merge_trades_dedup(trades_redis, trades_pg)
+    logger.info(
+        "Read %d trades for rolling priors (redis=%d pg=%d merged=%d)",
+        len(trades), len(trades_redis), len(trades_pg), len(trades),
+    )
     if not trades:
-        return 0
+        seeded = seed_rolling_placeholders(redis_client, _seed_symbols_from_env(), ttl_sec=_TTL_SEC, now_ms=now_ms)
+        logger.info("No trades for rolling priors; seeded %d placeholder hashes", seeded)
+        return seeded
     p7, p30 = compute_rolling_priors(trades, now_ms)
     written = write_rolling_priors(redis_client, p7, p30)
+    seeded = seed_rolling_placeholders(redis_client, _seed_symbols_from_env(), ttl_sec=_TTL_SEC, now_ms=now_ms)
     logger.info(
-        "Written %d rolling prior hashes (7d=%d buckets, 30d=%d buckets)",
-        written, len(p7), len(p30),
+        "Written %d rolling prior hashes (7d=%d buckets, 30d=%d buckets, seeded=%d)",
+        written, len(p7), len(p30), seeded,
     )
-    return written
+    return written + seeded
 
 
 def main() -> None:
@@ -339,8 +553,10 @@ def main() -> None:
     signal.signal(signal.SIGTERM, _sig)
     signal.signal(signal.SIGINT, _sig)
 
-    logger.info("pit_priors_rolling_v1 starting (interval=%ds embargo=%dms min_samples=%d)",
-                interval_s, _EMBARGO_MS, _MIN_SAMPLES)
+    logger.info(
+        "pit_priors_rolling_v1 starting (interval=%ds embargo=%dms min_samples=%d cold_start=%d pg_bootstrap=%s)",
+        interval_s, _EMBARGO_MS, _MIN_SAMPLES, _COLD_START_MIN_SAMPLES, _PG_BOOTSTRAP,
+    )
 
     while not stop["flag"]:
         try:

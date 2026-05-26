@@ -263,8 +263,11 @@ class SignalPipeline:
         self.of_inputs_stream = os.getenv("OF_INPUTS_STREAM", RS.OF_INPUTS)
         self.of_inputs_publish_enabled = os.getenv("PUBLISH_OF_INPUTS", os.getenv("OF_INPUTS_PUBLISH_ENABLED", "1")).lower() in {"1", "true", "yes", "on"}
         self.of_inputs_publish_strict = bool(int(os.getenv("OF_INPUTS_PUBLISH_STRICT", "0") or 0))
-        # P1 fix: 100000 → 5000 (при 40KB/entry: 5k * 40KB = 200MB max)
-        self.of_inputs_stream_maxlen = int(os.getenv("OF_INPUTS_STREAM_MAXLEN", "5000") or 5000)
+        # P0 join recovery: keep a materially longer hot buffer so trades:closed
+        # can still find their originating signals during live dataset builds.
+        # Historical retention should still come from archive/DB, but the Redis
+        # default must not collapse coverage to minutes/hours.
+        self.of_inputs_stream_maxlen = int(os.getenv("OF_INPUTS_STREAM_MAXLEN", "1000000") or 1000000)
         # ML training metadata — injected into every of:inputs record for dataset filtering
         self.ml_feature_schema_version = int(os.getenv("ML_FEATURE_SCHEMA_VERSION", "14") or 14)
 
@@ -647,6 +650,55 @@ class SignalPipeline:
             enriched_signal.setdefault("feature_schema_version", self.ml_feature_schema_version)
             _inds = enriched_signal.get("indicators")
             if isinstance(_inds, dict):
+                if runtime is not None:
+                    try:
+                        dcfg = getattr(runtime, "dynamic_cfg", {}) or {}
+                        _vr = float(dcfg.get(DK.VOL_RATIO, _inds.get("vol_ratio", 0.0)) or 0.0)
+                        _vz = float(dcfg.get(DK.VOL_RATIO_Z, _inds.get("vol_ratio_z", 0.0)) or 0.0)
+                        if _vr != 0.0:
+                            _inds.setdefault("vol_ratio", _vr)
+                        if _vz != 0.0:
+                            _inds.setdefault("vol_ratio_z", _vz)
+                        # Only bridge non-zero values: enricher (_enrich_vol_features) produces
+                        # vol_fast_bps/vol_slow_bps from microstruct:ctx; setdefault with 0.0
+                        # would block the enricher's real value via setdefault at merge time.
+                        _vf = float(dcfg.get(DK.VOL_FAST_BPS, 0.0) or 0.0)
+                        _vs = float(dcfg.get(DK.VOL_SLOW_BPS, 0.0) or 0.0)
+                        if _vf != 0.0:
+                            _inds.setdefault("vol_fast_bps", _vf)
+                        if _vs != 0.0:
+                            _inds.setdefault("vol_slow_bps", _vs)
+                        if _vr == 0.0 and _vf > 0.0 and _vs > 0.0:
+                            _inds.setdefault("vol_ratio", _vf / max(_vs, 1e-9))
+                        _vol_label = str(dcfg.get(DK.VOL_REGIME_LABEL, _inds.get("vol_regime_label", "na")) or "na").strip().lower()
+                        if _vol_label:
+                            _inds.setdefault("vol_regime_label", _vol_label)
+                        if _vf > 0.0 and "vol_regime_code" not in _inds:
+                            try:
+                                from core.v11_of_computers.regime_computers import compute_vol_regime_code
+                                _inds["vol_regime_code"] = float(compute_vol_regime_code(_vf, _vs))
+                            except Exception:
+                                pass
+                    except Exception:
+                        pass
+                    try:
+                        _v13 = getattr(runtime, "v13_tracker", None)
+                        _v13_snap = _v13.snapshot() if _v13 is not None else {}
+                        if isinstance(_v13_snap, dict):
+                            for _vol_k in (
+                                "garman_klass_vol",
+                                "parkinson_vol",
+                                "yang_zhang_vol",
+                                "vol_of_vol",
+                            ):
+                                # Only bridge non-zero values from v13_tracker: these
+                                # features are produced by microstruct:ctx via enricher,
+                                # so a 0.0 default here would freeze them out via setdefault.
+                                _v13_val = float(_v13_snap.get(_vol_k) or 0.0)
+                                if _v13_val != 0.0:
+                                    _inds.setdefault(_vol_k, _v13_val)
+                    except Exception:
+                        pass
                 # vol_ratio bridge: v14_of schema key vol_ratio maps to vol_ratio_fast_slow
                 _inds.setdefault("vol_ratio", float(_inds.get("vol_ratio_fast_slow") or 0.0))
                 _inds.setdefault("vol_ratio_z", float(_inds.get("sc_vol_ratio_z") or 0.0))
@@ -713,8 +765,19 @@ class SignalPipeline:
                         symbol=symbol,
                         redis_client=_sync_redis,
                     )
+                    # of_confirm_engine calls indicators.update(v13_snap) which freezes
+                    # garman/parkinson/yang_zhang/etc to 0.0 before _publish_of_inputs.
+                    # setdefault would then silently skip the enricher's real value.
+                    # For these microstruct:ctx keys, override the frozen 0.0 directly.
+                    _MICROSTRUCT_OVERRIDE = frozenset({
+                        "garman_klass_vol", "parkinson_vol", "yang_zhang_vol",
+                        "vol_of_vol", "amihud_illiquidity", "pin_estimate",
+                    })
                     for _ek, _ev in _enriched.items():
-                        _inds.setdefault(_ek, _ev)
+                        if _ek in _MICROSTRUCT_OVERRIDE and _ev != 0.0:
+                            _inds[_ek] = _ev  # override frozen 0.0 from v13_snap.update()
+                        else:
+                            _inds.setdefault(_ek, _ev)
                 except Exception as _enr_exc:
                     logger.debug("⚠️ _publish_of_inputs feature_enricher fail-open: %s", _enr_exc)
 
@@ -1245,11 +1308,14 @@ class SignalPipeline:
             indicators.get("vol_regime_label")
             or indicators.get("vol_regime")
         )
-        if not label and runtime is not None:
+        if runtime is not None:
             try:
                 dcfg = getattr(runtime, "dynamic_cfg", {}) or {}
-                label = dcfg.get(DK.VOL_REGIME_LABEL)
-                # Mirror raw vol stats for audit/ML — only if missing.
+                if not label:
+                    label = dcfg.get(DK.VOL_REGIME_LABEL)
+                # Mirror vol magnitudes unconditionally — tick_decision_engine sets
+                # vol_regime_label but not vol_fast_bps/vol_slow_bps/vol_ratio,
+                # so the label-presence check must not gate the magnitude mirror.
                 indicators.setdefault(
                     "vol_ratio_z",
                     float(dcfg.get(DK.VOL_RATIO_Z, 0.0) or 0.0),
@@ -5383,5 +5449,3 @@ class SignalPipeline:
             indicators["tp1_atr_mult"] = abs(float(tps[0]) - entry) / atr
 
         return sl, tps, lot, atr, atr_meta
-
-

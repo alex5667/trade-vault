@@ -5180,6 +5180,8 @@ services:
   scanner-fills-tca-enricher:
     build: *id001
     container_name: scanner-fills-tca-enricher
+    env_file:
+    - config/generated/symbols.env
     environment:
     - REDIS_URL=${REDIS_URL:-redis://redis-worker-1:6379/0}
     - FILLS_TCA_ENRICHER_PORT=9147
@@ -5213,6 +5215,8 @@ services:
   scanner-tca-priors-exporter:
     build: *id001
     container_name: scanner-tca-priors-exporter
+    env_file:
+    - config/generated/symbols.env
     environment:
     - REDIS_URL=${REDIS_URL:-redis://redis-worker-1:6379/0}
     - TCA_PRIORS_PORT=9144
@@ -5222,6 +5226,7 @@ services:
     - TCA_PRIORS_EMA_HL_FILLS=200
     - TCA_PRIORS_TTL_SEC=7200
     - TCA_PRIORS_MIN_SAMPLES=30
+    - TCA_PRIORS_SYMBOLS=${CANARY_SYMBOLS}
     - PYTHONPATH=.:/app
     - PYTHONUNBUFFERED=1
     - TZ=UTC
@@ -5352,6 +5357,9 @@ services:
     - PIT_ROLLING_INTERVAL_S=3600
     - PIT_ROLLING_EMBARGO_MS=3600000
     - PIT_ROLLING_MIN_SAMPLES=20
+    - PIT_ROLLING_COLD_START_MIN_SAMPLES=10
+    - PIT_ROLLING_PG_BOOTSTRAP=1
+    - PIT_ROLLING_PG_MAX_ROWS=50000
     - PIT_ROLLING_TTL_SEC=90000
     - PYTHONPATH=.:/app
     - PYTHONUNBUFFERED=1

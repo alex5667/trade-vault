@@ -49,6 +49,36 @@ def _payload_metric(signal_payload: dict[str, Any], key: str, default: Any = Non
             return value
     return default
 
+
+_ENTRY_REGIME_SENTINELS = frozenset({"", "na", "none", "null", "unknown"})
+
+
+def _entry_regime_db_value(closed: Any) -> str | None:
+    for attr in ("entry_regime", "regime"):
+        raw = getattr(closed, attr, None)
+        if raw is None:
+            continue
+        s = str(raw).strip().lower()
+        if s not in _ENTRY_REGIME_SENTINELS:
+            return str(raw).strip()
+    return None
+
+
+def _policy_mode_raw_from_payload(sp: dict[str, Any]) -> tuple[Any, Any]:
+    config_snapshot = sp.get("config_snapshot") or {}
+    meta = config_snapshot.get("meta") or sp.get("meta") or {}
+    rss = meta.get("risk_surface_shadow") or {}
+    mode = (
+        rss.get("mode")
+        or meta.get("policy_effective_mode")
+        or meta.get("policy_regime")
+        or meta.get("policy_mode")
+        or None
+    )
+    raw = json.dumps(rss, ensure_ascii=False) if rss else None
+    return mode, raw
+
+
 def _sanitize_floats(obj: Any) -> Any:
     """Recursively replace NaN/Infinity with None so json.dumps produces valid JSON."""
     if isinstance(obj, float):
@@ -641,15 +671,9 @@ def save_trade_closed(closed: TradeClosed) -> None:  # type: ignore
     # meta lives at signal_payload["config_snapshot"]["meta"], not at the top level
     _cs = signal_payload.get("config_snapshot") or {}
     _meta_sp = _cs.get("meta") or signal_payload.get("meta") or {}
-    _rss = _meta_sp.get("risk_surface_shadow") or {}
-    policy_mode_val = (
-        _rss.get("mode")
-        or _meta_sp.get("policy_effective_mode")
-        or _meta_sp.get("policy_regime")
-        or _meta_sp.get("policy_mode")
-        or None
-    )
-    policy_raw_val = json.dumps(_rss, ensure_ascii=False) if _rss else None
+    policy_mode_val, policy_raw_val = _policy_mode_raw_from_payload(signal_payload)
+    if policy_mode_val is None:
+        policy_mode_val = getattr(closed, "policy_mode", None)
     config_snapshot = dict(signal_payload.get("config_snapshot", {}) or {})
     if horizon_contract:
         config_snapshot["_horizon_contract"] = horizon_contract
@@ -787,10 +811,7 @@ def save_trade_closed(closed: TradeClosed) -> None:  # type: ignore
         getattr(closed, "timeout_close_latency_ms", None) or None,
         getattr(closed, "exit_order_ref", None) or (f"virt:exit:{getattr(closed, 'sid', '')}" if getattr(closed, "is_virtual", False) else None),
         _stable_closed_trade_id(closed) if getattr(closed, "is_final_close", True) else None,
-        # entry_regime: prefer attribute, fall back to "na" → NULL in DB
-        (lambda v: v if v and str(v).lower() not in ("", "na", "none", "null", "unknown") else None)(
-            getattr(closed, "entry_regime", None) or getattr(closed, "regime", None)
-        ),
+        _entry_regime_db_value(closed),
     )
 
     # ---- P0 extraction (robust fallbacks) ----

@@ -811,3 +811,61 @@ fatal: Could not read from remote repository.
 Please make sure you have the correct access rights
 and the repository exists.
 2026-05-24 05:45:03 - Синхронизация завершена успешно.
+[main 9bd7058a] Auto-sync vault notes 2026-05-25 05:45:01
+ 99 files changed, 17230 insertions(+), 368 deletions(-)
+ create mode 100644 99_Automation/logs/update_2026-05-25_03-37-22.log
+ create mode 100644 99_Repo_Exports/docker-compose.feature-producers.yml
+ create mode 100644 99_Repo_Exports/docker-compose.signal-snapshot-persister.yml
+ create mode 100644 99_Repo_Exports/docker-compose.v15-lgbm-train-timer.yml
+ create mode 100644 99_Repo_Exports/python-worker/core/feature_enricher_v1.py
+ create mode 100644 99_Repo_Exports/python-worker/core/microstructure_metrics_v2.py
+ create mode 100644 99_Repo_Exports/python-worker/migrations/20260524_01_add_ts_to_candles_archive.sql
+ create mode 100644 99_Repo_Exports/python-worker/migrations/20260524_02_news_events_and_gate_decisions.sql
+ create mode 100644 99_Repo_Exports/python-worker/migrations/20260524_03_signal_snapshots.sql
+ create mode 100644 99_Repo_Exports/python-worker/migrations/20260524_04_trades_closed_entry_regime.sql
+ create mode 100644 99_Repo_Exports/python-worker/ml_analysis/tests/test_feature_coverage_gate_v1.py
+ create mode 100644 99_Repo_Exports/python-worker/ml_analysis/tools/feature_coverage_gate_v1.py
+ create mode 100644 99_Repo_Exports/python-worker/news_pipeline/circuit_breaker.py
+ create mode 100644 99_Repo_Exports/python-worker/news_pipeline/classifier.py
+ create mode 100644 99_Repo_Exports/python-worker/news_pipeline/llm_cache.py
+ create mode 100644 99_Repo_Exports/python-worker/news_pipeline/llm_job.py
+ create mode 100644 99_Repo_Exports/python-worker/news_pipeline/playwright_browser.py
+ create mode 100644 99_Repo_Exports/python-worker/news_pipeline/playwright_llm_client.py
+ create mode 100644 99_Repo_Exports/python-worker/news_pipeline/prompt_v2.py
+ create mode 100644 99_Repo_Exports/python-worker/news_pipeline/reco_builder.py
+ create mode 100644 99_Repo_Exports/python-worker/services/book_rate_ema_producer.py
+ create mode 100644 99_Repo_Exports/python-worker/services/crossasset_ctx_writer.py
+ create mode 100644 99_Repo_Exports/python-worker/services/execution_stats_updater.py
+ create mode 100644 99_Repo_Exports/python-worker/services/fear_greed_exporter.py
+ create mode 100644 99_Repo_Exports/python-worker/services/gc_redis_swap.py
+ create mode 100644 99_Repo_Exports/python-worker/services/liquidation_ctx_writer.py
+ create mode 100644 99_Repo_Exports/python-worker/services/news_browser_worker/main.py
+ create mode 100644 99_Repo_Exports/python-worker/services/orderflow_pressure_v2.py
+ create mode 100644 99_Repo_Exports/python-worker/services/playwright_enrichment_worker/__init__.py
+ create mode 100644 99_Repo_Exports/python-worker/services/playwright_enrichment_worker/main.py
+ create mode 100644 99_Repo_Exports/python-worker/services/signal_snapshot_persister.py
+ create mode 100644 99_Repo_Exports/python-worker/services/sweep_detector_v2.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/news_pipeline/test_classifier_reco.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/news_pipeline/test_ingestor_bugs.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_exec_maker_only_kinds_coverage.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_exec_maker_only_wire.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_feature_enricher_aliases.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_feature_enricher_v1.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_feature_producers.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_feature_producers_tier3.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_ml_predictions_writer.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_news_llm_pipeline.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_nightly_v15_lgbm_train_bundle.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_signal_snapshot_persister.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_train_v15_lgbm.py
+ create mode 100644 99_Repo_Exports/python-worker/tools/ml_canary_calibration_diagnostic.py
+ create mode 100644 99_Repo_Exports/python-worker/tools/nightly_v15_lgbm_train_bundle.py
+ create mode 100644 99_Repo_Exports/python-worker/tools/promote_v15_lgbm_to_live.py
+ create mode 100644 99_Repo_Exports/python-worker/tools/test_playwright_llm.py
+ create mode 100644 99_Repo_Exports/python-worker/tools/train_v15_lgbm.py
+git@github.com: Permission denied (publickey).
+fatal: Could not read from remote repository.
+
+Please make sure you have the correct access rights
+and the repository exists.
+2026-05-25 05:45:03 - Синхронизация завершена успешно.

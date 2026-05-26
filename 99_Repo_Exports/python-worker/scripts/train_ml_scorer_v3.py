@@ -96,6 +96,63 @@ def _sha256_16(items: Sequence[str]) -> str:
     return hashlib.sha256(payload).hexdigest()[:16]
 
 
+def _default_pit_embargo_ms() -> int:
+    try:
+        return int(os.getenv("PIT_EMBARGO_MS", "3600000") or 3_600_000)
+    except Exception:
+        return 3_600_000
+
+
+def _default_v3_embargo_ms() -> int:
+    """Keep nightly CV embargo coherent with PIT priors by default."""
+    try:
+        raw = os.getenv("ML_SCORER_V3_EMBARGO_MS")
+        if raw is None or not str(raw).strip():
+            return _default_pit_embargo_ms()
+        return int(raw)
+    except Exception:
+        return _default_pit_embargo_ms()
+
+
+def _default_require_pit_embargo_coherence() -> bool:
+    raw = str(os.getenv("ML_SCORER_V3_REQUIRE_PIT_EMBARGO_COHERENCE", "1")).strip().lower()
+    return raw not in ("0", "false", "no", "off", "")
+
+
+def _to_bucket_label(v: Any, default: str = "unknown") -> str:
+    s = str(v or "").strip()
+    return s if s else default
+
+
+def _parse_symbol_feature_masks(raw: str | None) -> dict[str, set[str]]:
+    """Parse SYMBOL:feat1,feat2;OTHER:feat3 into uppercase symbol masks."""
+    out: dict[str, set[str]] = {}
+    for chunk in str(raw or "").split(";"):
+        part = chunk.strip()
+        if not part or ":" not in part:
+            continue
+        symbol_raw, features_raw = part.split(":", 1)
+        symbol = str(symbol_raw or "").strip().upper()
+        if not symbol:
+            continue
+        features = {
+            str(item or "").strip()
+            for item in features_raw.split(",")
+            if str(item or "").strip()
+        }
+        if features:
+            out[symbol] = features
+    return out
+
+
+def _parse_feature_drop_list(raw: str | None) -> set[str]:
+    return {
+        str(item or "").strip()
+        for item in str(raw or "").split(",")
+        if str(item or "").strip()
+    }
+
+
 def _get_schema_hash(schema_ver: str) -> str:
     """Return SCHEMA_HASH from the named schema module (fail-open → 'unknown')."""
     import importlib
@@ -244,6 +301,16 @@ def fetch_training_data(lookback_days: int) -> Any | None:
         s.symbol,
         s.direction,
         s.signal_family,
+        COALESCE(
+            NULLIF(tc.entry_regime, ''),
+            NULLIF(tc.config_json->>'entry_regime', ''),
+            NULLIF(tc.config_json->'indicators'->>'regime', ''),
+            'unknown'
+        ) AS regime_bucket,
+        COALESCE(
+            NULLIF(tc.config_json->'indicators'->>'session', ''),
+            'unknown'
+        ) AS session_bucket,
         s.conf_score,
         s.atr_14,
         s.delta_spike_z,
@@ -334,6 +401,181 @@ def fetch_training_data(lookback_days: int) -> Any | None:
     return cols, kept
 
 
+def _apply_symbol_balance_policy(
+    rows: list[tuple],
+    cols: list[str],
+    *,
+    mode: str,
+    max_samples_per_symbol: int,
+    target_count: int,
+) -> tuple[list[tuple], np.ndarray | None, dict[str, Any]]:
+    """Balance symbol contribution without changing label semantics.
+
+    Modes:
+      - none: keep rows unchanged
+      - cap: keep most-recent N rows per symbol
+      - weight: keep all rows, but downweight dominant symbols to target_count
+    """
+    try:
+        sym_idx = cols.index("symbol")
+    except ValueError:
+        return rows, None, {"mode": "none", "reason": "missing_symbol_column"}
+
+    symbol_counts: dict[str, int] = {}
+    for row in rows:
+        sym = str(row[sym_idx] or "")
+        symbol_counts[sym] = symbol_counts.get(sym, 0) + 1
+
+    mode = str(mode or "none").strip().lower()
+    target_count = max(1, int(target_count))
+
+    if mode == "cap":
+        if max_samples_per_symbol <= 0:
+            return rows, None, {"mode": "none", "reason": "cap_disabled", "symbol_counts": symbol_counts}
+        sym_counts: dict[str, int] = {}
+        kept_rows: list[tuple] = []
+        for row in reversed(rows):
+            sym = str(row[sym_idx] or "")
+            if sym_counts.get(sym, 0) < max_samples_per_symbol:
+                sym_counts[sym] = sym_counts.get(sym, 0) + 1
+                kept_rows.append(row)
+        kept_rows.reverse()
+        return kept_rows, None, {
+            "mode": "cap",
+            "before": len(rows),
+            "after": len(kept_rows),
+            "symbol_counts": symbol_counts,
+            "capped_counts": sym_counts,
+            "target_count": max_samples_per_symbol,
+        }
+
+    if mode == "weight":
+        weights = np.asarray(
+            [
+                min(1.0, float(target_count) / float(max(1, symbol_counts.get(str(row[sym_idx] or ""), 1))))
+                for row in rows
+            ],
+            dtype=np.float64,
+        )
+        effective_n = float(np.sum(weights))
+        weight_by_symbol = {
+            sym: min(1.0, float(target_count) / float(max(1, cnt)))
+            for sym, cnt in sorted(symbol_counts.items())
+        }
+        return rows, weights, {
+            "mode": "weight",
+            "before": len(rows),
+            "after": len(rows),
+            "effective_n": effective_n,
+            "symbol_counts": symbol_counts,
+            "symbol_weights": weight_by_symbol,
+            "target_count": target_count,
+        }
+
+    return rows, None, {"mode": "none", "before": len(rows), "after": len(rows), "symbol_counts": symbol_counts}
+
+
+def _safe_roc_auc_binary(y_true: np.ndarray, y_score: np.ndarray) -> float:
+    from sklearn.metrics import roc_auc_score
+
+    if len(y_true) < 2:
+        return 0.5
+    uniq = np.unique(y_true)
+    if len(uniq) < 2:
+        return 0.5
+    try:
+        return float(roc_auc_score(y_true, y_score))
+    except Exception:
+        return 0.5
+
+
+def _top5_hit_rate(y_true: np.ndarray, y_score: np.ndarray) -> float:
+    if len(y_true) == 0:
+        return 0.0
+    k = max(1, int(0.05 * len(y_true)))
+    order = np.argsort(y_score)[::-1][:k]
+    return float(np.mean(y_true[order] > 0))
+
+
+def _build_slice_report(
+    row_dicts: list[dict[str, Any]],
+    y_true: np.ndarray,
+    y_score: np.ndarray,
+) -> dict[str, list[dict[str, Any]]]:
+    def summarize(field: str) -> list[dict[str, Any]]:
+        buckets: dict[str, list[int]] = {}
+        for idx, row in enumerate(row_dicts):
+            buckets.setdefault(_to_bucket_label(row.get(field)), []).append(idx)
+        out: list[dict[str, Any]] = []
+        for key, idxs in buckets.items():
+            y_s = y_true[idxs]
+            p_s = y_score[idxs]
+            out.append(
+                {
+                    "key": key,
+                    "n": int(len(idxs)),
+                    "pos_rate": float(np.mean(y_s > 0)) if len(idxs) else 0.0,
+                    "roc_auc": _safe_roc_auc_binary(y_s, p_s),
+                    "top5_hit_rate": _top5_hit_rate(y_s, p_s),
+                }
+            )
+        out.sort(key=lambda x: (-x["n"], x["roc_auc"]))
+        return out
+
+    return {
+        "symbol": summarize("symbol"),
+        "regime": summarize("regime_bucket"),
+        "session": summarize("session_bucket"),
+    }
+
+
+def _compute_symbol_feature_drag_report(
+    model: Any,
+    X: np.ndarray,
+    y: np.ndarray,
+    row_dicts: list[dict[str, Any]],
+    feature_names: list[str],
+    *,
+    symbols: Sequence[str] = ("ETHUSDT", "BTCUSDT"),
+    topn: int = 5,
+) -> dict[str, Any]:
+    rng = np.random.default_rng(42)
+    report: dict[str, Any] = {}
+    for symbol in symbols:
+        idxs = [i for i, row in enumerate(row_dicts) if str(row.get("symbol") or "") == symbol]
+        if len(idxs) < 200:
+            report[symbol] = {"n": len(idxs), "status": "too_small"}
+            continue
+        ys = y[idxs]
+        if len(np.unique(ys)) < 2:
+            report[symbol] = {"n": len(idxs), "status": "single_class"}
+            continue
+        Xs = X[idxs]
+        base_pred = np.asarray(model.predict(Xs), dtype=np.float64)
+        base_auc = _safe_roc_auc_binary(ys, base_pred)
+        harmful: list[dict[str, Any]] = []
+        for feat_idx, feat_name in enumerate(feature_names):
+            Xp = Xs.copy()
+            Xp[:, feat_idx] = rng.permutation(Xp[:, feat_idx])
+            perm_auc = _safe_roc_auc_binary(ys, np.asarray(model.predict(Xp), dtype=np.float64))
+            delta = perm_auc - base_auc
+            if delta > 0:
+                harmful.append(
+                    {
+                        "feature": feat_name,
+                        "perm_auc": float(perm_auc),
+                        "delta_auc": float(delta),
+                    }
+                )
+        harmful.sort(key=lambda x: (-x["delta_auc"], x["feature"]))
+        report[symbol] = {
+            "n": len(idxs),
+            "base_auc": float(base_auc),
+            "harmful_features": harmful[:topn],
+        }
+    return report
+
+
 # ---------------------------------------------------------------------------
 # Feature engineering
 # ---------------------------------------------------------------------------
@@ -371,9 +613,31 @@ def _build_feature_names() -> list[str]:
     return [f"f_{c}" for c in NUMERIC_FEATURES] + DERIVED_FEATURES
 
 
-def _build_feature_row(row_dict: dict[str, Any]) -> list[float]:
+def _drop_feature_columns(
+    X: np.ndarray,
+    feature_names: list[str],
+    drop_features: set[str],
+) -> tuple[np.ndarray, list[str]]:
+    if not drop_features:
+        return X, feature_names
+    keep_indices = [i for i, name in enumerate(feature_names) if name not in drop_features]
+    kept_names = [feature_names[i] for i in keep_indices]
+    if len(keep_indices) == len(feature_names):
+        return X, feature_names
+    if not keep_indices:
+        raise ValueError("All features were dropped")
+    return X[:, keep_indices], kept_names
+
+
+def _build_feature_row(
+    row_dict: dict[str, Any],
+    *,
+    symbol_feature_masks: dict[str, set[str]] | None = None,
+) -> list[float]:
     """Build feature vector from a row dict."""
     out: list[float] = []
+    symbol = str(row_dict.get("symbol") or "").strip().upper()
+    masked = symbol_feature_masks.get(symbol, set()) if symbol_feature_masks else set()
 
     # Raw numeric features (with robust scaling applied later)
     for col in NUMERIC_FEATURES:
@@ -382,7 +646,8 @@ def _build_feature_row(row_dict: dict[str, Any]) -> list[float]:
     # Derived features
     direction = _f(row_dict.get("direction"), 0)
     direction_sign = 1.0 if direction > 0 else -1.0
-    out.append(1.0 if direction > 0 else 0.0)  # direction_long
+    direction_long = 1.0 if direction > 0 else 0.0
+    out.append(0.0 if "direction_long" in masked else direction_long)
 
     c2t_vals = [
         _f(row_dict.get("l3_cancel_to_trade_bid_5s"), 0.0),
@@ -394,7 +659,8 @@ def _build_feature_row(row_dict: dict[str, Any]) -> list[float]:
 
     obi_5 = _f(row_dict.get("l3_obi_5"), 0.0)
     obi_50 = _f(row_dict.get("l3_obi_50"), 0.0)
-    out.append(obi_5 - obi_50)  # obi_spread
+    obi_spread = obi_5 - obi_50
+    out.append(0.0 if "obi_spread" in masked else obi_spread)
 
     qp_bid = _f(row_dict.get("l3_queue_pressure_bid"), 0.0)
     qp_ask = _f(row_dict.get("l3_queue_pressure_ask"), 0.0)
@@ -418,7 +684,8 @@ def _build_feature_row(row_dict: dict[str, Any]) -> list[float]:
             outlier_count += 1.0
 
     out.append(outlier_count)
-    out.append(1.0 if outlier_count > 0 else 0.0)
+    is_extreme_outlier = 1.0 if outlier_count > 0 else 0.0
+    out.append(0.0 if "is_extreme_outlier" in masked else is_extreme_outlier)
 
     return out
 
@@ -501,6 +768,7 @@ def train_model(
     n_splits: int = 5,
     purge_ms: int = 300_000,
     embargo_ms: int = 120_000,
+    sample_weight: np.ndarray | None = None,
 ) -> tuple[Any, np.ndarray, dict[str, float]]:
     """Train LightGBM binary classifier with OOF evaluation and RUS."""
     import lightgbm as lgb  # type: ignore[import]
@@ -557,6 +825,7 @@ def train_model(
         fold_n += 1
         X_tr, y_tr = X[tr_idx], y[tr_idx]
         X_va, y_va = X[va_idx], y[va_idx]
+        w_tr = sample_weight[tr_idx] if sample_weight is not None else None
 
         train_pos_rate_before = float(np.mean(y_tr > 0))
         n_train_before = len(y_tr)
@@ -567,7 +836,7 @@ def train_model(
             except Exception as e:
                 logger.warning("RandomUnderSampler failed for fold %d: %s. Proceeding without balancing.", fold_n, e)
 
-        train_data = lgb.Dataset(X_tr, label=y_tr)
+        train_data = lgb.Dataset(X_tr, label=y_tr, weight=w_tr)
         valid_data = lgb.Dataset(X_va, label=y_va, reference=train_data)
 
         model = lgb.train(
@@ -600,15 +869,19 @@ def train_model(
         raise SystemExit("No usable folds (check data size / n_splits)")
 
     X_fin, y_fin = X, y
+    w_fin = sample_weight.copy() if sample_weight is not None else None
     if RandomUnderSampler is not None:
         try:
             rus_final = RandomUnderSampler(random_state=42)
             X_fin, y_fin = rus_final.fit_resample(X_fin, y_fin)
+            if w_fin is not None:
+                logger.warning("sample_weight dropped for final train after RandomUnderSampler resample")
+                w_fin = None
             logger.info("Applied RandomUnderSampler to final model training data. Size: %d", len(X_fin))
         except Exception as e:
             logger.warning("RandomUnderSampler failed for final model: %s", e)
 
-    train_data = lgb.Dataset(X_fin, label=y_fin)
+    train_data = lgb.Dataset(X_fin, label=y_fin, weight=w_fin)
     final_model = lgb.train(
         params,
         train_data,
@@ -701,16 +974,17 @@ def main() -> int:
     parser.add_argument("--min_samples", type=int, default=2000)
     parser.add_argument("--n_splits", type=int, default=5)
     parser.add_argument("--purge_ms", type=int, default=300_000)
-    parser.add_argument("--embargo_ms", type=int, default=120_000)
+    parser.add_argument("--embargo_ms", type=int, default=_default_v3_embargo_ms())
     # ADR-0007: cross-validation embargo MUST be >= PIT priors embargo,
     # otherwise priors used as features could leak into validation folds.
     parser.add_argument(
         "--pit_embargo_ms", type=int,
-        default=int(os.getenv("PIT_EMBARGO_MS", "3600000") or 3_600_000),
+        default=_default_pit_embargo_ms(),
         help="ADR-0007 PIT priors embargo. CV embargo_ms must be >= this value if priors features are used.",
     )
     parser.add_argument(
         "--require_pit_embargo_coherence", action="store_true",
+        default=_default_require_pit_embargo_coherence(),
         help="Fail-loud if --embargo_ms < --pit_embargo_ms (recommended when training with prior_* features).",
     )
     parser.add_argument("--winsorize_sigma", type=float, default=3.0)
@@ -735,6 +1009,36 @@ def main() -> int:
             "Prevents a high-volume symbol from dominating training (e.g. 1000PEPEUSDT "
             "had 58%% of recent data with pos_rate=2.2%% → contaminated GBDT splits)."
         ),
+    )
+    parser.add_argument(
+        "--symbol_balance_mode",
+        type=str,
+        default=os.getenv("ML_SCORER_V3_SYMBOL_BALANCE_MODE", "cap"),
+        choices=("none", "cap", "weight"),
+        help="none=raw rows, cap=hard tail cap per symbol, weight=downweight dominant symbols (experimental)",
+    )
+    parser.add_argument(
+        "--symbol_balance_target_count",
+        type=int,
+        default=int(os.getenv("ML_SCORER_V3_SYMBOL_BALANCE_TARGET_COUNT", "1500") or 1500),
+        help="Target per-symbol contribution for cap/weight balancing policy",
+    )
+    parser.add_argument(
+        "--symbol_feature_masks",
+        type=str,
+        default=os.getenv("ML_SCORER_V3_SYMBOL_FEATURE_MASKS", "BTCUSDT:direction_long"),
+        help="Per-symbol feature masks, e.g. BTCUSDT:direction_long;ETHUSDT:obi_spread,is_extreme_outlier",
+    )
+    parser.add_argument(
+        "--drop_features",
+        type=str,
+        default=os.getenv("ML_SCORER_V3_DROP_FEATURES", ""),
+        help="Globally exclude features from the training matrix, e.g. is_extreme_outlier,f_l3_obi_20",
+    )
+    parser.add_argument(
+        "--experiment_mode",
+        action="store_true",
+        help="Run as isolated experiment: save/report locally, but skip Telegram approval and champion promotion side effects.",
     )
     args = parser.parse_args()
 
@@ -770,34 +1074,14 @@ def main() -> int:
 
     cols, rows = result
 
-    # Per-symbol sample cap: keep most-recent N rows per symbol.
-    # Without this, a single high-volume / low-quality symbol (e.g. 1000PEPEUSDT
-    # with 58% of recent data and pos_rate=2.2%) dominates GBDT splits and
-    # inverts precision@top5%. Sampling chronologically from the tail preserves
-    # the recent regime distribution.
-    if args.max_samples_per_symbol > 0:
-        try:
-            sym_idx = cols.index("symbol")
-        except ValueError:
-            logger.warning("symbol column missing — skip per-symbol cap")
-            sym_idx = None
-        if sym_idx is not None:
-            sym_counts: dict[str, int] = {}
-            kept_rows: list[Any] = []
-            # Rows are already ORDER BY s.ts ASC; reverse for newest-first walk.
-            for row in reversed(rows):
-                sym_v = str(row[sym_idx] or "")
-                if sym_counts.get(sym_v, 0) < args.max_samples_per_symbol:
-                    sym_counts[sym_v] = sym_counts.get(sym_v, 0) + 1
-                    kept_rows.append(row)
-            # Re-sort chronologically (cap walked backwards, restore ASC for CV).
-            kept_rows.reverse()
-            logger.info(
-                "Per-symbol cap=%d applied: before=%d after=%d (%s)",
-                args.max_samples_per_symbol, len(rows), len(kept_rows),
-                {k: v for k, v in sorted(sym_counts.items())},
-            )
-            rows = kept_rows
+    rows, sample_weights_raw, balance_meta = _apply_symbol_balance_policy(
+        rows,
+        cols,
+        mode=args.symbol_balance_mode,
+        max_samples_per_symbol=args.max_samples_per_symbol,
+        target_count=args.symbol_balance_target_count,
+    )
+    logger.info("Symbol balance policy: %s", json.dumps(balance_meta, ensure_ascii=False, sort_keys=True))
 
     n_total = len(rows)
     logger.info("Total labeled samples: %d (min required: %d)", n_total, args.min_samples)
@@ -811,13 +1095,21 @@ def main() -> int:
 
     # 2. Convert to dicts
     row_dicts = [dict(zip(cols, row)) for row in rows]
+    symbol_feature_masks = _parse_symbol_feature_masks(args.symbol_feature_masks)
+    drop_features = _parse_feature_drop_list(args.drop_features)
+    logger.info(
+        "Symbol feature masks: %s",
+        json.dumps({k: sorted(v) for k, v in symbol_feature_masks.items()}, ensure_ascii=False, sort_keys=True),
+    )
+    logger.info("Global dropped features: %s", json.dumps(sorted(drop_features), ensure_ascii=False))
 
     # 3. Build features
     feature_names = _build_feature_names()
     X_raw = np.array(
-        [_build_feature_row(rd) for rd in row_dicts],
+        [_build_feature_row(rd, symbol_feature_masks=symbol_feature_masks) for rd in row_dicts],
         dtype=np.float64,
     )
+    X_raw, feature_names = _drop_feature_columns(X_raw, feature_names, drop_features)
 
     # 4. Build targets
     y_raw = np.array([_compute_target(rd) for rd in row_dicts], dtype=np.float64)
@@ -826,6 +1118,10 @@ def main() -> int:
     valid_mask = np.isfinite(y_raw) & np.all(np.isfinite(X_raw), axis=1)
     X = X_raw[valid_mask]
     y = y_raw[valid_mask]
+    valid_rows = [row_dicts[i] for i in range(len(row_dicts)) if valid_mask[i]]
+    sample_weights = None
+    if sample_weights_raw is not None:
+        sample_weights = np.asarray(sample_weights_raw, dtype=np.float64)[valid_mask]
     ts_ms = [int(_f(row_dicts[i].get("ts_ms"), 0)) for i in range(len(row_dicts)) if valid_mask[i]]
 
     logger.info("After filtering: %d samples with valid features + target", len(X))
@@ -851,7 +1147,27 @@ def main() -> int:
         n_splits=args.n_splits,
         purge_ms=args.purge_ms,
         embargo_ms=args.embargo_ms,
+        sample_weight=sample_weights,
     )
+
+    oof_mask = np.isfinite(oof_preds)
+    oof_rows = [valid_rows[i] for i in range(len(valid_rows)) if oof_mask[i]]
+    slice_report = _build_slice_report(oof_rows, y[oof_mask], oof_preds[oof_mask])
+    feature_drag_report = _compute_symbol_feature_drag_report(
+        model,
+        X_scaled,
+        y,
+        valid_rows,
+        feature_names,
+    )
+    metrics["slice_report"] = slice_report
+    metrics["symbol_balance"] = balance_meta
+    metrics["symbol_feature_masks"] = {k: sorted(v) for k, v in symbol_feature_masks.items()}
+    metrics["drop_features"] = sorted(drop_features)
+    metrics["experiment_mode"] = bool(args.experiment_mode)
+    metrics["feature_drag_report"] = feature_drag_report
+    logger.info("Slice report: %s", json.dumps(slice_report, ensure_ascii=False, sort_keys=True))
+    logger.info("ETH/BTC feature drag: %s", json.dumps(feature_drag_report, ensure_ascii=False, sort_keys=True))
 
     # 8. Guard rails
     if metrics["roc_auc_oof"] < 0.50:
@@ -860,9 +1176,10 @@ def main() -> int:
             f"ROC-AUC слишком низкий: <code>{metrics['roc_auc_oof']:.4f}</code> &lt; 0.50.\n"
             f"Модель предсказывает хуже случайного угадывания. Тренировка прервана (модель не сохранена)."
         )
-        r = _get_redis()
-        if r is not None:
-            _notify_telegram(r, err_msg)
+        if not args.experiment_mode:
+            r = _get_redis()
+            if r is not None:
+                _notify_telegram(r, err_msg)
 
         logger.error("ROC-AUC too low (%.2f < 0.50). Model not saved.", metrics["roc_auc_oof"])
         return 1
@@ -940,6 +1257,10 @@ def main() -> int:
         "trained_at": int(time.time()),
     }
     print(json.dumps(report, ensure_ascii=False, sort_keys=True))
+
+    if args.experiment_mode:
+        logger.info("Experiment mode enabled — skipping approval/promote flow")
+        return 0
 
     # 11. Telegram approval flow
     if args.approval:
@@ -1362,4 +1683,3 @@ def check_and_send_reminders() -> None:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

@@ -1,15 +1,12 @@
 """microstructure_metrics_v2.py — pure functions + standalone service.
 
-Computes microstructure features that v14_of expects but no service provides:
-  • kyle_lambda           — OLS slope `Δprice ~ signed_volume`
-  • kyle_x_vpin           — kyle_lambda × vpin_rolling
-  • taker_lambda          — kyle but only taker trades
-  • vpin_rolling          — Volume-synchronised PIN (Easley et al. 2012)
-  • vpin_x_funding        — vpin_rolling × sign(funding_rate)
-  • tick_autocorr_lag1    — corr(Δprice_t, Δprice_{t-1})
-  • hurst_exp_50          — R/S estimator on price series (window=50)
-  • hurst_x_vol_regime    — hurst × vol_regime_code
-  • roll_spread_est       — Roll spread: 2·√(-cov(Δp_t, Δp_{t-1}))
+Computes microstructure features for v13_of / feature enricher:
+  • kyle_lambda, kyle_x_vpin, taker_lambda
+  • vpin_rolling, vpin_x_funding
+  • tick_autocorr_lag1, roll_spread_est, hurst_exp_50, hurst_x_vol_regime
+  • garman_klass_vol, parkinson_vol, yang_zhang_vol  — OHLC estimators (Group NA)
+  • amihud_illiquidity                               — |ret|/volume_USD (Group NB)
+  • pin_estimate                                     — |B−S|/(B+S) flow proxy (Group NC)
 
 Two ways to use:
   (a) Pure functions — called from runtime tick handler with recent tick buffer.
@@ -30,10 +27,69 @@ import os
 import signal as _signal
 import sys
 import time
-from collections import defaultdict, deque
+from collections import deque
+from dataclasses import dataclass
 from typing import Any
 
 logger = logging.getLogger("microstructure_metrics_v2")
+
+_LN2 = math.log(2.0)
+_BAR_WINDOW = 20
+
+
+@dataclass(frozen=True)
+class OHLCBar:
+    o: float
+    h: float
+    l: float
+    c: float
+    volume: float
+    ts_ms: int = 0
+
+
+class MinuteBarAggregator:
+    """Aggregate ticks into 1-minute OHLC bars (newest at end of deque)."""
+
+    def __init__(self, maxlen: int = _BAR_WINDOW + 5) -> None:
+        self._bars: deque[OHLCBar] = deque(maxlen=maxlen)
+        self._bucket_ms: int | None = None
+        self._o = self._h = self._l = self._c = 0.0
+        self._vol = 0.0
+
+    def on_tick(self, px: float, qty: float, ts_ms: int) -> None:
+        if px <= 0 or ts_ms <= 0:
+            return
+        bucket = (ts_ms // 60_000) * 60_000
+        if self._bucket_ms is None:
+            self._open_bar(bucket, px, qty)
+            return
+        if bucket != self._bucket_ms:
+            self._close_bar()
+            self._open_bar(bucket, px, qty)
+            return
+        self._h = max(self._h, px)
+        self._l = min(self._l, px)
+        self._c = px
+        self._vol += max(0.0, qty)
+
+    def _open_bar(self, bucket_ms: int, px: float, qty: float) -> None:
+        self._bucket_ms = bucket_ms
+        self._o = self._h = self._l = self._c = px
+        self._vol = max(0.0, qty)
+
+    def _close_bar(self) -> None:
+        if self._bucket_ms is None or self._o <= 0:
+            return
+        self._bars.append(
+            OHLCBar(
+                o=self._o, h=self._h, l=self._l, c=self._c,
+                volume=self._vol, ts_ms=self._bucket_ms,
+            )
+        )
+        self._bucket_ms = None
+
+    def bars(self) -> list[OHLCBar]:
+        return list(self._bars)
 
 
 # ── Pure stats ────────────────────────────────────────────────────────────────
@@ -222,6 +278,94 @@ def hurst_exp(prices: list[float], window: int = 50) -> float:
     return max(0.0, min(1.0, hurst))
 
 
+def ohlc_vol_estimators(bars: list[OHLCBar]) -> dict[str, float]:
+    """Garman-Klass, Parkinson, Yang-Zhang from rolling OHLC bars (v13 parity)."""
+    out = {"garman_klass_vol": 0.0, "parkinson_vol": 0.0, "yang_zhang_vol": 0.0}
+    n = len(bars)
+    if n < 3:
+        return out
+    try:
+        gk_sum = 0.0
+        pk_sum = 0.0
+        closes: list[float] = []
+        overnight_vars: list[float] = []
+        for i, b in enumerate(bars):
+            if b.h <= 0 or b.l <= 0 or b.o <= 0 or b.c <= 0:
+                continue
+            log_hl = math.log(b.h / b.l)
+            log_co = math.log(b.c / b.o)
+            gk_sum += 0.5 * log_hl ** 2 - (2 * _LN2 - 1) * log_co ** 2
+            pk_sum += log_hl ** 2
+            closes.append(b.c)
+            if i > 0:
+                prev_c = bars[i - 1].c
+                if prev_c > 0:
+                    overnight_vars.append(math.log(b.o / prev_c) ** 2)
+        if n > 1:
+            out["garman_klass_vol"] = math.sqrt(max(0.0, gk_sum / n))
+            out["parkinson_vol"] = math.sqrt(max(0.0, pk_sum / (4.0 * n * _LN2)))
+        if len(overnight_vars) >= 2 and len(closes) >= 2:
+            k = 0.34 / (1.34 + (n + 1) / (n - 1)) if n > 1 else 0.34
+            sigma_o2 = sum(overnight_vars) / len(overnight_vars)
+            log_ret = [
+                math.log(closes[i] / closes[i - 1])
+                for i in range(1, len(closes))
+                if closes[i - 1] > 0
+            ]
+            if log_ret:
+                mean_lr = sum(log_ret) / len(log_ret)
+                sigma_cc2 = sum((r - mean_lr) ** 2 for r in log_ret) / len(log_ret)
+            else:
+                sigma_cc2 = 0.0
+            rs_sum = 0.0
+            rs_cnt = 0
+            for b in bars:
+                if b.h > 0 and b.l > 0 and b.o > 0 and b.c > 0:
+                    rs_sum += (
+                        math.log(b.h / b.c) * math.log(b.h / b.o)
+                        + math.log(b.l / b.c) * math.log(b.l / b.o)
+                    )
+                    rs_cnt += 1
+            sigma_rs2 = rs_sum / rs_cnt if rs_cnt > 0 else 0.0
+            yz_var = sigma_o2 + k * sigma_rs2 + (1 - k) * sigma_cc2
+            out["yang_zhang_vol"] = math.sqrt(max(0.0, yz_var))
+    except Exception:
+        pass
+    return out
+
+
+def amihud_illiquidity(bars: list[OHLCBar]) -> float:
+    """Mean |return| / notional volume over consecutive bars."""
+    if len(bars) < 3:
+        return 0.0
+    try:
+        ratios: list[float] = []
+        for i in range(1, len(bars)):
+            c_prev = bars[i - 1].c
+            c_curr = bars[i].c
+            vol = bars[i].volume * bars[i].c
+            if c_prev > 0 and vol > 1e-6:
+                ratios.append(abs(c_curr / c_prev - 1.0) / vol)
+        return sum(ratios) / len(ratios) if ratios else 0.0
+    except Exception:
+        return 0.0
+
+
+def pin_estimate_from_flow(buy_vols: list[float], sell_vols: list[float]) -> float:
+    """Simplified PIN proxy: |Σbuy − Σsell| / (Σbuy + Σsell)."""
+    if len(buy_vols) < 20 or len(buy_vols) != len(sell_vols):
+        return 0.0
+    try:
+        b_total = sum(buy_vols)
+        s_total = sum(sell_vols)
+        total = b_total + s_total
+        if total < 1e-6:
+            return 0.0
+        return abs(b_total - s_total) / total
+    except Exception:
+        return 0.0
+
+
 # ── Aggregator ────────────────────────────────────────────────────────────────
 
 
@@ -232,11 +376,16 @@ def compute_all(
     taker_signed_vols: list[float] | None = None,
     buy_vols: list[float] | None = None,
     sell_vols: list[float] | None = None,
+    bars: list[OHLCBar] | None = None,
     funding_rate: float = 0.0,
     vol_regime_code: float = 0.0,
 ) -> dict[str, float]:
     """Compute all v2 features at once. Missing inputs → feature absent."""
     out: dict[str, float] = {}
+    vol_feats = ohlc_vol_estimators(bars or [])
+    out.update(vol_feats)
+    out["amihud_illiquidity"] = amihud_illiquidity(bars or [])
+    out["pin_estimate"] = pin_estimate_from_flow(buy_vols or [], sell_vols or [])
     if prices and signed_vols:
         k_lambda = kyle_lambda(prices, signed_vols)
         if k_lambda != 0.0:
@@ -326,6 +475,9 @@ def _service_main() -> int:
     buys: dict[str, deque] = {s: deque(maxlen=WINDOW) for s in SYMBOLS}
     sells: dict[str, deque] = {s: deque(maxlen=WINDOW) for s in SYMBOLS}
     takers: dict[str, deque] = {s: deque(maxlen=WINDOW) for s in SYMBOLS}
+    bar_aggs: dict[str, MinuteBarAggregator] = {
+        s: MinuteBarAggregator() for s in SYMBOLS
+    }
     last_ids: dict[str, str] = {s: "$" for s in SYMBOLS}
 
     log.info("microstruct_v2: symbols=%s window=%d interval=%ds", SYMBOLS, WINDOW, INTERVAL_S)
@@ -365,8 +517,13 @@ def _service_main() -> int:
                         side = (fields.get("s") or fields.get("side") or "").lower()
                         is_taker = (fields.get("m") or fields.get("is_buyer_maker") or "0") in ("0", "false", "False")
                         sign = 1.0 if side.startswith("b") else (-1.0 if side.startswith("s") else 0.0)
+                        try:
+                            ts_ms = int(str(entry_id).split("-")[0])
+                        except (TypeError, ValueError):
+                            ts_ms = int(time.time() * 1000)
                         prices[sym].append(px)
                         svols[sym].append(sign * qty)
+                        bar_aggs[sym].on_tick(px, qty, ts_ms)
                         if sign > 0:
                             buys[sym].append(qty)
                             sells[sym].append(0.0)
@@ -404,6 +561,7 @@ def _service_main() -> int:
                         taker_signed_vols=list(takers[sym]),
                         buy_vols=list(buys[sym]),
                         sell_vols=list(sells[sym]),
+                        bars=bar_aggs[sym].bars(),
                         funding_rate=funding,
                         vol_regime_code=0.0,
                     )

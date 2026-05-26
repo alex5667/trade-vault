@@ -108,7 +108,16 @@ class PendingFill:
 
 def _is_fill_event(event_type: str) -> bool:
     et = (event_type or "").upper()
-    return et in ("ENTRY_FILLED", "EXIT_FILLED", "TP_FILLED", "TP1_FILLED", "TP2_FILLED", "TP3_FILLED", "FILLED")
+    return et in (
+        "ENTRY_FILLED",
+        "EXIT_FILLED",
+        "TP_FILLED",
+        "TP1_FILLED",
+        "TP2_FILLED",
+        "TP3_FILLED",
+        "FILLED",
+        "EXCHANGE_FILL",
+    )
 
 
 def _extract_fill_event(fields: dict[str, str], redis_client: Any) -> PendingFill | None:

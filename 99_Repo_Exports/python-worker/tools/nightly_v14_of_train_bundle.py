@@ -681,9 +681,11 @@ def stage_export(*, redis_url: str, inputs_stream: str, labels_stream: str,
     labels_path = work_dir / "labels_tb_live.ndjson"
 
     ok1 = _run_cmd([
-        sys.executable, "-m", "tools.export_of_inputs_ndjson",
+        sys.executable, "-m", "tools.export_of_inputs_ndjson_v2",
         "--redis-url", redis_url,
+        "--stream", inputs_stream,
         "--out", str(inputs_path),
+        "--since-hours", "72",
         "--max-records", str(inputs_max),
     ], log_tag="export_inputs")
 

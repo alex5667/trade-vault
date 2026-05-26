@@ -155,7 +155,7 @@ services:
         max-file: '3'
 
   microstructure-metrics-v2:
-    # Tick-buffer consumer: kyle_lambda, vpin_rolling, hurst, roll_spread, tick_autocorr.
+    # Tick-buffer consumer: kyle/vpin/hurst/roll + GK/Parkinson/YZ/amihud/pin.
     # Writes microstruct:ctx:{SYMBOL} JSON.
     build:
       context: .
@@ -198,8 +198,8 @@ services:
         sleep 30
         python -m core.microstructure_metrics_v2
     labels:
-      - com.scanner.service=microstructure-metrics-v2
-      - com.scanner.description=Kyle lambda, VPIN, Hurst, Roll spread per symbol
+      - "com.scanner.service=microstructure-metrics-v2"
+      - "com.scanner.description=Microstructure v2: Kyle, VPIN, OHLC vol, Amihud, PIN"
     logging:
       driver: json-file
       options:

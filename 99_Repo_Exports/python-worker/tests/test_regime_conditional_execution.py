@@ -547,6 +547,29 @@ class TestVolRegimeResolver:
         # Existing value preserved (setdefault semantics).
         assert ind["vol_ratio_z"] == 1.23
 
+    def test_vol_magnitudes_mirrored_even_when_label_preset(self):
+        """Regression P1: tick_decision_engine sets vol_regime_label but not
+        vol_fast_bps/vol_slow_bps. Magnitudes must always be mirrored when
+        runtime is available, regardless of whether label was already set."""
+        from core.dyn_cfg_keys import DynCfgKeys as DK
+
+        class Rt:
+            dynamic_cfg = {
+                DK.VOL_REGIME_LABEL: "normal",
+                DK.VOL_FAST_BPS: 42.0,
+                DK.VOL_SLOW_BPS: 38.0,
+                DK.VOL_RATIO: 1.1,
+                DK.VOL_RATIO_Z: 0.5,
+            }
+
+        # tick_decision_engine pre-sets vol_regime_label, but not the magnitudes
+        ind = {"vol_regime_label": "normal"}
+        self._resolver()(indicators=ind, runtime=Rt())
+        assert ind["vol_fast_bps"] == 42.0
+        assert ind["vol_slow_bps"] == 38.0
+        assert ind["vol_ratio"] == 1.1
+        assert ind["vol_ratio_z"] == 0.5
+
 
 class TestSingleton:
     def test_get_engine_returns_singleton(self):

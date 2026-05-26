@@ -108,6 +108,8 @@ def _normalize_crypto_sid(raw: object, *, symbol: str, ts_ms: int) -> str:
     
     Supports legacy formats:
       - crypto-of:{symbol}:{ts_ms} (already canonical)
+      - of:{symbol}:{ts_ms}[:dir]
+      - weak_progress:{symbol}:{ts_ms}[:dir] and other {kind}:{symbol}:{ts_ms}[:dir]
       - {symbol}|{ts}|{dir} (legacy format)
       - {symbol}:{ts} (legacy without prefix)
       - empty -> generate from symbol+ts_ms
@@ -115,6 +117,16 @@ def _normalize_crypto_sid(raw: object, *, symbol: str, ts_ms: int) -> str:
     s = str(raw or "").strip()
     if s.startswith("crypto-of:"):
         return s
+    if s.startswith("of:"):
+        parts = s.split(":")
+        if len(parts) >= 3:
+            sym = (parts[1].strip() or symbol).strip()
+            try:
+                t = int(parts[2].strip())
+            except Exception:
+                t = ts_ms
+            if sym and t > 0:
+                return _mk_crypto_sid(sym, t)
     if "|" in s:
         parts = s.split("|")
         if len(parts) >= 2:
@@ -125,9 +137,16 @@ def _normalize_crypto_sid(raw: object, *, symbol: str, ts_ms: int) -> str:
                 t = ts_ms
             if sym and t > 0:
                 return _mk_crypto_sid(sym, t)
-    # Accept legacy "SYMBOL:TS" without prefix (not "crypto-of:SYMBOL:TS")
+    # Accept generic "{kind}:{SYMBOL}:{TS}" and legacy "SYMBOL:TS".
+    # For generic forms the embedded TS is the signal/open timestamp and must
+    # be preserved; this is critical for trades:closed -> signals:of:inputs join.
     if s and (":" in s) and (not s.startswith("crypto-of:")) and ("|" not in s):
         p = s.split(":")
+        if len(p) >= 3 and p[2].strip().isdigit():
+            sym = (p[1].strip() or symbol).strip()
+            t = int(p[2].strip())
+            if sym and t > 0:
+                return _mk_crypto_sid(sym, t)
         if len(p) >= 2 and p[1].strip().isdigit():
             sym = (p[0].strip() or symbol).strip()
             t = int(p[1].strip())

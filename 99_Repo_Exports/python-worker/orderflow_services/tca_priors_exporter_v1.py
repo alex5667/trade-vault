@@ -38,6 +38,7 @@ logger = logging.getLogger("tca_priors_exporter")
 
 # Canonical fills stream — sourced from binance_execution/
 FILLS_STREAM = "stream:fills:filled"
+_SESSIONS = ("asia", "europe", "us")
 
 
 def _env_int(name: str, default: int) -> int:
@@ -52,6 +53,17 @@ def _env_float(name: str, default: float) -> float:
         return float(os.getenv(name) or default)
     except Exception:
         return default
+
+
+def _env_symbols() -> list[str]:
+    for env_name in ("TCA_PRIORS_SYMBOLS", "CANARY_SYMBOLS", "PIT_PRIORS_SYMBOLS", "CRYPTO_SYMBOLS"):
+        raw = (os.getenv(env_name) or "").strip()
+        if not raw:
+            continue
+        out = [s.strip().upper() for s in raw.replace(";", ",").split(",") if s.strip()]
+        if out:
+            return out
+    return ["BTCUSDT", "ETHUSDT"]
 
 
 def _session_bucket(ts_ms: int) -> str:
@@ -183,6 +195,103 @@ def _safe_float(val: Any) -> float:
         return float("nan")
 
 
+def _extract_tca_update(fields: dict[str, str]) -> tuple[str, str, str, int, dict[str, float]] | None:
+    """Parse a fills-stream message into TCA EMA inputs.
+
+    Returns:
+      (symbol, kind, session, ts_ms, metrics_dict) or None when required
+      source fields are missing/invalid.
+    """
+    symbol = (fields.get("symbol") or "").upper()
+    kind = fields.get("kind") or fields.get("scenario") or "default"
+    ts_ms_raw = _safe_float(fields.get("ts_ms"))
+    ts_ms = int(ts_ms_raw) if math.isfinite(ts_ms_raw) and ts_ms_raw > 0 else get_ny_time_millis()
+    session = _session_bucket(ts_ms)
+
+    fill_px = _safe_float(fields.get("price") or fields.get("avg_px"))
+    arrival_mid = _safe_float(fields.get("arrival_mid") or fields.get("mid_at_arrival"))
+    side = (fields.get("side") or "").upper()
+    sign = 1.0 if side in ("BUY", "LONG") else -1.0
+
+    if not symbol or not (math.isfinite(fill_px) and math.isfinite(arrival_mid) and arrival_mid > 0):
+        return None
+
+    eff_spread_bps = _safe_float(fields.get("eff_spread_bps"))
+    if not math.isfinite(eff_spread_bps):
+        eff_spread_bps = 10000.0 * 2.0 * sign * (fill_px - arrival_mid) / arrival_mid
+
+    realized_1s = _safe_float(fields.get("realized_spread_1s_bps"))
+    realized_5s = _safe_float(fields.get("realized_spread_5s_bps"))
+    perm_1s = _safe_float(fields.get("perm_impact_1s_bps"))
+    perm_5s = _safe_float(fields.get("perm_impact_5s_bps"))
+    is_bps = _safe_float(fields.get("is_bps"))
+    if not math.isfinite(is_bps):
+        is_bps = eff_spread_bps
+
+    # Fallback path: fills_tca_enricher publishes mid_after_*_bps even when
+    # the derived TCA fields are absent. Recover missing metrics here so the
+    # exporter does not silently collapse to zeros.
+    mid_after_1s_bps = _safe_float(fields.get("mid_after_1s_bps"))
+    if math.isfinite(mid_after_1s_bps):
+        if not math.isfinite(perm_1s):
+            perm_1s = sign * mid_after_1s_bps
+        if not math.isfinite(realized_1s):
+            realized_1s = eff_spread_bps - 2.0 * (perm_1s if math.isfinite(perm_1s) else sign * mid_after_1s_bps)
+
+    mid_after_5s_bps = _safe_float(fields.get("mid_after_5s_bps"))
+    if math.isfinite(mid_after_5s_bps):
+        if not math.isfinite(perm_5s):
+            perm_5s = sign * mid_after_5s_bps
+        if not math.isfinite(realized_5s):
+            realized_5s = eff_spread_bps - 2.0 * (perm_5s if math.isfinite(perm_5s) else sign * mid_after_5s_bps)
+
+    return (
+        symbol,
+        kind,
+        session,
+        ts_ms,
+        {
+            "eff_spread_bps": eff_spread_bps,
+            "realized_1s_bps": realized_1s if math.isfinite(realized_1s) else 0.0,
+            "realized_5s_bps": realized_5s if math.isfinite(realized_5s) else 0.0,
+            "perm_1s_bps": perm_1s if math.isfinite(perm_1s) else 0.0,
+            "perm_5s_bps": perm_5s if math.isfinite(perm_5s) else 0.0,
+            "is_bps": is_bps,
+        },
+    )
+
+
+def seed_tca_placeholders(redis_client: Any, *, ttl_sec: int, symbols: list[str]) -> int:
+    written = 0
+    payload = {
+        "eff_spread": "0.000000",
+        "realized_1s": "0.000000",
+        "realized_5s": "0.000000",
+        "perm_1s": "0.000000",
+        "perm_5s": "0.000000",
+        "is_bps": "0.000000",
+        "samples": "0.000000",
+        "last_update_ms": "0.000000",
+        "spread_p95_bps": "0.000000",
+        "slippage_p95_bps": "0.000000",
+    }
+    for symbol in symbols:
+        sym = (symbol or "").strip().upper()
+        if not sym:
+            continue
+        for session in _SESSIONS:
+            redis_key = f"tca:ema:{sym}:default:{session}"
+            try:
+                if redis_client.exists(redis_key):
+                    continue
+                redis_client.hset(redis_key, mapping=payload)
+                redis_client.expire(redis_key, ttl_sec)
+                written += 1
+            except Exception as e:
+                logger.debug("seed TCA placeholder failed for %s: %s", redis_key, e)
+    return written
+
+
 def main() -> None:
     logging.basicConfig(
         level=os.getenv("LOG_LEVEL", "INFO"),
@@ -194,6 +303,7 @@ def main() -> None:
     batch = _env_int("TCA_PRIORS_BATCH", 100)
     ema_hl = _env_float("TCA_PRIORS_EMA_HL_FILLS", 200.0)
     ttl_sec = _env_int("TCA_PRIORS_TTL_SEC", 7200)
+    seed_symbols = _env_symbols()
 
     logger.info(
         "Starting TCA priors exporter: port=%d group=%s ema_hl=%.0f ttl=%ds (SKELETON)",
@@ -254,6 +364,9 @@ def main() -> None:
 
     state = TCAEMAState(ema_hl, ttl_sec)
     redis_client = get_redis()
+    seeded = seed_tca_placeholders(redis_client, ttl_sec=ttl_sec, symbols=seed_symbols)
+    if seeded:
+        logger.info("Seeded %d placeholder TCA hashes for symbols=%s", seeded, seed_symbols)
 
     try:
         redis_client.xgroup_create(FILLS_STREAM, group, id="$", mkstream=True)
@@ -294,41 +407,20 @@ def main() -> None:
                     ack_ids.append(msg_id)
                     try:
                         fields = {_decode(k): _decode(v) for k, v in fields.items()}
-                        symbol = fields.get("symbol", "").upper()
-                        kind = fields.get("kind") or fields.get("scenario") or "default"
-                        ts_ms = int(_safe_float(fields.get("ts_ms")) or get_ny_time_millis())
-                        session = _session_bucket(ts_ms)
-
-                        fill_px = _safe_float(fields.get("price") or fields.get("avg_px"))
-                        arrival_mid = _safe_float(fields.get("arrival_mid") or fields.get("mid_at_arrival"))
-                        side = (fields.get("side") or "").upper()
-                        sign = 1.0 if side in ("BUY", "LONG") else -1.0
-
-                        if not (math.isfinite(fill_px) and math.isfinite(arrival_mid) and arrival_mid > 0):
+                        parsed = _extract_tca_update(fields)
+                        if parsed is None:
                             c_skipped.labels(reason="missing_prices").inc()
                             continue
-
-                        # Effective spread = 2 * (fill_px - arrival_mid) signed by side, in bps
-                        eff_spread_bps = 10000.0 * 2.0 * sign * (fill_px - arrival_mid) / arrival_mid
-
-                        # TODO(ADR-0005): realized_spread / perm_impact need mid(t+1s)/mid(t+5s)
-                        # snapshots from book stream. Currently emitting eff_spread as proxy.
-                        # Wire up book mid lookup via `mid_after_1s_bps`, `mid_after_5s_bps` fields
-                        # in fills stream once book_replay_helper is added.
-                        realized_1s = _safe_float(fields.get("realized_spread_1s_bps"))
-                        realized_5s = _safe_float(fields.get("realized_spread_5s_bps"))
-                        perm_1s = _safe_float(fields.get("perm_impact_1s_bps"))
-                        perm_5s = _safe_float(fields.get("perm_impact_5s_bps"))
-                        is_bps = _safe_float(fields.get("is_bps")) or eff_spread_bps
+                        symbol, kind, session, ts_ms, metrics = parsed
 
                         new_state = state.update(
                             redis_client, symbol, kind, session,
-                            eff_spread_bps=eff_spread_bps,
-                            realized_1s_bps=realized_1s if math.isfinite(realized_1s) else 0.0,
-                            realized_5s_bps=realized_5s if math.isfinite(realized_5s) else 0.0,
-                            perm_1s_bps=perm_1s if math.isfinite(perm_1s) else 0.0,
-                            perm_5s_bps=perm_5s if math.isfinite(perm_5s) else 0.0,
-                            is_bps=is_bps,
+                            eff_spread_bps=metrics["eff_spread_bps"],
+                            realized_1s_bps=metrics["realized_1s_bps"],
+                            realized_5s_bps=metrics["realized_5s_bps"],
+                            perm_1s_bps=metrics["perm_1s_bps"],
+                            perm_5s_bps=metrics["perm_5s_bps"],
+                            is_bps=metrics["is_bps"],
                             ts_ms=ts_ms,
                         )
 

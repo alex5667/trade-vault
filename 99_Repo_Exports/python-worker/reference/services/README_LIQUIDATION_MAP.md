@@ -63,7 +63,7 @@ Bad/poison messages are sent to DLQ:
 ### Snapshot output
 
 - `LIQMAP_SNAPSHOT_KEY_PREFIX=liqmap:snapshot`
-- `LIQMAP_SNAPSHOT_TTL_SEC=30`
+- `LIQMAP_SNAPSHOT_TTL_SEC=3600`
 - `LIQMAP_MAX_LEVELS=250`
 - `LIQMAP_RANGE_PCT=5`
 

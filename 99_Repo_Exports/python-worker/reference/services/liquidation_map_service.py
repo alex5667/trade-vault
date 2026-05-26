@@ -178,7 +178,7 @@ class LiquidationMapService:
         # Publish cadence
         self.publish_interval_ms = int(os.getenv("LIQMAP_PUBLISH_INTERVAL_MS", "1000"))
         self.snapshot_key_prefix = os.getenv("LIQMAP_SNAPSHOT_KEY_PREFIX", "liqmap:snapshot")
-        self.snapshot_ttl_sec = int(os.getenv("LIQMAP_SNAPSHOT_TTL_SEC", "30"))
+        self.snapshot_ttl_sec = int(os.getenv("LIQMAP_SNAPSHOT_TTL_SEC", "3600"))
 
         # Payload size control (UI)
         self.max_levels = int(os.getenv("LIQMAP_MAX_LEVELS", "250"))

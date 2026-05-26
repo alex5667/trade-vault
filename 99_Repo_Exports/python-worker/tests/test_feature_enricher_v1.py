@@ -456,6 +456,25 @@ class TestVolFeatures:
     def test_empty_when_no_sources(self):
         assert _enrich_vol_features({}) == {}
 
+    def test_canonical_volatility_keys_pass_through(self):
+        out = _enrich_vol_features({
+            "vol_fast_bps": 12.0,
+            "vol_slow_bps": 8.0,
+            "vol_ratio_z": 1.7,
+            "vol_of_vol": 0.25,
+        })
+        assert out["vol_fast_bps"] == 12.0
+        assert out["vol_slow_bps"] == 8.0
+        assert out["vol_ratio_z"] == 1.7
+        assert out["vol_of_vol"] == 0.25
+
+    def test_regime_code_derived_from_fast_and_slow(self):
+        out = _enrich_vol_features({
+            "vol_fast_bps": 20.0,
+            "vol_slow_bps": 10.0,
+        })
+        assert out["vol_regime_code"] == 2.0
+
 
 # ─── _enrich_execution_stats ─────────────────────────────────────────────────
 

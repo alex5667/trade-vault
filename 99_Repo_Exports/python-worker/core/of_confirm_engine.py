@@ -3830,7 +3830,8 @@ class OFConfirmEngine:
                         _pit_data = {}
                 _pit_samples = float(_pit_data.get("sample_count") or 0.0)
                 _pit_min = float(os.getenv("PIT_PRIOR_MIN_SAMPLES", "30") or "30")
-                if _pit_samples >= _pit_min:
+                _pit_daily_ok = _pit_samples >= _pit_min
+                if _pit_daily_ok:
                     indicators_with_v4.setdefault("prior_winrate_symbol_kind_session", float(_pit_data.get("winrate") or 0.0))
                     indicators_with_v4.setdefault("prior_ev_r_symbol_kind_session", float(_pit_data.get("ev_r") or 0.0))
                     indicators_with_v4.setdefault("prior_ev_r_median", float(_pit_data.get("ev_r_median") or 0.0))
@@ -3843,9 +3844,6 @@ class OFConfirmEngine:
                     indicators_with_v4.setdefault("prior_sl_hit_rate", float(_pit_data.get("sl_hit_rate") or 0.5))
                     indicators_with_v4.setdefault("prior_r_std", float(_pit_data.get("r_std") or 0.0))
                 else:
-                    indicators_with_v4.setdefault("prior_winrate_symbol_kind_session", 0.0)
-                    indicators_with_v4.setdefault("prior_ev_r_symbol_kind_session", 0.0)
-                    indicators_with_v4.setdefault("prior_ev_r_median", 0.0)
                     indicators_with_v4.setdefault("prior_sample_count_log", 0.0)
                     indicators_with_v4.setdefault("prior_age_ms", 0.0)
                     indicators_with_v4.setdefault("prior_stale_ms", 0.0)
@@ -3931,6 +3929,47 @@ class OFConfirmEngine:
                     else:
                         for _rk in _ROLLING_PRIOR_30D_KEYS:
                             indicators_with_v4.setdefault(_rk, 0.0)
+
+                    # Daily PIT cold-start: hydrate session priors from rolling 7d
+                    # (path_based_tp / thin trades:closed — nightly builder not ready yet).
+                    if not _pit_daily_ok:
+                        _sess_src = _r7s if _r7s_n >= _pit_min_r else (_r7a if _r7a_n >= _pit_min_r else {})
+                        _sess_n = _r7s_n if _r7s_n >= _pit_min_r else _r7a_n
+                        if _sess_src:
+                            indicators_with_v4.setdefault(
+                                "prior_winrate_symbol_kind_session",
+                                float(_sess_src.get("winrate") or 0.0),
+                            )
+                            indicators_with_v4.setdefault(
+                                "prior_ev_r_symbol_kind_session",
+                                float(_sess_src.get("ev_r") or 0.0),
+                            )
+                            indicators_with_v4.setdefault(
+                                "prior_ev_r_median",
+                                float(_sess_src.get("ev_r_median") or 0.0),
+                            )
+                            indicators_with_v4.setdefault("prior_sample_count_log", math.log1p(_sess_n))
+                            _roll_ts = float(_sess_src.get("ts_ms") or 0.0)
+                            if _roll_ts > 0:
+                                _roll_age = max(0.0, _now_ms_local - _roll_ts)
+                                indicators_with_v4.setdefault("prior_age_ms", _roll_age)
+                                indicators_with_v4.setdefault("prior_stale_ms", _roll_age)
+                                indicators_with_v4.setdefault(
+                                    "prior_stale",
+                                    _roll_age > float(os.getenv("PIT_PRIOR_STALE_MS", "86400000") or "86400000"),
+                                )
+                            indicators_with_v4.setdefault(
+                                "prior_profit_factor",
+                                float(_sess_src.get("profit_factor") or 1.0),
+                            )
+                            indicators_with_v4.setdefault(
+                                "prior_sl_hit_rate",
+                                float(_sess_src.get("sl_hit_rate") or 0.5),
+                            )
+                        else:
+                            indicators_with_v4.setdefault("prior_winrate_symbol_kind_session", 0.0)
+                            indicators_with_v4.setdefault("prior_ev_r_symbol_kind_session", 0.0)
+                            indicators_with_v4.setdefault("prior_ev_r_median", 0.0)
                 except Exception:
                     for _rk in _ROLLING_PRIOR_7D_KEYS + _ROLLING_PRIOR_7D_SESS_KEYS + _ROLLING_PRIOR_30D_KEYS:
                         indicators_with_v4.setdefault(_rk, 0.0)
@@ -3970,7 +4009,34 @@ class OFConfirmEngine:
                 indicators_with_v4.setdefault("tca_stale_ms", max(0.0, _tca_age))
                 # p95 percentiles (available once TCA exporter accumulates ≥20 samples)
                 indicators_with_v4.setdefault("spread_p95_bps_symbol_kind_session", float(_tca_data.get("spread_p95_bps") or 0.0) if _tca_fresh else 0.0)
-                indicators_with_v4.setdefault("slippage_p95_bps_symbol_kind_session", float(_tca_data.get("slippage_p95_bps") or 0.0) if _tca_fresh else 0.0)
+                _slip_p95 = float(_tca_data.get("slippage_p95_bps") or 0.0) if _tca_fresh else 0.0
+                if _slip_p95 <= 0.0:
+                    try:
+                        _slip_raw = _ctx_hgetall(
+                            self._redis_client,
+                            f"pit_priors:rolling:7d:{symbol}:{_kind_label}:{_session_label}",
+                        )  # type: ignore[attr-defined]
+                        _slip_dec = {
+                            (k.decode() if isinstance(k, (bytes, bytearray)) else str(k)):
+                            (v.decode() if isinstance(v, (bytes, bytearray)) else str(v))
+                            for k, v in (_slip_raw or {}).items()
+                        }
+                        if float(_slip_dec.get("sample_count") or 0.0) < float(
+                            os.getenv("PIT_ROLLING_MIN_SAMPLES", "20") or "20"
+                        ):
+                            _slip_raw = _ctx_hgetall(
+                                self._redis_client,
+                                f"pit_priors:rolling:7d:{symbol}:default:all",
+                            )  # type: ignore[attr-defined]
+                            _slip_dec = {
+                                (k.decode() if isinstance(k, (bytes, bytearray)) else str(k)):
+                                (v.decode() if isinstance(v, (bytes, bytearray)) else str(v))
+                                for k, v in (_slip_raw or {}).items()
+                            }
+                        _slip_p95 = float(_slip_dec.get("slippage_p95_bps") or 0.0)
+                    except Exception:
+                        _slip_p95 = 0.0
+                indicators_with_v4.setdefault("slippage_p95_bps_symbol_kind_session", _slip_p95)
             except Exception:
                 # Fail-open: all cross-context features default to 0.0 / False
                 for _fk in (

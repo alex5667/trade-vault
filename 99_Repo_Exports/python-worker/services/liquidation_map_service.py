@@ -179,7 +179,7 @@ class LiquidationMapService:
         # Publish cadence
         self.publish_interval_ms = int(os.getenv("LIQMAP_PUBLISH_INTERVAL_MS", "1000"))
         self.snapshot_key_prefix = os.getenv("LIQMAP_SNAPSHOT_KEY_PREFIX", "liqmap:snapshot")
-        self.snapshot_ttl_sec = int(os.getenv("LIQMAP_SNAPSHOT_TTL_SEC", "30"))
+        self.snapshot_ttl_sec = int(os.getenv("LIQMAP_SNAPSHOT_TTL_SEC", "3600"))
 
         # Payload size control (UI)
         self.max_levels = int(os.getenv("LIQMAP_MAX_LEVELS", "250"))
@@ -216,9 +216,19 @@ class LiquidationMapService:
         self.snapshot_stream_maxlen = int(os.getenv("LIQMAP_SNAPSHOT_STREAM_MAXLEN", "500"))
 
         # Runner
+        # REDIS_URL is used for snapshot writes (redis-worker-1).
+        # LIQ_EVT_REDIS_URL, if set, points to the Redis instance that holds
+        # stream:liq_evt (main redis:6379 in the default topology). When omitted
+        # both reads and writes use REDIS_URL (single-instance mode).
         self.r = get_redis()
+        _evt_redis_url = os.getenv("LIQ_EVT_REDIS_URL", "")
+        if _evt_redis_url:
+            r_evt = redis.Redis.from_url(_evt_redis_url, decode_responses=True)
+            logger.info("LiquidationMapService: separate event Redis %s", _evt_redis_url)
+        else:
+            r_evt = self.r
         self.runner = RedisStreamRunner(
-            r=self.r,
+            r=r_evt,
             group=self.group,
             consumer=self.consumer,
             block_ms=int(os.getenv("LIQMAP_BLOCK_MS", "2000")),

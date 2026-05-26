@@ -39,6 +39,24 @@ class FakeRedis:
     def ltrim(self, *a, **kw):
         return True
 
+    def rpush(self, *a, **kw):
+        return 1
+
+    def srem(self, *a, **kw):
+        return 1
+
+    def pipeline(self, *args, **kwargs):
+        return self
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
+
+    def execute(self):
+        return True
+
 
 def test_repo_save_closed_sets_sid_done_key(monkeypatch):
     from infra.redis_repo import RedisTradeRepository

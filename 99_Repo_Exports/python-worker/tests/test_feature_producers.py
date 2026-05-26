@@ -157,8 +157,10 @@ class TestCrossassetStats:
 
 
 from core.microstructure_metrics_v2 import (
+    OHLCBar, MinuteBarAggregator,
     kyle_lambda, vpin_rolling, tick_autocorr_lag1, roll_spread_est,
-    hurst_exp, compute_all,
+    hurst_exp, ohlc_vol_estimators, amihud_illiquidity, pin_estimate_from_flow,
+    compute_all,
 )
 
 
@@ -241,6 +243,49 @@ class TestHurst:
         assert hurst_exp([100, 101]) == 0.5
 
 
+class TestOHLCEstimators:
+    def _bars(self, n: int = 25) -> list[OHLCBar]:
+        bars = []
+        px = 100.0
+        for i in range(n):
+            o = px
+            h = px * 1.002
+            l = px * 0.998
+            c = px * 1.001
+            bars.append(OHLCBar(o=o, h=h, l=l, c=c, volume=1000.0 + i, ts_ms=i * 60_000))
+            px = c
+        return bars
+
+    def test_vol_estimators_positive(self):
+        vol = ohlc_vol_estimators(self._bars())
+        assert vol["garman_klass_vol"] > 0.0
+        assert vol["parkinson_vol"] > 0.0
+        assert vol["yang_zhang_vol"] > 0.0
+
+    def test_amihud_positive(self):
+        assert amihud_illiquidity(self._bars()) > 0.0
+
+    def test_pin_balanced_near_zero(self):
+        buys = [10.0] * 30
+        sells = [10.0] * 30
+        assert pin_estimate_from_flow(buys, sells) < 0.05
+
+    def test_pin_imbalanced_high(self):
+        buys = [100.0] * 30
+        sells = [1.0] * 30
+        assert pin_estimate_from_flow(buys, sells) > 0.8
+
+    def test_minute_bar_aggregator(self):
+        agg = MinuteBarAggregator()
+        base = 1_700_000_000_000
+        for i in range(5):
+            agg.on_tick(100.0 + i, 1.0, base + i * 1000)
+        assert len(agg.bars()) == 0
+        agg.on_tick(105.0, 1.0, base + 60_001)
+        assert len(agg.bars()) == 1
+        assert agg.bars()[0].c == 104.0
+
+
 class TestComputeAll:
     def test_emits_all_when_full_inputs(self):
         prices = [100 + i * 0.1 for i in range(50)]
@@ -259,10 +304,18 @@ class TestComputeAll:
         assert "tick_autocorr_lag1" in out
         assert "hurst_exp_50" in out
         assert "hurst_x_vol_regime" in out
+        bars = TestOHLCEstimators()._bars()
+        out2 = compute_all(
+            prices=prices, signed_vols=svols, buy_vols=buys, sell_vols=sells, bars=bars,
+        )
+        assert out2["garman_klass_vol"] > 0.0
+        assert out2["amihud_illiquidity"] > 0.0
+        assert "pin_estimate" in out2
 
     def test_minimal_inputs(self):
         out = compute_all(prices=[], signed_vols=[])
-        assert out == {}
+        assert out["garman_klass_vol"] == 0.0
+        assert out["pin_estimate"] == 0.0
 
 
 # ─── orderflow_pressure_v2 ────────────────────────────────────────────────────

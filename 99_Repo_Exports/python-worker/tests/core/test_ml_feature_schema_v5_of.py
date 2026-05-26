@@ -832,6 +832,7 @@ class TestFillsTCAEnricher(unittest.TestCase):
         self.assertTrue(_is_fill_event("EXIT_FILLED"))
         self.assertTrue(_is_fill_event("TP1_FILLED"))
         self.assertTrue(_is_fill_event("FILLED"))
+        self.assertTrue(_is_fill_event("EXCHANGE_FILL"))
         self.assertFalse(_is_fill_event("SUBMITTED"))
         self.assertFalse(_is_fill_event("CANCELED"))
         self.assertFalse(_is_fill_event(""))

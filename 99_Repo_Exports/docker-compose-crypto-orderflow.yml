@@ -4042,11 +4042,14 @@ services:
     - ML_SCORER_V3_ENABLED=${ML_SCORER_V3_ENABLED:-1}
     - ML_SCORER_V3_MIN_SAMPLES=${ML_SCORER_V3_MIN_SAMPLES:-2000}
     - ML_SCORER_V3_LOOKBACK_DAYS=${ML_SCORER_V3_LOOKBACK_DAYS:-60}
-    # Per-symbol cap for the v3 trainer (0 = unlimited; activate e.g. 1500 if a
-    # single venue/symbol dominates >40% of labeled data with low pos_rate).
-    # Currently default 0 because v3 dataset is naturally balanced ~9-25% per
-    # symbol (PEPE dominance only affects Phase-3 stub, not v3 path).
-    - ML_SCORER_V3_MAX_SAMPLES_PER_SYMBOL=${ML_SCORER_V3_MAX_SAMPLES_PER_SYMBOL:-0}
+    - ML_SCORER_V3_EMBARGO_MS=${ML_SCORER_V3_EMBARGO_MS:-3600000}
+    - ML_SCORER_V3_REQUIRE_PIT_EMBARGO_COHERENCE=${ML_SCORER_V3_REQUIRE_PIT_EMBARGO_COHERENCE:-1}
+    # Hard cap remains the nightly default because current weighted balancing
+    # underperforms on live-labeled data. Weighted mode stays available for probes.
+    - ML_SCORER_V3_MAX_SAMPLES_PER_SYMBOL=${ML_SCORER_V3_MAX_SAMPLES_PER_SYMBOL:-1500}
+    - ML_SCORER_V3_SYMBOL_BALANCE_MODE=${ML_SCORER_V3_SYMBOL_BALANCE_MODE:-cap}
+    - ML_SCORER_V3_SYMBOL_BALANCE_TARGET_COUNT=${ML_SCORER_V3_SYMBOL_BALANCE_TARGET_COUNT:-1500}
+    - ML_SCORER_V3_SYMBOL_FEATURE_MASKS=${ML_SCORER_V3_SYMBOL_FEATURE_MASKS:-BTCUSDT:direction_long}
     - ML_SCORER_TRAIN_INTERVAL_SEC=${ML_SCORER_V3_TRAIN_INTERVAL_SEC:-21600}
     - NOTIFY_STREAM=${NOTIFY_STREAM:-notify:telegram}
     - ML_SCORER_APPROVAL_REQUIRED=${ML_SCORER_APPROVAL_REQUIRED:-0}
@@ -4084,7 +4087,7 @@ services:
       \ = \"1\" ]; then\n      echo \"[ml-scorer-v3] $$(date -u) \u2014 starting training...\"\
       \n      T0=$$(date +%s)\n      python3 scripts/train_ml_scorer_v3.py \\\n  \
       \      --lookback $${ML_SCORER_V3_LOOKBACK_DAYS:-60} \\\n        --min_samples\
-      \ $${ML_SCORER_V3_MIN_SAMPLES:-2000} \\\n        --output /var/lib/trade/ml_models/scorer_v3/scorer_v3.joblib\
+      \ $${ML_SCORER_V3_MIN_SAMPLES:-2000} \\\n        --embargo_ms $${ML_SCORER_V3_EMBARGO_MS:-3600000} \\\n        --pit_embargo_ms $${PIT_EMBARGO_MS:-3600000} \\\n        --require_pit_embargo_coherence \\\n        --max_samples_per_symbol $${ML_SCORER_V3_MAX_SAMPLES_PER_SYMBOL:-1500} \\\n        --symbol_balance_mode $${ML_SCORER_V3_SYMBOL_BALANCE_MODE:-cap} \\\n        --symbol_balance_target_count $${ML_SCORER_V3_SYMBOL_BALANCE_TARGET_COUNT:-1500} \\\n        --symbol_feature_masks \"$${ML_SCORER_V3_SYMBOL_FEATURE_MASKS:-BTCUSDT:direction_long}\" \\\n        --output /var/lib/trade/ml_models/scorer_v3/scorer_v3.joblib\
       \ \\\n        --approval $${ML_SCORER_APPROVAL_REQUIRED:-1} \\\n      && echo\
       \ \"[ml-scorer-v3] $$(date -u) \u2014 done in $$(( $$(date +%s) - $$T0 ))s\"\
       \ \\\n      || echo \"[ml-scorer-v3] $$(date -u) \u2014 FAILED (see logs)\"\n\
@@ -4097,6 +4100,50 @@ services:
       \ (next train in $${NEXT}s)...\"\n  sleep $$REMINDER_CHECK\ndone\n"
     profiles:
     - default
+  ml-scorer-v3-drop-outlier-experiment-timer:
+    build: *id001
+    runtime: nvidia
+    container_name: scanner-ml-scorer-v3-drop-outlier-experiment-timer
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
+        reservations:
+          memory: 24M
+    environment:
+    - REDIS_URL=redis://redis-worker-1:6379/0
+    - PG_DSN=${ANALYTICS_DB_DSN}
+    - PYTHONPATH=.:/app
+    - PYTHONUNBUFFERED=1
+    - GPU_ENABLED=true
+    - OMP_NUM_THREADS=${ML_SCORER_OMP_THREADS:-4}
+    - OPENBLAS_NUM_THREADS=${ML_SCORER_OMP_THREADS:-4}
+    - ML_SCORER_V3_ENABLED=${ML_SCORER_V3_ENABLED:-1}
+    - ML_SCORER_V3_MIN_SAMPLES=${ML_SCORER_V3_MIN_SAMPLES:-2000}
+    - ML_SCORER_V3_LOOKBACK_DAYS=${ML_SCORER_V3_LOOKBACK_DAYS:-60}
+    - ML_SCORER_V3_EMBARGO_MS=${ML_SCORER_V3_EMBARGO_MS:-3600000}
+    - ML_SCORER_V3_REQUIRE_PIT_EMBARGO_COHERENCE=${ML_SCORER_V3_REQUIRE_PIT_EMBARGO_COHERENCE:-1}
+    - ML_SCORER_V3_MAX_SAMPLES_PER_SYMBOL=${ML_SCORER_V3_MAX_SAMPLES_PER_SYMBOL:-1500}
+    - ML_SCORER_V3_SYMBOL_BALANCE_MODE=${ML_SCORER_V3_SYMBOL_BALANCE_MODE:-cap}
+    - ML_SCORER_V3_SYMBOL_BALANCE_TARGET_COUNT=${ML_SCORER_V3_SYMBOL_BALANCE_TARGET_COUNT:-1500}
+    - ML_SCORER_V3_SYMBOL_FEATURE_MASKS=${ML_SCORER_V3_SYMBOL_FEATURE_MASKS:-BTCUSDT:direction_long}
+    - ML_SCORER_V3_DROP_FEATURES=${ML_SCORER_V3_DROP_FEATURES:-is_extreme_outlier}
+    - ML_SCORER_V3_EXPERIMENT_INTERVAL_SEC=${ML_SCORER_V3_EXPERIMENT_INTERVAL_SEC:-86400}
+    - TZ=UTC
+    depends_on: *id002
+    networks: *id003
+    volumes:
+    - ./python-worker:/app
+    - /var/lib/trade/ml_models:/var/lib/trade/ml_models
+    working_dir: /app
+    command:
+    - bash
+    - -c
+    - "sleep 180\nEXP_INTERVAL=$${ML_SCORER_V3_EXPERIMENT_INTERVAL_SEC:-86400}\n\nwhile true; do\n  echo \"[ml-scorer-v3-exp] $$(date -u) — starting ETL...\"\n  T_ETL=$$(date +%s)\n  python3 scripts/build_ml_dataset_from_scratch.py \\\n    && echo \"[ml-scorer-v3-exp] $$(date -u) — ETL done in $$(( $$(date +%s) - $$T_ETL ))s\" \\\n    || echo \"[ml-scorer-v3-exp] $$(date -u) — ETL FAILED (see logs)\"\n\n  if [ \"$${ML_SCORER_V3_ENABLED:-1}\" = \"1\" ]; then\n    echo \"[ml-scorer-v3-exp] $$(date -u) — starting drop_outlier experiment...\"\n    T0=$$(date +%s)\n    python3 scripts/train_ml_scorer_v3.py \\\n      --lookback $${ML_SCORER_V3_LOOKBACK_DAYS:-60} \\\n      --min_samples $${ML_SCORER_V3_MIN_SAMPLES:-2000} \\\n      --embargo_ms $${ML_SCORER_V3_EMBARGO_MS:-3600000} \\\n      --pit_embargo_ms $${PIT_EMBARGO_MS:-3600000} \\\n      --require_pit_embargo_coherence \\\n      --max_samples_per_symbol $${ML_SCORER_V3_MAX_SAMPLES_PER_SYMBOL:-1500} \\\n      --symbol_balance_mode $${ML_SCORER_V3_SYMBOL_BALANCE_MODE:-cap} \\\n      --symbol_balance_target_count $${ML_SCORER_V3_SYMBOL_BALANCE_TARGET_COUNT:-1500} \\\n      --symbol_feature_masks \"$${ML_SCORER_V3_SYMBOL_FEATURE_MASKS:-BTCUSDT:direction_long}\" \\\n      --drop_features \"$${ML_SCORER_V3_DROP_FEATURES:-is_extreme_outlier}\" \\\n      --experiment_mode \\\n      --output /var/lib/trade/ml_models/scorer_v3_experiments/drop_is_extreme_outlier/scorer_v3.joblib \\\n    && echo \"[ml-scorer-v3-exp] $$(date -u) — experiment done in $$(( $$(date +%s) - $$T0 ))s\" \\\n    || echo \"[ml-scorer-v3-exp] $$(date -u) — experiment FAILED (see logs)\"\n  fi\n\n  echo \"[ml-scorer-v3-exp] sleeping $${EXP_INTERVAL}s until next run...\"\n  sleep $$EXP_INTERVAL\ndone\n"
+    profiles:
+    - ml-experiments
   ml-scorer-v3-calibrator-timer:
     build: *id001
     container_name: scanner-ml-scorer-v3-calibrator-timer

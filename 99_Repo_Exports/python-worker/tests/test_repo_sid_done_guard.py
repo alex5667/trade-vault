@@ -64,7 +64,28 @@ class FakeRedis:
                 self.kv[key].append(fields)
             return "fake_id"
 
+    def rpush(self, key, *values):
+        with self.lock:
+            if key not in self.kv:
+                self.kv[key] = []
+            if isinstance(self.kv[key], list):
+                self.kv[key].extend(values)
+                return len(self.kv[key])
+            return 0
+
     def expire(self, key, time):
+        return True
+
+    def pipeline(self, *args, **kwargs):
+        return self
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
+
+    def execute(self):
         return True
 
 
@@ -134,3 +155,70 @@ def test_save_closed_sets_sid_done_key(monkeypatch):
     repo.save_closed(Closed(), health_snapshot={})
 
     assert r.get("closed_sid_done:sid1") is not None
+
+
+def test_save_closed_normalizes_generic_kind_sid_to_crypto_of(monkeypatch):
+    from infra.redis_repo import RedisTradeRepository
+
+    r = FakeRedis()
+    repo = RedisTradeRepository(r)
+
+    from dataclasses import dataclass
+
+    @dataclass
+    class Closed:
+        order_id: str = "oid2"
+        sid: str = "weak_progress:BTCUSDT:1779011458422:L"
+        symbol: str = "BTCUSDT"
+        exit_ts_ms: int = 1779015063934
+        exit_price: float = 110.0
+        entry_price: float = 100.0
+        lot: float = 1.0
+        notional_usd: float = 100.0
+        pnl_net: float = 10.0
+        pnl_gross: float = 10.0
+        fees: float = 0.0
+        pnl_pct: float = 0.1
+        pnl_if_fixed_exit: float = 10.0
+        tp_hits: int = 1
+        tp1_hit: bool = True
+        tp2_hit: bool = False
+        tp3_hit: bool = False
+        tp_before_sl: int = 1
+        close_reason_raw: str = "TP1"
+        close_reason: str = "TP1"
+        close_reason_detail: str = ""
+        baseline_exit_reason: str = ""
+        baseline_exit_ts_ms: int = 1779015063934
+        baseline_exit_price: float = 110.0
+        entry_tag: str = "weak_progress"
+        trailing_profile: str = ""
+        trail_profile: str = ""
+        trailing_min_lock_r: float = 0.0
+        trailing_active: bool = False
+        trailing_started: bool = False
+        trailing_moves: int = 0
+        duration_ms: int = 1000000
+        mfe_pnl: float = 15.0
+        mae_pnl: float = -5.0
+        giveback: float = 5.0
+        missed_profit: float = 5.0
+        one_r_money: float = 10.0
+        r_multiple: float = 1.0
+        max_favorable_price: float = 115.0
+        max_favorable_ts: int = 1000000
+        schema_version: int = 1
+        strategy: str = "test"
+        source: str = "test"
+        tf: str = "1m"
+        direction: str = "LONG"
+        entry_regime: str = ""
+        entry_ts_ms: int = 1779011461617
+
+    monkeypatch.setenv("CLOSED_SID_DONE_TTL_DAYS", "7")
+    repo.save_closed(Closed(), health_snapshot={})
+
+    trades_closed = r.kv.get("trades:closed") or []
+    assert trades_closed, "expected xadd into trades:closed"
+    saved = trades_closed[-1]
+    assert saved.get("sid") == "crypto-of:BTCUSDT:1779011458422"

@@ -42,6 +42,7 @@ ENV
 """
 from __future__ import annotations
 
+import json
 import logging
 import math
 import os
@@ -221,8 +222,50 @@ class LiqImbalanceTracker:
         out["ts_ms"] = float(ts_ms)
         return out
 
+    def snapshot(self, symbol: str, ts_ms: int) -> dict[str, float] | None:
+        if not self._is_tracked(symbol):
+            return None
+        buf = self._buf.setdefault(symbol, deque(maxlen=self.MAX_LEN))
+        max_window_ms = max(self.WINDOWS_MS.values())
+        cutoff_keep = ts_ms - max_window_ms
+        while buf and buf[0][0] < cutoff_keep:
+            buf.popleft()
+        out: dict[str, float] = {}
+        for label, w in self.WINDOWS_MS.items():
+            cutoff = ts_ms - w
+            long_n = 0.0
+            short_n = 0.0
+            for evt_ts, side, notional in buf:
+                if evt_ts < cutoff:
+                    continue
+                if side == "long":
+                    long_n += notional
+                elif side == "short":
+                    short_n += notional
+            total = long_n + short_n
+            out[f"long_n_{label}"] = long_n
+            out[f"short_n_{label}"] = short_n
+            out[f"imb_{label}"] = (long_n - short_n) / total if total > 0 else 0.0
+        out["ts_ms"] = float(ts_ms)
+        return out
+
     def symbols(self) -> list[str]:
         return list(self._buf.keys())
+
+
+def _write_liq_state(
+    redis_client: Any,
+    symbol: str,
+    state: dict[str, float],
+    *,
+    ttl_sec: int,
+    g_liq_imb: Gauge,
+) -> None:
+    redis_key = f"ctx:liq:{symbol}:imb"
+    redis_client.hset(redis_key, mapping={k: f"{v:.8f}" for k, v in state.items()})
+    redis_client.expire(redis_key, ttl_sec)
+    for label in ("1m", "5m"):
+        g_liq_imb.labels(symbol=symbol, window=label).set(state.get(f"imb_{label}", 0.0))
 
 
 def _refresh_oi_delta(
@@ -239,16 +282,18 @@ def _refresh_oi_delta(
     """
     for symbol in symbols:
         try:
-            raw = redis_client.hgetall(f"ctx:deriv:{symbol}")
-            if not raw:
+            # ctx:deriv:{symbol} is written as a JSON string (not HASH) by the
+            # derivatives handler — use GET + json.loads to avoid WRONGTYPE errors.
+            raw_str = redis_client.get(f"ctx:deriv:{symbol}")
+            if not raw_str:
                 continue
-            fields = {
-                (_decode(k) if isinstance(k, (bytes, bytearray)) else str(k)):
-                (_decode(v) if isinstance(v, (bytes, bytearray)) else str(v))
-                for k, v in raw.items()
-            }
-            oi_delta_1m = _safe_float(fields.get("oi_delta_1m", "nan"))
-            oi_delta_5m = _safe_float(fields.get("oi_delta_5m", "nan"))
+            try:
+                fields = json.loads(raw_str)
+            except (ValueError, TypeError):
+                continue
+            # deriv handler uses "delta_oi_Xm" naming; accept both spellings.
+            oi_delta_1m = _safe_float(fields.get("oi_delta_1m") or fields.get("delta_oi_1m", "nan"))
+            oi_delta_5m = _safe_float(fields.get("oi_delta_5m") or fields.get("delta_oi_5m", "nan"))
             ts_ms = _safe_float(fields.get("ts_ms", "0"))
 
             mapping = {
@@ -280,6 +325,7 @@ def main() -> None:
 
     liq_syms_env = os.getenv("CROSS_CTX_LIQ_SYMBOLS", "")
     liq_track = {s.strip().upper() for s in liq_syms_env.split(",") if s.strip()} or None
+    liq_seed_symbols = sorted(liq_track or set(anchors))
 
     oi_syms_env = os.getenv("CROSS_CTX_OI_SYMBOLS", anchors_env)
     oi_symbols = [s.strip().upper() for s in oi_syms_env.split(",") if s.strip()]
@@ -382,6 +428,7 @@ def main() -> None:
     last_age_refresh = 0
     last_oi_refresh = 0
     last_tick_poll = 0
+    last_liq_refresh = 0
 
     while not stop["flag"]:
         now_loop = get_ny_time_millis()
@@ -440,15 +487,14 @@ def main() -> None:
                             state = liq_tracker.push(symbol, ts_ms, liq_side, notional)
                             if state is not None:
                                 c_liq_events.labels(symbol=symbol, side=liq_side).inc()
-                                redis_key = f"ctx:liq:{symbol}:imb"
                                 try:
-                                    redis_client.hset(redis_key, mapping={
-                                        k: f"{v:.8f}" for k, v in state.items()
-                                    })
-                                    redis_client.expire(redis_key, ttl_sec)
-                                    for label in ("1m", "5m"):
-                                        imb_val = state.get(f"imb_{label}", 0.0)
-                                        g_liq_imb.labels(symbol=symbol, window=label).set(imb_val)
+                                    _write_liq_state(
+                                        redis_client,
+                                        symbol,
+                                        state,
+                                        ttl_sec=ttl_sec,
+                                        g_liq_imb=g_liq_imb,
+                                    )
                                 except Exception as re:
                                     logger.debug("Redis HSET liq %s failed: %s", symbol, re)
                         except Exception as e:
@@ -516,6 +562,25 @@ def main() -> None:
         if now_ms - last_oi_refresh >= oi_refresh_sec * 1_000:
             _refresh_oi_delta(redis_client, oi_symbols, ttl_sec, g_oi_delta)
             last_oi_refresh = now_ms
+
+        # Keep liq keys alive in calm markets so downstream reads see an explicit
+        # zero snapshot instead of a missing key after restart/TTL expiry.
+        if now_ms - last_liq_refresh >= max(5_000, (ttl_sec * 1000) // 2):
+            for symbol in sorted(set(liq_seed_symbols) | set(liq_tracker.symbols())):
+                try:
+                    state = liq_tracker.snapshot(symbol, now_ms)
+                    if state is None:
+                        continue
+                    _write_liq_state(
+                        redis_client,
+                        symbol,
+                        state,
+                        ttl_sec=ttl_sec,
+                        g_liq_imb=g_liq_imb,
+                    )
+                except Exception as e:
+                    logger.debug("Periodic liq refresh failed for %s: %s", symbol, e)
+            last_liq_refresh = now_ms
 
     logger.info("Cross-context aggregator stopped")
 

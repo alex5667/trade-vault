@@ -451,7 +451,7 @@ class OrderFlowStrategy:
     async def _fetch_liqmap_bg(self, runtime, windows_to_fetch: list, keys: list, now_ms: int):
         try:
             raw_list = await asyncio.wait_for(
-                self.redis.mget(keys),
+                self.redis.mget(*keys),
                 timeout=float(self.liqmap_feature_redis_timeout_s)
             )
             cache = getattr(runtime, 'liqmap_snapshot_cache', {})
@@ -493,17 +493,22 @@ class OrderFlowStrategy:
             if (now_ms - fetch_ms) >= int(self.liqmap_feature_cache_ms):
                 windows_to_fetch.append(w)
 
-        # 1. Batch fetch from Redis using background task (Optimization for hot-path)
+        # 1. Batch fetch from Redis inline on refresh.
+        # Fire-and-forget caused a contract regression: on cold cache the same
+        # live tick saw only payload=None placeholders, so liqmap_*_levels_n
+        # stayed 0 in emitted signals even though Redis already had snapshots.
+        # Keep timeout short and fail-open, but make first-hit extraction
+        # synchronous so the current tick can use available liqmap levels.
         if windows_to_fetch:
             keys = [self._liqmap_snapshot_key(symbol=runtime.symbol, window=w) for w in windows_to_fetch]
-            safe_create_task(self._fetch_liqmap_bg(runtime, windows_to_fetch, keys, now_ms))
+            await self._fetch_liqmap_bg(runtime, windows_to_fetch, keys, now_ms)
 
             for w in windows_to_fetch:
-                # Optimistically mark as fetched to avoid queueing duplicate tasks next tick
-                if w not in cache:
+                ent = cache.get(w)
+                if not isinstance(ent, dict):
                     cache[w] = {'fetch_ms': int(now_ms), 'payload': None}
                 else:
-                    cache[w]['fetch_ms'] = int(now_ms)
+                    ent['fetch_ms'] = int(now_ms)
 
         # 2. Extract features from cached (old or just updated) payloads
         primary_window = None

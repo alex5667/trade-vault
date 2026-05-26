@@ -434,6 +434,13 @@ def main(argv: list | None = None) -> int:
     rep = _load_json(dataset_report)
     dv = validate_dataset_report(rep, min_joined=int(args.min_joined), pos_rate_min=float(args.pos_rate_min), pos_rate_max=float(args.pos_rate_max))
     if not dv.ok:
+        logger.error(
+            "Dataset validation failed: %s (joined=%s pos_rate=%.6f report=%s)",
+            dv.reason,
+            dv.joined,
+            dv.pos_rate,
+            dataset_report,
+        )
         mapping = {
             "status": "fail_validate",
             "reason": dv.reason,
@@ -481,6 +488,11 @@ def main(argv: list | None = None) -> int:
     ]
     ok_train, out, _ = _run("ml_analysis.tools.train_edge_stack_v1_oof", train_args, timeout=3600)
     if not ok_train or not os.path.exists(model_path):
+        logger.error(
+            "Train step failed: model_missing=%s model_path=%s",
+            int(not os.path.exists(model_path)),
+            model_path,
+        )
         mapping = {
             "status": "fail_train",
             "reason": "train_failed",
@@ -512,6 +524,13 @@ def main(argv: list | None = None) -> int:
 
     # --- Step 4: Validate train report (brier/ECE guardrails)
     tv = validate_train_report(tr, brier_max=float(args.brier_max), ece_max=float(args.ece_max))
+    if not tv.ok:
+        logger.error(
+            "Train report validation failed: %s (brier=%.6f ece=%.6f)",
+            tv.reason,
+            tv.brier,
+            tv.ece,
+        )
 
     # --- Step 5: Promote candidate (always - regardless of validation)
     atomic_copy(model_path, candidate_path)

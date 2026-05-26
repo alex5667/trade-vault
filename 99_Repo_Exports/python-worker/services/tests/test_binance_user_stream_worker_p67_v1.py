@@ -12,6 +12,7 @@ import os
 from unittest.mock import MagicMock, patch
 
 import pytest
+from core.redis_keys import RedisStreams as RS
 
 # [AUTOGRAVITY CLEANUP] sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
@@ -71,3 +72,38 @@ class TestListenKeyLifecycle:
         mock_client.keepalive_user_stream.return_value = {}
         worker.keepalive_listen_key()
         mock_client.keepalive_user_stream.assert_called_once_with("k")
+
+    def test_apply_event_mirrors_exchange_fill_with_tca_fields(self):
+        worker, _mock_client = _make_worker()
+        worker.r.get.side_effect = lambda key: {
+            "orders:cid_to_sid:cid-1": "sid-1",
+            "orders:state:sid-1": '{"kind":"reclaim"}',
+        }.get(key)
+
+        event = worker._normalise({
+            "e": "ORDER_TRADE_UPDATE",
+            "E": 1700000000123,
+            "o": {
+                "s": "BTCUSDT",
+                "S": "BUY",
+                "X": "FILLED",
+                "x": "TRADE",
+                "i": 55,
+                "c": "cid-1",
+                "z": "0.01",
+                "ap": "50000.5",
+            },
+        })
+        assert event is not None
+        assert worker._apply_event(event) is True
+
+        xadd_calls = worker.r.xadd.call_args_list
+        assert len(xadd_calls) >= 2
+        exec_call = xadd_calls[1]
+        assert exec_call.args[0] == RS.ORDERS_EXEC
+        fields = exec_call.args[1]
+        assert fields["event_type"] == "EXCHANGE_FILL"
+        assert fields["side"] == "BUY"
+        assert fields["kind"] == "reclaim"
+        assert fields["avg_price"] == "50000.5"
+        assert fields["price"] == "50000.5"

@@ -557,25 +557,37 @@ def _enrich_momentum(
 
 
 def _enrich_vol_features(_inds: dict[str, Any]) -> dict[str, float]:
-    """vol_fast_bps / vol_slow_bps / vol_regime_code — bridge from existing aliases.
+    """Volatility bridge for canonical and legacy source keys.
 
     Production indicator names (audit 2026-05-24):
+      - Prefer canonical keys already present in `indicators`.
       - vol_fast aliased from `vol_compression_score` (numerical vol intensity)
         OR `atr_q` (q-scaled ATR) when present.
       - vol_slow aliased from `vol_ratio_fast_slow` denominator proxy: vol_fast / ratio.
-      - vol_regime_code from deribit_vol_regime_code first, then derived.
+      - vol_regime_code from direct source first, then derived from fast/slow.
+      - vol_ratio_z / vol_of_vol are passed through when already present so the
+        publish path does not silently lose runtime-computed volatility stats.
     """
     out: dict[str, float] = {}
     aliases = {
         "vol_fast_bps": (
+            "vol_fast_bps",
             "vol_fast", "vol_fast_atr", "atr_fast_bps",
             "vol_compression_score", "atr_q",
         ),
         "vol_slow_bps": (
+            "vol_slow_bps",
             "vol_slow", "vol_slow_atr", "atr_slow_bps",
             "vol_expansion_score",
         ),
+        "vol_ratio_z": (
+            "vol_ratio_z", "ratio_z", "sc_vol_ratio_z",
+        ),
+        "vol_of_vol": (
+            "vol_of_vol",
+        ),
         "vol_regime_code": (
+            "vol_regime_code",
             "regime_class_raw_code", "regime_code",
             "deribit_vol_regime_code",
         ),
@@ -583,7 +595,9 @@ def _enrich_vol_features(_inds: dict[str, Any]) -> dict[str, float]:
     for dst, srcs in aliases.items():
         for s in srcs:
             v = _inds.get(s)
-            if v is not None:
+            # Skip None and zero: zero from an upstream bridge or stub is not a
+            # meaningful vol estimate; keep scanning for a non-zero alias.
+            if v is not None and _safe_float(v) != 0.0:
                 out[dst] = _safe_float(v)
                 break
     # Derive vol_slow_bps from vol_ratio_fast_slow + vol_fast when slow is missing
@@ -591,6 +605,15 @@ def _enrich_vol_features(_inds: dict[str, Any]) -> dict[str, float]:
         ratio = _safe_float(_inds.get("vol_ratio_fast_slow") or _inds.get("vol_ratio"))
         if ratio > 1e-6:
             out["vol_slow_bps"] = out["vol_fast_bps"] / ratio
+    if "vol_regime_code" not in out and "vol_fast_bps" in out:
+        try:
+            from core.v11_of_computers.regime_computers import compute_vol_regime_code
+            out["vol_regime_code"] = float(compute_vol_regime_code(
+                float(out["vol_fast_bps"]),
+                float(out.get("vol_slow_bps", 0.0)),
+            ))
+        except Exception:
+            pass
     return out
 
 
@@ -957,7 +980,9 @@ def _enrich_microstruct_ctx(symbol: str, redis_client: Any) -> dict[str, float]:
     Producer: `core/microstructure_metrics_v2.py` standalone service.
     Features: kyle_lambda, taker_lambda, vpin_rolling, kyle_x_vpin,
     vpin_x_funding, tick_autocorr_lag1, roll_spread_est, hurst_exp_50,
-    hurst_x_vol_regime.
+    hurst_x_vol_regime, garman_klass_vol, parkinson_vol, yang_zhang_vol,
+    vol_of_vol,
+    amihud_illiquidity, pin_estimate.
     """
     if not symbol or redis_client is None:
         return {}
@@ -970,6 +995,8 @@ def _enrich_microstruct_ctx(symbol: str, redis_client: Any) -> dict[str, float]:
         "vpin_rolling", "vpin_x_funding",
         "tick_autocorr_lag1", "roll_spread_est",
         "hurst_exp_50", "hurst_x_vol_regime",
+        "garman_klass_vol", "parkinson_vol", "yang_zhang_vol", "vol_of_vol",
+        "amihud_illiquidity", "pin_estimate",
     ):
         v = data.get(key)
         if v is not None:

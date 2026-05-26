@@ -113,7 +113,10 @@ def test_infer_feature_cols():
     assert "f_delta_z" in cols
     assert "f_liq_regime" not in cols
     assert "direction_BUY" in cols and "direction_SELL" in cols
-    assert "scenario_v4_trend" in cols and "scenario_v4_range" in cols
+    # Default scenario_prefix="bucket:" produces bucket:trend / bucket:range columns
+    assert "bucket:trend" in cols and "bucket:range" in cols
+    # Legacy scenario_v4_ prefix must NOT appear with default prefix
+    assert not any(c.startswith("scenario_v4_") for c in cols)
 
 
 
@@ -152,6 +155,34 @@ def test_filter_by_time_reads_payload_ts():
     assert [x[0] for x in out] == ["2-0"]
 
 
+def test_filter_by_time_no_start_passes_all():
+    """start_ms=None must NOT filter out items older than the close window.
+
+    P0 root cause 2: signals emitted before the 72h window but whose
+    corresponding close falls inside the window were dropped because
+    _filter_by_time applied the same since_ms to both signals and closes.
+    With sig_start_ms=None the signal stream is fully scanned.
+    """
+    from ml_analysis.tools.build_edge_stack_dataset_from_redis import _filter_by_time
+
+    CLOSE_WINDOW_START = 1700000000000  # 72h boundary (used for closes)
+    SIGNAL_TS_OLD = CLOSE_WINDOW_START - 1_000  # 1 s before window — would be dropped by old code
+    SIGNAL_TS_IN  = CLOSE_WINDOW_START + 1_000  # inside window
+
+    items = [
+        ("old-signal", {"ts_ms": str(SIGNAL_TS_OLD)}),
+        ("new-signal", {"ts_ms": str(SIGNAL_TS_IN)}),
+    ]
+
+    # Old behaviour: start_ms applied to signals → old-signal dropped
+    out_old = _filter_by_time(items, ts_field_candidates=("ts_ms",), start_ms=CLOSE_WINDOW_START, end_ms=None)
+    assert [x[0] for x in out_old] == ["new-signal"]
+
+    # New behaviour: start_ms=None → both signals kept
+    out_new = _filter_by_time(items, ts_field_candidates=("ts_ms",), start_ms=None, end_ms=None)
+    assert [x[0] for x in out_new] == ["old-signal", "new-signal"]
+
+
 def test_read_archive_items_basic(tmp_path):
     from ml_analysis.tools.build_edge_stack_dataset_from_redis import _read_archive_items
 
@@ -174,3 +205,81 @@ def test_read_archive_items_basic(tmp_path):
     assert len(items) == 1
     assert items[0][0] in ("2-0", "file:2023-11-14.ndjson:2")
     assert st["parsed"] >= 1
+
+
+# ── Dual-index join (alt_sid via ts_emit_ms) ────────────────────────────────
+
+def test_parse_replay_signal_builds_alt_sid_from_ts_emit_ms():
+    """Signal with of: SID (bar_ts) gets alt_sid using ts_emit_ms (tick_ts)."""
+    from ml_analysis.tools.build_edge_stack_dataset_from_redis import parse_replay_signal
+
+    payload = {
+        "ts_ms": 1779665158000,          # bar_ts, rounded to seconds
+        "ts_emit_ms": 1779665155939,     # tick_ts, ms precision
+        "symbol": "ETHUSDT",
+        "direction": "SHORT",
+        "sid": "of:ETHUSDT:1779665158000:S",
+        "indicators": {},
+    }
+    fields = {"payload": json.dumps(payload)}
+    s = parse_replay_signal(fields)
+
+    assert s is not None
+    assert s.sid == "crypto-of:ETHUSDT:1779665158000"
+    assert s.alt_sid == "crypto-of:ETHUSDT:1779665155939"
+
+
+def test_parse_replay_signal_iceberg_alt_sid_equals_sid():
+    """Iceberg signal: ts_emit_ms equals embedded ts → alt_sid == sid (no duplicate key)."""
+    from ml_analysis.tools.build_edge_stack_dataset_from_redis import parse_replay_signal
+
+    payload = {
+        "ts_ms": 1779662342000,
+        "ts_emit_ms": 1779662341941,
+        "symbol": "ETHUSDT",
+        "direction": "LONG",
+        "sid": "iceberg:ETHUSDT:1779662341941:L",
+        "indicators": {},
+    }
+    fields = {"payload": json.dumps(payload)}
+    s = parse_replay_signal(fields)
+
+    assert s is not None
+    assert s.sid == "crypto-of:ETHUSDT:1779662341941"
+    assert s.alt_sid == "crypto-of:ETHUSDT:1779662341941"
+
+
+def test_build_signal_map_dual_index_allows_ts_emit_ms_join():
+    """trades:closed records ts_emit_ms in signal_id → join succeeds via alt_sid."""
+    from ml_analysis.tools.build_edge_stack_dataset_from_redis import (
+        parse_replay_signal, parse_trade_closed, _build_signal_map,
+    )
+
+    # Signal with of: SID (bar_ts) and ts_emit_ms
+    sig_payload = {
+        "ts_ms": 1779665158000,
+        "ts_emit_ms": 1779665155939,
+        "symbol": "ETHUSDT",
+        "direction": "SHORT",
+        "sid": "of:ETHUSDT:1779665158000:S",
+        "indicators": {"delta_z": -2.5, "spread_bps": 0.5},
+    }
+    s = parse_replay_signal({"payload": json.dumps(sig_payload)})
+    assert s is not None
+
+    smap = _build_signal_map([s], dedup_signals="latest")
+
+    # Close uses ts_emit_ms in signal_id (as trades:closed does)
+    close_fields = {
+        "symbol": "ETHUSDT",
+        "signal_id": "of:ETHUSDT:1779665155939:S",  # ts_emit_ms-based
+        "exit_ts_ms": "1779674830503",
+        "pnl": "10.0",
+        "risk_usd": "5.0",
+    }
+    c = parse_trade_closed(close_fields)
+    assert c is not None
+    assert c.sid == "crypto-of:ETHUSDT:1779665155939"
+
+    # Join succeeds via alt_sid
+    assert c.sid in smap, f"Expected {c.sid} in smap, keys={list(smap)[:5]}"

@@ -269,6 +269,7 @@ def _normalize_sid(raw_sid: Any, *, symbol: str, ts_ms: int) -> str:
       - canonical: crypto-of:SYMBOL:ts_ms
       - legacy: crypto-of:SYMBOL:ts_ms:... (extra suffix)
       - trades:closed format: of:SYMBOL:ts_ms or of:SYMBOL:ts_ms:DIR (uses signal ts_ms embedded in SID)
+      - generic kind prefix: iceberg:SYMBOL:ts_ms[:DIR], delta_spike:SYMBOL:ts_ms[:DIR], etc.
       - loose: {symbol}|{ts_ms}|{direction} (direction ignored)
     """
     s = _as_str(raw_sid).strip()
@@ -293,15 +294,34 @@ def _normalize_sid(raw_sid: Any, *, symbol: str, ts_ms: int) -> str:
             except Exception:
                 t = int(ts_ms)
             return f"crypto-of:{sym}:{t}"
+    # Generic: {kind}:{SYMBOL}:{TS_MS}[:{DIR}] — handles iceberg:, delta_spike:, and any future
+    # kinds. Signal timestamp is always at position [2] (same convention as "of:" above).
+    # signals:of:inputs indexes by this same canonical form, so we must preserve the embedded ts.
+    if ":" in s and "|" not in s:
+        parts = s.split(":")
+        if len(parts) >= 3 and parts[1]:
+            sym = parts[1].upper()
+            try:
+                t = int(parts[2])
+                if t > 0:
+                    return f"crypto-of:{sym}:{t}"
+            except Exception:
+                pass
     if "|" in s:
         parts = s.split("|")
         if len(parts) >= 2:
             sym = (parts[0] or symbol or "").upper()
-            try:
-                t = int(parts[1])
-            except Exception:
-                t = int(ts_ms)
-            return f"crypto-of:{sym}:{t}"
+            # Pipe-delimited SIDs (e.g. "ETHUSDT|ts_emit_ms|LONG|unknown") embed ts_emit_ms,
+            # but trades:closed stores signal_id using ts_ms (payload field, rounded to seconds).
+            # Use the passed ts_ms so signal and close normalize to the same canonical key.
+            t = ts_ms if ts_ms > 0 else 0
+            if t <= 0:
+                try:
+                    t = int(parts[1])
+                except Exception:
+                    pass
+            if t > 0:
+                return f"crypto-of:{sym}:{t}"
     return _make_sid(symbol, int(ts_ms))
 
 
@@ -510,6 +530,10 @@ class SignalRow:
     scenario: str
     indicators: dict[str, Any]
     feature_schema_version: str = ""
+    # Alternate SID using ts_emit_ms (tick timestamp). trades:closed stores signal_id
+    # with ts_emit_ms while signals:of:inputs SID may use ts_ms (bar_ts, rounded).
+    # Dual-indexing this allows joins to succeed regardless of which ts the close used.
+    alt_sid: str = ""
 
 
 @dataclass(frozen=True)
@@ -749,6 +773,11 @@ def parse_replay_signal(fields: dict[str, Any]) -> SignalRow | None:
         return None
     sid = _normalize_sid(raw_sid, symbol=symbol, ts_ms=ts_ms)
 
+    # Build alternate SID using ts_emit_ms (actual tick timestamp) so we can join to
+    # trades:closed entries that store signal_id with ts_emit_ms instead of ts_ms.
+    ts_emit_ms = _as_int(payload.get("ts_emit_ms") or fields.get("ts_emit_ms"), 0)
+    alt_sid = f"crypto-of:{symbol}:{ts_emit_ms}" if ts_emit_ms > 0 else ""
+
     if direction not in ("BUY", "SELL"):
         # normalize to BUY/SELL to be consistent with gate
         if direction in ("LONG", "B"):
@@ -766,6 +795,7 @@ def parse_replay_signal(fields: dict[str, Any]) -> SignalRow | None:
         scenario=str(scenario),
         indicators=indicators,
         feature_schema_version=feature_schema_version,
+        alt_sid=alt_sid,
     )
 
 
@@ -946,6 +976,11 @@ def _build_signal_map(signals: Sequence[SignalRow], *, dedup_signals: str) -> di
         elif dedup_signals == "earliest":
             if int(s.ts_ms) < int(smap[s.sid].ts_ms):
                 smap[s.sid] = s
+    # Dual-index: also register each signal under its alt_sid (ts_emit_ms-based key) so
+    # joins to trades:closed succeed when trades:closed stores ts_emit_ms in signal_id.
+    for s in signals:
+        if s.alt_sid and s.alt_sid != s.sid and s.alt_sid not in smap:
+            smap[s.alt_sid] = s
     return smap
 
 
@@ -1257,7 +1292,12 @@ def join_signals_with_closes_v2(
         join_cand_n = 0
         join_cand2_n = 0
 
-        if (s is None) and use_nearest and int(c.close_ts_ms) > 0:
+        sid_sym, sid_ts_ms = _sid_parts(c.sid)
+        nearest_anchor_ts_ms = int(sid_ts_ms or 0)
+        if nearest_anchor_ts_ms <= 0:
+            nearest_anchor_ts_ms = int(c.close_ts_ms or 0)
+
+        if (s is None) and use_nearest and int(nearest_anchor_ts_ms) > 0:
             sym = str(c.symbol or "").upper()
             arr = sig_index_by_symbol.get(sym) or []
             times = sig_times_by_symbol.get(sym) or []
@@ -1265,7 +1305,7 @@ def join_signals_with_closes_v2(
             cands = _nearest_candidates_for_ts(
                 arr,
                 times,
-                int(c.close_ts_ms),
+                int(nearest_anchor_ts_ms),
                 tol_ms=tol_ms,
                 max_scan=int(nearest_max_scan),
             )
@@ -1291,6 +1331,7 @@ def join_signals_with_closes_v2(
                     "symbol": sym,
                     "sid_close": str(c.sid),
                     "close_ts_ms": int(c.close_ts_ms),
+                    "nearest_anchor_ts_ms": int(nearest_anchor_ts_ms),
                     "join_secondary": str(sec_mode),
                     "bucket_keys": list(bucket_keys),
                     "candidates": [
@@ -1318,7 +1359,7 @@ def join_signals_with_closes_v2(
                 # No candidate passed the secondary filter (or no candidates within tol)
                 if drop is not None:
                     if join_cand_n <= 0 and tol_ms > 0 and arr:
-                        best_any = _nearest_signal_for_ts(arr, times, int(c.close_ts_ms))
+                        best_any = _nearest_signal_for_ts(arr, times, int(nearest_anchor_ts_ms))
                         if best_any is not None:
                             _t_near, sid_near, d_ms = best_any
                             drop.add(
@@ -1327,6 +1368,7 @@ def join_signals_with_closes_v2(
                                     "symbol": sym,
                                     "sid_close": str(c.sid),
                                     "close_ts_ms": int(c.close_ts_ms),
+                                    "nearest_anchor_ts_ms": int(nearest_anchor_ts_ms),
                                     "nearest_signal_sid": str(sid_near),
                                     "delta_ms": int(d_ms),
                                     "tolerance_ms": int(tol_ms),
@@ -1335,12 +1377,22 @@ def join_signals_with_closes_v2(
                         else:
                             drop.add(
                                 "join_nearest_no_candidates",
-                                {"symbol": sym, "sid_close": str(c.sid), "close_ts_ms": int(c.close_ts_ms)},
+                                {
+                                    "symbol": sym,
+                                    "sid_close": str(c.sid),
+                                    "close_ts_ms": int(c.close_ts_ms),
+                                    "nearest_anchor_ts_ms": int(nearest_anchor_ts_ms),
+                                },
                             )
                     elif join_cand_n <= 0:
                         drop.add(
                             "join_nearest_no_candidates",
-                            {"symbol": sym, "sid_close": str(c.sid), "close_ts_ms": int(c.close_ts_ms)},
+                            {
+                                "symbol": sym,
+                                "sid_close": str(c.sid),
+                                "close_ts_ms": int(c.close_ts_ms),
+                                "nearest_anchor_ts_ms": int(nearest_anchor_ts_ms),
+                            },
                         )
                     else:
                         drop.add(
@@ -1349,6 +1401,7 @@ def join_signals_with_closes_v2(
                                 "symbol": sym,
                                 "sid_close": str(c.sid),
                                 "close_ts_ms": int(c.close_ts_ms),
+                                "nearest_anchor_ts_ms": int(nearest_anchor_ts_ms),
                                 "join_secondary": str(sec_mode),
                                 "bucket_keys": list(bucket_keys),
                                 "nearest_candidates": [
@@ -1684,6 +1737,17 @@ def main(argv: Sequence[str] | None = None) -> int:
     ap.add_argument("--tb_util_min_r", type=float, default=float(os.environ.get("TB_UTIL_MIN_R", "0.0")))
     ap.add_argument("--since_ms", type=int, default=0)
     ap.add_argument("--until_ms", type=int, default=0)
+    ap.add_argument(
+        "--sig_since_ms",
+        type=int,
+        default=0,
+        help=(
+            "Lower bound for signal ts_ms filter. 0 = no lower bound (read all signals "
+            "from stream retention). Defaults to 0 so signals emitted before the close "
+            "window are not accidentally dropped — trades opened outside --since_ms may "
+            "still have closes inside the window."
+        ),
+    )
 
     # Archive fallback (P58): load beyond Redis retention from NDJSON archives.
     ap.add_argument(
@@ -1715,8 +1779,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     ap.add_argument(
         "--join_tolerance_ms",
         type=int,
-        default=int(os.environ.get("JOIN_TOLERANCE_MS", "10000")),
-        help="Max abs(close_ts_ms - signal_ts_ms) to accept nearest join (ms). 0 disables tolerance.",
+        default=int(os.environ.get("JOIN_TOLERANCE_MS", "60000")),
+        help="Max abs(anchor_ts_ms - signal_ts_ms) to accept nearest join (ms). Uses ts from sid/signal_id when available, otherwise close_ts_ms. 0 disables tolerance.",
     )
 
     ap.add_argument(
@@ -1728,8 +1792,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     ap.add_argument(
         "--nearest_max_scan",
         type=int,
-        default=int(os.environ.get("NEAREST_MAX_SCAN", "50")),
-        help="How many candidate signals to scan on each side of close_ts_ms for nearest-join.",
+        default=int(os.environ.get("NEAREST_MAX_SCAN", "200")),
+        help="How many candidate signals to scan on each side of anchor_ts_ms for nearest-join.",
     )
     ap.add_argument(
         "--join_bucket_keys",
@@ -1808,6 +1872,10 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     start_ms = int(args.since_ms) if int(args.since_ms) > 0 else None
     end_ms = int(args.until_ms) if int(args.until_ms) > 0 else None
+    # Signals lower-bound: explicit --sig_since_ms takes priority; otherwise no lower bound
+    # so that signals emitted before the close window (trade open → signal outside window,
+    # close inside window) are not accidentally filtered out.
+    sig_start_ms = int(args.sig_since_ms) if int(args.sig_since_ms) > 0 else None
 
     try:
         import redis  # type: ignore
@@ -1819,7 +1887,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     sig_items = _xrevrange_recent(r, args.signal_stream, count=int(args.signals_count))
     close_items = _xrevrange_recent(r, args.closed_stream, count=int(args.closes_count))
 
-    sig_items = _filter_by_time(sig_items, ts_field_candidates=("ts_ms", "t", "ts"), start_ms=start_ms, end_ms=end_ms)
+    sig_items = _filter_by_time(sig_items, ts_field_candidates=("ts_ms", "t", "ts"), start_ms=sig_start_ms, end_ms=end_ms)
     close_items = _filter_by_time(
         close_items, ts_field_candidates=("exit_ts_ms", "ts_ms", "ts"), start_ms=start_ms, end_ms=end_ms
     )
@@ -2125,5 +2193,3 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 if __name__ == "__main__":  # pragma: no cover
     raise SystemExit(main())
-
-
