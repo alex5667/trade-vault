@@ -136,6 +136,73 @@ def _safe_int(v, default=0):
     except (TypeError, ValueError):
         return default
 
+def _burst_min_gap_floor_ms(runtime, *, cur_dir: str) -> int:
+    """Resolve burst-min-gap floor (ms) from ENV with per-symbol/direction overrides.
+
+    Resolution order (longest match wins):
+      1. BURST_MIN_GAP_SEC_<PREFIX>_<DIR>   (e.g. BURST_MIN_GAP_SEC_PEPE_LONG)
+      2. BURST_MIN_GAP_SEC_<PREFIX>        (e.g. BURST_MIN_GAP_SEC_PEPE)
+      3. BURST_MIN_GAP_SEC_<DIR>           (e.g. BURST_MIN_GAP_SEC_LONG)
+      4. BURST_MIN_GAP_SEC                 (global)
+
+    PREFIX = symbol with leading 1000/`USDT`/`USDC`/`USD` stripped.
+    Returns 0 when no env override is set.
+
+    LONG-in-downtrend extra multiplier: when cur_dir=LONG and regime is
+    `trending_bear`, multiply the resolved floor by `BURST_MIN_GAP_DOWNTREND_MUL`
+    (default 1.0 = off). Encourages slower LONG cadence when the trend is bearish.
+
+    Re-added 2026-05-26 (P1.7) — previously rolled back 2026-05-19.
+    """
+    symbol = str(getattr(runtime, "symbol", "") or "").upper()
+    prefix = symbol
+    for tail in ("USDT", "USDC", "USD"):
+        if prefix.endswith(tail):
+            prefix = prefix[: -len(tail)]
+            break
+    if prefix.startswith("1000"):
+        prefix = prefix[4:]
+    dr = (cur_dir or "").upper().strip()
+
+    candidates = []
+    if prefix and dr:
+        candidates.append(f"BURST_MIN_GAP_SEC_{prefix}_{dr}")
+    if prefix:
+        candidates.append(f"BURST_MIN_GAP_SEC_{prefix}")
+    if dr:
+        candidates.append(f"BURST_MIN_GAP_SEC_{dr}")
+    candidates.append("BURST_MIN_GAP_SEC")
+
+    sec = 0
+    for name in candidates:
+        raw = os.environ.get(name)
+        if raw is None or raw == "":
+            continue
+        try:
+            v = int(float(raw))
+            if v > 0:
+                sec = v
+                break
+        except (TypeError, ValueError):
+            continue
+
+    if sec <= 0:
+        return 0
+
+    # LONG-in-downtrend multiplier
+    if dr == "LONG":
+        rg = str(getattr(runtime, "last_regime", "na") or "na").lower()
+        if rg in ("trending_bear", "downtrend"):
+            try:
+                mul = float(os.environ.get("BURST_MIN_GAP_DOWNTREND_MUL", "1.0") or 1.0)
+                if mul > 1.0:
+                    sec = int(sec * mul)
+            except (TypeError, ValueError):
+                pass
+
+    return sec * 1000
+
+
 def _cooldown_ms_for(runtime, *, scenario: str, now_ms: int, new_dir: str = "") -> int:
     """
     Scenario-aware cooldown with directional reversal penalty:
@@ -186,6 +253,24 @@ def _cooldown_ms_for(runtime, *, scenario: str, now_ms: int, new_dir: str = "") 
     if int(getattr(runtime, "pressure_hi", 0) or 0) == 1:
         mul = _safe_float(cfg.get("cooldown_mul_pressure_hi", 1.25), 1.25)
         cd = int(cd * mul)
+
+    # P1.7 — Burst min-gap floor applied AFTER all multipliers but BEFORE clamp.
+    # SHADOW mode (BURST_MIN_GAP_SHADOW=1, default 0): compute the floor and stash
+    # the would-veto delta on runtime for downstream indicators, but DON'T lift cd.
+    floor_ms = _burst_min_gap_floor_ms(runtime, cur_dir=cur_dir)
+    if floor_ms > 0:
+        shadow = (os.environ.get("BURST_MIN_GAP_SHADOW", "0").strip().lower()
+                  in ("1", "true", "yes", "on"))
+        if shadow:
+            try:
+                # Record would-veto state for indicators; no behavioural change.
+                runtime.burst_gate_would_veto = 1 if floor_ms > cd else 0
+                runtime.burst_gate_floor_ms = floor_ms
+            except Exception:
+                pass
+        else:
+            if floor_ms > cd:
+                cd = floor_ms
 
     # clamp to safe range
     cd_min = _safe_int(cfg.get("cooldown_min_ms", 1000), 1000)

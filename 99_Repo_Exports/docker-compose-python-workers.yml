@@ -2733,6 +2733,7 @@ services:
     - OUTBOX_CONTRACT_SAMPLE_RATE=0.1
     - USE_SIGNAL_OUTBOX=true
     - TZ=UTC
+    - LOCK_REDIS_URL=redis://redis:6379/0
     depends_on:
       redis-worker-1:
         condition: service_healthy
@@ -2741,6 +2742,11 @@ services:
     - scanner-infra
     restart: unless-stopped
     command:
+    - python3
+    - tools/run_daemon_with_minik_failover.py
+    - --job-name
+    - ab_winner_evaluator_v2
+    - --
     - python
     - -u
     - -m
@@ -3042,7 +3048,7 @@ services:
     - ANALYTICS_DB_DSN=${ANALYTICS_DB_DSN}
     - TRADES_DB_DSN=${ANALYTICS_DB_DSN}
     - REDIS_TICKS_URL=redis://redis-ticks:6379/0
-    - TM_GROUP=trade-monitor
+    - TM_GROUP=trade-monitor-2
     - TM_CONSUMER=tm2-1
     - TM_NAMESPACE=trade-monitor-2
     - TM_RESCAN_EVERY_SEC=15
@@ -3170,6 +3176,9 @@ services:
     - POSITION_EVENTS_TYPES=${POSITION_EVENTS_TYPES:-TP_HIT,TP1_HIT,TP2_HIT,TP3_HIT,TRAILING_MOVE,TRAILING_STARTED,SL_HIT,SL_ADJUST,POSITION_OPENED,POSITION_CLOSED}
     - PGCONNECT_TIMEOUT=${PGCONNECT_TIMEOUT:-15}
     - PGOPTIONS=${PGOPTIONS:-"-c statement_timeout=30000"}
+    - OF_GATE_METRICS_ARCHIVE_ENABLED=1
+    - OF_GATE_QUARANTINE_ARCHIVE_ENABLED=1
+    - OF_GATE_METRICS_AUTO_MIGRATE=1
     - OUTBOX_CONTRACT_MODE=warn
     - OUTBOX_CONTRACT_SAMPLE_RATE=0.1
     - USE_SIGNAL_OUTBOX=true
@@ -3787,6 +3796,7 @@ services:
     container_name: scanner-atr-policy-rollout-controller
     environment:
     - REDIS_URL=${REDIS_URL}
+    - LOCK_REDIS_URL=redis://redis:6379/0
     - ANALYTICS_DB_DSN=postgresql://trading:${TRADING_PASSWORD}@postgres:5432/scanner_analytics
     - TRADES_DB_DSN=postgresql://trading:${TRADING_PASSWORD}@postgres:5432/scanner_analytics
     - ATR_GRAPH_RELEASE_GATE_ENABLE=1
@@ -3799,8 +3809,7 @@ services:
     - scanner-core
     - scanner-infra
     restart: unless-stopped
-    command: sh -c "while true; do python -m services.atr_policy_rollout_controller;
-      sleep 60; done"
+    command: "python3 tools/run_daemon_with_minik_failover.py --job-name atr_policy_rollout_controller -- sh -c \"while true; do python -m services.atr_policy_rollout_controller; sleep 60; done\""
     deploy:
       resources:
         limits:
@@ -3906,6 +3915,7 @@ services:
     - KILL_DAILY_R_LIMIT=${KILL_DAILY_R_LIMIT:-15}
     - KILL_DAILY_PCT_LIMIT=${KILL_DAILY_PCT_LIMIT:-20}
     - DAILY_DD_CHECK_INTERVAL_SEC=${DAILY_DD_CHECK_INTERVAL_SEC:-60}
+    - DAILY_DD_EXCLUDE_VIRTUAL=${DAILY_DD_EXCLUDE_VIRTUAL:-0}
     - DAILY_DD_PROM_PORT=9700
     - TZ=UTC
     ports:
@@ -5293,11 +5303,11 @@ services:
     - HAWKES_BETA=${HAWKES_BETA:-0.0333}
     - HAWKES_ALPHA=${HAWKES_ALPHA:-0.5}
     - HAWKES_VPIN_ALPHA=${HAWKES_VPIN_ALPHA:-0.05}
-    - HAWKES_TTL_SEC=30
+    - HAWKES_TTL_SEC=60
     - HAWKES_PORT=9148
     - HAWKES_GROUP=of-hawkes-vpin
     - HAWKES_CONSUMER=of-hawkes-vpin-1
-    - HAWKES_MAX_LAG_MS=30000
+    - HAWKES_MAX_LAG_MS=60000
     - LOCK_REDIS_URL=redis://redis:6379/0
     - PYTHONPATH=.:/app
     - PYTHONUNBUFFERED=1
@@ -5316,7 +5326,7 @@ services:
           cpus: '0.3'
         reservations:
           memory: 64M
-    command: python -u orderflow_services/of_hawkes_vpin_v1.py
+    command: python3 tools/run_daemon_with_minik_failover.py --job-name hawkes_vpin -- python -u orderflow_services/of_hawkes_vpin_v1.py
 
   scanner-pit-priors-exporter:
     build: *id001
@@ -5354,6 +5364,8 @@ services:
     container_name: scanner-pit-priors-rolling
     environment:
     - REDIS_URL=${REDIS_URL:-redis://redis-worker-1:6379/0}
+    - LOCK_REDIS_URL=redis://redis:6379/0
+    - TRADES_DB_DSN=${ANALYTICS_DB_DSN}
     - PIT_ROLLING_INTERVAL_S=3600
     - PIT_ROLLING_EMBARGO_MS=3600000
     - PIT_ROLLING_MIN_SAMPLES=20
@@ -5378,7 +5390,7 @@ services:
           cpus: '0.3'
         reservations:
           memory: 256M
-    command: python -u orderflow_services/pit_priors_rolling_v1.py
+    command: "python3 tools/run_daemon_with_minik_failover.py --job-name pit_priors_rolling -- python -u orderflow_services/pit_priors_rolling_v1.py"
 
   scanner-liq-evt-archiver:
     build: *id001

@@ -17,7 +17,8 @@ services:
     command:
     - --config.file=/etc/prometheus/prometheus.yml
     - --storage.tsdb.path=/prometheus
-    - --storage.tsdb.retention.time=15d
+    - --storage.tsdb.retention.time=7d
+    - --storage.tsdb.retention.size=3GB
     - --web.console.libraries=/usr/share/prometheus/console_libraries
     - --web.console.templates=/usr/share/prometheus/consoles
     - --web.enable-lifecycle
@@ -40,6 +41,8 @@ services:
       start_period: 10s
     deploy:
       resources:
+        limits:
+          cpus: '2.0'
         reservations:
           memory: 24M
     environment:
@@ -63,8 +66,8 @@ services:
     - scanner-infra
     - scanner-ops
     command:
-    - --housekeeping_interval=60s
-    - --global_housekeeping_interval=60s
+    - --housekeeping_interval=300s
+    - --global_housekeeping_interval=300s
     - --docker_only=true
     - --disable_metrics=disk,network,tcp,udp,percpu,sched,process,referenced_memory
     - --logtostderr=false
@@ -72,6 +75,7 @@ services:
     deploy:
       resources:
         limits:
+          cpus: '1.5'
           memory: 512M
         reservations:
           memory: 128M

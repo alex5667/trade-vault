@@ -166,6 +166,11 @@ try:
         ["profile", "symbol"],
         buckets=[0, 5, 10, 20, 50, 100, 200, 500],
     )
+    _REGIME_RESOLVED_TOTAL = Counter(
+        "signals_of_inputs_regime_resolved_total",
+        "Source of regime value at signals:of:inputs publish time (P1.1)",
+        ["kind", "source"],
+    )
 except ImportError:
     _FEATURE_TO_DECISION_MS = None
     _DECISION_TO_OUTBOX_MS = None
@@ -183,6 +188,7 @@ except ImportError:
     _TP_PROFILE_ENFORCE_TOTAL = None
     _TP_PROFILE_SHADOW_TOTAL = None
     _TP_PROFILE_LEVEL_DELTA_BPS = None
+    _REGIME_RESOLVED_TOTAL = None
 
 # Gates whose vetoes must never route to virtual order queue.
 # Checked via rejection_gate parameter (dec.gate passed by _handle_pipeline_veto).
@@ -650,6 +656,13 @@ class SignalPipeline:
             enriched_signal.setdefault("feature_schema_version", self.ml_feature_schema_version)
             _inds = enriched_signal.get("indicators")
             if isinstance(_inds, dict):
+                # tick_qty — bridge from top-level signal field (set in publish_signal),
+                # fallback to 0.0 (also applies for veto-path signals that bypass publish_signal).
+                _tq_raw = enriched_signal.get("tick_qty")
+                try:
+                    _inds.setdefault("tick_qty", float(_tq_raw) if _tq_raw is not None else 0.0)
+                except (TypeError, ValueError):
+                    _inds.setdefault("tick_qty", 0.0)
                 if runtime is not None:
                     try:
                         dcfg = getattr(runtime, "dynamic_cfg", {}) or {}
@@ -685,18 +698,38 @@ class SignalPipeline:
                         _v13 = getattr(runtime, "v13_tracker", None)
                         _v13_snap = _v13.snapshot() if _v13 is not None else {}
                         if isinstance(_v13_snap, dict):
-                            for _vol_k in (
-                                "garman_klass_vol",
-                                "parkinson_vol",
-                                "yang_zhang_vol",
-                                "vol_of_vol",
-                            ):
-                                # Only bridge non-zero values from v13_tracker: these
-                                # features are produced by microstruct:ctx via enricher,
-                                # so a 0.0 default here would freeze them out via setdefault.
-                                _v13_val = float(_v13_snap.get(_vol_k) or 0.0)
+                            for _v13_k, _v13_raw in _v13_snap.items():
+                                # Bridge ALL v13_tracker snapshot keys (NA/NB/NC/NE/NF groups).
+                                # Only non-zero values: 0.0 = "not computed yet" and would
+                                # freeze enricher-produced values via setdefault.
+                                _v13_val = float(_v13_raw or 0.0)
                                 if _v13_val != 0.0:
-                                    _inds.setdefault(_vol_k, _v13_val)
+                                    _inds.setdefault(_v13_k, _v13_val)
+                            # NX interaction: depth_resil_x_sweep not in snapshot() —
+                            # computed here from bridged NB/NC values.
+                            _resil = float(_v13_snap.get("depth_resilience_half_life", 0.0) or 0.0)
+                            _sweep = float(_v13_snap.get("aggressive_sweep_ratio", 0.0) or 0.0)
+                            _drxs = _resil * _sweep
+                            if _drxs != 0.0:
+                                _inds.setdefault("depth_resil_x_sweep", _drxs)
+                    except Exception:
+                        pass
+                # depth_migration_bps: runtime EMA first (in-memory, no I/O) →
+                # book_stats_reader (Redis call) only when EMA unavailable.
+                # Must be here (not only in _enrich_signal) because signals:of:inputs is
+                # written before the outbox enrichment step.
+                if not _inds.get("depth_migration_bps"):
+                    try:
+                        _ema = float(getattr(runtime, "depth_migration_bps_ema", 0.0) or 0.0) if runtime is not None else 0.0
+                        if _ema != 0.0:
+                            _inds["depth_migration_bps"] = _ema
+                        else:
+                            import asyncio as _aio
+                            from core.book_stats_reader import get_book_stats as _gbs
+                            _sym = enriched_signal.get("symbol") or ""
+                            _dm, _ = await _aio.to_thread(_gbs, _sym)
+                            if _dm not in (None, 0, 0.0):
+                                _inds["depth_migration_bps"] = _dm
                     except Exception:
                         pass
                 # vol_ratio bridge: v14_of schema key vol_ratio maps to vol_ratio_fast_slow
@@ -720,15 +753,28 @@ class SignalPipeline:
                     not _inds.get("regime")
                     or str(_inds.get("regime")) in _NA_TOKENS
                 )
+                _regime_source = "indicators" if not _need_inds_regime else "none"
                 if _need_inds_regime:
                     # Try top-level on the signal first.
-                    _top_regime = (str(enriched_signal.get("regime") or "")).lower().strip()
-                    if (not _top_regime or _top_regime in _NA_TOKENS) and runtime is not None:
+                    _top_regime_raw = (str(enriched_signal.get("regime") or "")).lower().strip()
+                    _top_regime = _top_regime_raw if (_top_regime_raw and _top_regime_raw not in _NA_TOKENS) else ""
+                    if _top_regime:
+                        _regime_source = "top_level"
+                    elif runtime is not None:
                         # Fall back to runtime.last_regime (set by bar_processor regime svc).
-                        _top_regime = (str(getattr(runtime, "last_regime", "") or "")).lower().strip()
-                    if _top_regime and _top_regime not in _NA_TOKENS:
+                        _rt_regime = (str(getattr(runtime, "last_regime", "") or "")).lower().strip()
+                        if _rt_regime and _rt_regime not in _NA_TOKENS:
+                            _top_regime = _rt_regime
+                            _regime_source = "runtime"
+                    if _top_regime:
                         _inds["regime"] = _top_regime
                         enriched_signal.setdefault("regime", _top_regime)
+                if _REGIME_RESOLVED_TOTAL is not None:
+                    try:
+                        _kind_lbl = str(enriched_signal.get("kind") or "unknown")
+                        _REGIME_RESOLVED_TOTAL.labels(kind=_kind_lbl, source=_regime_source).inc()
+                    except Exception:
+                        pass
                 # confidence_v1 bridge: strategy.py sets indicators["confidence"] not indicators["confidence_v1"]
                 # Calibration trainer expects confidence_v1 as the raw pre-calibration confidence key.
                 _inds.setdefault("confidence_v1", _inds.get("confidence"))
@@ -798,6 +844,23 @@ class SignalPipeline:
                 except Exception as _ext_exc:
                     # Fail-open: bridge unavailable should not block publish.
                     logger.debug("⚠️ _publish_of_inputs ext-bridge fail-open: %s", _ext_exc)
+
+                # Ensure atr_5m is populated for ML features — covers both veto and outbox paths.
+                # _calculate_levels sets it for executed signals; here we cover vetoed signals.
+                if not _inds.get("atr_5m"):
+                    try:
+                        if self.atr_cache:
+                            _nm5: int | None = int(
+                                _inds.get("ts_ms", 0) or enriched_signal.get("ts_ms", 0) or 0
+                            ) or None
+                            _atr_5m_v, _ = self.atr_cache.get_with_meta(
+                                symbol=symbol, timeframe="5m", now_ms=_nm5
+                            )
+                            if _atr_5m_v:
+                                _inds["atr_5m"] = float(_atr_5m_v)
+                    except Exception:
+                        pass
+
             await publisher.xadd_json(
                 sink=StreamSink(name=self.of_inputs_stream, field="payload", maxlen=self.of_inputs_stream_maxlen),
                 payload=enriched_signal,
@@ -1660,7 +1723,15 @@ class SignalPipeline:
         _dq_sym = getattr(runtime, "symbol", "") or ""
         try:
             book_stale_ms = int(micro.get("book_stale_ms") or 0)
+            # Fallback: compute stale from runtime book timestamp when micro field absent
+            if book_stale_ms <= 0 and runtime is not None:
+                _last_book_ts = int(getattr(runtime, "last_book_ts_ms", 0) or 0)
+                if _last_book_ts > 0:
+                    book_stale_ms = max(0, sig_ts_ms - _last_book_ts)
             _dq_spread_raw = float(micro.get("spread_bps") or 0.0)
+            # Fallback: use runtime spread when micro field absent
+            if _dq_spread_raw <= 0.0 and runtime is not None:
+                _dq_spread_raw = float(getattr(runtime, "last_spread_bps", 0.0) or 0.0)
             if _dq_sym:
                 self._dq_micro_cal.observe(
                     symbol=_dq_sym, book_stale_ms=book_stale_ms, spread_bps=_dq_spread_raw
@@ -1873,38 +1944,68 @@ class SignalPipeline:
         except Exception:
             pass
 
-    def _confirm_barrier_observe(self, *, symbol: str, signal: dict[str, Any], runtime: Any, now_ms: int) -> None:
-        """Observe bid/ask volume ratio for ConfirmationBarrierCalibrator on signal emit.
+    # Map from signal kind → calibration bin name used in ConfirmationBarrierCalibrator.
+    # Original breakout/absorption keep their names; all other OF signal kinds get
+    # mapped to "of" so the calibrator accumulates a cross-kind OBI distribution.
+    _CB_KIND_MAP: dict[str, str] = {
+        "breakout": "breakout", "bo": "breakout",
+        "absorption": "absorption", "abs": "absorption",
+        "iceberg": "iceberg",
+        "delta_spike": "delta_spike",
+    }
 
-        Uses depth_5_bid_vol / depth_5_ask_vol from runtime.last_book as proxy
-        for the top-N notional imbalance used in L2ConfirmBreakout/Absorption.check().
-        Direction-aware: for breakout-up, bid/ask ratio; for breakout-down, ask/bid; etc.
+    def _confirm_barrier_observe(
+        self,
+        *,
+        symbol: str,
+        signal: dict[str, Any],
+        runtime: Any,
+        now_ms: int,
+        indicators: dict[str, Any] | None = None,
+    ) -> None:
+        """Observe OBI ratio for ConfirmationBarrierCalibrator on every signal emit.
+
+        Priority for OBI source:
+          1. lob_obi_5 / depth_imbalance_5 from indicators (direction-agnostic raw ratio)
+          2. depth_5_bid_vol / depth_5_ask_vol from runtime.last_book (direction-aware)
+
+        All signal kinds are observed (iceberg, delta_spike, breakout, absorption, …),
+        each mapped to a calibration bin via _CB_KIND_MAP (unknown → "of").
+        This ensures enough sample volume to reach min_samples=30 within days.
         """
         try:
             kind_raw = str(signal.get("kind") or "").lower().strip()
-            cal_kind: str | None = None
-            if kind_raw in ("breakout", "bo"):
-                cal_kind = "breakout"
-            elif kind_raw in ("absorption", "abs"):
-                cal_kind = "absorption"
-            if cal_kind is None:
-                return
-            if runtime is None:
-                return
-            book = getattr(runtime, "last_book", None)
-            if book is None:
-                return
-            bid_vol = float(getattr(book, "depth_5_bid_vol", 0.0) or 0.0)
-            ask_vol = float(getattr(book, "depth_5_ask_vol", 0.0) or 0.0)
-            if bid_vol <= 0.0 or ask_vol <= 0.0:
-                return
+            cal_kind = self._CB_KIND_MAP.get(kind_raw, "of")
+
+            ind = indicators or {}
             side_raw = str(signal.get("direction") or signal.get("side") or "").lower()
             dir_up = side_raw in ("buy", "long", "up", "bull", "1")
-            if cal_kind == "breakout":
-                obi_ratio = bid_vol / ask_vol if dir_up else ask_vol / bid_vol
+
+            obi_ratio: float | None = None
+
+            # Source 1: indicators lob_obi_5 (already direction-weighted imbalance >0)
+            _raw_obi = float(ind.get("lob_obi_5") or ind.get("depth_imbalance_5") or 0.0)
+            if _raw_obi > 0.0:
+                obi_ratio = _raw_obi
             else:
-                # absorption: counterside must dominate (asks for LONG, bids for SHORT)
-                obi_ratio = ask_vol / bid_vol if dir_up else bid_vol / ask_vol
+                # Source 2: runtime book depth volumes (direction-aware)
+                if runtime is None:
+                    return
+                book = getattr(runtime, "last_book", None)
+                if book is None:
+                    return
+                bid_vol = float(getattr(book, "depth_5_bid_vol", 0.0) or 0.0)
+                ask_vol = float(getattr(book, "depth_5_ask_vol", 0.0) or 0.0)
+                if bid_vol <= 0.0 or ask_vol <= 0.0:
+                    return
+                if cal_kind == "absorption":
+                    # absorption: counter-side must dominate
+                    obi_ratio = ask_vol / bid_vol if dir_up else bid_vol / ask_vol
+                else:
+                    obi_ratio = bid_vol / ask_vol if dir_up else ask_vol / bid_vol
+
+            if obi_ratio is None or obi_ratio <= 0.0:
+                return
             self._confirm_barrier_cal.observe((symbol or "").upper(), cal_kind, obi_ratio, now_ms)
         except Exception:
             pass
@@ -2200,6 +2301,8 @@ class SignalPipeline:
         # produced OOD values ~65-90 (intended scale [0,1] as cancel/quote
         # ratio); fed ManipulationGate VETO_QUOTE_STUFFING triggers in prod.
         # depth_migration_bps stays — small bps values, safe distribution.
+        # Fallback chain: book_stats_reader (L2 snapshots on redis-ticks) →
+        # runtime.depth_migration_bps_ema (Go crossasset EMA, always available).
         try:
             _ind = signal.get("indicators")
             if isinstance(_ind, dict):
@@ -2208,6 +2311,10 @@ class SignalPipeline:
                 dm, _qs = await asyncio.to_thread(get_book_stats, symbol)
                 if dm not in (None, 0, 0.0):
                     _ind["depth_migration_bps"] = float(dm)
+                elif runtime is not None:
+                    _ema = float(getattr(runtime, "depth_migration_bps_ema", 0.0) or 0.0)
+                    if _ema != 0.0:
+                        _ind["depth_migration_bps"] = _ema
                 # quote_stuffing_score intentionally NOT written — wait for
                 # proper cancel/quote split tracker (BookProcessor migration).
         except Exception:
@@ -2620,6 +2727,8 @@ class SignalPipeline:
             ("smt_align", 0),
             ("smt_state_stale", 1),
             ("smt_bundle_id", ""),
+            ("smt_blocked", 0),
+            ("smt_leader_conf_score", None),
         ):
             if _k in indicators:
                 continue
@@ -2634,7 +2743,7 @@ class SignalPipeline:
         # Ensure they're also available at top level for backward compatibility
         signal.setdefault("delta", delta)
         signal.setdefault("delta_z", delta_z)
-        indicators.setdefault("tick_qty", signal.get("tick_qty"))
+        indicators.setdefault("tick_qty", float(signal.get("tick_qty") or 0.0))
 
         # --- CONTRACT VALIDATION (SignalV1) ---
         try:
@@ -3603,6 +3712,7 @@ class SignalPipeline:
             {
                 "strategy": enriched_signal.get("strategy", "cryptoorderflow"),
                 "source": "CryptoOrderFlow",
+                "source_service": self._cached_service_name,
                 "tf": enriched_signal.get("tf", "tick"),
                 "symbol": symbol,
                 "direction": direction,         # legacy
@@ -3672,11 +3782,16 @@ class SignalPipeline:
             # Phase 6: Expose atr_tf_ms and atr_stop_pct in indicators for ML v5 feature vector.
             # setdefault — does not overwrite if already present (e.g. set by tick_processor).
             try:
-                indicators.setdefault("atr_tf_ms", int(atr_meta.get("atr_tf_ms") or 0))
+                _new_atr_tf = int(atr_meta.get("atr_tf_ms") or 0)
+                if _new_atr_tf > 0:
+                    indicators["atr_tf_ms"] = _new_atr_tf
+                else:
+                    indicators.setdefault("atr_tf_ms", 0)
+
                 _atr_val = float(atr_meta.get("atr_value") or atr or 0.0)
                 _entry_px = float(indicators.get("price") or enriched_signal.get("entry") or 0.0)
                 if _entry_px > 0.0 and _atr_val > 0.0:
-                    indicators.setdefault("atr_stop_pct", _atr_val / _entry_px * 100.0)
+                    indicators["atr_stop_pct"] = _atr_val / _entry_px * 100.0
                 else:
                     indicators.setdefault("atr_stop_pct", 0.0)
             except Exception:
@@ -3688,7 +3803,22 @@ class SignalPipeline:
             for _hz_key in ("hold_target_ms", "alpha_half_life_ms", "max_signal_age_ms", "vol_ratio_fast_slow", "vol_ratio_z"):
                 _hz_val = enriched_signal.get(_hz_key)
                 if _hz_val is not None:
-                    indicators.setdefault(_hz_key, _hz_val)
+                    # Overwrite if engine defaulted to 0.0, but keep if valid
+                    if float(indicators.get(_hz_key) or 0.0) == 0.0:
+                        indicators[_hz_key] = _hz_val
+                    else:
+                        indicators.setdefault(_hz_key, _hz_val)
+
+            # Compute normalizations explicitly to override of_confirm_engine's 0.0 defaults
+            _HZ_ONE_HOUR_MS = 3600000.0
+            _ahl = indicators.get("alpha_half_life_ms")
+            if _ahl is not None and float(_ahl) > 0:
+                indicators["alpha_half_life_ms_norm"] = float(_ahl) / _HZ_ONE_HOUR_MS
+
+            _htm = indicators.get("hold_target_ms")
+            if _htm is not None and float(_htm) > 0:
+                indicators["hold_target_ms_norm"] = float(_htm) / _HZ_ONE_HOUR_MS
+
             # Also record signal_ts_ms so ML gate can compute max_signal_age_ratio
             indicators.setdefault("signal_ts_ms", int(enriched_signal.get("ts_ms") or enriched_signal.get("ts") or 0))
         except Exception:
@@ -4074,6 +4204,7 @@ class SignalPipeline:
                 signal=enriched_signal,
                 runtime=runtime,
                 now_ms=ts_ms,
+                indicators=indicators,
             )
         except Exception:
             pass
@@ -5122,6 +5253,21 @@ class SignalPipeline:
         # This is the ATR TF value (e.g. 5m/15m), NOT the 1m ATR from tick stream.
         # trade_metrics_service uses this for correct ATR normalization in reports.
         indicators["atr_used_for_levels"] = atr
+
+        # Explicitly fetch 5m ATR for ML features / signals table.
+        # Done separately from canonical ATR so both are always available regardless of atr_tf.
+        if not indicators.get("atr_5m"):
+            try:
+                if self.atr_cache:
+                    _nm5: int | None = int(
+                        indicators.get("ts_ms", 0) or indicators.get("tick_ts", 0) or 0
+                    ) or None
+                    _atr_5m, _ = self.atr_cache.get_with_meta(
+                        symbol=runtime.symbol, timeframe="5m", now_ms=_nm5
+                    )
+                    indicators["atr_5m"] = float(_atr_5m or 0.0)
+            except Exception:
+                pass
 
         lot = indicators.get("lot")
         if lot is None:

@@ -221,19 +221,58 @@ class ConfidenceService:
         )
 
         indicators["l3_spread_bps"] = float(_get("l3_spread_bps", _get("spread_bps", 0.0)))
-        indicators["l3_microprice_shift_bps_20"] = float(_get("l3_microprice_shift_bps_20", _get("microprice_shift_bps_20", 0.0)))
-        indicators["l3_microprice_velocity_bps"] = float(_get("l3_microprice_velocity_bps", 0.0))
+        # Compute L3 proxy features from runtime.l3_queue state
+        # Previously these were hardcoded 0.0 stubs; now filled with real EMA data.
+        try:
+            _eps_l3 = 1e-9
+            _q_l3 = getattr(runtime, "l3_queue", None)
+            _qs_l3 = _q_l3.snapshot() if _q_l3 is not None else {}
+            _sr_l3 = max(float(_qs_l3.get("taker_sell_rate_ema", 0.0) or 0.0), _eps_l3)
+            _br_l3 = max(float(_qs_l3.get("taker_buy_rate_ema", 0.0) or 0.0), _eps_l3)
+            _c2t_bid_20 = float(_qs_l3.get("cancel_bid_rate_ema", 0.0) or 0.0) / _sr_l3
+            _c2t_ask_20 = float(_qs_l3.get("cancel_ask_rate_ema", 0.0) or 0.0) / _br_l3
+            _btot_l3 = float(getattr(_q_l3, "_l2_bid_total", 0.0) or 0.0) if _q_l3 else 0.0
+            _atot_l3 = float(getattr(_q_l3, "_l2_ask_total", 0.0) or 0.0) if _q_l3 else 0.0
+            _mdi_l3 = (_btot_l3 - _atot_l3) / max(_btot_l3 + _atot_l3, _eps_l3)
+            _qpb_l3 = float(_qs_l3.get("added_bid_rate_ema", 0.0) or 0.0)
+            _qpa_l3 = float(_qs_l3.get("added_ask_rate_ema", 0.0) or 0.0)
+            _obi50_l3 = float(getattr(runtime, "lob_dw_obi", 0.0) or 0.0)
+            _obi_ps_l3 = float(
+                getattr(runtime, "obi_stability_score", None) or
+                getattr(runtime, "dw_obi_stability_score", 0.0) or 0.0
+            )
+            # microprice velocity: delta(lob_micro_shift_bps) / dt
+            _cmps_l3 = float(getattr(runtime, "lob_micro_shift_bps", 0.0) or 0.0)
+            _pmps_l3 = float(getattr(runtime, "_l3_micro_shift_prev_bps", _cmps_l3))
+            _pts_l3 = int(getattr(runtime, "_l3_micro_shift_prev_ts_ms", 0))
+            _now_l3 = int(indicators.get("ts_event_ms", 0) or 0) or get_ny_time_millis()
+            _mvel_l3 = 0.0
+            if _now_l3 > _pts_l3 > 0:
+                _dt_l3 = (_now_l3 - _pts_l3) / 1000.0
+                if _dt_l3 >= 0.05:
+                    _mvel_l3 = (_cmps_l3 - _pmps_l3) / _dt_l3
+                    runtime._l3_micro_shift_prev_bps = _cmps_l3  # type: ignore[attr-defined]
+                    runtime._l3_micro_shift_prev_ts_ms = _now_l3  # type: ignore[attr-defined]
+            elif _pts_l3 == 0:
+                runtime._l3_micro_shift_prev_bps = _cmps_l3  # type: ignore[attr-defined]
+                runtime._l3_micro_shift_prev_ts_ms = _now_l3  # type: ignore[attr-defined]
+        except Exception:
+            _c2t_bid_20 = _c2t_ask_20 = _mdi_l3 = _qpb_l3 = _qpa_l3 = 0.0
+            _obi50_l3 = _obi_ps_l3 = _mvel_l3 = _cmps_l3 = 0.0
+
+        indicators["l3_microprice_shift_bps_20"] = float(_get("l3_microprice_shift_bps_20", _cmps_l3))
+        indicators["l3_microprice_velocity_bps"] = float(_get("l3_microprice_velocity_bps", _mvel_l3))
         indicators["l3_obi_5"] = float(_get("l3_obi_5", 0.0))
         indicators["l3_obi_20"] = float(_get("l3_obi_20", _get("obi_20", 0.0)))
-        indicators["l3_obi_50"] = float(_get("l3_obi_50", 0.0))
-        indicators["l3_obi_persistence_score"] = float(_get("l3_obi_persistence_score", 0.0))
+        indicators["l3_obi_50"] = float(_get("l3_obi_50", _obi50_l3))
+        indicators["l3_obi_persistence_score"] = float(_get("l3_obi_persistence_score", _obi_ps_l3))
         indicators["l3_cancel_to_trade_bid_5s"] = float(_get("l3_cancel_to_trade_bid_5s", _get("cancel_to_trade_bid", 0.0)))
         indicators["l3_cancel_to_trade_ask_5s"] = float(_get("l3_cancel_to_trade_ask_5s", _get("cancel_to_trade_ask", 0.0)))
-        indicators["l3_cancel_to_trade_bid_20s"] = float(_get("l3_cancel_to_trade_bid_20s", 0.0))
-        indicators["l3_cancel_to_trade_ask_20s"] = float(_get("l3_cancel_to_trade_ask_20s", 0.0))
-        indicators["l3_queue_pressure_bid"] = float(_get("l3_queue_pressure_bid", 0.0))
-        indicators["l3_queue_pressure_ask"] = float(_get("l3_queue_pressure_ask", 0.0))
-        indicators["l3_market_depth_imbalance"] = float(_get("l3_market_depth_imbalance", 0.0))
+        indicators["l3_cancel_to_trade_bid_20s"] = float(_get("l3_cancel_to_trade_bid_20s", _c2t_bid_20))
+        indicators["l3_cancel_to_trade_ask_20s"] = float(_get("l3_cancel_to_trade_ask_20s", _c2t_ask_20))
+        indicators["l3_queue_pressure_bid"] = float(_get("l3_queue_pressure_bid", _qpb_l3))
+        indicators["l3_queue_pressure_ask"] = float(_get("l3_queue_pressure_ask", _qpa_l3))
+        indicators["l3_market_depth_imbalance"] = float(_get("l3_market_depth_imbalance", _mdi_l3))
 
         try:
             ts_val = indicators.get("ts_event_ms", 0)

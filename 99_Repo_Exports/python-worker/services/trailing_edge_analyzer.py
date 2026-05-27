@@ -332,8 +332,12 @@ class TrailingEdgeAnalyzer:
         threshold_ms = None
         if since_hours:
             threshold_ms = int(get_ny_time_millis() - since_hours * 3600 * 1000)
+        # Always bound by 30 days to avoid full-stream scan when since_hours=None.
+        if threshold_ms is None:
+            threshold_ms = get_ny_time_millis() - 30 * 24 * 3600 * 1000
+        min_id = f"{threshold_ms}-0"
 
-        entries = self.redis.xrevrange(RS.TRADES_CLOSED, max="+", min="-", count=max(10, limit * 4)) or []
+        entries = self.redis.xrevrange(RS.TRADES_CLOSED, max="+", min=min_id, count=max(10, limit * 4)) or []
 
         # 1) Сначала нормализуем stream-fields
         raw_items: list[dict[str, str]] = []

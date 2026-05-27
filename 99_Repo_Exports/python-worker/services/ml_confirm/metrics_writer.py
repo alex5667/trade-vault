@@ -274,6 +274,8 @@ class MetricsWriterMixin:
                 "p_edge": float(dec.p_edge or 0.0),
                 "p_edge_cal": float(dec.p_edge_cal or 0.0),
                 "p_edge_raw": float(dec.p_edge_raw or 0.0),
+                "p_min": dec.p_min,
+                "p_margin": dec.p_margin,
                 "lat_ms": f"{float(dec.latency_us or 0) / 1000.0:.3f}",
                 "latency_us": str(int(dec.latency_us or 0)),
                 "latency_ms": f"{float(dec.latency_us or 0) / 1000.0:.3f}",

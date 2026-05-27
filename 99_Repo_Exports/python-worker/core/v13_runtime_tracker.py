@@ -201,9 +201,21 @@ class V13RuntimeTracker:
             if book_mid > 0:
                 self._last_book_mid = book_mid
 
-            # Sweep level tracking
+            # Sweep level tracking — prefer levels_crossed from Go; fall back to
+            # volume z-score ≥ 3.0 (statistically extreme trade) when Go doesn't
+            # emit levels_crossed (= 0, typical for aggTrades stream).
+            # Throttled to every 10th tick to avoid O(100) list copy per tick.
             if levels_crossed >= 3:
                 self._sweep_level_count += 1
+            elif levels_crossed == 0 and self._total_trade_count % 10 == 0 and len(self._volume_buf) >= 20:
+                vol_notional = qty * price
+                vol_arr = list(self._volume_buf)
+                mean_v = sum(vol_arr) / len(vol_arr)
+                if mean_v > 0:
+                    var_v = sum((x - mean_v) ** 2 for x in vol_arr) / len(vol_arr)
+                    std_v = math.sqrt(max(0.0, var_v))
+                    if std_v > 0 and (vol_notional - mean_v) / std_v >= 3.0:
+                        self._sweep_level_count += 1
 
             # ── Per-tick computations ──
             self._compute_entropy()
@@ -216,6 +228,7 @@ class V13RuntimeTracker:
                 self._compute_pin()
                 self._compute_kyle_split()
                 self._compute_mutual_info()
+                self._compute_depth_resilience()
 
             if now - self._adf_cache_ts > _ADF_CACHE_TTL_S:
                 self._adf_cache_ts = now
@@ -584,6 +597,38 @@ class V13RuntimeTracker:
                 self.hasbrouck_info_share = min(1.0, var_perm / var_total)
             else:
                 self.hasbrouck_info_share = 0.0
+        except Exception:
+            pass
+
+    def _compute_depth_resilience(self) -> None:
+        """Depth recovery half-life proxy via AR(1) autocorrelation of returns.
+
+        When book_depth_near is unavailable (typical prod tick path), uses the
+        lag-1 autocorrelation of price returns as a price-reversion speed proxy.
+        Negative ρ = fast mean-reversion = depth recovers quickly (low t½).
+        Positive ρ = momentum = slow recovery (high t½).
+
+        t½ ≈ -ln(2) / ln(|ρ|) × 100ms (typical Binance aggTrade tick spacing).
+        Clamped: [10ms, 10_000ms].
+        """
+        if len(self._return_buf) < 20 or np is None:
+            return
+        try:
+            rets = list(self._return_buf)[-50:]
+            r1 = np.array(rets[:-1], dtype=float)
+            r2 = np.array(rets[1:], dtype=float)
+            if len(r1) < 10:
+                return
+            if np.std(r1) < 1e-12 or np.std(r2) < 1e-12:
+                return
+            rho = float(np.corrcoef(r1, r2)[0, 1])
+            abs_rho = abs(rho)
+            if abs_rho < 0.01 or abs_rho >= 1.0:
+                return
+            hl_ticks = _LN2 / (-math.log(abs_rho))
+            self.depth_resilience_half_life = float(
+                min(max(hl_ticks * 100.0, 10.0), 10_000.0)
+            )
         except Exception:
             pass
 

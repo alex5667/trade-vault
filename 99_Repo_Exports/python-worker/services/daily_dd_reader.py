@@ -38,8 +38,44 @@ def _env_int(k: str, d: int) -> int:
         return d
 
 
+def _decode_snap(raw: Any) -> dict[str, str]:
+    snap: dict[str, str] = {}
+    for k, v in (raw or {}).items():
+        if isinstance(k, (bytes, bytearray)):
+            k = k.decode("utf-8", "ignore")
+        if isinstance(v, (bytes, bytearray)):
+            v = v.decode("utf-8", "ignore")
+        snap[str(k)] = str(v)
+    return snap
+
+
+def _snap_is_armed(snap: dict[str, str], stale_ms: int) -> tuple[bool, str]:
+    """Extract armed status from a HASH snapshot. Fail-open on any anomaly."""
+    if not snap:
+        return False, ""
+    try:
+        if snap.get("kill_armed", "0") != "1":
+            return False, ""
+        mode = (snap.get("mode", "") or "").strip().lower()
+        if mode != "enforce":
+            return False, ""
+        updated = int(snap.get("updated_at_ms", "0") or "0")
+        now_ms = int(time.time() * 1000)
+        if updated <= 0 or (now_ms - updated) > stale_ms:
+            return False, ""
+        reason = snap.get("reason", "") or "daily_dd_breach"
+        return True, reason
+    except Exception:
+        return False, ""
+
+
 class DailyDdReader:
-    """TTL-cached Redis snapshot reader. Thread-safe. Fail-open by design."""
+    """TTL-cached Redis snapshot reader. Thread-safe. Fail-open by design.
+
+    P2.10 additions:
+      is_armed_for_symbol(symbol) — per-symbol daily cap check.
+      is_armed_hourly()           — rolling hourly cap check.
+    """
 
     def __init__(
         self,
@@ -56,6 +92,10 @@ class DailyDdReader:
         self._lock = threading.Lock()
         self._snapshot: dict[str, str] = {}
         self._last_refresh_ms: int = 0
+        # Per-symbol cache: {symbol: (snap, last_refresh_ms)}
+        self._sym_cache: dict[str, tuple[dict[str, str], int]] = {}
+        self._hourly_snap: dict[str, str] = {}
+        self._hourly_refresh_ms: int = 0
 
     def _maybe_refresh(self) -> None:
         now_ms = int(time.time() * 1000)
@@ -67,23 +107,43 @@ class DailyDdReader:
             self._last_refresh_ms = now_ms
             try:
                 raw: Any = self._redis.hgetall(self._key) or {}
-                snap: dict[str, str] = {}
-                for k, v in raw.items():
-                    if isinstance(k, (bytes, bytearray)):
-                        k = k.decode("utf-8", "ignore")
-                    if isinstance(v, (bytes, bytearray)):
-                        v = v.decode("utf-8", "ignore")
-                    snap[str(k)] = str(v)
-                self._snapshot = snap
+                self._snapshot = _decode_snap(raw)
             except Exception as e:
                 logger.debug("daily_dd_reader: refresh fail (fail-open): %s", e)
+
+    def _maybe_refresh_sym(self, symbol: str) -> dict[str, str]:
+        now_ms = int(time.time() * 1000)
+        cached_snap, cached_ts = self._sym_cache.get(symbol, ({}, 0))
+        if (now_ms - cached_ts) < self._refresh_ms:
+            return cached_snap
+        try:
+            key = RK.DAILY_DD_SYM_PREFIX + symbol
+            raw: Any = self._redis.hgetall(key) or {}
+            snap = _decode_snap(raw)
+        except Exception as e:
+            logger.debug("daily_dd_reader: sym refresh fail symbol=%s (fail-open): %s", symbol, e)
+            snap = cached_snap
+        self._sym_cache[symbol] = (snap, now_ms)
+        return snap
+
+    def _maybe_refresh_hourly(self) -> dict[str, str]:
+        now_ms = int(time.time() * 1000)
+        if (now_ms - self._hourly_refresh_ms) < self._refresh_ms:
+            return self._hourly_snap
+        try:
+            raw: Any = self._redis.hgetall(RK.DAILY_DD_HOURLY) or {}
+            self._hourly_snap = _decode_snap(raw)
+        except Exception as e:
+            logger.debug("daily_dd_reader: hourly refresh fail (fail-open): %s", e)
+        self._hourly_refresh_ms = now_ms
+        return self._hourly_snap
 
     def get_state(self) -> dict[str, str]:
         self._maybe_refresh()
         return dict(self._snapshot)
 
     def is_armed(self) -> tuple[bool, str]:
-        """Возвращает (armed, reason).
+        """Возвращает (armed, reason) для глобального аккаунт-широкого daily DD.
 
         armed=True только если:
           - state.kill_armed == '1'
@@ -93,21 +153,21 @@ class DailyDdReader:
         Fail-open: любая аномалия → (False, "").
         """
         self._maybe_refresh()
-        snap = self._snapshot
-        if not snap:
-            return False, ""
+        return _snap_is_armed(self._snapshot, self._stale_ms)
+
+    def is_armed_for_symbol(self, symbol: str) -> tuple[bool, str]:
+        """P2.10 — per-symbol daily DD check. Fail-open."""
         try:
-            if snap.get("kill_armed", "0") != "1":
-                return False, ""
-            mode = (snap.get("mode", "") or "").strip().lower()
-            if mode != "enforce":
-                return False, ""
-            updated = int(snap.get("updated_at_ms", "0") or "0")
-            now_ms = int(time.time() * 1000)
-            if updated <= 0 or (now_ms - updated) > self._stale_ms:
-                return False, ""
-            reason = snap.get("reason", "") or "daily_dd_breach"
-            return True, reason
+            snap = self._maybe_refresh_sym(symbol.upper())
+            return _snap_is_armed(snap, self._stale_ms)
+        except Exception:
+            return False, ""
+
+    def is_armed_hourly(self) -> tuple[bool, str]:
+        """P2.10 — rolling hourly DD check. Fail-open."""
+        try:
+            snap = self._maybe_refresh_hourly()
+            return _snap_is_armed(snap, self._stale_ms)
         except Exception:
             return False, ""
 

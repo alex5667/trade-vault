@@ -24,12 +24,13 @@ PUB_DROPPED_TOTAL = Counter("signals_publish_dropped_total", "Signals dropped af
 def _json_dumps_safe(obj: Any) -> str:
     """
     Async hot-path JSON: MUST NOT raise.
-    default=str is deliberate (Enums/Decimals/np types appear in the wild).
+    default=str handles Enums/Decimals/np types.
+    OPT_NON_STR_KEYS handles int dict keys (e.g. meta["atr_candidates"] uses tf_ms ints as keys).
     """
     try:
-        return orjson.dumps(obj, default=str).decode("utf-8")
-    except Exception:
-        return '{"error":"json_dumps_failed"}'
+        return orjson.dumps(obj, default=str, option=orjson.OPT_NON_STR_KEYS).decode("utf-8")
+    except Exception as exc:
+        return f'{{"error":"json_dumps_failed", "details": "{str(exc)}"}}'
 
 
 

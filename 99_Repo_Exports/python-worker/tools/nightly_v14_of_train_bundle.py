@@ -705,12 +705,12 @@ def stage_export(*, redis_url: str, inputs_stream: str, labels_stream: str,
     return {"inputs": inputs_path, "labels": labels_path}
 
 
-if __name__ == "__main__":
+def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--work-dir", default=_env("V14_WORK_DIR", "/tmp/v14_of_train"))
     ap.add_argument("--out-dir", default=_env("V14_OUT_DIR", "/var/lib/trade/of_reports/models"))
     ap.add_argument("--auto-promote", type=int, default=_env_int("V14_PROMOTE_AUTO", 0))
-    args = ap.parse_args()
+    args = ap.parse_args([])
 
     work_dir = Path(args.work_dir)
     out_dir = Path(args.out_dir)
@@ -810,4 +810,8 @@ if __name__ == "__main__":
     except Exception as e:
         logger.warning("failed to write summary metrics to redis: %s", e)
 
-    sys.exit(0)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

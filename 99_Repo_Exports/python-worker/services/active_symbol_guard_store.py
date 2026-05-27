@@ -378,13 +378,28 @@ return {1, cjson.encode(doc)}
                         pass
                 return sorted(set(out))
 
+            # Skip expensive keyspace SCAN when no guards were found recently.
+            # Write paths (acquire_or_refresh / mark_released) populate index_key
+            # immediately, so missing this window is safe.
+            _empty_sentinel = self.key_prefix.rstrip(':') + '_scan_empty'
+            if self.r.exists(_empty_sentinel):
+                return []
+
             prefix = f'{self.key_prefix}*'
-            for key in self.r.scan_iter(match=prefix, count=50000):
+            # count=500 keeps each SCAN call under slowlog threshold (<1 ms per hop).
+            for key in self.r.scan_iter(match=prefix, count=500):
                 k = key.decode() if isinstance(key, (bytes, bytearray)) else str(key)
                 symbol = str(k).replace(self.key_prefix, '', 1).strip().upper()
                 if symbol:
                     out.append(symbol)
                     self.r.sadd(self.index_key, symbol)
+
+            if not out:
+                # No active guards — cache absence for 90 s to avoid repeated full SCAN.
+                try:
+                    self.r.set(_empty_sentinel, '1', ex=90)
+                except Exception:
+                    pass
         except Exception:
             pass
         return sorted(set(out))

@@ -59,11 +59,11 @@ services:
     - HAWKES_BETA=${HAWKES_BETA:-0.0333}
     - HAWKES_ALPHA=${HAWKES_ALPHA:-0.5}
     - HAWKES_VPIN_ALPHA=${HAWKES_VPIN_ALPHA:-0.05}
-    - HAWKES_TTL_SEC=30
+    - HAWKES_TTL_SEC=60
     - HAWKES_PORT=9148
     - HAWKES_GROUP=of-hawkes-vpin
     - HAWKES_CONSUMER=of-hawkes-vpin-minik-1
-    - HAWKES_MAX_LAG_MS=30000
+    - HAWKES_MAX_LAG_MS=60000
     - TZ=UTC
     networks: *id002
     dns: *id003
@@ -347,14 +347,52 @@ services:
     restart: unless-stopped
     environment:
     - REDIS_URL=${REDIS_URL}
+    - LOCK_REDIS_URL=redis://192.168.0.168:6379/0
     - TRAILING_AUTOTUNE_STREAM=trades:closed
+    - TRAILING_AUTOTUNE_SOURCE=CryptoOrderFlow
+    - TRAILING_AUTOTUNE_LIMIT=5000
+    - TRAILING_AUTOTUNE_MIN_TRADES=200
+    - TRAILING_AUTOTUNE_MIN_WINS=60
+    - TRAILING_AUTOTUNE_MFE_QUANTILE=0.25
     - TRAILING_AUTOTUNE_ENABLED=1
+    - TRAILING_AUTOTUNE_CONF_THRESHOLD=0.70
+    - TRAILING_AUTOTUNE_TELEGRAM_ENABLED=1
+    - TRAILING_AUTOTUNE_INTERVAL_SEC=3600
+    - TRAILING_AUTOTUNE_REPORT_TITLE_SUFFIX=(Standard 5000)
+    - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+    - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID}
     - TZ=UTC
     networks: *id002
     dns: *id003
     container_name: scanner-trailing-autotune
-    command: python3 tools/run_with_minik_failover.py --job-name trailing_autotune_telegram
-      --is-minik -- python -m tools.trailing_autotune_telegram
+    command: python3 tools/run_daemon_with_minik_failover.py --job-name trailing_autotune_telegram --is-minik -- python -m tools.trailing_autotune_telegram
+  scanner-trailing-autotune-24h:
+    image: *id001
+    restart: unless-stopped
+    environment:
+    - REDIS_URL=${REDIS_URL}
+    - LOCK_REDIS_URL=redis://192.168.0.168:6379/0
+    - TRAILING_AUTOTUNE_STREAM=trades:closed
+    - TRAILING_AUTOTUNE_SOURCE=CryptoOrderFlow
+    - TRAILING_AUTOTUNE_LIMIT=2000
+    - TRAILING_AUTOTUNE_MIN_TRADES=40
+    - TRAILING_AUTOTUNE_MIN_WINS=15
+    - TRAILING_AUTOTUNE_MFE_QUANTILE=0.25
+    - TRAILING_AUTOTUNE_WINDOW_HOURS=24
+    - TRAILING_AUTOTUNE_ENABLED=1
+    - TRAILING_AUTOTUNE_CONF_THRESHOLD=0.70
+    - TRAILING_AUTOTUNE_TELEGRAM_ENABLED=1
+    - TRAILING_AUTOTUNE_INTERVAL_SEC=900
+    - TRAILING_AUTOTUNE_TELEGRAM_INTERVAL_SEC=3600
+    - TRAILING_AUTOTUNE_REPORT_TITLE_SUFFIX=(24h Fast)
+    - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+    - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID}
+    - TZ=UTC
+    networks: *id002
+    dns: *id003
+    container_name: scanner-trailing-autotune-24h
+    command: python3 tools/run_daemon_with_minik_failover.py --job-name trailing_autotune_telegram_24h --is-minik -- python -m tools.trailing_autotune_telegram
+
   scanner-burst-report:
     image: *id001
     restart: unless-stopped
@@ -993,6 +1031,7 @@ services:
     - RISK_AUDIT_SQL_DSN=${RISK_AUDIT_SQL_DSN:-}
     - RISK_CANARY_LOOKBACK_HOURS=${RISK_CANARY_LOOKBACK_HOURS:-24}
     - TZ=UTC
+    - LOCK_REDIS_URL=${REDIS_URL}
     networks: *id002
     dns: *id003
     volumes:
@@ -1020,6 +1059,7 @@ services:
     - PYTHONPATH=.:/app
     - RISK_AUDIT_SQL_DSN=${RISK_AUDIT_SQL_DSN:-}
     - TZ=UTC
+    - LOCK_REDIS_URL=${REDIS_URL}
     networks: *id002
     dns: *id003
     volumes:
@@ -1110,6 +1150,7 @@ services:
     - PYTHONPATH=/app
     - RUNBOOK_REPORT_DIR=/var/lib/trade-runbook/reports
     - TZ=UTC
+    - LOCK_REDIS_URL=${REDIS_URL}
     networks: *id002
     dns: *id003
     volumes:
@@ -1138,6 +1179,7 @@ services:
     - RISK_AUDIT_SQL_DSN=${RISK_AUDIT_SQL_DSN:-}
     - RISK_MISMATCH_SUMMARY_STALE_SEC=${RISK_MISMATCH_SUMMARY_STALE_SEC:-1800}
     - TZ=UTC
+    - LOCK_REDIS_URL=${REDIS_URL}
     networks: *id002
     dns: *id003
     volumes:
@@ -1168,6 +1210,7 @@ services:
     - RISK_MISMATCH_RETENTION_DAYS=${RISK_MISMATCH_RETENTION_DAYS:-30}
     - RISK_MISMATCH_RETENTION_APPLY=${RISK_MISMATCH_RETENTION_APPLY:-0}
     - TZ=UTC
+    - LOCK_REDIS_URL=${REDIS_URL}
     networks: *id002
     dns: *id003
     volumes:
@@ -1197,6 +1240,7 @@ services:
     - PYTHONPATH=/app
     - RISK_AUDIT_SQL_DSN=${RISK_AUDIT_SQL_DSN:-}
     - TZ=UTC
+    - LOCK_REDIS_URL=${REDIS_URL}
     networks: *id002
     dns: *id003
     volumes:
@@ -1224,6 +1268,7 @@ services:
     - PYTHONUNBUFFERED=1
     - REDIS_URL=${REDIS_URL}
     - TZ=UTC
+    - LOCK_REDIS_URL=${REDIS_URL}
     networks: *id002
     dns: *id003
     volumes:
@@ -1255,6 +1300,7 @@ services:
     - AB_APPLY_ALERT_ON_LOCKED=1
     - AB_APPLY_LOCK_ALERT_GAP_SEC=600
     - TZ=UTC
+    - LOCK_REDIS_URL=${REDIS_URL}
     networks: *id002
     dns: *id003
     volumes:
@@ -1283,6 +1329,7 @@ services:
     - AB_EVENTS_STREAM=events:trades
     - AB_WINNER_GROUP=ab-winner-v2-timer
     - TZ=UTC
+    - LOCK_REDIS_URL=${REDIS_URL}
     networks: *id002
     dns: *id003
     volumes:
@@ -1314,6 +1361,7 @@ services:
     - LCB_MIN_DELTA_LCB=${LCB_MIN_DELTA_LCB:-0.05}
     - LCB_LOOKBACK_HOURS=${LCB_LOOKBACK_HOURS:-24}
     - TZ=UTC
+    - LOCK_REDIS_URL=${REDIS_URL}
     networks: *id002
     dns: *id003
     volumes:
@@ -1339,6 +1387,7 @@ services:
     - PYTHONPATH=.:/app
     - REDIS_URL=${REDIS_URL}
     - TZ=UTC
+    - LOCK_REDIS_URL=${REDIS_URL}
     networks: *id002
     dns: *id003
     volumes:
@@ -1377,6 +1426,7 @@ services:
     - AB_APPROVALS_PREFIX=${AB_APPROVALS_PREFIX:-cfg:suggestions:entry_policy:approvals}
     - AB_APPLIED_PREFIX=${AB_APPLIED_PREFIX:-cfg:suggestions:entry_policy:applied}
     - TZ=UTC
+    - LOCK_REDIS_URL=${REDIS_URL}
     networks: *id002
     dns: *id003
     volumes:
@@ -1390,6 +1440,135 @@ services:
           memory: 128M
         reservations:
           memory: 24M
+
+  # ── playwright-enrichment-worker: async Playwright LLM enrichment ───────────
+  # Требует: образ trade-news-browser:latest собран на миник (cd scanner_infra && docker build -f Dockerfile.news-browser -t trade-news-browser:latest .)
+  # Требует: GO_GATEWAY_REDIS_URL в .env.minik-analytics (redis://go_gateway:PWD@192.168.0.168:63791/0)
+  # Требует: файл news-pipeline.env доступен на миник (rsync или копия)
+  playwright-enrichment-worker:
+    image: trade-news-browser:latest
+    pull_policy: never
+    container_name: playwright-enrichment-worker
+    restart: unless-stopped
+    shm_size: 2gb
+    environment:
+    - REDIS_URL=${GO_GATEWAY_REDIS_URL}
+    - LOCK_REDIS_URL=redis://192.168.0.168:6379/0
+    - NEWS_LLM_PLAYWRIGHT_ENABLE=1
+    - NEWS_LLM_WORKER_GROUP=playwright-enrichment
+    - NEWS_LLM_WORKER_CONSUMER=pw-worker-minik-1
+    - PLAYWRIGHT_HEADLESS=1
+    - PLAYWRIGHT_BROWSER_SESSIONS=/data/playwright_sessions
+    - PLAYWRIGHT_QWEN_TIMEOUT_SEC=300
+    - PLAYWRIGHT_CHATGPT_TIMEOUT_SEC=300
+    - PLAYWRIGHT_ENRICHMENT_METRICS_PORT=9869
+    - LOG_LEVEL=INFO
+    - TZ=UTC
+    env_file:
+    - ./news-pipeline.env
+    volumes:
+    - playwright_sessions:/data/playwright_sessions
+    - ./python-worker/tools/run_daemon_with_minik_failover.py:/app/python-worker/tools/run_daemon_with_minik_failover.py:ro
+    networks: *id002
+    dns: *id003
+    working_dir: /app/python-worker
+    command: python3 tools/run_daemon_with_minik_failover.py --job-name playwright_enrichment --is-minik -- python -m services.playwright_enrichment_worker.main
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+          cpus: '2.0'
+        reservations:
+          memory: 512M
+
+  # ── redis-key-janitor: cleanup expired/orphan Redis keys (Group E) ───────────
+  redis-key-janitor:
+    image: *id001
+    pull_policy: never
+    container_name: scanner-redis-key-janitor
+    restart: unless-stopped
+    environment:
+    - PYTHONUNBUFFERED=1
+    - PYTHONPATH=/app
+    - REDIS_URL=${REDIS_URL}
+    - ATR_REDIS_URL=${REDIS_URL}
+    - REDIS_TICKS_URL=${REDIS_TICKS_URL}
+    - LOCK_REDIS_URL=${REDIS_URL}
+    - JANITOR_INTERVAL_S=600
+    - JANITOR_DRY_RUN=false
+    - JANITOR_LOG_LEVEL=INFO
+    - JANITOR_SCAN_BATCH=100
+    - JANITOR_SKIP_STALE_CLEANUP=1
+    - TZ=UTC
+    networks: *id002
+    command: "python3 tools/run_daemon_with_minik_failover.py --job-name redis_key_janitor --is-minik -- sh -c \"sleep 60 && python3 /app/services/redis_key_janitor.py\""
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          memory: 64M
+
+  # ── pit-priors-rolling: rolling PiT priors for adaptive SL (Group E) ─────────
+  pit-priors-rolling:
+    image: *id001
+    pull_policy: never
+    container_name: scanner-pit-priors-rolling
+    restart: unless-stopped
+    environment:
+    - PYTHONUNBUFFERED=1
+    - PYTHONPATH=/app
+    - REDIS_URL=${REDIS_URL}
+    - LOCK_REDIS_URL=${REDIS_URL}
+    - TRADES_DB_DSN=${ANALYTICS_DB_DSN}
+    - PIT_ROLLING_INTERVAL_S=3600
+    - PIT_ROLLING_EMBARGO_MS=3600000
+    - PIT_ROLLING_MIN_SAMPLES=20
+    - PIT_ROLLING_COLD_START_MIN_SAMPLES=10
+    - PIT_ROLLING_PG_BOOTSTRAP=1
+    - PIT_ROLLING_PG_MAX_ROWS=50000
+    - PIT_ROLLING_TTL_SEC=90000
+    - TZ=UTC
+    networks: *id002
+    command: "python3 tools/run_daemon_with_minik_failover.py --job-name pit_priors_rolling --is-minik -- python -u orderflow_services/pit_priors_rolling_v1.py"
+    deploy:
+      resources:
+        limits:
+          cpus: '0.3'
+          memory: 768M
+        reservations:
+          memory: 64M
+
+  # ── atr-policy-rollout-controller: rollout state controller (Group E) ────────
+  atr-policy-rollout-controller:
+    image: *id001
+    pull_policy: never
+    container_name: scanner-atr-policy-rollout-controller
+    restart: unless-stopped
+    environment:
+    - PYTHONUNBUFFERED=1
+    - PYTHONPATH=/app
+    - REDIS_URL=${REDIS_URL}
+    - LOCK_REDIS_URL=${REDIS_URL}
+    - ANALYTICS_DB_DSN=${ANALYTICS_DB_DSN}
+    - TRADES_DB_DSN=${TRADES_DB_DSN}
+    - ATR_GRAPH_RELEASE_GATE_ENABLE=1
+    - ATR_GRAPH_RELEASE_GATE_MODE=enforce
+    - TZ=UTC
+    networks: *id002
+    command: "python3 tools/run_daemon_with_minik_failover.py --job-name atr_policy_rollout_controller --is-minik -- sh -c \"while true; do python -m services.atr_policy_rollout_controller; sleep 60; done\""
+    deploy:
+      resources:
+        limits:
+          cpus: '0.3'
+          memory: 256M
+        reservations:
+          memory: 64M
+
+volumes:
+  playwright_sessions:
+    driver: local
 
 networks:
   scanner-timers:

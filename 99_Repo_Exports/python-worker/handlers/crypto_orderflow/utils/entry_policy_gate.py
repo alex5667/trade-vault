@@ -131,6 +131,12 @@ try:
         "Signals with tp1/sl below ENTRY_RR_MIN floor (item 3 stop-bleed)",
         ["kind", "regime", "decision"],
     )
+    # 2026-05-26 P0.7: KIND_KILL_LIST veto counter
+    _kind_kill_list_total = Counter(
+        "entry_kind_kill_list_veto_total",
+        "Total VETO_KIND_KILL_LIST decisions emitted by EntryPolicyGate",
+        ["kind", "side", "symbol"],
+    )
     # 2026-05-23: maker-only candidate annotation (item 4). SHADOW until
     # order_open_service.py learns to read ctx.exec_maker_only_required.
     _exec_maker_only_required = Counter(
@@ -146,6 +152,7 @@ except Exception:
     _daily_dd_veto_total = None  # type: ignore[assignment]
     _htf_long_bias_total = None  # type: ignore[assignment]
     _setup_rr_below_threshold = None  # type: ignore[assignment]
+    _kind_kill_list_total = None  # type: ignore[assignment]
 
 
 @dataclass(frozen=True)
@@ -572,6 +579,44 @@ class EntryPolicyGate:
                 pass
             return GateDecision(True, True, "VETO_DAILY_DD_KILLSWITCH", dd_reason or "daily_dd_breach")
 
+        # ── 2026-05-26 P0.7: KIND_KILL_LIST circuit breaker ──────────────────
+        # CSV токенов kind[:SIDE[:SYMBOL]] (case-insensitive). Match-семантика:
+        # длиннее = специфичнее. Чтобы временно блокировать (kind,side,symbol)
+        # bucket с плохой WR. Rollback: убрать токен.
+        try:
+            _kill_csv = os.getenv("KIND_KILL_LIST") or ""
+            if _kill_csv.strip():
+                _kind_l = str(kind or "").strip().lower()
+                _side_l = str(side or "").strip().upper()
+                _sym_l = str(symbol or "").strip().upper()
+                for _tok in _kill_csv.split(","):
+                    _tok = _tok.strip()
+                    if not _tok:
+                        continue
+                    _parts = [p.strip() for p in _tok.split(":")]
+                    _k = (_parts[0] if len(_parts) > 0 else "").lower()
+                    _s = (_parts[1] if len(_parts) > 1 else "").upper()
+                    _y = (_parts[2] if len(_parts) > 2 else "").upper()
+                    if _k and _k != _kind_l:
+                        continue
+                    if _s and _s != _side_l:
+                        continue
+                    if _y and _y != _sym_l:
+                        continue
+                    try:
+                        if _kind_kill_list_total is not None:
+                            _kind_kill_list_total.labels(
+                                kind=_kind_l, side=_side_l or "NA", symbol=_sym_l,
+                            ).inc()
+                    except Exception:
+                        pass
+                    return GateDecision(
+                        True, True, "VETO_KIND_KILL_LIST",
+                        f"matched={_tok} (kind={_kind_l} side={_side_l} sym={_sym_l})",
+                    )
+        except Exception:
+            pass  # fail-open
+
         # ── 2026-05-23 RR floor (item 3 stop-bleed) ──────────────────────────
         # Bounded-SL floor в low-vol режиме коллапсирует RR до ~1.0, при котором
         # WR breakeven > 55% (с 8 bps round-trip fees). Vето сигналы с tp1/sl < min.
@@ -592,11 +637,25 @@ class EntryPolicyGate:
                     or getattr(ctx, "sl_bps", None),
                     0.0,
                 )
-                _rr_min = _safe_float(os.getenv("ENTRY_RR_MIN", "1.5"), 1.5)
+                _rr_min = _safe_float(os.getenv("ENTRY_RR_MIN", "1.3"), 1.3)
                 _rr = (_tp / _sl) if _sl > 0 else 0.0
                 _rr_breach = _tp > 0 and _sl > 0 and _rr < _rr_min
                 if _rr_breach:
-                    _enforce = _env_bool("ENTRY_RR_MIN_ENFORCE", False)
+                    _enforce_bin = _env_bool("ENTRY_RR_MIN_ENFORCE", False)
+                    # 2026-05-26 P0.3: canary % via hash(sid) % 100.
+                    # Sticky per-sid: тот же sid всегда попадает или нет в canary.
+                    _canary_pct = _safe_float(os.getenv("ENTRY_RR_MIN_ENFORCE_CANARY_PCT", "0"), 0.0)
+                    _in_canary = False
+                    if _canary_pct > 0.0:
+                        try:
+                            _sid_for_hash = str(getattr(ctx, "sid", "") or getattr(ctx, "signal_id", "") or "")
+                            if _sid_for_hash:
+                                import hashlib as _hl
+                                _h = int(_hl.md5(_sid_for_hash.encode("utf-8")).hexdigest()[:8], 16)
+                                _in_canary = (_h % 100) < int(_canary_pct)
+                        except Exception:
+                            _in_canary = False
+                    _enforce = _enforce_bin or _in_canary
                     _reg = (ind.get("regime") or "unknown").lower()
                     try:
                         if _setup_rr_below_threshold is not None:

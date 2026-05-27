@@ -598,6 +598,15 @@ class MLConfirmGate(ConfigLoaderMixin, ModelLoaderMixin, FeatureVectorizerMixin,
                 # Override via per-symbol config if available
                 enforce_share = self._enforce_share_by_symbol.get(symbol_up, self._cfg.get("enforce_share", env_share) or 0.0)
 
+                # P1.2 — Per-kind canary scope filter. When ML_CONFIRM_ENFORCE_KINDS_CSV is
+                # set, only listed kinds enter the canary; others stay SHADOW regardless of
+                # share. Empty/unset = no filter (legacy behaviour).
+                kinds_csv = os.getenv("ML_CONFIRM_ENFORCE_KINDS_CSV", "").strip()
+                if kinds_csv:
+                    allowed = {k.strip().lower() for k in kinds_csv.split(",") if k.strip()}
+                    if kind.lower() not in allowed:
+                        enforce_share = 0.0
+
                 if enforce_share > 0.0:
                     # CANARY: deterministic routing by sid.
                     # A signal is enforced iff stable_u01 < enforce_share.

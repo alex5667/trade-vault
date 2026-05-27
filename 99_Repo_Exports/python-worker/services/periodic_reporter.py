@@ -3472,7 +3472,8 @@ class PeriodicReporter:
             # 2) Пробуем из stream trades:closed
             if len(pairs) < 500:  # Если мало пар, дополняем из stream (Limit increased to 500)
                 try:  # type: ignore
-                    entries = self.redis.xrevrange(RS.TRADES_CLOSED, max="+", count=2000) or []
+                    _min_id = str(int(time.time() * 1000) - 7 * 24 * 3600 * 1000)
+                    entries = self.redis.xrevrange(RS.TRADES_CLOSED, max="+", min=_min_id, count=2000) or []
                     logger.debug(f"🔍 Проверяю trades:closed stream, найдено {len(entries)} записей")
 
                     for _, fields in entries:
@@ -3581,12 +3582,21 @@ class PeriodicReporter:
                     "stats:strategies, trades:closed stream, orders:open, signals:* streams"
                 )
 
-            # 5) Добавляем "ALL" для каждого найденного источника
+            # 5) Добавляем "ALL" для каждого найденного источника.
+            # Важно: нормализуем src через _source_from_strategy(src, "ALL") перед добавлением,
+            # чтобы разные raw-источники (напр. "OrderFlow" и "CryptoOrderFlow"), которые
+            # при sym="ALL" маппируются в одинаковый canonical source, не создавали дублей.
             sources = set(p[0] for p in pairs)
+            seen_canonical_all_srcs: set[str] = set()
             for src in sources:
-                if (src, "ALL") not in seen_pairs:
-                    seen_pairs.add((src, "ALL"))
-                    pairs.append((src, "ALL"))
+                canonical_src = self._source_from_strategy(src, "ALL")
+                if canonical_src in seen_canonical_all_srcs:
+                    logger.debug(f"⏭️ ALL-pair dedup: {src}/ALL → canonical {canonical_src}/ALL уже добавлен")
+                    continue
+                seen_canonical_all_srcs.add(canonical_src)
+                if (canonical_src, "ALL") not in seen_pairs:
+                    seen_pairs.add((canonical_src, "ALL"))
+                    pairs.append((canonical_src, "ALL"))
 
             return pairs
         except Exception as e:
@@ -3850,8 +3860,18 @@ def main():
                         hourly_pairs = reporter._discover_pairs()
 
                         count_sent_hourly = 0
+                        # Защита от дублей: разные raw-пары могут canonical-ноminus одинаковый (src,sym)
+                        # (напр. ("OrderFlow","ALL") и ("CryptoOrderFlow","ALL") → оба "CryptoOrderFlow/ALL").
+                        hourly_canonical_sent: set[tuple[str, str]] = set()
                         for src, sym in hourly_pairs:
                             try:
+                                canonical_src = reporter._source_from_strategy(src, sym)
+                                canonical_sym = canon_symbol(sym)
+                                canonical_pair = (canonical_src, canonical_sym)
+                                if canonical_pair in hourly_canonical_sent:
+                                    logger.debug(f"⏭️ Hourly dedup: {src}/{sym} → canonical {canonical_pair} уже отправлен")
+                                    continue
+
                                 # Явно проверяем наличие свежих реальных сделок в окне —
                                 # независимо от dedup-ключей. Если сделок нет → пропускаем.
                                 real_count = reporter._count_real_trades_in_window(src, sym, window_s=3600)
@@ -3865,6 +3885,7 @@ def main():
                                 # не пропустил отчёт из-за устаревшего состояния.
                                 reporter._clear_hourly_report_dedup(src, sym)
                                 reporter.send_report_for_pair(src, sym, window_seconds=3600, silent_locked=True, force=True)
+                                hourly_canonical_sent.add(canonical_pair)
                                 count_sent_hourly += 1
                             except Exception as e:
                                 logger.error(f"❌ Error sending hourly report for {src}/{sym}: {e}")

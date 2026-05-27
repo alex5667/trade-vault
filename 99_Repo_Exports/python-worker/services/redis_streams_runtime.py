@@ -49,12 +49,11 @@ _discover_cache: dict[tuple, tuple[float, list[str]]] = {}
 _DISCOVER_CACHE_TTL_SEC: float = float(os.getenv("TM_DISCOVER_CACHE_TTL_SEC", "120"))
 
 
-def redis_keys_safe(r: redis.Redis, pattern: str, scan_count: int = 10000) -> list[str]:
+def redis_keys_safe(r: redis.Redis, pattern: str, scan_count: int = 200) -> list[str]:
     """Non-blocking KEYS replacement using SCAN iteration.
 
-    Uses a small scan_count (default 100) to release the Redis event-loop
-    between batches and avoid the 41ms+ blocking seen with KEYS on large
-    keyspaces.
+    Small scan_count (default 200) keeps each Redis call under 1ms on large
+    keyspaces — avoids 5-7ms per-call slowlog hits seen with count=10000.
     """
     found: list[str] = []
     cursor = 0
@@ -71,7 +70,7 @@ def redis_keys_safe(r: redis.Redis, pattern: str, scan_count: int = 10000) -> li
 def discover_streams(
     r: redis.Redis,
     patterns: list[str],
-    scan_count: int = 10000,
+    scan_count: int = 200,
     use_cache: bool = True,
 ) -> list[str]:
     """Discover stream keys matching patterns.

@@ -343,10 +343,12 @@ def build_envelope(
     env.setdefault("ts_publish_ms", env["ts_ms"])
     env.setdefault("mono_ms", monotonic_ms())
     # Protocol-level schema_version (gated by SignalDispatcher.ACCEPTED_SCHEMA_VERSIONS).
-    # See twin stamp in build_outbox_envelope() above for rationale.
+    # Force-assign (not setdefault): merged payload may carry schema_version=None
+    # from ML feature schema confusion; setdefault silently keeps None → DLQ as
+    # unsupported_schema_version:unknown. Direct assign guarantees correct proto stamp.
     from core.outbox_envelope import SCHEMA_VERSION as _PROTO_SV
 
-    env.setdefault("schema_version", int(_PROTO_SV))
+    env["schema_version"] = int(_PROTO_SV)
 
     t_obj: dict[str, Any] = targets_obj if isinstance(targets_obj, dict) else {}
     m_obj: dict[str, Any] = meta if isinstance(meta, dict) else {}

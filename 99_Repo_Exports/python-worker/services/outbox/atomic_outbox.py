@@ -220,9 +220,11 @@ def _prepare_contract_payload(
     # Distinct from `schema_ver` below — that one is a string contract tag
     # (execution_intent:v1) for the execution-intent payload, not the outbox
     # protocol version.
+    # Force-assign (not setdefault): caller payload may carry schema_version=None
+    # from the signal dict; setdefault silently keeps None → DLQ.
     from core.outbox_envelope import SCHEMA_VERSION as _PROTO_SV
 
-    payload.setdefault("schema_version", int(_PROTO_SV))
+    payload["schema_version"] = int(_PROTO_SV)
     payload.setdefault(
         "schema_ver",
         str(payload.get("schema_ver") or meta.get("schema_ver") or _CACHED_OUTBOX_SCHEMA_VER),

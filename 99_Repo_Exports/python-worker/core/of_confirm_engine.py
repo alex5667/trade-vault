@@ -708,6 +708,7 @@ class OFConfirmEngine:
     GATE_BIT_LIQMAP = 1 << 25
     GATE_BIT_NEWS = 1 << 24
     GATE_BIT_SMT = 1 << 23  # G6: SMT coherence gate had state and evaluated
+    GATE_BIT_ATR_FLOOR = 1 << 22  # G3: ATR Floor gate vetoed
 
     # --- Golden replay: runtime snapshot (minimal set of fields engine reads) ---
     RUNTIME_SNAPSHOT_VERSION: int = 1
@@ -2557,6 +2558,16 @@ class OFConfirmEngine:
             gate_vetoed = True # treat as gate veto for downstreams
             gate_reason = f"burst_veto:{burst_reason}"
 
+        # --- ATR Floor Veto (G3) ---
+        if int(ok) == 1 and int(indicators.get("atr_floor_veto", 0) or 0) == 1:
+            ok = 0
+            gate_vetoed = True
+            gate_reason = str(indicators.get("atr_floor_veto_reason") or "atr_floor_veto")
+            try:
+                if dec is not None:
+                    dec.gate_bits = int(getattr(dec, "gate_bits", 0)) | self.GATE_BIT_ATR_FLOOR
+            except Exception:
+                pass
 
         # ------------------------------------------------------------------
         # Scenario v4 (B1) + Explainability (D)
@@ -2885,10 +2896,26 @@ class OFConfirmEngine:
                     and scenario_base == "continuation"
                     and int(indicators.get("is_virtual", 0) or indicators.get("virtual", 0))
                 )
-                if _block_by_regime or _virtual_strong_required:
-                    indicators["ok_soft_blocker"] = (
-                        "regime_block" if _block_by_regime else "virtual_strong_required"
-                    )
+                # 2026-05-26 P0.5: SHORT soft-pass blocker — зеркало continuation_block
+                # для SHORT в нестабильных режимах (audit: SHORT WR хуже LONG в range/squeeze).
+                _short_block_regimes = {
+                    r.strip().lower()
+                    for r in (os.getenv("OF_SOFT_PASS_SHORT_BLOCK_REGIMES") or "").split(",")
+                    if r.strip()
+                }
+                _signal_dir = str(indicators.get("direction") or direction or "").strip().upper()
+                _block_short = bool(
+                    _short_block_regimes
+                    and _signal_dir == "SHORT"
+                    and _cur_regime in _short_block_regimes
+                )
+                if _block_by_regime or _virtual_strong_required or _block_short:
+                    if _block_by_regime:
+                        indicators["ok_soft_blocker"] = "regime_block"
+                    elif _block_short:
+                        indicators["ok_soft_blocker"] = "short_regime_block"
+                    else:
+                        indicators["ok_soft_blocker"] = "virtual_strong_required"
                 elif float(score) >= soft_score_min and float(exec_risk_norm) <= soft_exec_max:
                     ok_soft = 1
                     _miss_gap = int(need) - int(have)
@@ -3322,7 +3349,10 @@ class OFConfirmEngine:
                     v = (
                         indicators.get("atr_tf_ms")
                         or indicators.get("atr_tf_used_ms")
+                        or indicators.get("atr_selected_tf_ms")
                         or indicators_with_v4.get("atr_tf_ms")
+                        or cfg.get("atr_tf_ms")
+                        or (cfg.get("meta", {}).get("atr_profile", {}).get("atr_tf_ms") if isinstance(cfg.get("meta"), dict) else None)
                     )
                     if v is not None:
                         indicators_with_v4["atr_tf_ms"] = float(v)
@@ -3374,6 +3404,9 @@ class OFConfirmEngine:
                     ahlms = float(
                         indicators.get("alpha_half_life_ms")
                         or indicators_with_v4.get("alpha_half_life_ms")
+                        or cfg.get("alpha_half_life_ms")
+                        or (cfg.get("meta", {}).get("horizon", {}).get("alpha_half_life_ms") if isinstance(cfg.get("meta"), dict) else 0.0)
+                        or getattr(runtime, "alpha_half_life_ms", 0.0)
                         or 0.0
                     )
                     indicators_with_v4["alpha_half_life_ms_norm"] = ahlms / _HZ_ONE_HOUR_MS
@@ -3810,17 +3843,32 @@ class OFConfirmEngine:
                     "europe" if indicators_with_v4.get("session_europe") else
                     "asia"
                 )
+                # Fallback chain: scenario → * (aggregate all-kinds) → default.
+                # Pit priors writer keys by signal kind (e.g. "crypto-of",
+                # "cryptoorderflow", "*"), but _kind_label here is the OF
+                # scenario label ("continuation"/"reversal") which often has no
+                # dedicated bucket.  Try the more specific label first so
+                # scenario-specific priors win when available.
                 _latest_ptr = ""
-                try:
-                    _raw_ptr = _ctx_get(self._redis_client, f"pit_priors:latest:{symbol}:{_kind_label}:{_session_label}")  # type: ignore[attr-defined]
-                    _latest_ptr = (_raw_ptr.decode() if isinstance(_raw_ptr, (bytes, bytearray)) else str(_raw_ptr or ""))
-                except Exception:
-                    _latest_ptr = ""
+                _pit_kind_used = _kind_label
+                _pit_kind_seen: set[str] = set()
+                for _pit_kind_try in (_kind_label, "*", "default"):
+                    if not _pit_kind_try or _pit_kind_try in _pit_kind_seen:
+                        continue
+                    _pit_kind_seen.add(_pit_kind_try)
+                    try:
+                        _raw_ptr = _ctx_get(self._redis_client, f"pit_priors:latest:{symbol}:{_pit_kind_try}:{_session_label}")  # type: ignore[attr-defined]
+                        _latest_ptr = (_raw_ptr.decode() if isinstance(_raw_ptr, (bytes, bytearray)) else str(_raw_ptr or ""))
+                    except Exception:
+                        _latest_ptr = ""
+                    if _latest_ptr:
+                        _pit_kind_used = _pit_kind_try
+                        break
 
                 _pit_data: dict[str, str] = {}
                 if _latest_ptr:
                     try:
-                        _raw_pit = _ctx_hgetall(self._redis_client, f"pit_priors:{symbol}:{_kind_label}:{_session_label}:{_latest_ptr}")  # type: ignore[attr-defined]
+                        _raw_pit = _ctx_hgetall(self._redis_client, f"pit_priors:{symbol}:{_pit_kind_used}:{_session_label}:{_latest_ptr}")  # type: ignore[attr-defined]
                         _pit_data = {
                             (k.decode() if isinstance(k, (bytes, bytearray)) else str(k)):
                             (v.decode() if isinstance(v, (bytes, bytearray)) else str(v))
@@ -3977,18 +4025,35 @@ class OFConfirmEngine:
                     indicators_with_v4.setdefault("prior_sl_hit_rate_symbol_kind_7d", 0.5)
 
                 # --- ADR-0005: TCA EMA priors ---
+                # _kind_label = scenario ("continuation"/"reversal"/"none") which won't match
+                # TCA keys written by virtual_fills_bridge (keyed by entry_tag/kind).
+                # Fallback chain: scenario → entry_tag → kind → "default".
                 _tca_data: dict[str, str] = {}
-                try:
-                    _raw_tca = _ctx_hgetall(self._redis_client, f"tca:ema:{symbol}:{_kind_label}:{_session_label}")  # type: ignore[attr-defined]
-                    _tca_data = {
-                        (k.decode() if isinstance(k, (bytes, bytearray)) else str(k)):
-                        (v.decode() if isinstance(v, (bytes, bytearray)) else str(v))
-                        for k, v in (_raw_tca or {}).items()
-                    }
-                except Exception:
-                    _tca_data = {}
+                _tca_seen: set[str] = set()
+                _tca_fallback_kinds = [
+                    _kind_label,
+                    str(indicators.get("entry_tag") or ""),
+                    str(indicators.get("kind") or ""),
+                    "default",
+                ]
+                for _tca_kind_try in _tca_fallback_kinds:
+                    if not _tca_kind_try or _tca_kind_try in _tca_seen:
+                        continue
+                    _tca_seen.add(_tca_kind_try)
+                    try:
+                        _raw_tca = _ctx_hgetall(self._redis_client, f"tca:ema:{symbol}:{_tca_kind_try}:{_session_label}")  # type: ignore[attr-defined]
+                        _tca_cand = {
+                            (k.decode() if isinstance(k, (bytes, bytearray)) else str(k)):
+                            (v.decode() if isinstance(v, (bytes, bytearray)) else str(v))
+                            for k, v in (_raw_tca or {}).items()
+                        }
+                        if float(_tca_cand.get("samples") or 0.0) > 0:
+                            _tca_data = _tca_cand
+                            break
+                    except Exception:
+                        pass
                 _tca_samples = float(_tca_data.get("samples") or 0.0)
-                _tca_min = float(os.getenv("TCA_PRIORS_MIN_SAMPLES", "30") or "30")
+                _tca_min = float(os.getenv("TCA_PRIORS_MIN_SAMPLES", "5") or "5")
                 _tca_last = float(_tca_data.get("last_update_ms") or 0.0)
                 _tca_stale_max = float(os.getenv("TCA_STALE_MAX_MS", "600000") or "600000")
                 _tca_age = _now_ms_local - _tca_last if _tca_last > 0 else _tca_stale_max + 1
@@ -5039,7 +5104,14 @@ class OFConfirmEngine:
                 indicators_with_v4.setdefault("bybit_taker_buy_sell_ratio", _bbtf("taker_buy_sell_ratio"))
                 # Compute cross-venue features inline using Binance indicators_with_v4 data
                 _bybit_last = _bbtf("last_price")
-                _binance_mid = float(indicators_with_v4.get("mid_price") or indicators_with_v4.get("last_price") or 0.0)
+                _binance_mid = float(
+                    indicators_with_v4.get("mid_price")
+                    or indicators_with_v4.get("last_price")
+                    or indicators.get("book_mid_price")
+                    or indicators.get("mid_price")
+                    or indicators.get("price")
+                    or 0.0
+                )
                 _price_diff_bps = (
                     (_binance_mid - _bybit_last) / _binance_mid * 10000.0
                     if _binance_mid > 0 and not _bybit_stale else 0.0
@@ -5100,18 +5172,24 @@ class OFConfirmEngine:
                 indicators_with_v4.setdefault("sector_obi_median", 0.0)
 
             # ------------------------------------------------------------------
-            # Phase 4.7: Liq heatmap aliases — derived from existing liqmap_5m_*
-            # features (already in indicators dict from liqmap_features_v1).
-            #   liq_cluster_dist_above_bps  = liqmap_5m_dist_up_bps (nearest short cluster)
-            #   liq_cluster_dist_below_bps  = liqmap_5m_dist_dn_bps (nearest long cluster)
+            # Phase 4.7: Liq heatmap aliases — derived from liqmap_*_dist/near keys.
+            # Window priority: 5m → 1h → 4h (5m is almost always empty; fall back
+            # to longer windows that have real liquidation clusters).
+            #   liq_cluster_dist_above_bps  = nearest short cluster dist (up)
+            #   liq_cluster_dist_below_bps  = nearest long cluster dist (dn)
             #   liq_heatmap_density_above   = log1p(near_short_usd / 1M)
             #   liq_heatmap_density_below   = log1p(near_long_usd / 1M)
             # ------------------------------------------------------------------
             try:
-                _lm_dist_up = float(indicators_with_v4.get("liqmap_5m_dist_up_bps") or 0.0)
-                _lm_dist_dn = float(indicators_with_v4.get("liqmap_5m_dist_dn_bps") or 0.0)
-                _lm_near_short = float(indicators_with_v4.get("liqmap_5m_near_short_usd") or 0.0)
-                _lm_near_long = float(indicators_with_v4.get("liqmap_5m_near_long_usd") or 0.0)
+                _lm_dist_up = _lm_dist_dn = _lm_near_short = _lm_near_long = 0.0
+                for _lm_w in ("5m", "1h", "4h"):
+                    _du = float(indicators_with_v4.get(f"liqmap_{_lm_w}_dist_up_bps") or 0.0)
+                    _dd = float(indicators_with_v4.get(f"liqmap_{_lm_w}_dist_dn_bps") or 0.0)
+                    _ns = float(indicators_with_v4.get(f"liqmap_{_lm_w}_near_short_usd") or 0.0)
+                    _nl = float(indicators_with_v4.get(f"liqmap_{_lm_w}_near_long_usd") or 0.0)
+                    if _du > 0.0 or _dd > 0.0 or _ns > 0.0 or _nl > 0.0:
+                        _lm_dist_up, _lm_dist_dn, _lm_near_short, _lm_near_long = _du, _dd, _ns, _nl
+                        break
                 indicators_with_v4.setdefault("liq_cluster_dist_above_bps", max(0.0, _lm_dist_up))
                 indicators_with_v4.setdefault("liq_cluster_dist_below_bps", max(0.0, _lm_dist_dn))
                 indicators_with_v4.setdefault(
@@ -5825,11 +5903,23 @@ class OFConfirmEngine:
         except Exception:
             pass
 
-        # v13_of Group ND: cross-asset/macro runtime attrs loaded by
-        # maybe_load_crossasset_v13() into SymbolRuntime but never forwarded
-        # to indicators. Without this, all 4 ND keys are constant 0.0 in the
-        # offline dataset (train/serve skew).
+        # v13_of Group ND: cross-asset/macro runtime attrs.
+        # Primary source: direct HGETALL from runtime:crossasset:v13:{symbol} via
+        # _redis_client_main (redis:6379 — where Go v13-poller writes).
+        # maybe_load_crossasset_v13() uses self.redis (redis-worker-1) where the
+        # key is absent, so runtime attrs stay 0.0. Direct read is the fix.
         try:
+            _nd_raw = _ctx_hgetall(
+                getattr(self, "_redis_client_main", None),
+                f"runtime:crossasset:v13:{symbol}",
+                ttl_s=5.0,
+            ) or {}
+            def _ndf(k: str) -> float:
+                v = _nd_raw.get(k) or _nd_raw.get(k.encode() if isinstance(k, str) else k, None)
+                try:
+                    return float(v) if v is not None else 0.0
+                except (TypeError, ValueError):
+                    return 0.0
             for _nd_key in (
                 "btc_dominance_momentum",
                 "oi_weighted_funding",
@@ -5837,7 +5927,7 @@ class OFConfirmEngine:
                 "liq_heatmap_distance_bps",
             ):
                 if _nd_key not in indicators:
-                    indicators[_nd_key] = float(getattr(runtime, _nd_key, 0.0) or 0.0)
+                    indicators[_nd_key] = _ndf(_nd_key) or float(getattr(runtime, _nd_key, 0.0) or 0.0)
         except Exception:
             pass
 

@@ -42,6 +42,10 @@ services:
     - V15_LIVE_MODEL_PATH=${V15_LIVE_MODEL_PATH:-/var/lib/trade/ml_models/scorer_v15_lgbm/scorer_v15_lgbm.joblib}
     - V15_CANDIDATE_DIR=${V15_CANDIDATE_DIR:-/var/lib/trade/of_reports/models}
     - V15_VERDICT_PATH=${V15_VERDICT_PATH:-/var/lib/trade/of_reports/v15_lgbm_last_verdict.json}
+    # P2.8: cost-aware label (fees + slippage deducted before win/loss label)
+    - V15_COST_AWARE_LABEL=${V15_COST_AWARE_LABEL:-0}
+    - V15_COST_AWARE_FEE_MUL=${V15_COST_AWARE_FEE_MUL:-2.0}
+    - V15_COST_AWARE_SLIP_BPS_FALLBACK=${V15_COST_AWARE_SLIP_BPS_FALLBACK:-4.0}
     # Concurrency
     - V15_LOCK_KEY=${V15_LOCK_KEY:-lock:v15_lgbm_train}
     - V15_LOCK_TTL_SEC=${V15_LOCK_TTL_SEC:-3600}

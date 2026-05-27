@@ -369,7 +369,7 @@ class ATRCandidateProvider:
                         _M_MISSING_TOTAL.labels(tf_ms=tf).inc()
 
         return {
-            tf: asdict(c)
+            str(tf): asdict(c)
             for tf, c in sorted(out.items(), key=lambda x: x[0])
         }
 

@@ -11,7 +11,7 @@ def test_v15_of_count_pinned():
 def test_v15_of_schema_hash_pinned():
     """SCHEMA_HASH must stay stable until a coordinated bump."""
     from core.ml_feature_schema_v15_of import SCHEMA_HASH
-    assert SCHEMA_HASH == "v15of_v14base_p82_p83_p84_p85_p1_p2_p3_2026_05_18"
+    assert SCHEMA_HASH == "v15of_v14base_p82_p83_p84_p85_p1_p2_p3_dq_confirm_v13micro_regime_rsi_tick_flags_stream_gate_flow_2026_05_26"
 
 
 def test_v15_of_append_only_over_v14_of():
@@ -65,9 +65,9 @@ def test_v15_of_info_groups_consistent():
     from core.ml_feature_schema_v15_of import v15_of_info
     info = v15_of_info()
     assert info["ver"] == "v15_of"
-    assert info["n_numeric_keys"] == 515
+    assert info["n_numeric_keys"] == 541
     assert info["n_v14_of_base"] == 359
-    assert info["n_new_keys"] == 156
+    assert info["n_new_keys"] == 182
 
 
 def test_v15_of_feature_registry_dispatcher():

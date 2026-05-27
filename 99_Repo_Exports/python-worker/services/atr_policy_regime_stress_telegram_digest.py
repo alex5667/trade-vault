@@ -18,8 +18,8 @@ def run_once() -> int:
         logger.warning("ATR_POLICY_TELEGRAM_CHAT_ID is missing.")
         return 0
 
-    # Collect current stats
-    keys = r.keys("state:atr_stress:*")
+    # KEYS is blocked by Redis ACL; use SCAN.
+    keys = list(r.scan_iter(match="state:atr_stress:*", count=500))
     stress_states: dict[str, list] = {}
 
     for k in keys:

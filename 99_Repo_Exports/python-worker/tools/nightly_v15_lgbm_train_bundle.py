@@ -81,6 +81,11 @@ NOTIFY_STREAM = os.getenv("V15_NOTIFY_STREAM", "notify:telegram")
 NOTIFY_ON_PROMOTE = os.getenv("V15_NOTIFY_ON_PROMOTE", "1") == "1"
 NOTIFY_ON_REJECT = os.getenv("V15_NOTIFY_ON_REJECT", "1") == "1"
 
+# P2.8: cost-aware label flag (propagated to train_v15_lgbm subprocess)
+COST_AWARE_LABEL = os.getenv("V15_COST_AWARE_LABEL", "0") == "1"
+COST_AWARE_FEE_MUL = float(os.getenv("V15_COST_AWARE_FEE_MUL", "2.0"))
+COST_AWARE_SLIP_BPS_FALLBACK = float(os.getenv("V15_COST_AWARE_SLIP_BPS_FALLBACK", "4.0"))
+
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 
@@ -123,6 +128,7 @@ def count_positives_per_regime(pg_dsn: str, lookback_days: int, label_thr_r: flo
     except ImportError:
         log.error("psycopg2 not installed")
         return {}
+    conn = None
     try:
         conn = psycopg2.connect(pg_dsn)
         with conn.cursor() as cur:
@@ -145,10 +151,11 @@ def count_positives_per_regime(pg_dsn: str, lookback_days: int, label_thr_r: flo
         log.warning("count_positives_per_regime failed: %s", e)
         return {}
     finally:
-        try:
-            conn.close()
-        except Exception:
-            pass
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
 
 
 def preflight(pg_dsn: str) -> tuple[bool, dict[str, Any]]:
@@ -202,6 +209,10 @@ def run_trainer(verdict_path: str, candidate_out_path: str, *,
     if PER_REGIME:
         cmd.append("--per-regime")
         cmd.extend(["--per-regime-min", str(PER_REGIME_MIN)])
+    if COST_AWARE_LABEL:
+        cmd.append("--cost-aware-label")
+        cmd.extend(["--cost-aware-fee-mul", str(COST_AWARE_FEE_MUL)])
+        cmd.extend(["--cost-aware-slip-bps-fallback", str(COST_AWARE_SLIP_BPS_FALLBACK)])
     if dry_run:
         cmd.append("--dry-run")
 

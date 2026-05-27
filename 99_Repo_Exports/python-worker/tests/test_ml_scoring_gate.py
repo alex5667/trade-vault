@@ -125,6 +125,35 @@ class TestMLScoringGateFeatureExtraction:
         assert features is not None
         assert all(math.isfinite(f) for f in features)
 
+    def test_v5_schema_tag_routes_to_v5of_not_v4of(self):
+        from core.ml_feature_schema_v4_of import MLFeatureSchemaV4OF
+        from core.ml_feature_schema_v5_of import MLFeatureSchemaV5OF
+        from services.ml_scoring_gate import MLScoringGate
+
+        gate = MLScoringGate(model_path="/nonexistent/path")
+        gate._feature_schema_version = "3"
+        gate._feature_schema_ver = "v5"
+        gate._feature_names = ["placeholder"] * 128
+
+        ctx = SimpleNamespace(
+            symbol="BTCUSDT",
+            ts_ms=1_700_000_000_000,
+            scenario="trend",
+            cancel_spike_veto=False,
+            indicators={},
+        )
+
+        features = gate._extract_features(ctx, "LONG")
+        assert features is not None
+
+        v4 = MLFeatureSchemaV4OF()
+        v5 = MLFeatureSchemaV5OF()
+        v4_len = len(v4.num_keys) + len(v4.bool_keys) + 2 + 3 + 24 + 7
+        v5_len = len(v5.num_keys) + len(v5.bool_keys) + 2 + 3 + 24 + 7
+
+        assert len(features) == v5_len
+        assert len(features) != v4_len
+
 
 class TestMLScoringGateCalibration:
     """conf01 calibration must be clamped [0.05, 0.98]."""

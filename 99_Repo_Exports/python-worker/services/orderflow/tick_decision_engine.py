@@ -918,6 +918,7 @@ class TickDecisionEngine:
                     "side_int": direction_norm.to_side_int(),  # P0: Numeric side
                     "delta": delta_event.get("delta", 0.0),
                     "delta_z": delta_event.get("z", 0.0),
+                    "source_service": os.getenv("SERVICE_NAME", "crypto_orderflow"),
                 }
                 # Optional: if we already have features from runtime
                 # Optional: if we already have features from runtime
@@ -1897,6 +1898,7 @@ class TickDecisionEngine:
                     indicators["of_confirm"] = ofc.to_dict()
                     indicators["of_confirm_v3"] = ofc.to_dict()
                     indicators["of_confirm_ok"] = ofc.ok
+                    indicators.setdefault("strong_gate_ok", int(bool(ofc.ok)))
 
                     # ------------------------------------------------------------
                     # SRE metrics emission (sampled, deterministic, fail-open)

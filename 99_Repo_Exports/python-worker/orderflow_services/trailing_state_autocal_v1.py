@@ -126,6 +126,7 @@ _g_n_sl_moves          = _g("ts_autocal_n_sl_moves",        "SL move events", ["
 _g_error_rate          = _g("ts_autocal_error_rate",        "Error rate (0-1)", ["symbol"])
 _g_dup_rate            = _g("ts_autocal_dup_rate",          "Duplicate command rate (0-1)", ["symbol"])
 _g_avg_delta_bps       = _g("ts_autocal_avg_delta_bps",     "Median |SL delta| bps", ["symbol"])
+_g_n_with_delta        = _g("ts_autocal_n_with_delta",      "Events with non-zero delta_bps (old_sl+new_sl+price present)", ["symbol"])
 _g_ready_age_sec       = _g("ts_autocal_ready_age_sec",     "Seconds since all symbols reached min_samples")
 _g_enforce             = _g("ts_autocal_enforce",           "1 if auto-promote is configured")
 _c_polls               = _c("ts_autocal_polls_total",       "Poll iterations")
@@ -140,7 +141,10 @@ _h_poll_ms             = _h("ts_autocal_poll_ms",           "Poll duration", [5,
 @dataclass
 class _Sample:
     ts_ms: int
-    event_type: str        # "sl_move" | "shadow_move" | "error" | "duplicate"
+    # "sl_move" | "shadow_move" | "error" | "duplicate" | "other"
+    # NOTE: "other" is the explicit fallback for unknown/no-price-data events;
+    # it does NOT count toward n_sl_moves() to avoid masking delta=0 situations.
+    event_type: str
     symbol: str
     delta_bps: float = 0.0
 
@@ -174,7 +178,12 @@ class _SymbolStats:
         return deltas[mid]
 
     def n_sl_moves(self) -> int:
+        """Events classified as genuine SL moves (with price data)."""
         return self.n_of("sl_move")
+
+    def n_with_delta(self) -> int:
+        """Events that carried non-zero delta_bps (i.e. had old_sl/new_sl/price)."""
+        return sum(1 for s in self.buf if s.delta_bps > 0)
 
     def evict_old(self, cutoff_ms: int) -> None:
         while self.buf and self.buf[0].ts_ms < cutoff_ms:
@@ -213,6 +222,9 @@ def _read_audit_stream(
                 ts_ms = int(float(ts_ms_raw)) if ts_ms_raw else int(time.time() * 1000)
 
                 # Map event_type → sample type
+                # IMPORTANT: the "else" branch uses "other" (not "sl_move") so that
+                # plain state-transition events without price fields are NOT counted
+                # as SL moves and do NOT inflate n_sl_moves / mask delta=0.
                 if "error" in event_type or "dlq" in event_type:
                     stype = "error"
                 elif "duplicate" in event_type:
@@ -222,7 +234,7 @@ def _read_audit_stream(
                 elif "sl_move" in event_type or "hwm_trail" in event_type or "trailing_active" in event_type:
                     stype = "sl_move"
                 else:
-                    stype = "sl_move"  # all state transitions count
+                    stype = "other"  # state-transition / unrecognised — does NOT count as sl_move
 
                 # Parse delta bps if present
                 delta_bps = 0.0
@@ -268,6 +280,16 @@ def _sanity_ok(
         dr = stats.dup_rate()
         if dr > max_dup_rate:
             return False, f"{sym}: dup_rate={dr:.3f} > {max_dup_rate}"
+        nd = stats.n_with_delta()
+        if nd == 0 and min_delta_bps > 0:
+            # No SL_MOVE events with price data at all — classify separately
+            # so the operator knows it's a data-availability issue, not a
+            # threshold issue.  Promote is still blocked.
+            return False, (
+                f"{sym}: n_with_delta=0 — no SL_MOVE events carry "
+                f"old_sl/new_sl/price (check TrailingStateWorker tick routing "
+                f"or verify BTC positions reach TRAILING_ACTIVE with price ticks)"
+            )
         md = stats.median_delta_bps()
         if md < min_delta_bps:
             return False, f"{sym}: median_delta_bps={md:.2f} < {min_delta_bps}"
@@ -282,6 +304,7 @@ def _update_metrics(bins: dict[str, _SymbolStats], min_samples: int) -> int:
     for sym, stats in bins.items():
         _g_n_samples.labels(symbol=sym).set(stats.n)
         _g_n_sl_moves.labels(symbol=sym).set(stats.n_sl_moves())
+        _g_n_with_delta.labels(symbol=sym).set(stats.n_with_delta())
         _g_error_rate.labels(symbol=sym).set(stats.error_rate())
         _g_dup_rate.labels(symbol=sym).set(stats.dup_rate())
         _g_avg_delta_bps.labels(symbol=sym).set(stats.median_delta_bps())
@@ -380,9 +403,12 @@ def _notify_ready_dwell(
     lines = []
     for sym, stats in sorted(bins.items()):
         if stats.n > 0:
+            nd = stats.n_with_delta()
+            delta_warn = " ⚠️ нет ценовых данных" if nd == 0 else ""
             lines.append(
                 f"  • <b>{sym}</b>: n={stats.n}  moves={stats.n_sl_moves()}"
                 f"  δ={stats.median_delta_bps():.1f}bps"
+                f"  priced={nd}{delta_warn}"
             )
 
     text = (
@@ -568,7 +594,8 @@ def main() -> None:
                         )
                         enforce = True
                         _g_shadow.set(0.0)
-                        _c_promote.labels(result="success").inc()
+                        # NOTE: _c_promote.labels(result="success") already
+                        # incremented inside _do_promote() — do NOT add it here.
                     else:
                         if reason != _last_sanity_fail_notified:
                             _notify_sanity_fail(r, notify_stream=notify_stream, reason=reason)

@@ -1,0 +1,54 @@
+services:
+  crossvenue-agree-cal:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    image: scanner-python-worker:latest
+    container_name: scanner-crossvenue-agree-cal
+    restart: unless-stopped
+    environment:
+      - PYTHONUNBUFFERED=1
+      - CROSSVENUE_AGREE_CAL_PORT=9871
+      - CROSSVENUE_AGREE_CAL_INTERVAL_SEC=${CROSSVENUE_AGREE_CAL_INTERVAL_SEC:-30}
+      - CROSSVENUE_AGREE_CAL_WINDOW_H=${CROSSVENUE_AGREE_CAL_WINDOW_H:-168.0}
+      - CROSSVENUE_AGREE_CAL_MIN_N=${CROSSVENUE_AGREE_CAL_MIN_N:-200}
+      # Auto-promote enforce=1 per-bucket once n_total >= MIN_N. SHADOW by default.
+      - CROSSVENUE_AGREE_CAL_ENFORCE=${CROSSVENUE_AGREE_CAL_ENFORCE:-0}
+      - CROSSVENUE_AGREE_CAL_HMAC_SECRET=${CROSSVENUE_AGREE_CAL_HMAC_SECRET:-${RECS_HMAC_SECRET:-}}
+      - REDIS_URL=redis://redis-worker-1:6379/0
+      - TZ=UTC
+    ports:
+      - "9871:9871"
+    depends_on:
+      redis-worker-1:
+        condition: service_healthy
+    networks:
+      - scanner-core
+      - scanner-infra
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.15'
+        reservations:
+          memory: 64M
+    command:
+      - sh
+      - -c
+      - |
+        sleep 20
+        python -u -m orderflow_services.crossvenue_agree_calibrator_v1
+    labels:
+      - com.scanner.service=crossvenue-agree-cal
+      - com.scanner.description=Cross-venue direction-agree median/MAD calibrator (P1.11)
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '3'
+
+networks:
+  scanner-core:
+    external: true
+  scanner-infra:
+    external: true

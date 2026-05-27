@@ -168,20 +168,26 @@ def compute_sweep_div_match(ticks: list[tuple[int, float, float, float]],
 # ── Cluster detection (signals:of:inputs by symbol) ───────────────────────────
 
 
-def count_recent_signals_for_symbol(r, symbol: str, window_sec: int) -> int:
-    """Scan recent signals:of:inputs entries for this symbol. Bounded scan."""
-    since_ms = int(time.time() * 1000) - window_sec * 1000
-    count = 0
+def _fetch_recent_signal_entries(r, since_ms: int) -> list[tuple]:
+    """Fetch signals:of:inputs entries newer than since_ms in one call."""
     try:
-        # Read last ~500 entries, filter by symbol + recency
-        entries = r.xrevrange("signals:of:inputs", "+", "-", count=500)
+        return r.xrevrange("signals:of:inputs", "+", f"{since_ms}-0", count=500)
     except Exception:
-        return 0
-    for entry_id, fields in entries:
+        return []
+
+
+def count_recent_signals_for_symbol(
+    symbol: str,
+    cached_entries: list[tuple],
+    since_ms: int,
+) -> int:
+    """Count signals for symbol from a pre-fetched entries list."""
+    count = 0
+    for entry_id, fields in cached_entries:
         try:
             ts_ms = int(entry_id.split("-")[0])
             if ts_ms < since_ms:
-                break  # entries sorted desc; older → stop
+                break
             payload = fields.get("payload") if isinstance(fields, dict) else None
             if not payload:
                 continue
@@ -272,6 +278,9 @@ def run() -> int:
 
             now = time.monotonic()
             if now - last_publish >= INTERVAL_S:
+                # One XREVRANGE for all symbols — time-bounded by since_ms.
+                sig_since_ms = int(time.time() * 1000) - SIGNAL_WINDOW_SEC * 1000
+                sig_entries = _fetch_recent_signal_entries(r_signals, sig_since_ms)
                 for sym in SYMBOLS:
                     buf = list(ticks[sym])
                     while buf and buf[0][0] < cutoff_ms:
@@ -281,7 +290,7 @@ def run() -> int:
                     velocity, direction = compute_sweep_velocity_bps_s(buf)
                     div_match = compute_sweep_div_match(buf, direction)
                     jump_usd = compute_source_jump_usd(buf)
-                    n_sigs = count_recent_signals_for_symbol(r_signals, sym, SIGNAL_WINDOW_SEC)
+                    n_sigs = count_recent_signals_for_symbol(sym, sig_entries, sig_since_ms)
                     cluster_flag = 1.0 if n_sigs >= CLUSTER_MIN_COUNT else 0.0
                     feats = {
                         "sweep_velocity_bps_s": velocity,

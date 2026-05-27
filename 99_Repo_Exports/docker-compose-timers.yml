@@ -1166,6 +1166,7 @@ services:
     - REDIS_URL=${REDIS_URL:-redis://redis-worker-1:6379/0}
     - PYTHONPATH=.:/app
     - TZ=UTC
+    - TRAILING_AUTOTUNE_WINDOW_HOURS=168
     working_dir: /app
     volumes:
     - ./python-worker:/app
@@ -1278,10 +1279,11 @@ services:
     - LCB_SUBTRACT_FEES=${LCB_SUBTRACT_FEES:-0}
     - LCB_SLIPPAGE_BPS_CAP=${LCB_SLIPPAGE_BPS_CAP:-250}
     - TZ=UTC
+    - LOCK_REDIS_URL=redis://redis:6379/0
     working_dir: /app
     volumes:
     - ./python-worker:/app
-    command: "sh -c \"sleep 264 && while true; do\n  python3 services/ab_winner_suggester_service_v2.py\
+    command: "python3 tools/run_daemon_with_minik_failover.py --job-name ab_winner_lcb -- sh -c \"sleep 264 && while true; do\n  python3 services/ab_winner_suggester_service_v2.py\
       \ --run-once;\n  sleep 3600;\ndone\"\n"
     networks:
     - scanner-timers
@@ -1303,11 +1305,12 @@ services:
     - REDIS_URL=${REDIS_URL:-redis://redis-worker-1:6379/0}
     - PYTHONPATH=.:/app
     - TZ=UTC
+    - LOCK_REDIS_URL=redis://redis:6379/0
     working_dir: /app
     env_file: .env
     volumes:
     - ./python-worker:/app
-    command: "sh -c \"sleep 272 && while true; do\n  python3 -m tools.ab_suggest_entry_policy;\n\
+    command: "python3 tools/run_daemon_with_minik_failover.py --job-name ab_policy_suggester -- sh -c \"sleep 272 && while true; do\n  python3 -m tools.ab_suggest_entry_policy;\n\
       \  sleep 900;\ndone\"\n"
     networks:
     - scanner-timers
@@ -2414,6 +2417,7 @@ services:
     - NVIDIA_DRIVER_CAPABILITIES=compute,utility
     - GPU_ENABLED=${GPU_ENABLED:-1}
     - EDGE_STACK_MIN_JOINED=300
+    - EDGE_STACK_AUTO_PROMOTE=1
     - ML_FEATURE_SCHEMA_VER=v14_of
     - TZ=UTC
     working_dir: /app
@@ -3594,11 +3598,12 @@ services:
     - PYTHONPATH=.:/app
     - PYTHONUNBUFFERED=1
     - TZ=UTC
+    - LOCK_REDIS_URL=redis://redis:6379/0
     working_dir: /app
     volumes:
     - ./python-worker:/app
     - ./var/runbook-reports:/var/lib/trade-runbook/reports
-    command: "sh -c \"sleep 600 && while true; do\n  echo 'Building risk engine canary\
+    command: "python3 tools/run_daemon_with_minik_failover.py --job-name risk_engine_canary -- sh -c \"sleep 600 && while true; do\n  echo 'Building risk engine canary\
       \ report...';\n  python3 scripts/build_risk_engine_canary_report.py --hours\
       \ \\\"$$RISK_CANARY_LOOKBACK_HOURS\\\" --out \\\"$$RISK_CANARY_REPORT_PATH\\\
       \" || echo 'Canary report failed (DB unavailable), skipping.';\n  echo 'Done.\
@@ -3625,11 +3630,12 @@ services:
     - PYTHONPATH=.:/app
     - PYTHONUNBUFFERED=1
     - TZ=UTC
+    - LOCK_REDIS_URL=redis://redis:6379/0
     working_dir: /app
     volumes:
     - ./python-worker:/app
     - ./var/runbook-reports:/var/lib/trade-runbook/reports
-    command: "sh -c \"sleep 600 && while true; do\n  if [ -n \\\"$$RISK_AUDIT_SQL_DSN\\\
+    command: "python3 tools/run_daemon_with_minik_failover.py --job-name risk_decision_summary -- sh -c \"sleep 600 && while true; do\n  if [ -n \\\"$$RISK_AUDIT_SQL_DSN\\\
       \" ]; then\n    echo '[p46-summary] Fetching latest risk decisions from continuous\
       \ aggregate...';\n    python3 scripts/refresh_risk_decision_summary.py --out\
       \ \\\"$$RISK_DECISION_SUMMARY_REPORT_PATH\\\" || echo '[p46-summary] Refresh\
@@ -3666,11 +3672,12 @@ services:
     - PYTHONPATH=/app
     - PYTHONUNBUFFERED=1
     - TZ=UTC
+    - LOCK_REDIS_URL=redis://redis:6379/0
     working_dir: /app
     volumes:
     - ./python-worker:/app
     - ./var/runbook-reports:/var/lib/trade-runbook/reports:rw
-    command: "sh -c \"sleep 600 && while true; do\n  if [ -n \\\"$$RISK_AUDIT_SQL_DSN\\\
+    command: "python3 tools/run_daemon_with_minik_failover.py --job-name risk_signal_consistency -- sh -c \"sleep 600 && while true; do\n  if [ -n \\\"$$RISK_AUDIT_SQL_DSN\\\
       \" ]; then\n    echo '[p47-consistency] Running risk signal/snapshot consistency\
       \ check...';\n    if [ \\\"$$RISK_CONSISTENCY_QUARANTINE_ON_REPEATED\\\" = \\\
       \"1\\\" ]; then\n      python3 -u scripts/check_risk_signal_snapshot_consistency.py\
@@ -3742,11 +3749,12 @@ services:
     - PYTHONPATH=/app
     - PYTHONUNBUFFERED=1
     - TZ=UTC
+    - LOCK_REDIS_URL=redis://redis:6379/0
     working_dir: /app
     volumes:
     - ./python-worker:/app
     - ./var/runbook-reports:/var/lib/trade-runbook/reports:rw
-    command: "sh -c \"sleep 600 && while true; do\n  echo '[p47-operator-score] Building\
+    command: "python3 tools/run_daemon_with_minik_failover.py --job-name operator_score_report -- sh -c \"sleep 600 && while true; do\n  echo '[p47-operator-score] Building\
       \ merged operator score report...';\n  python3 -u scripts/build_operator_score_report.py\
       \ --report-dir \\\"$$RUNBOOK_REPORT_DIR\\\" --out \\\"$$OPERATOR_SCORE_REPORT_PATH\\\
       \" || true;\n  echo '[p47-operator-score] Done. Sleeping 15 minutes...';\n \
@@ -3816,11 +3824,12 @@ services:
     - PYTHONPATH=/app
     - PYTHONUNBUFFERED=1
     - TZ=UTC
+    - LOCK_REDIS_URL=redis://redis:6379/0
     working_dir: /app
     volumes:
     - ./python-worker:/app
     - ./var/runbook-reports:/var/lib/trade-runbook/reports:rw
-    command: "sh -c \"sleep 600 && while true; do\n  if [ -n \\\"$$RISK_AUDIT_SQL_DSN\\\
+    command: "python3 tools/run_daemon_with_minik_failover.py --job-name risk_mismatch_summary -- sh -c \"sleep 600 && while true; do\n  if [ -n \\\"$$RISK_AUDIT_SQL_DSN\\\
       \" ]; then\n    echo '[p48-mismatch-refresh] Refreshing risk mismatch summary\
       \ materialized view...';\n    if [ -n \\\"$$RISK_MISMATCH_SUMMARY_TEXTFILE_PATH\\\
       \" ]; then\n      python3 -u scripts/refresh_risk_mismatch_summary.py --out\
@@ -3859,11 +3868,12 @@ services:
     - PYTHONPATH=/app
     - PYTHONUNBUFFERED=1
     - TZ=UTC
+    - LOCK_REDIS_URL=redis://redis:6379/0
     working_dir: /app
     volumes:
     - ./python-worker:/app
     - ./var/runbook-reports:/var/lib/trade-runbook/reports:rw
-    command: "sh -c \"sleep 600 && while true; do\n  HOUR=$$(date +%-H);\n  MIN=$$(date\
+    command: "python3 tools/run_daemon_with_minik_failover.py --job-name risk_mismatch_retention -- sh -c \"sleep 600 && while true; do\n  HOUR=$$(date +%-H);\n  MIN=$$(date\
       \ +%-M);\n  if [ \\\"$$HOUR\\\" -eq 3 ] && [ \\\"$$MIN\\\" -ge 35 ] && [ \\\"\
       $$MIN\\\" -lt 50 ]; then\n    if [ -n \\\"$$RISK_AUDIT_SQL_DSN\\\" ]; then\n\
       \      if [ \\\"$$RISK_MISMATCH_RETENTION_APPLY\\\" = \\\"1\\\" ]; then\n  \
@@ -3949,11 +3959,12 @@ services:
     - PYTHONPATH=/app
     - PYTHONUNBUFFERED=1
     - TZ=UTC
+    - LOCK_REDIS_URL=redis://redis:6379/0
     working_dir: /app
     volumes:
     - ./python-worker:/app
     - ./var/runbook-reports:/var/lib/trade-runbook/reports:rw
-    command: "sh -c \"sleep 600 && while true; do\n  if [ -n \\\"$$RISK_AUDIT_SQL_DSN\\\
+    command: "python3 tools/run_daemon_with_minik_failover.py --job-name risk_mismatch_archive_consistency -- sh -c \"sleep 600 && while true; do\n  if [ -n \\\"$$RISK_AUDIT_SQL_DSN\\\
       \" ]; then\n    echo '[p5x-archive-consistency] Running risk mismatch archive\
       \ consistency check...';\n    if [ -n \\\"$$RISK_MISMATCH_ARCHIVE_CONSISTENCY_TEXTFILE_PATH\\\
       \" ]; then\n      python3 -u scripts/check_risk_mismatch_summary_archive_consistency.py\
@@ -4790,12 +4801,10 @@ services:
     - PYTHONPATH=/app
     - PYTHONUNBUFFERED=1
     - TZ=UTC
+    - LOCK_REDIS_URL=redis://redis:6379/0
     volumes:
     - ./python-worker/services:/app/services
-    command:
-    - sh
-    - -c
-    - sleep 200 && python3 -m services.entry_policy_rollback_guard_v2
+    command: "python3 tools/run_daemon_with_minik_failover.py --job-name ab_rollback_guard_v2 -- sh -c \"sleep 200 && python3 -m services.entry_policy_rollback_guard_v2\""
     depends_on:
       redis-worker-1:
         condition: service_healthy

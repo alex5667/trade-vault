@@ -1499,6 +1499,34 @@ def join_signals_with_closes_v2(
     return out, unmatched
 
 
+def _extract_embedded_signals(
+    close_items: Sequence[tuple[Any, dict[str, Any]]],
+) -> list[SignalRow]:
+    """Extract SignalRow objects from signal_payload field embedded in trades:closed.
+
+    Avoids join_no_signal failures when signals:of:inputs has been evicted from Redis
+    (retention ~1 day) while trades:closed spans multiple days. Each trade stores the
+    full signal snapshot at entry time in the signal_payload JSON field.
+    """
+    out: list[SignalRow] = []
+    for _msg_id, fields in close_items:
+        sp_raw = fields.get("signal_payload") or ""
+        if isinstance(sp_raw, (bytes, bytearray)):
+            try:
+                sp_raw = sp_raw.decode("utf-8", errors="replace")
+            except Exception:
+                continue
+        sp = _safe_json_loads(sp_raw)
+        if not isinstance(sp, dict):
+            continue
+        # signal_payload has indicators, ts_ms, symbol, direction at top level.
+        # parse_replay_signal expects a "fields" dict with a "payload" key.
+        s = parse_replay_signal({"payload": sp})
+        if s is not None:
+            out.append(s)
+    return out
+
+
 def join_signals_with_closes(
     signals: Sequence[SignalRow],
     closes: Sequence[CloseRow],
@@ -1688,7 +1716,7 @@ def build_dataset_df(
 
     sig_items = _filter_by_time(sig_items, ts_field_candidates=("ts_ms", "t", "ts"), start_ms=since_ms, end_ms=None)
     close_items = _filter_by_time(
-        close_items, ts_field_candidates=("exit_ts_ms", "ts_ms", "ts"), start_ms=since_ms, end_ms=None
+        close_items, ts_field_candidates=("exit_ts_ms", "ts_ms", "ts", "ts_close"), start_ms=since_ms, end_ms=None
     )
 
     signals: list[SignalRow] = []
@@ -1765,8 +1793,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     ap.add_argument("--file_max_records", type=int, default=int(os.environ.get("FILE_MAX_RECORDS", "500000")))
     ap.add_argument("--file_min_signals", type=int, default=int(os.environ.get("FILE_MIN_SIGNALS", "5000")))
     ap.add_argument("--file_min_closes", type=int, default=int(os.environ.get("FILE_MIN_CLOSES", "500")))
-
-
+    ap.add_argument(
+        "--embed_signals", type=int, default=int(os.environ.get("EMBED_SIGNALS", "1")),
+        help="1 = augment signal list from signal_payload field embedded in trades:closed. "
+             "Fixes join_no_signal failures when signals:of:inputs stream evicts old entries. (default: 1)",
+    )
 
     ap.add_argument("--y_min_r", type=float, default=float(os.environ.get("Y_MIN_R", "0.10")))
     ap.add_argument("--dedup_signals", default="latest", choices=["latest", "earliest", "keep_first"])
@@ -1889,7 +1920,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     sig_items = _filter_by_time(sig_items, ts_field_candidates=("ts_ms", "t", "ts"), start_ms=sig_start_ms, end_ms=end_ms)
     close_items = _filter_by_time(
-        close_items, ts_field_candidates=("exit_ts_ms", "ts_ms", "ts"), start_ms=start_ms, end_ms=end_ms
+        close_items, ts_field_candidates=("exit_ts_ms", "ts_ms", "ts", "ts_close"), start_ms=start_ms, end_ms=end_ms
     )
 
     drop = DropStats(max_examples=int(args.max_examples))
@@ -1924,6 +1955,21 @@ def main(argv: Sequence[str] | None = None) -> int:
             continue
         closes.append(c)
 
+    # P59 embedded-signal augmentation: read signal features from signal_payload stored
+    # inside trades:closed, bypassing signals:of:inputs stream retention limit (~1 day).
+    # join_no_signal drops from ~95% → ~0% when signals stream is shorter than trade window.
+    if int(getattr(args, "embed_signals", 1)) == 1:
+        embedded = _extract_embedded_signals(close_items)
+        existing_sids = {s.sid for s in signals}
+        n_before = len(signals)
+        for s in embedded:
+            if s.sid not in existing_sids:
+                signals.append(s)
+                existing_sids.add(s.sid)
+        n_added = len(signals) - n_before
+        if n_added:
+            print(f"[embed_signals] augmented signal list: +{n_added} from signal_payload "
+                  f"(stream had {n_before}, total now {len(signals)})")
 
     # Optional archive fallback: if you request an older window or Redis retention is short,
     # we can augment signals/closes from on-disk NDJSON archives.

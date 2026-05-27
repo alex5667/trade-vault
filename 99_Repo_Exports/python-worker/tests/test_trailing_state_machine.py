@@ -206,6 +206,69 @@ class TestComputeNewSl:
         result = compute_new_sl(state, 35_000.0)
         assert result is None
 
+    # ── Regression: zero-sentinel current_sl=0 ───────────────────────────────
+
+    def test_short_zero_current_sl_produces_first_move(self):
+        """Regression: SHORT with current_sl=0 (sentinel) must NOT be blocked.
+
+        Bug: candidate (e.g. 77_437) >= 0 was always True → SL frozen forever.
+        The fix: skip the "never retreat" guard when current_sl == 0.
+        """
+        state = _make_short_state(
+            symbol="BTCUSDT",
+            entry_price=77_500.0,
+            current_sl=0.0,       # sentinel: TP_HIT event did not carry current_sl
+            last_sent_sl=0.0,
+            trail_distance=354.0, # ATR=354 for BTC
+            tick_size=0.1,
+            min_move_ticks=5,
+            low_watermark=77_083.0,
+        )
+        # candidate = 77_083 + 354 = 77_437; current_sl=0 → guard must be skipped
+        result = compute_new_sl(state, 77_083.0)
+        assert result is not None, (
+            "BUG REGRESSION: SHORT with current_sl=0 must produce first SL_MOVE"
+        )
+        assert abs(result - 77_437.0) < 1.0
+
+    def test_long_zero_current_sl_produces_first_move(self):
+        """Regression: LONG with current_sl=0 (sentinel) must also work.
+
+        LONG happened to work by accident (76_729 <= 0 is False), but let's
+        make the intent explicit with a direct test.
+        """
+        state = _make_long_state(
+            symbol="BTCUSDT",
+            entry_price=77_500.0,
+            current_sl=0.0,       # sentinel
+            last_sent_sl=0.0,
+            trail_distance=354.0,
+            tick_size=0.1,
+            min_move_ticks=5,
+            high_watermark=77_790.0,
+        )
+        # candidate = 77_790 - 354 = 77_436; current_sl=0 → guard must be skipped
+        result = compute_new_sl(state, 77_790.0)
+        assert result is not None, (
+            "LONG with current_sl=0 must produce first SL_MOVE"
+        )
+        assert result > 0.0
+
+    def test_zero_reference_sl_skips_min_move(self):
+        """When reference_sl == 0 (first move), min_move filter must be skipped."""
+        state = _make_short_state(
+            current_sl=0.0,
+            last_sent_sl=0.0,
+            trail_distance=354.0,
+            tick_size=0.1,
+            min_move_ticks=500,  # absurdly large min_move to prove filter is skipped
+            low_watermark=77_000.0,
+        )
+        result = compute_new_sl(state, 77_000.0)
+        assert result is not None, (
+            "First move (reference_sl=0) must bypass min_move filter"
+        )
+
 
 # ── TestTrailingStateIdempotency ──────────────────────────────────────────────
 

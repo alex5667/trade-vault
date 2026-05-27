@@ -28,14 +28,12 @@ def _safe_float(v, default=0.0):
         return default
 
 def _get_active_symbols(r: redis.Redis) -> list[str]:
-    # Very heuristic. Normally we fetch from whitelist, or we fetch from allocator states.
-    # For now, let's grab all spread_ema keys
-    keys = r.keys("spread_ema_half_bps:*")
+    # KEYS is blocked by Redis ACL (O(N), production); use SCAN.
     syms = set()
-    for k in keys:
+    for k in r.scan_iter(match="spread_ema_half_bps:*", count=500):
         s = k.split(":")[-1]
         if s:
-             syms.add(s)
+            syms.add(s)
     return list(syms)
 
 def _read_venue_stress(r: redis.Redis) -> bool:

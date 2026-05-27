@@ -64,6 +64,58 @@ GATE_MIN_FEATURE_COVERAGE = 0.80
 GATE_MAX_ADVERSARIAL_AUC = 0.65  # train↔serve distinguishability ceiling
 GATE_MAX_PSI_TOP_FEATURE = 0.50
 
+# ── Cost-aware label (P2.8) ───────────────────────────────────────────────────
+
+
+def _compute_cost_aware_hit(
+    fields: dict[str, Any],
+    *,
+    fee_mul: float = 2.0,
+    slip_bps_fallback: float = 4.0,
+) -> int | None:
+    """Compute cost-aware label from trades:closed stream fields.
+
+    Formula: y = 1 if (pnl_net − fee_mul × fees − slip_usd) > 0 else 0
+    where slip_usd = (slip_bps / 1e4) × |notional_usd|.
+
+    Slippage resolution: slippage_realized_bps → expected_slippage_bps → fallback.
+    Returns None when pnl_net is absent/non-finite (caller may skip the sample).
+    """
+    def _f(key: str, default: float = 0.0) -> float:
+        try:
+            v = fields.get(key)
+            if v is None:
+                return default
+            f = float(v)
+            return f if math.isfinite(f) else default
+        except (TypeError, ValueError):
+            return default
+
+    pnl_raw = fields.get("pnl_net")
+    if pnl_raw is None:
+        return None
+    try:
+        pnl_net = float(pnl_raw)
+        if not math.isfinite(pnl_net):
+            return None
+    except (TypeError, ValueError):
+        return None
+
+    fees = abs(_f("fees"))
+    notional = abs(_f("notional_usd") or _f("entry_notional_usd") or 0.0)
+
+    slip_bps = _f("slippage_realized_bps", -1.0)
+    if slip_bps < 0:
+        slip_bps = _f("expected_slippage_bps", -1.0)
+    if slip_bps < 0:
+        slip_bps = slip_bps_fallback
+    slip_bps = max(0.0, slip_bps)
+
+    slip_usd = (slip_bps / 1e4) * notional
+    cost_total = fee_mul * fees + slip_usd
+    return 1 if (pnl_net - cost_total) > 0 else 0
+
+
 # ── SID normalisation (shared with ml_canary_autopromoter) ────────────────────
 
 
@@ -110,6 +162,9 @@ def load_dataset_postgres(
     *,
     lookback_days: int,
     label_threshold_r: float,
+    cost_aware: bool = False,
+    cost_aware_fee_mul: float = 2.0,
+    cost_aware_slip_bps_fallback: float = 4.0,
 ) -> list[Sample]:
     """Join `signal_snapshots` (PG) + `trades:closed` (Redis) on normalised sid.
 
@@ -185,6 +240,16 @@ def load_dataset_postgres(
                 continue
             if not math.isfinite(r_mult):
                 continue
+            if cost_aware:
+                hit = _compute_cost_aware_hit(
+                    fields,
+                    fee_mul=cost_aware_fee_mul,
+                    slip_bps_fallback=cost_aware_slip_bps_fallback,
+                )
+                if hit is None:
+                    continue
+            else:
+                hit = 1 if r_mult >= label_threshold_r else 0
             samples.append(Sample(
                 sid=sid,
                 ts_ms=sig["ts_ms"] or int(entry_id.split("-")[0]),
@@ -192,13 +257,13 @@ def load_dataset_postgres(
                 regime=sig["regime"],
                 features=sig["features"],
                 r=max(-5.0, min(5.0, r_mult)),
-                hit=1 if r_mult >= label_threshold_r else 0,
+                hit=hit,
             ))
         if len(chunk) < 5000:
             break
         cursor = f"{last_id.split('-')[0]}-{int(last_id.split('-')[1])+1}"
-    log.info("trades scanned: %d, joined samples: %d (vs %d signals from PG)",
-             scanned, len(samples), len(signals))
+    log.info("trades scanned: %d, joined samples: %d (vs %d signals from PG, cost_aware=%s)",
+             scanned, len(samples), len(signals), cost_aware)
     samples.sort(key=lambda s: s.ts_ms)
     return samples
 
@@ -208,6 +273,9 @@ def load_dataset(
     *,
     lookback_days: int,
     label_threshold_r: float,
+    cost_aware: bool = False,
+    cost_aware_fee_mul: float = 2.0,
+    cost_aware_slip_bps_fallback: float = 4.0,
 ) -> list[Sample]:
     """Join signals:of:inputs + trades:closed on normalised sid.
 
@@ -295,6 +363,16 @@ def load_dataset(
                 continue
             if not math.isfinite(r_mult):
                 continue
+            if cost_aware:
+                hit = _compute_cost_aware_hit(
+                    fields,
+                    fee_mul=cost_aware_fee_mul,
+                    slip_bps_fallback=cost_aware_slip_bps_fallback,
+                )
+                if hit is None:
+                    continue
+            else:
+                hit = 1 if r_mult >= label_threshold_r else 0
             samples.append(Sample(
                 sid=sid,
                 ts_ms=sig["ts_ms"] or int(entry_id.split("-")[0]),
@@ -302,13 +380,13 @@ def load_dataset(
                 regime=sig["regime"],
                 features=sig["features"],
                 r=max(-5.0, min(5.0, r_mult)),
-                hit=1 if r_mult >= label_threshold_r else 0,
+                hit=hit,
             ))
         if len(chunk) < 5000:
             break
         cursor = f"{last_id.split('-')[0]}-{int(last_id.split('-')[1])+1}"
 
-    log.info("trades scanned: %d, joined samples: %d", scanned_t, len(samples))
+    log.info("trades scanned: %d, joined samples: %d (cost_aware=%s)", scanned_t, len(samples), cost_aware)
     samples.sort(key=lambda s: s.ts_ms)
     return samples
 
@@ -814,10 +892,20 @@ def main() -> int:
     ap.add_argument("--dry-run", action="store_true",
                     help="Skip joblib write; still emit verdict.json")
     ap.add_argument("--verdict-out", default="/tmp/v15_verdict.json")
+    # P2.8: cost-aware label (fees + slippage deducted before calling a trade a winner)
+    ap.add_argument("--cost-aware-label", action="store_true",
+                    default=os.getenv("V15_COST_AWARE_LABEL", "0") == "1",
+                    help="Use cost-aware label (pnl_net − fee_mul×fees − slip_usd > 0)")
+    ap.add_argument("--cost-aware-fee-mul", type=float,
+                    default=float(os.getenv("V15_COST_AWARE_FEE_MUL", "2.0")),
+                    help="Fee multiplier for cost-aware label (default 2.0 = round-trip)")
+    ap.add_argument("--cost-aware-slip-bps-fallback", type=float,
+                    default=float(os.getenv("V15_COST_AWARE_SLIP_BPS_FALLBACK", "4.0")),
+                    help="Slippage fallback bps when realized/expected missing (default 4.0)")
     args = ap.parse_args()
 
-    log.info("v15_lgbm training start — lookback=%d days, label≥%.2fR",
-             args.lookback_days, args.label_threshold_r)
+    log.info("v15_lgbm training start — lookback=%d days, label≥%.2fR cost_aware=%s",
+             args.lookback_days, args.label_threshold_r, args.cost_aware_label)
 
     # Source selection: postgres path bypasses Redis stream retention bottleneck
     use_pg = (args.source == "postgres") or (
@@ -834,6 +922,9 @@ def main() -> int:
             args.redis_url,
             lookback_days=args.lookback_days,
             label_threshold_r=args.label_threshold_r,
+            cost_aware=args.cost_aware_label,
+            cost_aware_fee_mul=args.cost_aware_fee_mul,
+            cost_aware_slip_bps_fallback=args.cost_aware_slip_bps_fallback,
         )
     else:
         log.info("loading from REDIS signals:of:inputs (limited by stream retention)")
@@ -841,6 +932,9 @@ def main() -> int:
             args.redis_url,
             lookback_days=args.lookback_days,
             label_threshold_r=args.label_threshold_r,
+            cost_aware=args.cost_aware_label,
+            cost_aware_fee_mul=args.cost_aware_fee_mul,
+            cost_aware_slip_bps_fallback=args.cost_aware_slip_bps_fallback,
         )
 
     if len(samples) < 200:
@@ -897,6 +991,7 @@ def main() -> int:
         "trained_at_ms": int(time.time() * 1000),
         "label_threshold_r": args.label_threshold_r,
         "lookback_days": args.lookback_days,
+        "cost_aware_label": args.cost_aware_label,
     }
     with open(args.verdict_out, "w") as f:
         json.dump(verdict, f, indent=2, default=str)

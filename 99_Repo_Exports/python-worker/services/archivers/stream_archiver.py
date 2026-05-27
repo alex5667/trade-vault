@@ -504,6 +504,7 @@ class PgWriter:
         """
         with self._conn() as conn, conn.cursor() as cur:
             execute_values(cur, sql, rows, page_size=1000)
+            conn.commit()
         return len(rows)
 
     def insert_position_events(self, rows: list[tuple[Any, ...]]) -> int:
@@ -520,6 +521,7 @@ class PgWriter:
         """
         with self._conn() as conn, conn.cursor() as cur:
             execute_values(cur, sql, rows, page_size=1000)
+            conn.commit()
         return len(rows)
 
     def insert_signal_confidence_scores(self, rows: list[tuple[Any, ...]]) -> int:
@@ -538,6 +540,7 @@ class PgWriter:
         """
         with self._conn() as conn, conn.cursor() as cur:
             execute_values(cur, sql, rows, page_size=5000)
+            conn.commit()
         return len(rows)
 
     def insert_of_gate_metrics(self, rows: list[tuple[Any, ...]]) -> int:
@@ -562,6 +565,7 @@ class PgWriter:
         """
         with self._conn() as conn, conn.cursor() as cur:
             execute_values(cur, sql, rows, page_size=5000)
+            conn.commit()
         return len(rows)
 
     def insert_of_gate_metrics_quarantine(self, rows: list[tuple[Any, ...]]) -> int:
@@ -587,6 +591,7 @@ class PgWriter:
         """
         with self._conn() as conn, conn.cursor() as cur:
             execute_values(cur, sql, rows, page_size=5000)
+            conn.commit()
         return len(rows)
 
 
@@ -647,6 +652,7 @@ class PgWriter:
         with self._conn() as conn, conn.cursor() as cur:
             from psycopg2.extras import execute_values
             execute_values(cur, sql, rows, page_size=2000)
+            conn.commit()
         return len(rows)
 
 class StreamArchiver:

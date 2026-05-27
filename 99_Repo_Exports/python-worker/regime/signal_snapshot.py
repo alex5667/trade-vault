@@ -43,7 +43,8 @@ class SignalSnapshot:
     l3: SignalL3Snapshot
 
     # Основные метрики (примеры - расширить по необходимости)
-    atr_14: float = 0.0
+    atr_14: float = 0.0   # 1m ATR (signal_logger maps as atr_1m)
+    atr_5m: float = 0.0   # 5m ATR
     delta_spike_z: float = 0.0
     obi_avg_20: float = 0.0
     weak_progress_ratio: float = 0.0
@@ -108,6 +109,7 @@ class SignalSnapshot:
             signal_family=data.get("signal_family") or data.get("setup_type") or "unknown",
             conf_score=data.get("conf_score") or data.get("confidence") or data.get("final_score") or 0.0,
             atr_14=float(_get_field("atr_14", "atr") or 0.0),
+            atr_5m=float(_get_field("atr_5m", "atr_5m") or 0.0),
             delta_spike_z=float(_get_field("delta_spike_z", "delta_z") or 0.0),
             obi_avg_20=float(_get_field("obi_avg_20", "obi") or 0.0),
             weak_progress_ratio=float(_get_field("weak_progress_ratio", "weak_progress") or 0.0),
@@ -156,8 +158,9 @@ def build_signal_snapshot(
         conf_score=conf_score,
         # Основные поля (расширить по необходимости)
         atr_14=getattr(ctx, 'atr', 0.0),
-        delta_spike_z=getattr(ctx, 'z_delta', 0.0),
-        obi_avg_20=getattr(ctx, 'obi_avg_20', 0.0),
+        atr_5m=getattr(ctx, 'atr_5m', 0.0),
+        delta_spike_z=getattr(ctx, 'z_delta', getattr(ctx, 'delta_spike_z', 0.0)),
+        obi_avg_20=getattr(ctx, 'obi_avg_20', getattr(ctx, 'obi', 0.0)),
         weak_progress_ratio=getattr(ctx, 'weak_progress_ratio', 0.0),
         l3=l3,
         extra=extra

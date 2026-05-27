@@ -13,6 +13,9 @@ LOCK_TTL = 60
 RENEW_INTERVAL = 20
 REDIS_CONNECT_RETRY_DELAY = 10
 REDIS_CONNECT_MAX_RETRIES = 30  # 5 minutes total
+# Main must wait > LOCK_TTL + LOCK_RETRY_INTERVAL so minik wins the race after a restart.
+# LOCK_TTL=60 + retry=30 → 95s gives minik a comfortable window.
+MAIN_INITIAL_YIELD_SEC = 95
 
 
 async def lock_renewer(redis, lock_key, process):
@@ -54,8 +57,8 @@ async def main():
     lock_key = f"daemon_lock:{args.job_name}"
 
     if not args.is_minik:
-        print(f"[{args.job_name}] Main host yielding to Minik (initial 60s wait)...")
-        await asyncio.sleep(60)
+        print(f"[{args.job_name}] Main host yielding to Minik (initial {MAIN_INITIAL_YIELD_SEC}s wait)...")
+        await asyncio.sleep(MAIN_INITIAL_YIELD_SEC)
 
     redis = await connect_redis_with_retry(redis_url, args.job_name)
 

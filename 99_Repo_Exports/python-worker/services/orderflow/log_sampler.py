@@ -208,6 +208,7 @@ def sampled_log(logger: logging.Logger, level: int, key: str, message: str, *arg
         *args, **kwargs: Additional arguments for logger.log()
     """
     key_str = str(key)
+    kwargs.pop("sample_rate", None)
     sampler = LogSamplerFactory.get_sampler(key_str)
     if sampler.should_log(key_str):
         if logger:

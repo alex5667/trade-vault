@@ -94,6 +94,7 @@ def _build_iceberg_signal_payload(
         "price": float(price),      # normalized mirror (audit-friendly)
         "type": "orderflow",
         "subtype": "iceberg",
+        "source_service": os.getenv("SERVICE_NAME", "binance_iceberg_detector"),
         "confidence": float(conf01),               # legacy scale 0..1
         "confidence_pct": float(conf01 * 100.0),   # unified scale 0..100
         "ts": ts_ms,     # legacy (ms in this detector)

@@ -38,21 +38,35 @@ def _share_for_stage(stage: str) -> float:
         "rolled_back": 0.0,
     }.get(stage, 0.0)
 
+_ATR_PROPOSAL_PREFIX = "cfg:suggestions:atr_policy_v2:"
+_ATR_EMPTY_SENTINEL = "cfg:suggestions:atr_policy_v2:_scan_empty"
+_ATR_EMPTY_TTL_SEC = 90
+
+
 def run_once() -> int:
     r = _redis()
     conn = psycopg2.connect(_dsn(), connect_timeout=5, application_name="atr_policy_rollout_controller")
     changed = 0
     try:
+        # Skip expensive keyspace SCAN when no proposals were found recently.
+        # Write paths that add proposals must delete this sentinel key.
+        if r.exists(_ATR_EMPTY_SENTINEL):
+            return 0
+
         cur = 0
         proposals = []
         while True:
-            cur, keys = r.scan(cur, match="cfg:suggestions:atr_policy_v2:*", count=10000)
+            cur, keys = r.scan(cur, match=f"{_ATR_PROPOSAL_PREFIX}*", count=500)
             for key in keys:
                 raw = r.get(key)
                 if raw:
                     proposals.append(json.loads(raw))
             if cur == 0:
                 break
+
+        if not proposals:
+            r.set(_ATR_EMPTY_SENTINEL, "1", ex=_ATR_EMPTY_TTL_SEC)
+            return 0
 
         with conn, conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as db:
             for p in proposals:

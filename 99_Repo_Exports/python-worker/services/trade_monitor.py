@@ -1658,6 +1658,9 @@ class TradeMonitorService:
             direction=getattr(pos, "direction", ""),  # type: ignore
             ts_ms=int(exit_ts_ms),
             payload={
+                "exit_price": float(exit_price),
+                "lot": float(getattr(pos, "lot", 0.0) or 0.0),
+                "qty": float(getattr(pos, "lot", 0.0) or 0.0),
                 "reason": str(getattr(closed, "close_reason", "") or ""),
                 "reason_raw": close_reason_raw,
                 "close_reason_detail": str(getattr(closed, "close_reason_detail", "") or ""),
@@ -2248,6 +2251,17 @@ class TradeMonitorService:
 
             # P1-9: recover FSM from persisted flags
             self._recover_fsm(pos)
+
+            # Restore entry_regime — not covered by hydrate_position_from_signal_payload
+            try:
+                _rg = (h.get("entry_regime") or h.get("regime") or "na").strip().lower()
+                if _rg and _rg not in ("na", "none", "null", "unknown", ""):
+                    pos.entry_regime = _rg
+                    if not pos.regime or pos.regime in ("", "na"):
+                        pos.regime = _rg
+            except Exception:
+                pass
+
             return pos
         except Exception as e:
             self.logger.warning(f"Failed to recover position from hash: {e}")
@@ -4294,6 +4308,9 @@ class TradeMonitorService:
                             direction=getattr(pos, "direction", ""),  # type: ignore
                             ts_ms=int(exit_ts_ms or now_ms),
                             payload={
+                                "exit_price": exit_price,
+                                "lot": float(getattr(pos, "lot", 0.0) or 0.0),
+                                "qty": float(getattr(pos, "lot", 0.0) or 0.0),
                                 "reason": str(getattr(closed, "close_reason", "") or ""),
                                 "reason_raw": str(getattr(closed, "close_reason_raw", "") or str(raw)),
                                 "close_reason_detail": str(getattr(closed, "close_reason_detail", "") or ""),  # type: ignore
@@ -5119,6 +5136,8 @@ class TradeMonitorService:
                 payload={
                     "sl": float(getattr(pos, "sl", 0.0) or 0.0),
                     "exit_price": float(price),
+                    "lot": float(getattr(pos, "lot", 0.0) or 0.0),
+                    "qty": float(getattr(pos, "lot", 0.0) or 0.0),
                     "remaining_qty_closed": float(close_qty),
                     "reason_raw": str(raw),
                     "external_event_id": event_id,
@@ -5135,6 +5154,9 @@ class TradeMonitorService:
                 direction=pos.direction,
                 ts_ms=int(ts),
                 payload={
+                    "exit_price": float(price),
+                    "lot": float(getattr(pos, "lot", 0.0) or 0.0),
+                    "qty": float(getattr(pos, "lot", 0.0) or 0.0),
                     "reason": getattr(closed, "close_reason", ""),
                     "reason_raw": getattr(closed, "close_reason_raw", str(raw)),
                     "external_event_id": event_id,
@@ -5471,6 +5493,9 @@ class TradeMonitorService:
                 direction=pos.direction,
                 ts_ms=int(ts_ms),
                 payload={
+                    "exit_price": price,
+                    "lot": float(getattr(pos, "lot", 0.0) or 0.0),
+                    "qty": float(getattr(pos, "lot", 0.0) or 0.0),
                     "reason": getattr(closed, "close_reason", ""),
                     "reason_raw": getattr(closed, "close_reason_raw", f"TP{int(tp_level)}"),
                     "external_event_id": event_id,

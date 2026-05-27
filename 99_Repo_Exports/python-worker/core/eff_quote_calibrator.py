@@ -102,7 +102,9 @@ class EffQuoteCalibrator:
     def dump_regime_state(self, *, symbol: str, regime: str, updated_ts_ms: int) -> dict[str, Any]:
         r = (regime or "na")
         n = int(self._n.get(r, 0))
-        q_eff = self._eff_q20.get(r)
+        q_eff10 = self._eff_q10.get(r)
+        q_eff20 = self._eff_q20.get(r)
+        q_eff30 = self._eff_q30.get(r)
         q_qd = self._qd_q30.get(r)
         return {
             "v": 1,
@@ -111,7 +113,9 @@ class EffQuoteCalibrator:
             "updated_ts_ms": int(updated_ts_ms),
             "min_samples": int(self.min_samples),
             "n": n,
-            "eff_q20": (q_eff.to_state() if q_eff else None),
+            "eff_q10": (q_eff10.to_state() if q_eff10 else None),
+            "eff_q20": (q_eff20.to_state() if q_eff20 else None),
+            "eff_q30": (q_eff30.to_state() if q_eff30 else None),
             "qd_q30": (q_qd.to_state() if q_qd else None),
         }
 
@@ -123,10 +127,16 @@ class EffQuoteCalibrator:
         try:
             r = (state.get("regime") or "na")
             n = int(state.get("n", 0) or 0)
-            eff = state.get("eff_q20")
+            eff10 = state.get("eff_q10")
+            eff20 = state.get("eff_q20")
+            eff30 = state.get("eff_q30")
             qd = state.get("qd_q30")
-            if isinstance(eff, dict):
-                self._eff_q20[r] = P2Quantile.from_state(eff)
+            if isinstance(eff10, dict):
+                self._eff_q10[r] = P2Quantile.from_state(eff10)
+            if isinstance(eff20, dict):
+                self._eff_q20[r] = P2Quantile.from_state(eff20)
+            if isinstance(eff30, dict):
+                self._eff_q30[r] = P2Quantile.from_state(eff30)
             if isinstance(qd, dict):
                 self._qd_q30[r] = P2Quantile.from_state(qd)
             self._n[r] = n

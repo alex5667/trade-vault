@@ -180,6 +180,14 @@ class PEdgeThresholdCalibrator:
     abs_thresh: float = 0.02         # hysteresis: skip if |Δτ| < abs_thresh
     max_jump_abs: float = 0.03       # cap each commit at |τ_new - τ_prev|
 
+    # ----- P2.3: min-coverage gate for direction-specific bins ──────────
+    # A direction-specific bin (key[3] in {"long","short"}) must accumulate
+    # at least this many observations before it's trusted on the read path.
+    # Below this threshold the read path skips the directional bin and falls
+    # back to the direction-agnostic aggregate ("*" level).
+    # Set to 0 to disable the gate entirely (useful for testing).
+    min_dir_coverage: int = 150
+
     # ----- enforce flag (False → shadow only) ---------------------------
     enforce: bool = False
 
@@ -296,6 +304,18 @@ class PEdgeThresholdCalibrator:
             ("*", "*", "*", "*"),            # 6. cross-asset anchor
         )
 
+    def _dir_bin_has_coverage(self, k: Key, b: _Bin) -> bool:
+        """Return True if a direction-specific bin meets the min-coverage gate.
+
+        Only applied to keys where direction is concrete ("long"/"short").
+        Wildcard bins (direction="*") are always trusted — they aggregate
+        all directions and are governed by `min_total_trades` during _maybe_recompute.
+        When `min_dir_coverage` == 0 the gate is disabled entirely.
+        """
+        if k[3] == "*" or self.min_dir_coverage <= 0:
+            return True
+        return b.n_observed >= self.min_dir_coverage
+
     def p_min_for(
         self,
         *,
@@ -313,6 +333,11 @@ class PEdgeThresholdCalibrator:
         first checks the direction-specific bin and falls back to the
         direction-agnostic aggregate if it hasn't warmed up yet. Default
         "*" preserves pre-Phase-B behaviour exactly.
+
+        P2.3 min-coverage gate: a direction-specific bin is only trusted when
+        it has accumulated at least `min_dir_coverage` observations. Below that
+        threshold the read path skips it and falls through to the wildcard bin
+        at level 2, preventing noisy thresholds from under-sampled bins.
         """
         if not self.enforce:
             return self.default_p_min
@@ -323,6 +348,8 @@ class PEdgeThresholdCalibrator:
         for k in self._fallback_keys(sym, reg, knd, dir_norm):
             b = self.bins.get(k)
             if b is None or b.p_min <= 0.0:
+                continue
+            if not self._dir_bin_has_coverage(k, b):
                 continue
             return b.p_min
         return self.default_p_min
@@ -336,7 +363,11 @@ class PEdgeThresholdCalibrator:
         direction: str = "*",
     ) -> float:
         """Latest proposed cutoff regardless of enforce flag (for counterfactual
-        reports). Returns 0.0 when no proposal exists yet."""
+        reports). Returns 0.0 when no proposal exists yet.
+
+        P2.3: same min-coverage gate as p_min_for() — directional bins below
+        `min_dir_coverage` observations are skipped on the read path.
+        """
         sym = (symbol or "*").upper()
         reg = (regime or "*").lower()
         knd = (kind or "*").lower()
@@ -344,6 +375,8 @@ class PEdgeThresholdCalibrator:
         for k in self._fallback_keys(sym, reg, knd, dir_norm):
             b = self.bins.get(k)
             if b is None:
+                continue
+            if not self._dir_bin_has_coverage(k, b):
                 continue
             if b.shadow_p_min > 0.0:
                 return b.shadow_p_min

@@ -458,6 +458,10 @@ async def _write_outputs(
     # P2 ctx_tighten attribution: extract from signal_payload.indicators
     # Written by signal_pipeline._apply_decision when SentimentContextGate /
     # DefiLlamaContextGate fires TIGHTEN. Zero when gate disabled/abstain.
+    # Source priority:
+    #   1. close_ev.signal_payload.indicators (NestJS-originated close event)
+    #   2. decision.indicators_small (decision:{sid} snapshot, includes these fields
+    #      since P2.5 added them to _INDICATORS_SMALL_ALLOW in decision_snapshot.py)
     _ctx_senti_bps = 0.0
     _ctx_defi_bps = 0.0
     try:
@@ -474,6 +478,21 @@ async def _write_outputs(
             _ctx_defi_bps = float(_inds.get("ctx_defillama_tighten_bps", 0.0) or 0.0)
     except Exception:
         pass
+    # Fallback: read from decision.indicators_small (populated by decision_snapshot_writer
+    # since _INDICATORS_SMALL_ALLOW now includes these fields — P2.5 fix).
+    if _ctx_senti_bps == 0.0 or _ctx_defi_bps == 0.0:
+        try:
+            _d_inds = decision.get("indicators_small") or {}
+            if isinstance(_d_inds, str):
+                import json as _json_mod  # noqa: F811
+                _d_inds = _json_mod.loads(_d_inds)
+            if isinstance(_d_inds, dict):
+                if _ctx_senti_bps == 0.0:
+                    _ctx_senti_bps = float(_d_inds.get("ctx_sentiment_tighten_bps", 0.0) or 0.0)
+                if _ctx_defi_bps == 0.0:
+                    _ctx_defi_bps = float(_d_inds.get("ctx_defillama_tighten_bps", 0.0) or 0.0)
+        except Exception:
+            pass
 
     # 2026-05-23 calibrator refit support: persist BOTH raw and calibrated
     # probabilities + ml_version so tools/refit_meta_lr_blend_calibrator.py

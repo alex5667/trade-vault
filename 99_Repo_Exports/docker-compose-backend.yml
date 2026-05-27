@@ -441,6 +441,7 @@ services:
     - TRAILING_AUTOTUNE_ENABLED=true
     - TRAILING_AUTOTUNE_CONF_THRESHOLD=0.6
     - TZ=UTC
+    - LOCK_REDIS_URL=redis://redis:6379/0
     depends_on:
       redis:
         condition: service_healthy
@@ -463,7 +464,7 @@ services:
     - sh
     - -c
     - "while true; do\n  echo \"\U0001F527 \u0417\u0430\u043F\u0443\u0441\u043A trailing\
-      \ tuner...\"\n  python tools/recommend_trailing_from_redis.py\n  echo \"\u2705\
+      \ tuner...\"\n  python3 tools/run_with_minik_failover.py --job-name trailing_tuner -- python tools/recommend_trailing_from_redis.py\n  echo \"\u2705\
       \ \u0417\u0430\u0432\u0435\u0440\u0448\u0435\u043D\u043E. \u041E\u0436\u0438\
       \u0434\u0430\u043D\u0438\u0435 1 \u0447\u0430\u0441...\"\n  sleep 3600\ndone\n"
   scanner-trailing-autotune:
@@ -495,11 +496,9 @@ services:
     - TRAILING_AUTOTUNE_REPORT_TITLE_SUFFIX=(Standard 5000)
     - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
     - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID}
+    - LOCK_REDIS_URL=redis://redis:6379/0
     - TZ=UTC
-    command:
-    - python
-    - -m
-    - tools.trailing_autotune_telegram
+    command: python3 tools/run_daemon_with_minik_failover.py --job-name trailing_autotune_telegram -- python -m tools.trailing_autotune_telegram
     networks:
     - scanner-core
     - scanner-infra
@@ -548,11 +547,9 @@ services:
     - TRAILING_AUTOTUNE_REPORT_TITLE_SUFFIX=(24h Fast)
     - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
     - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID}
+    - LOCK_REDIS_URL=redis://redis:6379/0
     - TZ=UTC
-    command:
-    - python
-    - -m
-    - tools.trailing_autotune_telegram
+    command: python3 tools/run_daemon_with_minik_failover.py --job-name trailing_autotune_telegram_24h -- python -m tools.trailing_autotune_telegram
     networks:
     - scanner-core
     - scanner-infra
@@ -693,11 +690,12 @@ services:
     - EXECUTION_JOURNAL_DSN=${EXECUTION_JOURNAL_DSN}
     - TAKER_CALIBRATOR_HOURS=${TAKER_CALIBRATOR_HOURS:-168}
     - TZ=UTC
+    - LOCK_REDIS_URL=redis://redis:6379/0
     command:
     - sh
     - -c
     - while true; do current_hour=$$(date -u +%H); if [ "$$current_hour" = "04" ];
-      then echo 'Running Taker Flow Gate Calibrator...'; python tools/taker_flow_gate_calibrator.py
+      then echo 'Running Taker Flow Gate Calibrator...'; python3 tools/run_with_minik_failover.py --job-name taker_flow_calibrator -- python tools/taker_flow_gate_calibrator.py
       --hours ${TAKER_CALIBRATOR_HOURS:-168}; echo 'Done. Sleeping 23h...'; sleep
       82000; else echo 'Waiting for 04:00 UTC...'; sleep 600; fi; done
     networks:
@@ -740,11 +738,12 @@ services:
     - ML_CAL_PRECISION_L4=${ML_CAL_PRECISION_L4:-0.62}
     - ML_CAL_ENFORCE_HOLDDOWN_H=${ML_CAL_ENFORCE_HOLDDOWN_H:-72}
     - TZ=UTC
+    - LOCK_REDIS_URL=redis://redis:6379/0
     command:
     - sh
     - -c
     - while true; do current_hour=$$(date -u +%H); if [ "$$current_hour" = "05" ];
-      then echo 'Running ML Confirm Gate Calibrator...'; python tools/ml_confirm_gate_calibrator.py
+      then echo 'Running ML Confirm Gate Calibrator...'; python3 tools/run_with_minik_failover.py --job-name ml_confirm_calibrator -- python tools/ml_confirm_gate_calibrator.py
       --hours ${ML_CAL_HOURS:-168}; echo 'Done. Sleeping 23h...'; sleep 82000; else
       echo 'Waiting for 05:00 UTC...'; sleep 600; fi; done
     networks:
@@ -781,10 +780,8 @@ services:
     - REDIS_URL=${REDIS_URL}
     - BURST_REPORT_INTERVAL_SEC=900
     - TZ=UTC
-    command:
-    - python
-    - -m
-    - tools.burst_report
+    - LOCK_REDIS_URL=redis://redis:6379/0
+    command: python3 tools/run_with_minik_failover.py --job-name burst_report -- python -m tools.burst_report
     networks:
     - scanner-core
     - scanner-infra

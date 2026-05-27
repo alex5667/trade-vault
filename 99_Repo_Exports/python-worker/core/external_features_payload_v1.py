@@ -81,7 +81,7 @@ def _record_fail_open(reason: str) -> None:
                 "v14_of external_features_payload fail-open events at wiring site",
                 ["reason"],
             )
-        _EXT_FAIL_OPEN_COUNTER.labels(reason=str(reason or "unknown")).inc()
+        _EXT_FAIL_OPEN_COUNTER.labels(reason=reason or "unknown").inc()
     except Exception:
         # Never let observability break the hot path.
         if _EXT_FAIL_OPEN_COUNTER is None:
@@ -317,7 +317,7 @@ _NUM_KEYS: tuple[str, ...] = (
     "hold_target_ms_norm", "alpha_half_life_ms_norm",
     "max_signal_age_ratio", "vol_ratio_fast_slow",
     # ── Phase v5: Data quality / tick quality
-    "dq_score", "dq_flag_count",
+    "dq_score", "dq_flag_count", "dq_level", "dq_pen",
     "tick_lag_ms", "tick_lag_p95_1m",
     "tick_reorder_rate_1m", "tick_dedupe_rate_1m",
     "tick_gap_count_1m", "bad_time_streak",
@@ -330,6 +330,8 @@ _NUM_KEYS: tuple[str, ...] = (
     "depth_to_taker_rate_ratio", "maker_fill_vs_taker_cost_edge",
     # ── Phase v5: Gate trace extra
     "rule_have_need_gap", "missing_legs_count", "gate_pressure_score",
+    # ── Microstructure spread z-score (signal_pipeline ML bridge → runtime.last_spread_z)
+    "spread_bps_z",
 )
 
 # Bool-like keys — encoded as 0/1 float (v13/v14 schemas have no bool block).
@@ -339,6 +341,22 @@ _BOOL_KEYS: tuple[str, ...] = (
     # ── Phase 8.1 Fear & Greed regime flags
     "fear_greed_regime_extreme_fear",
     "fear_greed_regime_extreme_greed",
+    # ── of_confirm_engine FP-edge absorb gate (0/1)
+    "fp_edge_absorb",
+    # ── tick_decision_engine + strategy OBI/pressure flags (v15_of TICK_SIGNAL_FLAGS group)
+    # obi_sustained stored as Python bool in indicators → cast to 0.0/1.0 here
+    "obi_sustained",
+    "pressure_hi_flag",
+    "pressure_extreme_flag",
+    # ── SMT coherence gate (smt_coherence_gate.py → signal_pipeline propagation block)
+    "smt_blocked",
+    "smt_leader_confirm",
+    # ── of_confirm_engine build() sweep flags
+    "sweep_any",
+    "sweep_eqh",
+    "sweep_eql",
+    # ── Strong gate OK (tick_decision_engine + strategy.py: 0=fail, 1=pass)
+    "strong_gate_ok",
 )
 
 # v12_of base keys whose producers exist in code (atr/liqmap/microbar/v12 features/
@@ -358,6 +376,12 @@ _V12_BASE_OPTIONAL_KEYS: tuple[str, ...] = (
     "bid_ask_queue_imbalance", "calibration_age_ms", "cvd_divergence_from_price",
     "depth_migration_bps", "eth_btc_corr_5m", "large_trade_ratio",
     "last_trade_outcome_raw", "level2_wap_divergence",
+    # v12_of Group MD (stable_coin_flow_delta) + Group MX (spread_percentile_rank_1d)
+    # injected by inject_v12_of_features → always present in _inds for normal signal path
+    "stable_coin_flow_delta",
+    "spread_percentile_rank_1d",
+    # SMT leader continuous confidence score (float or None when no SMT state)
+    "smt_leader_conf_score",
     # Iceberg / decision-engine stats
     "iceberg_avg_qty",
     # Veto bookkeeping (of_confirm_engine)
@@ -384,10 +408,26 @@ _V12_BASE_OPTIONAL_KEYS: tuple[str, ...] = (
     "conf_ma_ratio", "confidence_x_of_score", "expectancy_bps",
     "fill_time_p90_ms", "gate_hardness_score",
     "slippage_realized_bps", "model_calibration_err",
-    # microstructure / hurst / kyle
+    # microstructure / hurst / kyle / v13-tracker
     "hurst_exp_50", "hurst_x_vol_regime",
     "kelly_fraction_roll", "kyle_lambda", "kyle_x_vpin", "taker_lambda",
     "tick_autocorr_lag1", "roll_spread_est",
+    "hasbrouck_info_share", "half_life_mean_reversion", "entropy_x_spread",
+    # liquidation / liq pressure gate (of_confirm_engine:2128-2342, only when gate runs)
+    "liq_pressure_boost", "liq_pressure_pen", "liq_pressure_veto",
+    "liq_q_align", "liq_ofi_align",
+    # liqmap geometry gate (of_confirm_engine:2128-2137, only when LIQ_GEOM_ENABLED=1)
+    "liqmap_gate_adverse_peak_usd", "liqmap_gate_favorable_peak_usd",
+    "liqmap_gate_reward_bps", "liqmap_gate_risk_bps", "liqmap_gate_rr",
+    "liqmap_gate_shadow_veto", "liqmap_gate_soft", "liqmap_gate_veto",
+    # liqmap calibration / geom monitor (strategy.py, written when liqmap runs)
+    "liq_calib_n", "liq_geom_monitor_hit",
+    # v13 tracker / Group ND cross-asset
+    "lambda_asym", "liq_heatmap_distance_bps",
+    # v13 tracker / Group NE entropy + NF stationarity (computed by V13RuntimeTracker.snapshot();
+    # merged into indicators via of_confirm_engine:indicators.update(v13_snap) and
+    # signal_pipeline non-zero filter — explicit bridge for optional presence check)
+    "mutual_info_price_volume", "price_entropy_50", "order_size_gini", "adf_pvalue_50",
     # liquidation / liq mapping
     "liq_score_x_spread", "liqmap_1h_age_ms", "liquidation_usd_1m",
     # maker / market
@@ -408,6 +448,14 @@ _V12_BASE_OPTIONAL_KEYS: tuple[str, ...] = (
     # vol / vpin
     "vol_fast_bps", "vol_regime_code", "vol_slow_bps",
     "vpin_rolling", "vpin_x_funding",
+    # v12_of Group MB — order book dynamics (computed by inject_v12_of_features;
+    # also safety-fallback here so build_external_features_payload bridge always
+    # includes them even when inject path is skipped).
+    "quote_stuffing_score",   # cancel_50ms / quote_50ms; in v13/v14/v15_of schema
+    "session_overlap_flag",   # 1.0 if NY∩London or Asia∩London overlap; deterministic
+    # regime binary features (signal_pipeline._enrich_signal line 2344 + of_confirm_engine)
+    "range_score",            # max(0, -regime_score): regime range-ness
+    "rsi_agree",              # 0/1: RSI confirmation gate passed
 )
 
 

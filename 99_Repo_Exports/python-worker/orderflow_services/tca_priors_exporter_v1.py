@@ -124,7 +124,6 @@ class TCAEMAState:
         perm_1s_bps: float,
         perm_5s_bps: float,
         is_bps: float,
-        ts_ms: int,
     ) -> dict[str, float]:
         key = (symbol, kind, session)
         prev = self._cache.get(key, {})
@@ -145,7 +144,10 @@ class TCAEMAState:
             new_state[metric] = (1 - self.alpha) * prev_val + self.alpha * value
 
         new_state["samples"] = float(prev.get("samples", 0.0)) + 1.0
-        new_state["last_update_ms"] = float(ts_ms)
+        # Use ingestion time (now) so staleness reflects when data was processed,
+        # not when the trade happened (virtual fills bridge uses historical ts_ms).
+        import time as _time
+        new_state["last_update_ms"] = float(int(_time.time() * 1000))
 
         # p95 of eff_spread (spread_p95) and is_bps (slippage_p95) via bounded window.
         if math.isfinite(eff_spread_bps):
@@ -421,7 +423,6 @@ def main() -> None:
                             perm_1s_bps=metrics["perm_1s_bps"],
                             perm_5s_bps=metrics["perm_5s_bps"],
                             is_bps=metrics["is_bps"],
-                            ts_ms=ts_ms,
                         )
 
                         labels = {"symbol": symbol, "kind": kind, "session": session}

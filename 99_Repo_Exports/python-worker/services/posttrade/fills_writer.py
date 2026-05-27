@@ -98,9 +98,10 @@ def _event_type(ev: dict[str, Any]) -> str:
 
 
 def _fill_role(et: str) -> str | None:
-    if et == "POSITION_OPENED":
+    # trade_monitor emits "OPEN"/"CLOSE" (current); legacy path used "POSITION_OPENED"/"POSITION_CLOSED"
+    if et in ("POSITION_OPENED", "OPEN"):
         return "entry"
-    if et == "POSITION_CLOSED":
+    if et in ("POSITION_CLOSED", "CLOSE", "SL_HIT", "TP_HIT", "TP1_HIT", "TP2_HIT", "TP3_HIT"):
         return "exit"
     return None
 
@@ -121,7 +122,7 @@ def _best_effort_fee_bps(ev: dict[str, Any]) -> float | None:
             f = float(fees_usd)
             t = float(turnover)
             if t > 0:
-                return float(f / t * 10_000.0)
+                return f / t * 10_000.0
     except Exception:
         pass
     return None
@@ -252,7 +253,7 @@ def _to_fill_row(ev: dict[str, Any], *, stream_id: str) -> tuple[dict[str, Any] 
         "sid": ev.get("sid") or ev.get("signal_id"),
         "order_id": ev.get("order_id") or ev.get("exit_order_id") or ev.get("position_id") or ev.get("event_id") or "",
         "ts_fill_ms": ev.get("ts_fill_ms") or ev.get("exit_ts_ms") or ev.get("ts") or ev.get("ts_ms"),
-        "px": ev.get("px") or ev.get("price"),
+        "px": ev.get("px") or ev.get("price") or ev.get("exit_price") or ev.get("entry_price") or ev.get("fill_price"),
         "qty": ev.get("qty") or ev.get("lot"),
         "fee_bps": _best_effort_fee_bps(ev),
         "venue": ev.get("venue") or ev.get("source"),

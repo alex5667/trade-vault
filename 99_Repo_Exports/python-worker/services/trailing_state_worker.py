@@ -291,6 +291,15 @@ def compute_new_sl(state: TrailingState, price: float) -> float | None:
     SHORT: lwm falls → sl = lwm + atr * mult. Never higher than current_sl.
     Min move: abs(candidate - last_sent_sl) >= min_move_ticks * tick_size.
     Max updates: if updates_sent >= max_updates, return None.
+
+    IMPORTANT: zero-sentinel handling
+    ----------------------------------
+    ``current_sl == 0`` means initial SL was not provided in the TP_HIT event
+    and could not be recovered from the signal. It is NOT a valid price level.
+    Applying "never retreat" guard against 0 causes:
+      - SHORT: candidate (e.g. 77_437) >= 0 -> always True -> SL never moves.
+      - LONG:  candidate (e.g. 76_729) <= 0 -> False by accident -> works.
+    Both guards are skipped when current_sl == 0 (first-move case).
     """
     if state.updates_sent >= state.max_updates:
         return None
@@ -309,12 +318,13 @@ def compute_new_sl(state: TrailingState, price: float) -> float | None:
         candidate = new_hwm - trail_dist
         candidate = round_to_tick(candidate, state.tick_size, up=False)
 
-        # Never retreat
-        if candidate <= state.current_sl:
+        # Never retreat.
+        # Skip when current_sl == 0 (sentinel meaning "initial SL not set").
+        if state.current_sl != 0.0 and candidate <= state.current_sl:
             return None
 
-        # Min move filter
-        if abs(candidate - reference_sl) < min_move:
+        # Min move filter. Skip first move when reference_sl is also 0.
+        if reference_sl != 0.0 and abs(candidate - reference_sl) < min_move:
             return None
 
         return candidate
@@ -326,12 +336,15 @@ def compute_new_sl(state: TrailingState, price: float) -> float | None:
         candidate = new_lwm + trail_dist
         candidate = round_to_tick(candidate, state.tick_size, up=True)
 
-        # Never retreat (for SHORT, SL never rises)
-        if candidate >= state.current_sl:
+        # Never retreat (for SHORT, SL must only fall, never rise).
+        # Skip when current_sl == 0 (sentinel meaning "initial SL not set").
+        # BUG FIX: without this guard, candidate (e.g. 77_437) >= 0 is ALWAYS True
+        # -> SL is permanently frozen for any SHORT position without initial SL.
+        if state.current_sl != 0.0 and candidate >= state.current_sl:
             return None
 
-        # Min move filter (distance, always positive)
-        if abs(candidate - reference_sl) < min_move:
+        # Min move filter. Skip first move when reference_sl is also 0.
+        if reference_sl != 0.0 and abs(candidate - reference_sl) < min_move:
             return None
 
         return candidate
@@ -1036,7 +1049,7 @@ class TrailingStateWorker:
                     stream_key = RS.TICK_TPL.format(symbol=sym)
                     cursor = cursors.get(sym, "$")
                     try:
-                        results = r_tick.xread({stream_key: cursor}, count=20, block=0)  # type: ignore[arg-type]
+                        results = r_tick.xread({stream_key: cursor}, count=20, block=None)  # type: ignore[arg-type]
                     except Exception as exc:
                         log.debug("xread tick %s: %s", stream_key, exc)
                         continue
@@ -1048,6 +1061,7 @@ class TrailingStateWorker:
                                 price = float(fields.get("price") or fields.get("last_price") or 0.0)
                                 tick_ts = int(fields.get("ts") or fields.get("ts_ms") or now_ms)
                                 if price > 0:
+                                    if sym == "ETHUSDT": log.info(f"ETHUSDT tick {price}")
                                     self.on_tick(sym, price, tick_ts)
                             except Exception as exc:
                                 log.debug("tick parse %s: %s", sym, exc)

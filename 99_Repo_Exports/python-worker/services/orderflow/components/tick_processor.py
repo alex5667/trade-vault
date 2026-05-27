@@ -235,6 +235,24 @@ class TickProcessor:
                 self._health_metrics, runtime, symbol, event_ts_ms, now_ms
             )
 
+            # Feed per-tick data into V13RuntimeTracker (NC/NE groups: entropy,
+            # sweep ratio, PIN, Kyle lambda). Fail-open: any exception skipped.
+            with contextlib.suppress(Exception):
+                _v13 = getattr(runtime, "v13_tracker", None)
+                if _v13 is not None:
+                    _px = float(tick.get("price") or tick.get("p") or 0.0)
+                    _qty = float(tick.get("qty") or tick.get("q") or 0.0)
+                    _side = str(tick.get("side") or tick.get("m") or "BUY")
+                    _ts = int(tick.get("ts_ms") or tick.get("event_ts_ms") or event_ts_ms or 0)
+                    _mid = float(
+                        getattr(runtime, "last_book_mid", 0.0)
+                        or tick.get("book_mid", 0.0)
+                        or 0.0
+                    )
+                    _lc = int(tick.get("levels_crossed") or 0)
+                    if _px > 0 and _qty > 0 and _ts > 0:
+                        _v13.on_tick(_px, _qty, _side, _ts, book_mid=_mid, levels_crossed=_lc)
+
             strat = self._strategy_fn()
             if strat:
                 t0_ns = _time.perf_counter_ns()

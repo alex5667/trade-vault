@@ -144,6 +144,11 @@ class PathBasedTpReader:
         sym = (symbol or ALL).upper()
         rg = (regime or ALL).lower()
         dr = (direction or ALL).upper()
+        # P1.4 — additional reader-side critical-mass gate. Writer can publish
+        # enforce=1 once min_winners is satisfied (default 30), but at the
+        # signal_pipeline call site we want a higher bar (default 500 total
+        # observations per bucket) before letting autocal override the live TP.
+        min_n_total = _env_int("PATH_TP_AUTOCAL_ENFORCE_MIN_N", 500)
         candidates = [
             BucketKey(sym, rg, dr),
             BucketKey(ALL, rg, dr),
@@ -157,6 +162,13 @@ class PathBasedTpReader:
                 continue
             if require_enforce and int(entry.get("enforce", 0)) != 1:
                 continue
+            # `n_total` only appears in snapshots published by writer
+            # path_based_tp_autocal_v1 (Plan 3.3). For legacy / test fixtures
+            # that omit the field, skip the min-n gate so reader behaviour
+            # stays backward-compatible.
+            if require_enforce and "n_total" in entry:
+                if int(entry.get("n_total") or 0) < min_n_total:
+                    continue
             try:
                 v = entry.get("tp1_r")
                 if v is not None:

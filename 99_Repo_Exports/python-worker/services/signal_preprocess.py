@@ -204,12 +204,12 @@ def preprocess_signal_for_publish(signal: dict[str, Any], symbol: str, source: s
             signal,
             symbol=str(symbol or signal.get("symbol") or ""),
             source=(source or "unknown"),
-        ),
+        )
     except Exception as exc:  # noqa: BLE001
         # fail-open: contract emission must never block trading
         try:
             if logger:
-                logger.debug("phase0 contract attach failed: %s", exc)
+                logger.error("phase0 contract attach failed: %s", exc)
         except Exception:
             pass
 
@@ -242,10 +242,10 @@ def preprocess_signal_for_publish(signal: dict[str, Any], symbol: str, source: s
             policy = get_atr_policy_resolver().resolve(
                 source=str(source or signal.get("source") or "CryptoOrderFlow"),
                 symbol=str(signal.get("symbol") or symbol or ""),
-                scenario=str(signal.get("kind") or signal.get("scenario") or "default"),
+                scenario=str(signal.get("scenario") or signal.get("kind") or "default"),
                 regime=str(meta.get("regime") or signal.get("regime") or "na"),
                 risk_horizon_bucket=str(horizon.get("risk_horizon_bucket") or signal.get("risk_horizon_bucket") or "unknown"),
-            ),
+            )
             meta["atr_policy_resolution"] = policy
 
             # Phase 4 metadata
@@ -278,7 +278,7 @@ def preprocess_signal_for_publish(signal: dict[str, Any], symbol: str, source: s
                 sid=str(signal.get("signal_id") or signal.get("sid") or ""),
                 regime=str(meta.get("regime") or signal.get("regime") or ""),
                 scenario=str(signal.get("kind") or signal.get("scenario") or ""),
-            ),
+            )
             meta["live_surface_canary"] = decision
 
             # always compute candidate surface for observability / diagnostics

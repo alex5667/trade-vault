@@ -64,6 +64,8 @@ _LIQMAP_INDICATOR_KEYS = {
 _INDICATORS_SMALL_ALLOW = {
     "delta_z", "obi", "ofi_z", "ofi_stability_score", "obi_stability_score",
     "book_ts_gap_ms", "book_stale_ms", "spread_bps", "confidence_raw", "confidence_cal",
+    # P2.5 — ctx_tighten attribution: must survive into decision:{sid} for joiner
+    "ctx_sentiment_tighten_bps", "ctx_defillama_tighten_bps",
     *_LIQMAP_INDICATOR_KEYS,
 }
 

@@ -61,6 +61,26 @@ def _entry_regime_db_value(closed: Any) -> str | None:
         s = str(raw).strip().lower()
         if s not in _ENTRY_REGIME_SENTINELS:
             return str(raw).strip()
+    # Fallback: dig into signal_payload (mirrors redis_repo._extract_entry_regime_from_obj)
+    try:
+        sp = getattr(closed, "signal_payload", None)
+        if isinstance(sp, str):
+            try:
+                sp = json.loads(sp)
+            except Exception:
+                sp = None
+        if isinstance(sp, dict):
+            for k in ("entry_regime", "regime", "market_regime"):
+                v = sp.get(k)
+                if v and str(v).lower() not in _ENTRY_REGIME_SENTINELS:
+                    return str(v).strip()
+            _ind = sp.get("indicators")
+            if isinstance(_ind, dict):
+                v = _ind.get("regime")
+                if v and str(v).lower() not in _ENTRY_REGIME_SENTINELS:
+                    return str(v).strip()
+    except Exception:
+        pass
     return None
 
 

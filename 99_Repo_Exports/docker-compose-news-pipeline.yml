@@ -504,6 +504,7 @@ services:
     - PLAYWRIGHT_QWEN_TIMEOUT_SEC=300
     - PLAYWRIGHT_CHATGPT_TIMEOUT_SEC=300
     - PLAYWRIGHT_ENRICHMENT_METRICS_PORT=9869
+    - LOCK_REDIS_URL=redis://redis:6379/0
     - LOG_LEVEL=INFO
     - TZ=UTC
     env_file:
@@ -512,6 +513,7 @@ services:
     - "9869:9869"
     volumes:
     - playwright_sessions:/data/playwright_sessions
+    - ./python-worker/tools/run_daemon_with_minik_failover.py:/app/python-worker/tools/run_daemon_with_minik_failover.py:ro
     networks:
     - scanner-ops
     - scanner-infra
@@ -519,14 +521,8 @@ services:
       redis:
         condition: service_healthy
     working_dir: /app/python-worker
-    command:
-    - python
-    - -m
-    - services.playwright_enrichment_worker.main
+    command: python3 tools/run_daemon_with_minik_failover.py --job-name playwright_enrichment -- python -m services.playwright_enrichment_worker.main
     deploy:
-      placement:
-        constraints:
-        - node.hostname == minik
       resources:
         limits:
           memory: 4G

@@ -141,3 +141,29 @@ class RollingRobustZ:
         if denom == 0:
             return 0.0
         return float((float(x) - float(med)) / denom)
+
+
+def bounded_mad_z(
+    x: float,
+    history: list[float],
+    *,
+    cap: float = 6.0,
+    min_n: int = 8,
+    eps: float = 1e-12,
+) -> float:
+    """One-shot bounded MAD-z score for x relative to history.
+
+    Use this for detectors that don't maintain rolling state (e.g. feature
+    computers, batch analytics). Outliers are bounded by `cap` to avoid
+    signal explosions from a single anomalous sample.
+
+    Returns 0.0 when history is too short or all values are identical.
+    """
+    vals = [v for v in history if math.isfinite(v)]
+    if len(vals) < min_n or not math.isfinite(x):
+        return 0.0
+    med = _median(vals)
+    mad = _median([abs(v - med) for v in vals])
+    denom = 1.4826 * mad + eps
+    z = (x - med) / denom
+    return max(-cap, min(cap, z))

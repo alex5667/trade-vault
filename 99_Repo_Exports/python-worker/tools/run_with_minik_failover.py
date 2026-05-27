@@ -21,7 +21,7 @@ async def main():
     if args.command and args.command[0] == '--':
         args.command = args.command[1:]
 
-    redis_url = os.environ.get("REDIS_URL", "redis://redis-worker-1:6379/0")
+    redis_url = os.environ.get("LOCK_REDIS_URL", os.environ.get("REDIS_URL", "redis://redis-worker-1:6379/0"))
     redis = aioredis.from_url(redis_url, decode_responses=True)
     lock_key = f"timer_lock:{args.job_name}"
 

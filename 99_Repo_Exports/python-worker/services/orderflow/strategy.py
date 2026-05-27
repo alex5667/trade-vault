@@ -1869,7 +1869,7 @@ class OrderFlowStrategy:
                             runtime.symbol, _g3_reason,
                             indicators.get("atr_floor_tier", -1), _g3_ready,
                         )
-                    return None
+                    # return None  # Removed to let of_confirm_engine capture telemetry
             indicators.setdefault("atr_floor_veto", 0)
             indicators.setdefault("atr_floor_veto_reason", "")
         except Exception as _g3_exc:
@@ -2387,6 +2387,7 @@ class OrderFlowStrategy:
                 indicators["of_confirm"] = ofc.to_dict()
                 indicators["of_confirm_v3"] = ofc.to_dict()
                 indicators["of_confirm_ok"] = int(ofc.ok)
+                indicators.setdefault("strong_gate_ok", int(bool(ofc.ok)))
 
                 # G10 reads absorption_volume from top-level indicators; ev is not accessible there.
                 if isinstance(ev, dict):
@@ -2817,7 +2818,7 @@ class OrderFlowStrategy:
                             self.ticks.xadd(
                                 stream,
                                 fields={"payload": json.dumps(ofc.to_dict(), ensure_ascii=False)},
-                                maxlen=int(runtime.config.get("of_confirm_stream_maxlen", 50000)),
+                                maxlen=int(runtime.config.get("of_confirm_stream_maxlen", 5000)),
                                 approximate=True,
                             )
                         )
@@ -3969,24 +3970,56 @@ class OrderFlowStrategy:
                     self.logger.error("Error in RollingPercentileCalibrator: %s", e)
 
             # Inject L3-adjacent proxy keys into indicators so signal_facts backfill has data.
-            # True L3 (microprice_velocity, queue_pressure) requires L3LiteAggregator wired into
-            # this pipeline — not yet done. Use available equivalents for the overlap columns.
+            # Use runtime.l3_queue state for features that were previously 0.0 stubs.
             try:
                 _def = lambda k, fb=0.0: (lambda v: v if v is not None else fb)(indicators.get(k))
                 indicators.setdefault("l3_spread_bps", float(_def("spread_bps")))
-                indicators.setdefault("l3_microprice_shift_bps_20", float(_def("microprice_shift_bps_20")))
                 indicators.setdefault("l3_obi_5", float(_def("obi")))
                 indicators.setdefault("l3_obi_20", float(_def("obi_20", _def("obi"))))
-                indicators.setdefault("l3_cancel_to_trade_bid_5s", float(_def("cancel_bid_rate_ema")))
-                indicators.setdefault("l3_cancel_to_trade_ask_5s", float(_def("cancel_ask_rate_ema")))
-                indicators.setdefault("l3_microprice_velocity_bps", 0.0)
-                indicators.setdefault("l3_obi_50", 0.0)
-                indicators.setdefault("l3_obi_persistence_score", 0.0)
-                indicators.setdefault("l3_cancel_to_trade_bid_20s", 0.0)
-                indicators.setdefault("l3_cancel_to_trade_ask_20s", 0.0)
-                indicators.setdefault("l3_queue_pressure_bid", 0.0)
-                indicators.setdefault("l3_queue_pressure_ask", 0.0)
-                indicators.setdefault("l3_market_depth_imbalance", 0.0)
+                indicators.setdefault("l3_cancel_to_trade_bid_5s", float(_def("cancel_to_trade_bid")))
+                indicators.setdefault("l3_cancel_to_trade_ask_5s", float(_def("cancel_to_trade_ask")))
+                # Compute from runtime.l3_queue (non-zero when book + trade data has warmed up)
+                _eps_l3 = 1e-9
+                _q_l3 = getattr(runtime, "l3_queue", None)
+                _qs_l3 = _q_l3.snapshot() if _q_l3 is not None else {}
+                _sr_l3 = max(float(_qs_l3.get("taker_sell_rate_ema", 0.0) or 0.0), _eps_l3)
+                _br_l3 = max(float(_qs_l3.get("taker_buy_rate_ema", 0.0) or 0.0), _eps_l3)
+                _c2t_b20 = float(_qs_l3.get("cancel_bid_rate_ema", 0.0) or 0.0) / _sr_l3
+                _c2t_a20 = float(_qs_l3.get("cancel_ask_rate_ema", 0.0) or 0.0) / _br_l3
+                _btot = float(getattr(_q_l3, "_l2_bid_total", 0.0) or 0.0) if _q_l3 else 0.0
+                _atot = float(getattr(_q_l3, "_l2_ask_total", 0.0) or 0.0) if _q_l3 else 0.0
+                _mdi = (_btot - _atot) / max(_btot + _atot, _eps_l3)
+                _qpb = float(_qs_l3.get("added_bid_rate_ema", 0.0) or 0.0)
+                _qpa = float(_qs_l3.get("added_ask_rate_ema", 0.0) or 0.0)
+                # microprice velocity: delta(lob_micro_shift_bps) / dt
+                # lob_micro_shift_bps = cumulative spread-weighted microprice drift (bps)
+                _cmps = float(getattr(runtime, "lob_micro_shift_bps", 0.0) or 0.0)
+                _pmps = float(getattr(runtime, "_l3_micro_shift_prev_bps", _cmps))
+                _pts = int(getattr(runtime, "_l3_micro_shift_prev_ts_ms", 0))
+                _mvel = 0.0
+                if _score_now_ms > _pts > 0:
+                    _dt_l3 = (_score_now_ms - _pts) / 1000.0
+                    if _dt_l3 >= 0.05:
+                        _mvel = (_cmps - _pmps) / _dt_l3
+                        runtime._l3_micro_shift_prev_bps = _cmps  # type: ignore[attr-defined]
+                        runtime._l3_micro_shift_prev_ts_ms = _score_now_ms  # type: ignore[attr-defined]
+                elif _pts == 0:
+                    runtime._l3_micro_shift_prev_bps = _cmps  # type: ignore[attr-defined]
+                    runtime._l3_micro_shift_prev_ts_ms = _score_now_ms  # type: ignore[attr-defined]
+                # l3_microprice_shift_bps_20: snapshot of current lob_micro_shift_bps
+                # (proxy for 20-tick cumulative microprice displacement in bps)
+                indicators.setdefault("l3_microprice_shift_bps_20", _cmps)
+                indicators.setdefault("l3_microprice_velocity_bps", _mvel)
+                indicators.setdefault("l3_obi_50", float(getattr(runtime, "lob_dw_obi", 0.0) or 0.0))
+                indicators.setdefault("l3_obi_persistence_score", float(
+                    getattr(runtime, "obi_stability_score", None) or
+                    getattr(runtime, "dw_obi_stability_score", 0.0) or 0.0
+                ))
+                indicators.setdefault("l3_cancel_to_trade_bid_20s", _c2t_b20)
+                indicators.setdefault("l3_cancel_to_trade_ask_20s", _c2t_a20)
+                indicators.setdefault("l3_queue_pressure_bid", _qpb)
+                indicators.setdefault("l3_queue_pressure_ask", _qpa)
+                indicators.setdefault("l3_market_depth_imbalance", _mdi)
             except Exception:
                 pass
 
@@ -4617,6 +4650,34 @@ class OrderFlowStrategy:
         except Exception:
             pass
 
+        # 1.5) Volatility regime tracker (realized vol fast/slow ratio + robust z)
+        # Bridges to runtime.dynamic_cfg so signal_pipeline._publish_of_inputs
+        # can propagate vol_ratio_z / vol_regime_code / vol_fast_bps / vol_slow_bps
+        # into indicators (ML schema v15_of). Without this update vol_regime stays
+        # at init state → all derived ML features stuck at 0.
+        try:
+            if getattr(runtime, "vol_regime", None) is not None:
+                runtime.vol_regime.update(int(bar.end_ts_ms), close=float(bar.close))
+                vol_snap = runtime.vol_regime.snapshot()
+                runtime.dynamic_cfg[DK.VOL_FAST_BPS]     = float(vol_snap.get("vol_fast_bps", 0.0))
+                runtime.dynamic_cfg[DK.VOL_SLOW_BPS]     = float(vol_snap.get("vol_slow_bps", 0.0))
+                runtime.dynamic_cfg[DK.VOL_RATIO]        = float(vol_snap.get("vol_ratio", 0.0))
+                runtime.dynamic_cfg[DK.VOL_RATIO_Z]      = float(vol_snap.get("vol_ratio_z", 0.0))
+                runtime.dynamic_cfg[DK.VOL_REGIME_LABEL] = vol_snap.get("vol_regime_label", "na")
+        except Exception:
+            pass
+
+        # 1.6) v13_runtime_tracker — feeds zscore_mid_to_vwap and academic
+        # vol/liquidity/entropy estimators (groups NA/NB/NE/NF). Updates rolling
+        # OHLC buffers on each microbar close. Source bridged in signal_pipeline
+        # via runtime.v13_tracker.snapshot() into _publish_of_inputs.
+        try:
+            v13 = getattr(runtime, "v13_tracker", None)
+            if v13 is not None and hasattr(v13, "on_bar_close"):
+                v13.on_bar_close(bar)
+        except Exception:
+            pass
+
         # Metric: bars closed
         bars_closed_total.labels(symbol=runtime.symbol, tf=str(getattr(bar, "tf_ms", "0"))).inc()
 
@@ -4816,13 +4877,13 @@ class OrderFlowStrategy:
                 runtime.eff_calib.update(regime=regime, eff_quote=eff_q, quote_delta=qd)
 
                 # Tier policy by regime
-                tier = int(cfg.get("abs_lvl_tier_default", 1))
+                tier = int(runtime.config.get("abs_lvl_tier_default", 1))
                 if regime in ("range",):
-                    tier = int(cfg.get("abs_lvl_tier_range", 1))
+                    tier = int(runtime.config.get("abs_lvl_tier_range", 1))
                 elif regime in ("trend", "trending_bull", "trending_bear"):
-                    tier = int(cfg.get("abs_lvl_tier_trend", 0))
+                    tier = int(runtime.config.get("abs_lvl_tier_trend", 0))
                 elif regime in ("thin", "news", "illiquid"):
-                    tier = int(cfg.get("abs_lvl_tier_thin", 2))
+                    tier = int(runtime.config.get("abs_lvl_tier_thin", 2))
 
                 th = runtime.eff_calib.thresholds(
                     regime=regime,

@@ -41,7 +41,7 @@ PRIOR_STALE (PIT prior staleness 0/1 + age ms, 2 keys)
 """
 
 
-SCHEMA_HASH = "v15of_v14base_p82_p83_p84_p85_p1_p2_p3_2026_05_18"
+SCHEMA_HASH = "v15of_v14base_p82_p83_p84_p85_p1_p2_p3_dq_confirm_v13micro_regime_rsi_tick_flags_stream_gate_flow_2026_05_26"
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -273,6 +273,16 @@ _GROUP_LIQMAP_ALIAS: list[str] = [
 ]
 
 # ──────────────────────────────────────────────────────────────────────────────
+# Group LIQMAP_GATE_DETAIL — liqmap gate + liq_pressure outputs written by
+# strategy.py / of_confirm_engine into indicators when LIQ_GEOM_ENABLED=1.
+# Absent (≈ 0.0) for signals where the gate did not run.
+# ──────────────────────────────────────────────────────────────────────────────
+_GROUP_LIQMAP_GATE_DETAIL: list[str] = [
+    "liq_calib_n",          # calibration sample count for liqmap threshold
+    "liq_geom_monitor_hit", # 0/1: liquidity geometry monitor matched
+]
+
+# ──────────────────────────────────────────────────────────────────────────────
 # Group LEADER_FLAGS — BTC/ETH leader confirm + direction conflict
 # ──────────────────────────────────────────────────────────────────────────────
 _GROUP_LEADER_FLAGS: list[str] = [
@@ -290,6 +300,80 @@ _GROUP_BREADTH_RET: list[str] = [
     "alt_breadth_1m", "alt_ret_1m",
     "alt_breadth_5m", "alt_ret_5m",
     "sector_breadth_5m",
+]
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Group SIGNAL_DQ_CONFIRM — signal-level DQ gate outputs + divergence confirmation
+# Set by of_confirm_engine.py before _publish_of_inputs; 0.0 for non-OF paths.
+# ──────────────────────────────────────────────────────────────────────────────
+_GROUP_SIGNAL_DQ_CONFIRM: list[str] = [
+    "div_match",           # 0/1: CVD ↔ orderflow divergence match
+    "div_match_fallback",  # 0/1: fallback match when CVD unavailable
+    "dq_level",            # 0/1/2: DQ gate severity (ok/soft/hard)
+    "dq_pen",              # 0.0–pen_max: continuous DQ penalty from health_score
+]
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Group REGIME_CONFIRM_BINARY — regime score projections + RSI gate binary.
+# range_score = max(0, -regime_score) from signal_pipeline (runtime._last_regime_score).
+# rsi_agree   = int(rsi_ok) from of_confirm_engine confirmation gate (0 or 1).
+# Both written to indicators before _publish_of_inputs; 0.0 for non-OF paths.
+# ──────────────────────────────────────────────────────────────────────────────
+_GROUP_REGIME_CONFIRM_BINARY: list[str] = [
+    "range_score",  # max(0.0, -regime_score): regime range-ness
+    "rsi_agree",    # 0/1: RSI confirmation gate passed
+]
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Group TICK_SIGNAL_FLAGS — boolean flags from tick_decision_engine + strategy.
+# Encoded as float 0.0/1.0 via _BOOL_KEYS in external_features_payload_v1.py.
+# ──────────────────────────────────────────────────────────────────────────────
+_GROUP_TICK_SIGNAL_FLAGS: list[str] = [
+    "obi_sustained",          # 1.0 when OBI stable/sustained (strategy.py / tick_decision_engine.py)
+    "pressure_hi_flag",       # 1.0 when order-flow pressure is elevated
+    "pressure_extreme_flag",  # 1.0 when order-flow pressure is extreme (also triggers burst mode)
+]
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Group STREAM_GATE_FLOW — stream integrity gates + message-rate + regime score.
+# Written to indicators by signal_pipeline.py, strategy.py, of_confirm_engine.py
+# before _publish_of_inputs; 0.0 for signals where these gates did not run.
+# ──────────────────────────────────────────────────────────────────────────────
+_GROUP_STREAM_GATE_FLOW: list[str] = [
+    # Taker flow gate outputs (of_confirm_engine.py:2035-2037)
+    "taker_flow_gate_veto",         # 0/1: taker flow gate hard veto
+    "taker_flow_gate_shadow_veto",  # 0/1: taker flow gate shadow veto (monitoring only)
+    "taker_flow_gate_soft",         # 0/1: taker flow gate soft warning
+    # Tick stream integrity (signal_pipeline.py:1750-1752)
+    "tick_seq_gap_rate_ema",        # EMA rate of sequence gaps in tick stream
+    "tick_seq_max_gap_window",      # Max sequence gap in rolling window
+    "tick_schema_changed",          # 0/1: tick schema changed flag (DQ signal)
+    # Tick quantity from trigger tick (signal_pipeline.py:2682)
+    "tick_qty",                     # Size of the trigger tick that fired the signal
+    # Message rate features (strategy.py:1487-1488)
+    "trade_msg_rate_hz",            # EMA of aggTrade messages per second
+    "trade_msg_rate_z",             # Robust z-score of trade message rate
+    # Regime trend component (signal_pipeline.py:2343)
+    "trend_score",                  # max(0, regime_score): regime trend-ness [0, 1]
+]
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Group GATE_FLAGS — gate decision flags from SMT coherence, sweep detection,
+# and strong-gate. Emitted by external_features_payload_v1 _BOOL_KEYS/_NUM_KEYS
+# but absent from v14_of base. Encoded as float 0.0/1.0.
+# ──────────────────────────────────────────────────────────────────────────────
+_GROUP_GATE_FLAGS: list[str] = [
+    # SMT coherence gate (smt_coherence_gate.py → signal_pipeline propagation)
+    "smt_blocked",           # 0/1: signal blocked by SMT coherence gate
+    "smt_leader_confirm",    # 0/1: SMT leader direction confirmed
+    # Sweep detection flags (of_confirm_engine build())
+    "sweep_any",             # 0/1: any sweep pattern detected
+    "sweep_eqh",             # 0/1: sweep at equal highs (EQH)
+    "sweep_eql",             # 0/1: sweep at equal lows (EQL)
+    # Strong gate (tick_decision_engine + strategy.py)
+    "strong_gate_ok",        # 0/1: strong gate passed
+    # Microstructure spread z-score (signal_pipeline ML bridge)
+    "spread_bps_z",          # (spread - EMA_spread) / MAD_spread robust z-score
 ]
 
 
@@ -323,8 +407,14 @@ _ALL_GROUPS = (
     _GROUP_MACRO_CAL,
     _GROUP_SECTOR_AGG,
     _GROUP_LIQMAP_ALIAS,
+    _GROUP_LIQMAP_GATE_DETAIL,
     _GROUP_LEADER_FLAGS,
     _GROUP_BREADTH_RET,
+    _GROUP_SIGNAL_DQ_CONFIRM,
+    _GROUP_REGIME_CONFIRM_BINARY,
+    _GROUP_TICK_SIGNAL_FLAGS,
+    _GROUP_STREAM_GATE_FLOW,
+    _GROUP_GATE_FLAGS,
 )
 
 
@@ -342,7 +432,7 @@ V15_OF_NUMERIC_KEYS: list[str] = _build_keys()
 # Hard invariant: pinned count. v14_of base + dedup'd new groups.
 # Bump _EXPECTED_KEYS when intentionally adding/removing groups and refresh
 # SCHEMA_HASH accordingly. Catches accidental drift.
-_EXPECTED_KEYS = 515
+_EXPECTED_KEYS = 541
 assert len(V15_OF_NUMERIC_KEYS) == _EXPECTED_KEYS, (
     f"v15_of key count drift: got {len(V15_OF_NUMERIC_KEYS)}, expected {_EXPECTED_KEYS}. "
     f"If this is intentional, bump _EXPECTED_KEYS and update SCHEMA_HASH."
@@ -386,5 +476,7 @@ def v15_of_info() -> dict:
             "liqmap_alias": len(_GROUP_LIQMAP_ALIAS),
             "leader_flags": len(_GROUP_LEADER_FLAGS),
             "breadth_ret": len(_GROUP_BREADTH_RET),
+            "stream_gate_flow": len(_GROUP_STREAM_GATE_FLOW),
+            "gate_flags": len(_GROUP_GATE_FLAGS),
         },
     }

@@ -1,0 +1,57 @@
+services:
+  regime-exec-promotion:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    image: scanner-python-worker:latest
+    container_name: scanner-regime-exec-promotion
+    restart: unless-stopped
+    env_file:
+      - config/crypto-of-common.env
+    environment:
+      - PYTHONUNBUFFERED=1
+      # Master enforce flag. 0 = shadow (publish autocal:regime_exec:state with
+      # decision=SHADOW per bucket), 1 = allow auto-promotion via Promotion gates.
+      - PROMOTION_ENFORCE=${PROMOTION_ENFORCE:-0}
+      - PROMOTION_INTERVAL_SEC=${PROMOTION_INTERVAL_SEC:-21600}
+      - REGIME_EXEC_AUTOCAL_HMAC_SECRET=${REGIME_EXEC_AUTOCAL_HMAC_SECRET:-${RECS_HMAC_SECRET:-}}
+      - PROMOTION_METRICS_PORT=9847
+      - REDIS_URL=redis://redis-worker-1:6379/0
+      - ANALYTICS_DB_DSN=${ANALYTICS_DB_DSN:-postgresql://trading:${TRADING_PASSWORD}@scanner-pgbouncer:5432/scanner_analytics?sslmode=disable}
+      - TRADES_DB_DSN=${TRADES_DB_DSN:-${ANALYTICS_DB_DSN:-postgresql://trading:${TRADING_PASSWORD}@scanner-pgbouncer:5432/scanner_analytics?sslmode=disable}}
+      - TZ=UTC
+    ports:
+      - "9847:9847"
+    depends_on:
+      redis-worker-1:
+        condition: service_healthy
+    networks:
+      - scanner-core
+      - scanner-infra
+    deploy:
+      resources:
+        limits:
+          memory: 384M
+          cpus: '0.2'
+        reservations:
+          memory: 96M
+    command:
+      - sh
+      - -c
+      - |
+        sleep 30
+        python -m runners.regime_exec_promotion_runner
+    labels:
+      - com.scanner.service=regime-exec-promotion
+      - com.scanner.description=Regime-conditional execution engine snapshot publisher (P1.8)
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '3'
+
+networks:
+  scanner-core:
+    external: true
+  scanner-infra:
+    external: true
