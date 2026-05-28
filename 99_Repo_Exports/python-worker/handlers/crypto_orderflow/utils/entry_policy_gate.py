@@ -183,6 +183,65 @@ def _safe_float(x: Any, default: float = 0.0) -> float:
         return default
 
 
+def _per_side_regime_threshold(
+    *,
+    base_env: str,
+    base_default: float,
+    side_norm: str,
+    regime: str,
+) -> float:
+    """P2.D: per-(side × regime) threshold resolver with hierarchy fallback.
+
+    Lookup order (longest match wins):
+      1. {base_env}_{SIDE}_{REGIME_NORM}    e.g. ENTRY_RR_MIN_LONG_BEAR
+      2. {base_env}_{SIDE}                  e.g. ENTRY_RR_MIN_LONG
+      3. {base_env}                         e.g. ENTRY_RR_MIN
+
+    REGIME_NORM maps multiple regime labels to a coarse bucket:
+      trending_bear   → BEAR
+      trending_bull   → BULL
+      range / mixed   → RANGE
+      squeeze         → SQUEEZE
+      else            → "" (только {SIDE} и base уровни)
+
+    Все значения вычисляются через `_safe_float`; некорректные → next level.
+    """
+    side_u = (side_norm or "").strip().upper()
+    if side_u not in ("LONG", "SHORT"):
+        return _safe_float(os.getenv(base_env, str(base_default)), base_default)
+
+    reg = (regime or "").strip().lower()
+    if reg in ("trending_bear", "downtrend"):
+        reg_norm = "BEAR"
+    elif reg in ("trending_bull", "uptrend", "trending"):
+        reg_norm = "BULL"
+    elif reg in ("range", "mixed"):
+        reg_norm = "RANGE"
+    elif reg in ("squeeze",):
+        reg_norm = "SQUEEZE"
+    else:
+        reg_norm = ""
+
+    if reg_norm:
+        v = os.getenv(f"{base_env}_{side_u}_{reg_norm}")
+        if v not in (None, ""):
+            try:
+                f = float(v)
+                if math.isfinite(f):
+                    return f
+            except Exception:
+                pass
+    v = os.getenv(f"{base_env}_{side_u}")
+    if v not in (None, ""):
+        try:
+            f = float(v)
+            if math.isfinite(f):
+                return f
+        except Exception:
+            pass
+    return _safe_float(os.getenv(base_env, str(base_default)), base_default)
+
+
 
 
 def _spread_bps_from_ctx(ctx: Any) -> float:
@@ -521,6 +580,24 @@ class EntryPolicyGate:
             return False, ""
         try:
             ind = getattr(ctx, "indicators", None) or {}
+            # 2026-05-27 P1.B: merge cross-asset breadth side-channel когда features
+            # отсутствуют в ctx.indicators. Producer пишет ctx:breadth:{SYMBOL} +
+            # ctx:breadth:global; reader fail-open. Avoids missing-feature fail-open.
+            try:
+                _sym_for_breadth = (
+                    getattr(ctx, "symbol", "")
+                    or (ind.get("symbol") if isinstance(ind, dict) else "")
+                    or ""
+                )
+                if _env_bool("BREADTH_READER_ENABLED", True) and _sym_for_breadth:
+                    from services.breadth_reader import get_breadth_for_symbol
+                    _bm = get_breadth_for_symbol(str(_sym_for_breadth))
+                    if isinstance(ind, dict) and _bm:
+                        for _bk, _bv in _bm.items():
+                            if ind.get(_bk) is None:
+                                ind[_bk] = _bv
+            except Exception:
+                pass
             BEAR_CHECKS = [
                 ("cg_rel_strength_btc_1h", "cg_rel_str<0"),
                 ("btc_ret_1m", "btc_ret_1m<0"),
@@ -528,16 +605,29 @@ class EntryPolicyGate:
                 ("market_breadth_ret_5m", "breadth<0"),
             ]
             fired = []
+            non_null = 0
             for key, label in BEAR_CHECKS:
                 raw = ind.get(key)
                 if raw is None:
                     continue
                 try:
                     v = float(raw)
-                    if math.isfinite(v) and v < 0:
+                    if not math.isfinite(v):
+                        continue
+                    non_null += 1
+                    if v < 0:
                         fired.append(label)
                 except Exception:
                     pass
+            # 2026-05-27 P0.B: fail-CLOSED при недостатке features в payload.
+            # Audit 2026-05-27 показал: rel_strength_15m / breadth / cg_rel_str = 0/514
+            # → fired=[] → fail-open, LONG проскакивает в bear. С CLOSED policy и
+            # required_features=2: если только 0-1 features известны — VETO.
+            _fail_policy = (os.getenv("HTF_LONG_BIAS_FAIL_POLICY", "OPEN") or "OPEN").strip().upper()
+            _required_features = max(1, int(os.getenv("HTF_LONG_BIAS_REQUIRED_FEATURES", "2") or "2"))
+            if _fail_policy == "CLOSED" and non_null < _required_features:
+                notes = f"missing_features non_null={non_null}/{_required_features} (fail_closed)"
+                return True, notes[:256]
             if len(fired) < self.htf_long_bias_require_n:
                 return False, ""
             notes = f"n={len(fired)}/{self.htf_long_bias_require_n} fired={','.join(fired)}"
@@ -617,6 +707,313 @@ class EntryPolicyGate:
         except Exception:
             pass  # fail-open
 
+        # ── 2026-05-27 P0.D: Regime=NULL fail-CLOSED для LONG iceberg/delta_spike ─
+        # Audit показал: 74% LONG-trades имели regime=NULL в payload → HTF/regime
+        # gates fail-open и пропускают LONG в bear. С LONG_REQUIRE_REGIME_RESOLVED=1
+        # блокируем LONG iceberg/delta_spike при отсутствии resolved regime.
+        # Rollback: LONG_REQUIRE_REGIME_RESOLVED=0.
+        try:
+            if _env_bool("LONG_REQUIRE_REGIME_RESOLVED", False):
+                _side_long = str(side or "").strip().upper() in ("LONG", "BUY")
+                _kind_lc = str(kind or "").strip().lower()
+                _scoped_kinds_csv = (
+                    os.getenv("LONG_REQUIRE_REGIME_KINDS", "iceberg,delta_spike,absorption") or ""
+                ).strip().lower()
+                _scoped_kinds = {k.strip() for k in _scoped_kinds_csv.split(",") if k.strip()}
+                if _side_long and _kind_lc in _scoped_kinds:
+                    _ind = getattr(ctx, "indicators", None) or {}
+                    _reg_raw = _ind.get("regime") if isinstance(_ind, dict) else None
+                    _reg_str = str(_reg_raw or "").strip().lower()
+                    _is_unresolved = (
+                        _reg_raw is None
+                        or _reg_str in ("", "na", "none", "null", "unknown")
+                    )
+                    if _is_unresolved:
+                        return GateDecision(
+                            True, True, "VETO_REGIME_UNRESOLVED_LONG",
+                            f"kind={_kind_lc} side=LONG regime={_reg_raw!r}",
+                        )
+        except Exception:
+            pass  # fail-open
+
+        # ── 2026-05-27 P0.C: delta_spike LONG counter-trend guard ─────────────
+        # Audit 2026-05-27 показал: delta_spike LONG = mean-revert overshoot
+        # (p50 delta_z=10.9, p75=21) → ловим mean-revert обратно в SL. WR=17%.
+        # Block LONG delta_spike в bear/range/squeeze/unknown ИЛИ когда ema_slope<0.
+        # Rollback: DELTA_SPIKE_LONG_TREND_GUARD=0.
+        try:
+            if _env_bool("DELTA_SPIKE_LONG_TREND_GUARD", False):
+                _side_long = str(side or "").strip().upper() in ("LONG", "BUY")
+                _kind_lc = str(kind or "").strip().lower()
+                if _side_long and _kind_lc == "delta_spike":
+                    _ind = getattr(ctx, "indicators", None) or {}
+                    if isinstance(_ind, dict):
+                        _reg_str = str(_ind.get("regime") or "").strip().lower()
+                        _bad_regimes = {"trending_bear", "range", "squeeze", "unknown", "", "na"}
+                        _ema_slope = _ind.get("ema21_slope_15m")
+                        try:
+                            _ema_slope_v = float(_ema_slope) if _ema_slope is not None else None
+                        except Exception:
+                            _ema_slope_v = None
+                        _bad_regime = _reg_str in _bad_regimes
+                        _bad_slope = _ema_slope_v is not None and _ema_slope_v < 0.0
+                        if _bad_regime or _bad_slope:
+                            _mode = (os.getenv("DELTA_SPIKE_LONG_TREND_GUARD_MODE", "enforce") or "enforce").strip().lower()
+                            if _mode == "enforce":
+                                return GateDecision(
+                                    True, True, "VETO_DELTA_SPIKE_LONG_COUNTERTREND",
+                                    f"regime={_reg_str} ema_slope={_ema_slope_v}",
+                                )
+        except Exception:
+            pass  # fail-open
+
+        # ── 2026-05-27 P1.A: LONG trend confirmation gate ───────────────────
+        # Best practice: LONG только когда mulitple trend signals подтверждают.
+        # Требование: ≥N из 3 ({ema21_slope_15m>0, higher_low_30m==1, vwap_z_15m>0}).
+        # Дополнительно может проверять `cvd_slope>0` если есть.
+        # SHADOW default (LONG_TREND_CONFIRM_MODE=shadow) — только метрика.
+        # Rollback: LONG_TREND_CONFIRM_ENABLED=0.
+        try:
+            if _env_bool("LONG_TREND_CONFIRM_ENABLED", False):
+                _side_long = str(side or "").strip().upper() in ("LONG", "BUY")
+                _kind_lc = str(kind or "").strip().lower()
+                _scoped_csv = (
+                    os.getenv("LONG_TREND_CONFIRM_KINDS", "iceberg,delta_spike,absorption,of") or ""
+                ).strip().lower()
+                _scoped = {k.strip() for k in _scoped_csv.split(",") if k.strip()}
+                if _side_long and (not _scoped or _kind_lc in _scoped):
+                    _ind = getattr(ctx, "indicators", None) or {}
+                    if isinstance(_ind, dict):
+                        _signals: list[tuple[str, bool, Any]] = []
+                        # 1) ema21_slope_15m > 0
+                        _ema = _ind.get("ema21_slope_15m")
+                        try:
+                            _ema_v = float(_ema) if _ema is not None else None
+                        except Exception:
+                            _ema_v = None
+                        if _ema_v is not None:
+                            _signals.append(("ema_slope_15m_pos", _ema_v > 0.0, _ema_v))
+                        # 2) higher_low_30m == 1
+                        _hl = _ind.get("higher_low_30m")
+                        try:
+                            _hl_v = int(_hl) if _hl is not None else None
+                        except Exception:
+                            _hl_v = None
+                        if _hl_v is not None:
+                            _signals.append(("higher_low_30m", _hl_v == 1, _hl_v))
+                        # 3) vwap_z_15m > 0 (or vwap_dev_z fallback)
+                        _vwap = _ind.get("vwap_z_15m")
+                        if _vwap is None:
+                            _vwap = _ind.get("vwap_dev_z")
+                        try:
+                            _vwap_v = float(_vwap) if _vwap is not None else None
+                        except Exception:
+                            _vwap_v = None
+                        if _vwap_v is not None:
+                            _signals.append(("vwap_z_pos", _vwap_v > 0.0, _vwap_v))
+
+                        _n_known = len(_signals)
+                        _n_positive = sum(1 for _, ok, _v in _signals if ok)
+                        _require_n = max(1, int(os.getenv("LONG_TREND_CONFIRM_REQUIRE_N", "2") or "2"))
+                        _min_known = max(1, int(os.getenv("LONG_TREND_CONFIRM_MIN_KNOWN", "2") or "2"))
+                        _fail_policy = (os.getenv("LONG_TREND_CONFIRM_FAIL_POLICY", "OPEN") or "OPEN").strip().upper()
+
+                        _mode = (os.getenv("LONG_TREND_CONFIRM_MODE", "shadow") or "shadow").strip().lower()
+                        _hit = False
+                        _reason_notes = ""
+                        if _n_known < _min_known:
+                            # Недостаточно known features — fail-policy решает
+                            if _fail_policy == "CLOSED":
+                                _hit = True
+                                _reason_notes = f"missing_features known={_n_known}/{_min_known}"
+                        elif _n_positive < _require_n:
+                            _hit = True
+                            _reason_notes = f"insufficient_trend pos={_n_positive}/{_require_n} known={_n_known}"
+                        if _hit and _mode == "enforce":
+                            return GateDecision(
+                                True, True, "VETO_LONG_TREND_CONFIRM",
+                                _reason_notes[:256],
+                            )
+                        # shadow: только ctx-флаг (counter уже в counters elsewhere)
+                        try:
+                            ctx.long_trend_confirm_shadow_veto = 1 if _hit else 0
+                            ctx.long_trend_confirm_pos = _n_positive
+                            ctx.long_trend_confirm_known = _n_known
+                        except Exception:
+                            pass
+        except Exception:
+            pass  # fail-open
+
+        # ── 2026-05-27 P1.D: LONG cooldown after consecutive losses ─────────
+        # Reads `risk:cooldown:long:{SYMBOL}` (Redis HASH; writer = cooldown_manager_v1).
+        # Veto если cooldown active (count >= threshold, last_loss_ms < now - TTL_off).
+        try:
+            if _env_bool("COOLDOWN_LONG_ENABLED", False):
+                _side_long = str(side or "").strip().upper() in ("LONG", "BUY")
+                if _side_long:
+                    _sym_u = (symbol or "").strip().upper()
+                    try:
+                        from services.long_cooldown_reader import is_long_cooldown_active
+                        _active, _notes = is_long_cooldown_active(ctx, _sym_u)
+                    except Exception:
+                        _active, _notes = False, ""
+                    if _active:
+                        _mode = (os.getenv("COOLDOWN_LONG_MODE", "enforce") or "enforce").strip().lower()
+                        if _mode == "enforce":
+                            return GateDecision(
+                                True, True, "VETO_LONG_COOLDOWN",
+                                (_notes or "long_cooldown_active")[:256],
+                            )
+        except Exception:
+            pass  # fail-open
+
+        # ── 2026-05-27 P1.C: regime×direction×kind asymmetry guard ─────────
+        # Best-practice: запретить LONG для специфичных (vol×trend) bucket'ов где
+        # mean-revert traps доминируют. Конфигурация через CSV bucket-токенов
+        # vol:trend в LONG_REGIME_BLOCK_BUCKETS. Wildcards: vol="*" или trend="*".
+        # Активные kinds — LONG_REGIME_BLOCK_KINDS (CSV; пусто = все).
+        try:
+            if _env_bool("LONG_REGIME_BLOCK_ENABLED", False):
+                _side_long = str(side or "").strip().upper() in ("LONG", "BUY")
+                if _side_long:
+                    _ind = getattr(ctx, "indicators", None) or {}
+                    if isinstance(_ind, dict):
+                        _kinds_csv = (os.getenv("LONG_REGIME_BLOCK_KINDS", "iceberg,delta_spike") or "").strip().lower()
+                        _kinds = {k.strip() for k in _kinds_csv.split(",") if k.strip()}
+                        _kind_lc = str(kind or "").strip().lower()
+                        if not _kinds or _kind_lc in _kinds:
+                            _trend = str(_ind.get("regime") or _ind.get("trend_regime") or "").strip().lower()
+                            _vol = str(_ind.get("vol_regime") or _ind.get("vol_label") or "").strip().lower()
+                            _bad_csv = (os.getenv(
+                                "LONG_REGIME_BLOCK_BUCKETS",
+                                "shock:trending_bear,calm:trending_bear,normal:range,*:squeeze,*:mixed",
+                            ) or "").strip().lower()
+                            _matched: str | None = None
+                            for _tok in _bad_csv.split(","):
+                                _tok = _tok.strip()
+                                if not _tok:
+                                    continue
+                                _parts = _tok.split(":", 1)
+                                if len(_parts) != 2:
+                                    continue
+                                _v, _t = _parts[0].strip(), _parts[1].strip()
+                                if (_v == "*" or _v == _vol) and (_t == "*" or _t == _trend):
+                                    _matched = _tok
+                                    break
+                            if _matched:
+                                _mode = (os.getenv("LONG_REGIME_BLOCK_MODE", "enforce") or "enforce").strip().lower()
+                                if _mode == "enforce":
+                                    return GateDecision(
+                                        True, True, "VETO_LONG_REGIME_BUCKET",
+                                        f"matched={_matched} kind={_kind_lc} vol={_vol} trend={_trend}",
+                                    )
+        except Exception:
+            pass  # fail-open
+
+        # ── 2026-05-27 P2.A: LGBM LONG-gate Bayesian filter ─────────────────
+        # P(LONG_win | features) ≥ p_min иначе VETO. SHADOW default; flip
+        # LGBM_LONG_GATE_MODE=ENFORCE после 7d validation cohort.
+        try:
+            if _env_bool("LGBM_LONG_GATE_ENABLED", False):
+                _side_long = str(side or "").strip().upper() in ("LONG", "BUY")
+                if _side_long:
+                    _reader_mod = None
+                    try:
+                        from services import lgbm_long_gate_reader as _reader_mod  # type: ignore
+                    except Exception:
+                        _reader_mod = None
+                    _proba = None
+                    if _reader_mod is not None:
+                        try:
+                            _proba = _reader_mod.predict_long_win_proba(ctx, kind=str(kind or ""))
+                        except Exception:
+                            _proba = None
+                    if _proba is not None and _reader_mod is not None:
+                        try:
+                            ctx.lgbm_long_gate_proba = float(_proba)
+                        except Exception:
+                            pass
+                        _p_min = _reader_mod.get_p_min()
+                        _gate_mode = _reader_mod.get_mode()
+                        if _proba < _p_min and _gate_mode == "ENFORCE":
+                            return GateDecision(
+                                True, True, "VETO_LGBM_LONG_GATE",
+                                f"proba={_proba:.4f}<p_min={_p_min:.3f}",
+                            )
+                    else:
+                        # Fail-policy при отсутствии модели/предсказания.
+                        if (os.getenv("LGBM_LONG_GATE_FAIL_POLICY", "OPEN") or "OPEN").upper() == "CLOSED":
+                            _gate_mode = "SHADOW"
+                            if _reader_mod is not None:
+                                try:
+                                    _gate_mode = _reader_mod.get_mode()
+                                except Exception:
+                                    pass
+                            if _gate_mode == "ENFORCE":
+                                return GateDecision(
+                                    True, True, "VETO_LGBM_LONG_GATE_UNAVAILABLE",
+                                    "no_model_or_predict_failed",
+                                )
+        except Exception:
+            pass  # fail-open
+
+        # ── 2026-05-27 P2.C: microstructure stop-hunt detection ─────────────
+        # Если за последние 15m был sweep, который снёс N stop-уровней, block LONG.
+        # Reader: services/sweep_detector_reader.py читает ctx:sweep:{SYMBOL}.
+        try:
+            if _env_bool("SWEEP_HUNT_BLOCK_LONG_ENABLED", False):
+                _side_long = str(side or "").strip().upper() in ("LONG", "BUY")
+                if _side_long:
+                    _sym_u = (symbol or "").strip().upper()
+                    try:
+                        from services.sweep_detector_reader import is_recent_sweep
+                        _hit, _notes = is_recent_sweep(ctx, _sym_u)
+                    except Exception:
+                        _hit, _notes = False, ""
+                    if _hit:
+                        _mode = (os.getenv("SWEEP_HUNT_BLOCK_LONG_MODE", "enforce") or "enforce").strip().lower()
+                        if _mode == "enforce":
+                            return GateDecision(
+                                True, True, "VETO_RECENT_SWEEP_LONG",
+                                (_notes or "recent_sweep")[:256],
+                            )
+        except Exception:
+            pass  # fail-open
+
+        # ── 2026-05-27 P1.E: required features bundle for LONG ──────────────
+        # Если любая критичная feature missing → fail-CLOSED для LONG.
+        # CSV в LONG_REQUIRED_FEATURES_CSV; fail-policy в *_FAIL_POLICY=CLOSED/OPEN.
+        try:
+            if _env_bool("LONG_REQUIRED_FEATURES_ENABLED", False):
+                _side_long = str(side or "").strip().upper() in ("LONG", "BUY")
+                if _side_long:
+                    _csv = (os.getenv("LONG_REQUIRED_FEATURES_CSV", "regime,btc_ret_5m") or "").strip()
+                    _required = [k.strip() for k in _csv.split(",") if k.strip()]
+                    if _required:
+                        _ind = getattr(ctx, "indicators", None) or {}
+                        _missing: list[str] = []
+                        if isinstance(_ind, dict):
+                            for _fk in _required:
+                                _v = _ind.get(_fk)
+                                if _v is None:
+                                    _missing.append(_fk)
+                                else:
+                                    # treat unknown/na strings as missing
+                                    if isinstance(_v, str) and _v.strip().lower() in ("", "na", "none", "null", "unknown"):
+                                        _missing.append(_fk)
+                        else:
+                            _missing = list(_required)
+                        if _missing:
+                            _policy = (os.getenv("LONG_REQUIRED_FEATURES_FAIL_POLICY", "OPEN") or "OPEN").strip().upper()
+                            _mode = (os.getenv("LONG_REQUIRED_FEATURES_MODE", "shadow") or "shadow").strip().lower()
+                            if _policy == "CLOSED" and _mode == "enforce":
+                                return GateDecision(
+                                    True, True, "VETO_LONG_FEATURES_MISSING",
+                                    f"missing={','.join(_missing)[:200]}",
+                                )
+        except Exception:
+            pass  # fail-open
+
         # ── 2026-05-23 RR floor (item 3 stop-bleed) ──────────────────────────
         # Bounded-SL floor в low-vol режиме коллапсирует RR до ~1.0, при котором
         # WR breakeven > 55% (с 8 bps round-trip fees). Vето сигналы с tp1/sl < min.
@@ -637,7 +1034,19 @@ class EntryPolicyGate:
                     or getattr(ctx, "sl_bps", None),
                     0.0,
                 )
-                _rr_min = _safe_float(os.getenv("ENTRY_RR_MIN", "1.3"), 1.3)
+                # 2026-05-27 P2.D: per-(side × regime) RR threshold resolver.
+                # ENV examples: ENTRY_RR_MIN_LONG_BEAR=1.8, ENTRY_RR_MIN_LONG=1.4,
+                # ENTRY_RR_MIN=1.3. Bear-LONG strictest by design.
+                _reg_for_thr = str((ind.get("regime") or "")).strip().lower()
+                _side_norm_thr = str(side or "").strip().upper()
+                if _side_norm_thr in ("BUY",):
+                    _side_norm_thr = "LONG"
+                elif _side_norm_thr in ("SELL",):
+                    _side_norm_thr = "SHORT"
+                _rr_min = _per_side_regime_threshold(
+                    base_env="ENTRY_RR_MIN", base_default=1.3,
+                    side_norm=_side_norm_thr, regime=_reg_for_thr,
+                )
                 _rr = (_tp / _sl) if _sl > 0 else 0.0
                 _rr_breach = _tp > 0 and _sl > 0 and _rr < _rr_min
                 if _rr_breach:

@@ -689,10 +689,10 @@ class TestTCAExporter(unittest.TestCase):
         client = _StubRedis()
         s1 = state.update(client, "BTCUSDT", "default", "us",
                           eff_spread_bps=5.0, realized_1s_bps=0.0, realized_5s_bps=0.0,
-                          perm_1s_bps=0.0, perm_5s_bps=0.0, is_bps=0.0, ts_ms=1000)
+                          perm_1s_bps=0.0, perm_5s_bps=0.0, is_bps=0.0)
         s2 = state.update(client, "BTCUSDT", "default", "us",
                           eff_spread_bps=10.0, realized_1s_bps=0.0, realized_5s_bps=0.0,
-                          perm_1s_bps=0.0, perm_5s_bps=0.0, is_bps=0.0, ts_ms=2000)
+                          perm_1s_bps=0.0, perm_5s_bps=0.0, is_bps=0.0)
         self.assertEqual(s1["samples"], 1.0)
         self.assertEqual(s2["samples"], 2.0)
         # First update initializes EMA at the value itself (5.0), second pulls toward 10.

@@ -283,7 +283,7 @@ class OFConfirmService:
         """
         logger.info("Started delta_spike stream consumer loop")
         batch_size = int(os.getenv("OF_CONFIRM_SPIKES_BATCH", "100"))
-        block_ms = int(os.getenv("OF_CONFIRM_SPIKES_BLOCK_MS", "500"))
+        block_ms = int(os.getenv("OF_CONFIRM_SPIKES_BLOCK_MS", "200"))
 
         while self.running:
             try:

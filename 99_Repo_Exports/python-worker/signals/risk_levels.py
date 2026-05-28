@@ -184,7 +184,9 @@ def compute_levels(
     # (default off); BOUNDED_SL_SHADOW=1 logs without applying.
     try:
         from signals.bounded_sl import apply_bounded_sl_floor
-        _new_stop_dist, _bsl_telem = apply_bounded_sl_floor(symbol, abs(entry), stop_dist, cfg)
+        # 2026-05-27 WR fix: pass atr so bounded_sl can apply MAX_ATR_MULT cap
+        # (skips MAE-floor when it dominates ATR in low-vol → 9-ATR SL pathology).
+        _new_stop_dist, _bsl_telem = apply_bounded_sl_floor(symbol, abs(entry), stop_dist, cfg, atr=atr)
         if _bsl_telem.get("enabled"):
             _would = int(_bsl_telem.get("would_apply", 0))
             _mode = "apply" if _bsl_telem.get("applied") else ("shadow" if _bsl_telem.get("shadow") else "noop")

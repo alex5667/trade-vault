@@ -115,6 +115,16 @@ def _build_iceberg_signal_payload(
             }
         },
     }
+    # 2026-05-27 P0.E: bridge regime в payload. Audit показал regime=NULL у 74%
+    # LONG-trades — iceberg payload не нёс regime. trade_close_joiner/persister
+    # читает payload.indicators.regime → trades_closed.entry_regime.
+    # Fail-open: если regime недоступен → indicators.regime=None (как было).
+    try:
+        from services.iceberg_long_gate_inline import get_regime_for_symbol
+        _regime = get_regime_for_symbol(symbol)
+    except Exception:
+        _regime = None
+    payload["indicators"] = {"regime": _regime, "regime_source": "iceberg_detector_bridge"}
     return payload
 
 
@@ -511,6 +521,34 @@ class BinanceIcebergDetector:
                 if near:
                     direction = "LONG" if side == "bid" else "SHORT"
                     if self._trend_allows(direction):
+                        # 2026-05-27 P0.A: inline LONG-gate.
+                        # iceberg_detector обходил EntryPolicyGate → HTF/BTC_DROP/
+                        # KIND_KILL_LIST/DAILY_DD не работали для iceberg LONG.
+                        # Audit 2026-05-27: WR=0% за 12h, sumR=-99. Включает
+                        # subset проверок без полного ctx. SHADOW default;
+                        # ENFORCE через ICEBERG_INLINE_LONG_GATE_MODE=enforce.
+                        try:
+                            from services.iceberg_long_gate_inline import evaluate_iceberg_long
+                            _dec = evaluate_iceberg_long(
+                                redis_client=self.r_core,
+                                symbol=str(self.symbol),
+                                direction=direction,
+                                kind="iceberg",
+                            )
+                            if _dec.veto:
+                                log.info(
+                                    "🧊 Iceberg INLINE veto: %s %s reason=%s notes=%s",
+                                    self.symbol, direction, _dec.reason, _dec.notes,
+                                )
+                                # short-circuit — drop the signal
+                                if side == "bid":
+                                    self.bid_state = None
+                                else:
+                                    self.ask_state = None
+                                return
+                        except Exception as _gate_e:
+                            log.debug("iceberg inline gate failed (fail-open): %s", _gate_e)
+
                         try:
                             self.r_core.incr(METRIC_SIG)
                             self._publish_signal(direction, price, state, near[0])

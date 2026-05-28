@@ -890,3 +890,27 @@ fatal: Could not read from remote repository.
 Please make sure you have the correct access rights
 and the repository exists.
 2026-05-26 05:45:03 - Синхронизация завершена успешно.
+[main 7176c3ec] Auto-sync vault notes 2026-05-27 05:45:01
+ 85 files changed, 5362 insertions(+), 325 deletions(-)
+ create mode 100644 99_Automation/logs/update_2026-05-27_03-37-22.log
+ create mode 100644 99_Repo_Exports/docker-compose.crossvenue-agree-cal.yml
+ create mode 100644 99_Repo_Exports/docker-compose.regime-exec-promotion.yml
+ create mode 100644 99_Repo_Exports/python-worker/orderflow_services/crossvenue_agree_calibrator_v1.py
+ create mode 100644 99_Repo_Exports/python-worker/orderflow_services/virtual_fills_bridge_v1.py
+ create mode 100644 99_Repo_Exports/python-worker/services/crossvenue_agree_runtime_overrides.py
+ create mode 100644 99_Repo_Exports/python-worker/services/tests/test_active_symbol_guard_store_list_symbols_scan_throttle_v1.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/core/test_feature_enricher_vol_v1.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_ml_confirm_kinds_filter.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_p2_10_dd_per_sym_hourly.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_p2_3_p_edge_coverage_gate.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_p2_4_producer_fix.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_p2_5_ctx_tighten_attribution.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_p2_8_cost_aware_training.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_p2_9_robust_stats.py
+ create mode 100644 99_Repo_Exports/python-worker/tools/backfill_p_edge_bins_v1.py
+git@github.com: Permission denied (publickey).
+fatal: Could not read from remote repository.
+
+Please make sure you have the correct access rights
+and the repository exists.
+2026-05-27 05:45:03 - Синхронизация завершена успешно.

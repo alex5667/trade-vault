@@ -156,6 +156,48 @@ class Sample:
         return [self.features.get(k, 0.0) for k in sorted(self.features)]
 
 
+def load_dataset_tbl(path: str) -> list[Sample]:
+    """Load pre-joined TBL × v15_of dataset from NDJSON (output of build_dataset_v5_tb_v15of).
+
+    Each line: {sid, ts_ms, symbol, regime, hit, r, features, tbl_outcome, …}
+    """
+    import json as _json
+
+    samples: list[Sample] = []
+    n_bad = 0
+    with open(path, encoding="utf-8") as f:
+        for lineno, line in enumerate(f, 1):
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                obj = _json.loads(line)
+            except _json.JSONDecodeError:
+                n_bad += 1
+                continue
+            sid = obj.get("sid", "")
+            if not sid:
+                n_bad += 1
+                continue
+            feats = obj.get("features")
+            if not isinstance(feats, dict) or not feats:
+                n_bad += 1
+                continue
+            hit = int(obj.get("hit", 0))
+            samples.append(Sample(
+                sid=sid,
+                ts_ms=int(obj.get("ts_ms", 0)),
+                symbol=str(obj.get("symbol", "")),
+                regime=str(obj.get("regime", "na")),
+                features={k: float(v) for k, v in feats.items()
+                           if isinstance(v, (int, float)) and math.isfinite(float(v))},
+                r=float(obj.get("r", 0.0)),
+                hit=hit,
+            ))
+    log.info("TBL dataset loaded: %d samples (%d bad rows) from %s", len(samples), n_bad, path)
+    return samples
+
+
 def load_dataset_postgres(
     pg_dsn: str,
     redis_url: str,
@@ -429,26 +471,72 @@ def select_features(samples: list[Sample], *, min_coverage: float = 0.80, max_co
        - appear in ≥ min_coverage of samples (else dropped — schema gap)
        - have variance > 0 (else constant, no information)
        - not collinear (|spearman| > max_corr) — drop redundant ones
+
+    Counts NaN-stuffed features as missing for coverage (presence ≠ value;
+    a feature stamped float('nan') from a stale upstream is effectively
+    missing for the model — see of_confirm_engine._STALE_SENTINEL).
     """
+    import math
     n = len(samples)
     if n == 0:
         return []
     feature_counts: dict[str, int] = {}
     for s in samples:
-        for k in s.features:
+        for k, v in s.features.items():
+            try:
+                if isinstance(v, float) and math.isnan(v):
+                    continue
+            except Exception:
+                pass
             feature_counts[k] = feature_counts.get(k, 0) + 1
-    coverage = {k: v / n for k, v in feature_counts.items()}
+    # Also collect keys that ever appeared (even all-NaN) for visibility.
+    all_keys: set[str] = set()
+    for s in samples:
+        all_keys.update(s.features.keys())
+    coverage = {k: feature_counts.get(k, 0) / n for k in all_keys}
     eligible = [k for k, c in coverage.items() if c >= min_coverage]
     log.info("feature coverage: %d eligible / %d total (min_coverage=%.0f%%)",
-             len(eligible), len(feature_counts), min_coverage * 100)
+             len(eligible), len(all_keys), min_coverage * 100)
 
-    # Variance check
-    variant = []
+    # Log dropped (low-coverage) features by name so investigators can spot
+    # silent schema regressions across refits. Cap to 100 names; full list to debug.
+    dropped_by_coverage = sorted(
+        ((k, c) for k, c in coverage.items() if c < min_coverage),
+        key=lambda kc: kc[1],
+    )
+    if dropped_by_coverage:
+        log.info("dropped by coverage: %d features", len(dropped_by_coverage))
+        for k, c in dropped_by_coverage[:100]:
+            log.info("  drop coverage=%.2f%% %s", c * 100, k)
+        if len(dropped_by_coverage) > 100:
+            log.debug("  ... and %d more (DEBUG for full list)", len(dropped_by_coverage) - 100)
+
+    # Variance check (treat NaN as ignore — LightGBM handles NaN as missing natively)
+    variant: list[str] = []
+    dropped_const: list[str] = []
     for k in eligible:
-        vs = [s.features.get(k, 0.0) for s in samples]
+        vs = []
+        for s in samples:
+            v = s.features.get(k, float("nan"))
+            try:
+                if isinstance(v, float) and math.isnan(v):
+                    continue
+            except Exception:
+                pass
+            vs.append(v)
+        if not vs:
+            dropped_const.append(k)
+            continue
         if max(vs) - min(vs) > 1e-9:
             variant.append(k)
-    log.info("constant features dropped: %d → %d variant", len(eligible) - len(variant), len(variant))
+        else:
+            dropped_const.append(k)
+    log.info("constant features dropped: %d → %d variant", len(dropped_const), len(variant))
+    if dropped_const:
+        for k in dropped_const[:50]:
+            log.info("  drop constant %s", k)
+        if len(dropped_const) > 50:
+            log.debug("  ... and %d more constant (DEBUG for full list)", len(dropped_const) - 50)
 
     # Skip correlation pruning for now (O(n_feat²)) — handled by LightGBM regularisation
     return sorted(variant)
@@ -566,7 +654,11 @@ def train_v15(samples: list[Sample], features: list[str], *, n_folds: int = 5,
 
     n = len(samples)
     y = np.array([s.hit for s in samples], dtype=np.int32)
-    X = np.array([[s.features.get(k, 0.0) for k in features] for s in samples], dtype=np.float64)
+    # Use NaN for missing features so LightGBM treats them as "missing" (native
+    # handling via use_missing=True). of_confirm_engine._STALE_SENTINEL also emits
+    # NaN when OF_CONFIRM_STALE_NAN=1; both should propagate to LightGBM as missing
+    # rather than being silently coerced to 0 (which biases the model).
+    X = np.array([[s.features.get(k, float("nan")) for k in features] for s in samples], dtype=np.float64)
 
     # Recency sample weights: more recent → higher weight (exp decay)
     ts_arr = np.array([s.ts_ms for s in samples], dtype=np.float64)
@@ -733,7 +825,7 @@ def train_per_regime(samples: list[Sample], features: list[str], *,
             continue
         subs.sort(key=lambda s: s.ts_ms)
         y = np.array([s.hit for s in subs], dtype=np.int32)
-        X = np.array([[s.features.get(k, 0.0) for k in features] for s in subs], dtype=np.float64)
+        X = np.array([[s.features.get(k, float("nan")) for k in features] for s in subs], dtype=np.float64)
         n_pos = int(y.sum())
         n = len(subs)
         if n_pos < 5 or n_pos == n:
@@ -877,8 +969,10 @@ def main() -> int:
     ap.add_argument("--pg-dsn", default=os.getenv("ANALYTICS_DB_DSN") or os.getenv("PG_DSN", ""),
                     help="Postgres DSN for signal_snapshots; if empty, falls back to Redis-only loader")
     ap.add_argument("--source", default=os.getenv("V15_TRAIN_SOURCE", "auto"),
-                    choices=["auto", "postgres", "redis"],
-                    help="auto=PG if --pg-dsn set, else Redis")
+                    choices=["auto", "postgres", "redis", "tbl"],
+                    help="auto=PG if --pg-dsn set, else Redis; tbl=pre-joined TBL dataset")
+    ap.add_argument("--tbl-dataset-path", default=os.getenv("V15_TBL_DATASET_PATH", ""),
+                    help="Path to pre-joined TBL × v15_of NDJSON (required for --source=tbl)")
     ap.add_argument("--lookback-days", type=int, default=30)
     ap.add_argument("--label-threshold-r", type=float, default=0.3)
     ap.add_argument("--per-regime", action="store_true",
@@ -907,15 +1001,24 @@ def main() -> int:
     log.info("v15_lgbm training start — lookback=%d days, label≥%.2fR cost_aware=%s",
              args.lookback_days, args.label_threshold_r, args.cost_aware_label)
 
-    # Source selection: postgres path bypasses Redis stream retention bottleneck
-    use_pg = (args.source == "postgres") or (
-        args.source == "auto" and bool(args.pg_dsn)
-    )
-    if use_pg and not args.pg_dsn:
-        log.error("--source=postgres requires --pg-dsn or ANALYTICS_DB_DSN/PG_DSN env")
-        return 2
+    _base_verdict: dict = {"cost_aware_label": args.cost_aware_label}
 
-    if use_pg:
+    # Source selection: postgres path bypasses Redis stream retention bottleneck
+    use_tbl = args.source == "tbl"
+    use_pg = not use_tbl and ((args.source == "postgres") or (
+        args.source == "auto" and bool(args.pg_dsn)
+    ))
+
+    if use_tbl:
+        if not args.tbl_dataset_path:
+            log.error("--source=tbl requires --tbl-dataset-path or V15_TBL_DATASET_PATH env")
+            return 2
+        log.info("loading from TBL pre-joined dataset: %s", args.tbl_dataset_path)
+        samples = load_dataset_tbl(args.tbl_dataset_path)
+    elif use_pg:
+        if not args.pg_dsn:
+            log.error("--source=postgres requires --pg-dsn or ANALYTICS_DB_DSN/PG_DSN env")
+            return 2
         log.info("loading from POSTGRES signal_snapshots")
         samples = load_dataset_postgres(
             args.pg_dsn,
@@ -940,7 +1043,7 @@ def main() -> int:
     if len(samples) < 200:
         log.error("REJECTED: too few samples (%d < 200)", len(samples))
         with open(args.verdict_out, "w") as f:
-            json.dump({"status": "rejected", "reason": "insufficient_data",
+            json.dump({**_base_verdict, "status": "rejected", "reason": "insufficient_data",
                        "n_samples": len(samples)}, f, indent=2)
         return 2
 
@@ -951,7 +1054,7 @@ def main() -> int:
     if len(features) < 5:
         log.error("REJECTED: too few features (%d < 5)", len(features))
         with open(args.verdict_out, "w") as f:
-            json.dump({"status": "rejected", "reason": "insufficient_features",
+            json.dump({**_base_verdict, "status": "rejected", "reason": "insufficient_features",
                        "n_features": len(features)}, f, indent=2)
         return 2
 

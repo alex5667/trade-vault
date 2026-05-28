@@ -171,6 +171,13 @@ try:
         "Source of regime value at signals:of:inputs publish time (P1.1)",
         ["kind", "source"],
     )
+    # 2026-05-27 WR stop-bleed: drop counter for virtual signals with hard
+    # veto / failed validation. Gated by VIRTUAL_GATE_HARD_DROP_ENABLED.
+    _VIRTUAL_HARD_DROP_TOTAL = Counter(
+        "virtual_hard_drop_total",
+        "Virtual signals dropped pre-publish due to hard veto / failed validation",
+        ["symbol", "reason", "mode"],
+    )
 except ImportError:
     _FEATURE_TO_DECISION_MS = None
     _DECISION_TO_OUTBOX_MS = None
@@ -189,6 +196,7 @@ except ImportError:
     _TP_PROFILE_SHADOW_TOTAL = None
     _TP_PROFILE_LEVEL_DELTA_BPS = None
     _REGIME_RESOLVED_TOTAL = None
+    _VIRTUAL_HARD_DROP_TOTAL = None
 
 # Gates whose vetoes must never route to virtual order queue.
 # Checked via rejection_gate parameter (dec.gate passed by _handle_pipeline_veto).
@@ -222,6 +230,49 @@ _VIRTUAL_ORDER_SKIP_REASONS: frozenset[str] = frozenset({
     "VETO_BOOK_NEG_QTY",
     "VETO_TRADE_OUTSIDE_BBO",
 })
+
+# 2026-05-27 WR stop-bleed: virtual hard-drop gate.
+# Trade report showed 147/198 signals "bypassed" (OFConfirm not evaluated for
+# virtual) yet 140 became open positions with WR=1.6%. This helper decides
+# whether a virtual signal should be dropped BEFORE outbox envelope build.
+#
+# Drop conditions (any of):
+#   - validation_status == "failed" (OFConfirm explicitly failed OR real signal
+#     missing confirmation got marked failed → virtual)
+#   - validation_status == "bypassed" (virtual, OFConfirm not evaluated)
+#   - hard_veto reason in v_gate_reason / validation_reason
+#
+# ENV:
+#   VIRTUAL_GATE_HARD_DROP_ENABLED ("0"/"1", default "0") — master switch
+#   VIRTUAL_GATE_HARD_DROP_SHADOW  ("0"/"1", default "1") — when 1, telemetry
+#                                   only (counter mode="shadow"); when 0, drop
+def should_drop_virtual_signal(enriched_signal: dict[str, Any]) -> tuple[bool, str]:
+    """Return (should_drop, reason_label).
+
+    Decision is pure on payload — env-aware caller controls enforce vs shadow.
+    Reads `is_virtual`, `validation_status`, `validation_reason`, `v_gate_reason`.
+    Non-virtual signals are never dropped (reason=""). Returns (False, "") if
+    the signal does not match any drop condition.
+    """
+    try:
+        is_virtual = bool(int(enriched_signal.get("is_virtual", 0) or 0))
+    except Exception:
+        is_virtual = False
+    if not is_virtual:
+        return False, ""
+    vstatus = str(enriched_signal.get("validation_status") or "").lower()
+    if vstatus == "failed":
+        return True, "validation_failed"
+    if vstatus == "bypassed":
+        return True, "validation_bypassed"
+    reason_blob = " ".join(
+        str(enriched_signal.get(k) or "")
+        for k in ("v_gate_reason", "validation_reason")
+    ).upper()
+    if "VETO_" in reason_blob or "HARD_VETO" in reason_blob:
+        return True, "hard_veto"
+    return False, ""
+
 
 # Signal Pipeline Logger
 logger = logging.getLogger("of_signal_pipeline")
@@ -335,7 +386,15 @@ class SignalPipeline:
         self._vol_z_calib = VolZThrCalibrator()
         self._htf_prox_calib = HtfProximityCalibrator()
         self._liq_wall_calib = LiquidityWallCalibrator()
-        self._confirm_barrier_cal = ConfirmationBarrierCalibrator()
+        # 2026-05-27 P2.4: env-tunable min_samples (default 30 → 10 для cold-start).
+        # Audit 2026-05-26: bins={} пусто — observations не накапливались. Снижение
+        # позволяет per-(sym,kind) bin промотироваться быстрее, пока fix observation
+        # producer ещё не приехал. Не уменьшать ниже 5.
+        try:
+            _cb_min_samples = max(5, int(os.getenv("CONFIRMATION_BARRIER_CAL_MIN_SAMPLES", "10") or 10))
+        except Exception:
+            _cb_min_samples = 10
+        self._confirm_barrier_cal = ConfirmationBarrierCalibrator(min_samples=_cb_min_samples)
         # Cache hot-path DQ thresholds here (also re-assigned below with the rest of
         # the _cached_* block — that's fine, same value from the same env var).
         self._cached_dq_book_stale_flag_ms = int(os.getenv("DQ_BOOK_STALE_FLAG_MS", "1500") or 1500)
@@ -658,11 +717,19 @@ class SignalPipeline:
             if isinstance(_inds, dict):
                 # tick_qty — bridge from top-level signal field (set in publish_signal),
                 # fallback to 0.0 (also applies for veto-path signals that bypass publish_signal).
-                _tq_raw = enriched_signal.get("tick_qty")
-                try:
-                    _inds.setdefault("tick_qty", float(_tq_raw) if _tq_raw is not None else 0.0)
-                except (TypeError, ValueError):
-                    _inds.setdefault("tick_qty", 0.0)
+                # Use direct assignment (not setdefault) so that an existing None is overridden —
+                # setdefault(key, 0.0) silently skips when key is present but value is None.
+                if _inds.get("tick_qty") is None:
+                    _tq_raw = enriched_signal.get("tick_qty")
+                    try:
+                        _inds["tick_qty"] = float(_tq_raw) if _tq_raw is not None else 0.0
+                    except (TypeError, ValueError):
+                        _inds["tick_qty"] = 0.0
+                # strong_gate_ok — 0.0 = gate not run / not applicable for non-tick-decision paths.
+                # tick_decision_engine sets it explicitly to 0 or 1 when it runs; all other paths
+                # get 0.0. Same None-override logic: setdefault skips None.
+                if _inds.get("strong_gate_ok") is None:
+                    _inds["strong_gate_ok"] = 0.0
                 if runtime is not None:
                     try:
                         dcfg = getattr(runtime, "dynamic_cfg", {}) or {}
@@ -672,6 +739,29 @@ class SignalPipeline:
                             _inds.setdefault("vol_ratio", _vr)
                         if _vz != 0.0:
                             _inds.setdefault("vol_ratio_z", _vz)
+                        # spread_bps_z: ML Feature Bridge in publish_signal() only runs for
+                        # pass-path signals (~0% of training data at current gate thresholds).
+                        # Bridge here covers veto-path signals (99%+).
+                        _sz = float(getattr(runtime, "last_spread_z", 0.0) or 0.0)
+                        if _sz != 0.0:
+                            _inds.setdefault("spread_bps_z", _sz)
+                        # trend_score / range_score: ML Feature Bridge in publish_signal() only.
+                        # Veto-path signals bypass it entirely, leaving both always 0.0 in
+                        # training data. Bridge from runtime._last_regime_score (updated every
+                        # microbar by strategy.update_regime) so all signal paths get the value.
+                        _rg = float(getattr(runtime, "_last_regime_score", 0.0) or 0.0)
+                        if _rg != 0.0:
+                            _inds.setdefault("trend_score", max(0.0, _rg))
+                            _inds.setdefault("range_score", max(0.0, -_rg))
+                        # trade_msg_rate_hz/z: strategy.py sets these from runtime attrs, but
+                        # iceberg/delta_spike service instances may not run that strategy block.
+                        # Bridge as fallback so all veto-path signals carry the rate features.
+                        _tmr = float(getattr(runtime, "trade_msg_rate_hz", 0.0) or 0.0)
+                        _tmz = float(getattr(runtime, "trade_msg_rate_z", 0.0) or 0.0)
+                        if _tmr != 0.0:
+                            _inds.setdefault("trade_msg_rate_hz", _tmr)
+                        if _tmz != 0.0:
+                            _inds.setdefault("trade_msg_rate_z", _tmz)
                         # Only bridge non-zero values: enricher (_enrich_vol_features) produces
                         # vol_fast_bps/vol_slow_bps from microstruct:ctx; setdefault with 0.0
                         # would block the enricher's real value via setdefault at merge time.
@@ -732,6 +822,15 @@ class SignalPipeline:
                                 _inds["depth_migration_bps"] = _dm
                     except Exception:
                         pass
+                # signal_age_ms: of_confirm_engine.build() computes this only for pass-path signals.
+                # Veto-path bypasses of_confirm_engine entirely → always 0. Compute trivially so
+                # ML training data has this feature for all paths.
+                if not _inds.get("signal_age_ms"):
+                    _sig_ts_ms = int(
+                        enriched_signal.get("ts_ms") or enriched_signal.get("tick_ts") or 0
+                    )
+                    if _sig_ts_ms > 0:
+                        _inds["signal_age_ms"] = max(0.0, float(int(time.time() * 1000) - _sig_ts_ms))
                 # vol_ratio bridge: v14_of schema key vol_ratio maps to vol_ratio_fast_slow
                 _inds.setdefault("vol_ratio", float(_inds.get("vol_ratio_fast_slow") or 0.0))
                 _inds.setdefault("vol_ratio_z", float(_inds.get("sc_vol_ratio_z") or 0.0))
@@ -766,6 +865,28 @@ class SignalPipeline:
                         if _rt_regime and _rt_regime not in _NA_TOKENS:
                             _top_regime = _rt_regime
                             _regime_source = "runtime"
+                    # 2026-05-27 P0.E-ext: universal Redis fallback. Audit showed
+                    # regime fill rate в trades_closed = 5.33% (Lane B baseline 26%).
+                    # runtime.last_regime может быть пустой для kinds которые не
+                    # обновляют runtime (iceberg/delta_spike subscribers). Reader
+                    # читает regime:{SYMBOL} string из worker-1 (fail-open).
+                    if not _top_regime:
+                        try:
+                            from services.iceberg_long_gate_inline import (
+                                get_regime_for_symbol as _get_regime,
+                            )
+                            _sym_for_regime = (
+                                enriched_signal.get("symbol")
+                                or symbol
+                                or ""
+                            )
+                            if _sym_for_regime:
+                                _redis_regime = _get_regime(str(_sym_for_regime))
+                                if _redis_regime:
+                                    _top_regime = str(_redis_regime).lower().strip()
+                                    _regime_source = "redis_fallback"
+                        except Exception:
+                            pass
                     if _top_regime:
                         _inds["regime"] = _top_regime
                         enriched_signal.setdefault("regime", _top_regime)
@@ -820,6 +941,8 @@ class SignalPipeline:
                         "vol_of_vol", "amihud_illiquidity", "pin_estimate",
                     })
                     for _ek, _ev in _enriched.items():
+                        if _ev is None:
+                            continue  # enricher returns None when Redis key absent; skip to stay absent
                         if _ek in _MICROSTRUCT_OVERRIDE and _ev != 0.0:
                             _inds[_ek] = _ev  # override frozen 0.0 from v13_snap.update()
                         else:
@@ -840,10 +963,72 @@ class SignalPipeline:
                     )
                     for _bk, _bv in _bridge_out.items():
                         # `setdefault` semantics — never overwrite existing populated value.
-                        _inds.setdefault(_bk, _bv)
+                        # Skip None: _pick() returns None when neither source has the key;
+                        # storing None would corrupt .get(key, 0.0) callers (returns None not 0.0).
+                        if _bv is not None:
+                            _inds.setdefault(_bk, _bv)
                 except Exception as _ext_exc:
                     # Fail-open: bridge unavailable should not block publish.
                     logger.debug("⚠️ _publish_of_inputs ext-bridge fail-open: %s", _ext_exc)
+
+                # eth_btc_corr_5m: inject_v12_of_features pre-sets 0.0 via setdefault, and the
+                # cross_asset_corr_reader call in publish_signal() only runs on the pass-path
+                # (~0% of training data at OF_SOFT_SCORE_MIN=0.85). Re-read here for all paths.
+                # Direct assignment (not setdefault) overrides the 0.0 from inject_v12_of_features.
+                if not _inds.get("eth_btc_corr_5m"):
+                    try:
+                        import asyncio as _aio_corr
+                        from core.cross_asset_corr_reader import get_eth_btc_corr_5m as _get_corr
+                        _corr = await _aio_corr.to_thread(_get_corr)
+                        if _corr not in (None, 0, 0.0):
+                            _inds["eth_btc_corr_5m"] = _corr
+                    except Exception:
+                        pass
+
+                # fp_edge_absorb: computed in of_confirm_engine.build() for pass-path only.
+                # For veto-path, call compute_fp_edge_absorb directly using runtime.last_fp_edge
+                # (same source the confirm engine uses). Sets fp_edge_absorb + ancillary keys
+                # (fp_edge_age_ms, fp_edge_strength, fp_edge_bias) in _inds as a side-effect.
+                if "fp_edge_absorb" not in _inds and runtime is not None:
+                    try:
+                        from core.fp_edge_evidence import compute_fp_edge_absorb as _fp_absorb
+                        _last_edge = getattr(runtime, "last_fp_edge", None)
+                        _fp_dir = str(enriched_signal.get("direction") or "").upper()
+                        _fp_cfg = dict(getattr(runtime, "config", {}) or {}) if hasattr(runtime, "config") else {}
+                        _fp_ok, _, _, _ = _fp_absorb(
+                            direction=_fp_dir,
+                            now_ts_ms=int(time.time() * 1000),
+                            last_edge=_last_edge,
+                            cfg=_fp_cfg,
+                            indicators=_inds,
+                        )
+                        _inds.setdefault("fp_edge_absorb", 1 if _fp_ok else 0)
+                    except Exception:
+                        _inds.setdefault("fp_edge_absorb", 0)
+
+                # dq_score / dq_flag_count / dq_level / dq_pen:
+                # of_confirm_engine.build() sets these on pass-path only.
+                # For veto-path, bridge from data_health / data_health_reasons
+                # (the pre-gate data quality proxy already in indicators from strategy.py).
+                # dq_score ≈ data_health (0–1 range, 1.0 = fully healthy)
+                # dq_flag_count = comma-separated reasons count
+                # dq_level = 0 (veto-path DQ check not run; signal passed DQ-FIRST if reached)
+                # dq_pen = 0.0 (no penalty without full confirm engine run)
+                if "dq_score" not in _inds:
+                    try:
+                        _dh = float(_inds.get("data_health", 1.0) or 1.0)
+                        _inds["dq_score"] = _dh
+                        _dr = str(_inds.get("data_health_reasons") or "")
+                        _inds["dq_flag_count"] = float(
+                            len([r for r in _dr.split(",") if r.strip()])
+                        )
+                        _inds.setdefault("dq_level", 0)
+                        _inds.setdefault("dq_pen", 0.0)
+                    except Exception:
+                        _inds.setdefault("dq_score", 1.0)
+                        _inds.setdefault("dq_flag_count", 0.0)
+                        _inds.setdefault("dq_level", 0)
+                        _inds.setdefault("dq_pen", 0.0)
 
                 # Ensure atr_5m is populated for ML features — covers both veto and outbox paths.
                 # _calculate_levels sets it for executed signals; here we cover vetoed signals.
@@ -1712,6 +1897,53 @@ class SignalPipeline:
         ind_val = signal.get("indicators")
         indicators = ind_val if isinstance(ind_val, dict) else {}
 
+        # 2026-05-27 P0.E-final: universal regime resolution into ctx.indicators
+        # ДО любых gate evaluation. Audit 2026-05-27 (Lane B): regime=NULL у 74%
+        # LONG-trades + downstream EntryPolicyGate.indicators.regime=None даже
+        # при наличии payload bridge от iceberg detector.
+        #
+        # Resolution hierarchy (longest wins; preserves existing value):
+        #   1. indicators.regime (already set by upstream — iceberg P0.E bridge,
+        #      of_confirm_engine, etc.)
+        #   2. signal["regime"] top-level field
+        #   3. runtime.last_regime (set by bar_processor regime svc)
+        #   4. Redis fallback: regime:{SYMBOL} string on worker-1
+        #      (writer: regime_engine service)
+        _NA_TOKENS = ("", "na", "none", "null", "unknown", "?")
+        _cur_ind_reg = str(indicators.get("regime") or "").strip().lower()
+        _need_resolve = (
+            indicators.get("regime") is None
+            or _cur_ind_reg in _NA_TOKENS
+        )
+        if _need_resolve:
+            _resolved_regime: str | None = None
+            # signal["regime"] top-level
+            _top = str(signal.get("regime") or "").strip().lower()
+            if _top and _top not in _NA_TOKENS:
+                _resolved_regime = _top
+            # runtime.last_regime
+            if _resolved_regime is None and runtime is not None:
+                _rt = str(getattr(runtime, "last_regime", "") or "").strip().lower()
+                if _rt and _rt not in _NA_TOKENS:
+                    _resolved_regime = _rt
+            # Redis fallback (regime:{SYMBOL})
+            if _resolved_regime is None:
+                try:
+                    from services.iceberg_long_gate_inline import (
+                        get_regime_for_symbol as _get_regime,
+                    )
+                    _sym = str(getattr(runtime, "symbol", "") or signal.get("symbol") or "")
+                    if _sym:
+                        _rr = _get_regime(_sym)
+                        if _rr:
+                            _resolved_regime = str(_rr).strip().lower()
+                except Exception:
+                    pass
+            if _resolved_regime:
+                indicators["regime"] = _resolved_regime
+                # mirror to top-level signal for downstream consumers
+                signal.setdefault("regime", _resolved_regime)
+
         # data-quality flags (prepared by preprocess_signal_for_publish + additional cheap hints)
         flags = []
         dq_flags_val = signal.get("data_quality_flags")
@@ -2528,10 +2760,24 @@ class SignalPipeline:
                     ).inc()
             signal.setdefault("gate_decisions", []).append(dec.to_dict())
             if dec.decision == "DENY":
-                logger.info("🛡️ [%s] VETO (%s): %s | reason=%s notes=%s", 
+                logger.info("🛡️ [%s] VETO (%s): %s | reason=%s notes=%s",
                             dec.stage.upper(), symbol, dec.gate, dec.reason_code, dec.notes)
                 self._record_veto(symbol, dec.stage, dec.reason_code)
-                
+
+                # Propagate SMT fields from ctx → indicators before veto so the
+                # ML training record has SMT coherence features for all signal paths.
+                # pass-path does the same at L2897 after all gates; here we mirror it
+                # at veto time with whatever ctx state is current.
+                with contextlib.suppress(Exception):
+                    for _smt_k in (
+                        "smt_leader_dir", "smt_leader_confirm", "smt_coh",
+                        "smt_align", "smt_state_stale", "smt_bundle_id", "smt_blocked",
+                    ):
+                        if _smt_k not in indicators:
+                            _sv = getattr(ctx, _smt_k, None)
+                            if _sv is not None:
+                                indicators[_smt_k] = _sv
+
                 # Unified rejection path
                 self._handle_pipeline_veto(
                     dec=dec,
@@ -3935,6 +4181,17 @@ class SignalPipeline:
 
         effective_risk_pct = base_risk_pct * risk_factor
 
+        # P2.6 — Quarter-Kelly sizing (shadow default, enforce via KELLY_SIZING_ENABLED=1)
+        try:
+            from core.kelly_sizer_v2 import apply_kelly_sizing as _kelly_apply
+            _kelly_enforce = os.getenv("KELLY_SIZING_ENABLED", "0") == "1"
+            effective_risk_pct = _kelly_apply(
+                indicators, effective_risk_pct,
+                enforce=_kelly_enforce, symbol=symbol, kind=kind,
+            )
+        except Exception:
+            pass
+
         lot_risk, position_size_usd, deposit, leverage = calculate_position_size(
             symbol=symbol,
             entry_price=entry,
@@ -4086,7 +4343,31 @@ class SignalPipeline:
         enriched_signal["tradeable"] = not enriched_signal["virtual"]
         # ---
 
-
+        # 2026-05-27 WR stop-bleed: hard-drop virtual signals with failed/bypassed
+        # validation BEFORE outbox envelope build. Trade report showed 140/147
+        # bypassed virtuals turning into open trades with WR=1.6%.
+        _hard_drop_enabled = os.getenv("VIRTUAL_GATE_HARD_DROP_ENABLED", "0").lower() in ("1", "true", "yes", "on")
+        if _hard_drop_enabled:
+            _should_drop, _drop_reason = should_drop_virtual_signal(enriched_signal)
+            if _should_drop:
+                _drop_shadow = os.getenv("VIRTUAL_GATE_HARD_DROP_SHADOW", "1").lower() in ("1", "true", "yes", "on")
+                _mode = "shadow" if _drop_shadow else "enforce"
+                if _VIRTUAL_HARD_DROP_TOTAL is not None:
+                    with contextlib.suppress(Exception):
+                        _VIRTUAL_HARD_DROP_TOTAL.labels(
+                            symbol=symbol, reason=_drop_reason, mode=_mode,
+                        ).inc()
+                if not _drop_shadow:
+                    logger.info(
+                        "🚫 [VIRTUAL_HARD_DROP] (%s) drop virtual signal reason=%s vstatus=%s",
+                        symbol, _drop_reason, enriched_signal.get("validation_status"),
+                    )
+                    return
+                # shadow mode: log infrequently
+                logger.debug(
+                    "[VIRTUAL_HARD_DROP_SHADOW] (%s) would-drop reason=%s",
+                    symbol, _drop_reason,
+                )
 
         crypto_signal = CryptoSignal(
             sid=signal["signal_id"],
@@ -5416,11 +5697,17 @@ class SignalPipeline:
         # BOUNDED_SL_ENABLED=1, SHADOW=0 → enforce; fail-open on any error.
         try:
             from signals.bounded_sl import apply_bounded_sl_floor
-            _bsl_new, _bsl_meta = apply_bounded_sl_floor(runtime.symbol, entry, stop_dist, cfg)
+            # 2026-05-27 WR fix: pass atr_value so bounded_sl can apply MAX_ATR_MULT cap.
+            _atr_for_cap = float(indicators.get("atr") or indicators.get("atr_1m") or 0.0) or None
+            _bsl_new, _bsl_meta = apply_bounded_sl_floor(runtime.symbol, entry, stop_dist, cfg, atr=_atr_for_cap)
             if _bsl_meta.get("applied"):
                 stop_dist = _bsl_new
                 indicators["bounded_sl_applied_pipeline"] = 1
                 indicators["bounded_sl_floor_bps"] = round(float(_bsl_meta.get("mae_floor_bps", 0.0)), 2)
+            if _bsl_meta.get("atr_cap_triggered"):
+                indicators["bounded_sl_atr_cap_triggered"] = 1
+                indicators["bounded_sl_atr_cap_skipped"] = int(_bsl_meta.get("atr_cap_skipped", 0))
+                indicators["bounded_sl_mae_to_atr_mult"] = round(float(_bsl_meta.get("mae_floor_to_atr_mult", 0.0)), 2)
         except Exception:
             pass
 

@@ -32,6 +32,16 @@ ENV
   BOUNDED_SL_MIN_SAMPLES    (int,   default "30")    — require N closed
                               samples in the 30d window before trusting
                               the percentile.
+  BOUNDED_SL_MAX_ATR_MULT   (float, default "4.0")   — 2026-05-27 WR fix:
+                              if mae_floor_bps / atr_bps > this multiple,
+                              the floor is treated as too-wide for current
+                              volatility regime and skipped. Reports of
+                              avg SL=9.14 ATR in low-vol windows showed the
+                              MAE floor dominating ATR-scaled SL → mirror
+                              TP also became 9 ATR → near-zero WR.
+  BOUNDED_SL_MAX_ATR_SHADOW ("0"/"1", default "1")   — if 1, the ATR-multiple
+                              cap is recorded in telemetry but NOT enforced
+                              (shadow). Flip to 0 to enforce.
 """
 from __future__ import annotations
 
@@ -192,6 +202,7 @@ def apply_bounded_sl_floor(
     entry: float,
     stop_dist: float,
     cfg: dict | None = None,
+    atr: float | None = None,
 ) -> tuple[float, dict[str, Any]]:
     """Return (new_stop_dist, telemetry).
 
@@ -199,6 +210,13 @@ def apply_bounded_sl_floor(
       - disabled → returns (stop_dist, telemetry with enabled=0).
       - enabled + shadow=1 → returns (stop_dist, telemetry with would_apply=...).
       - enabled + shadow=0 → returns (max(stop_dist, mae_floor_dist), telemetry).
+
+    2026-05-27 WR fix — ATR-multiple cap:
+      Param `atr` (1m ATR in price units). When provided and >0, the cap
+      `BOUNDED_SL_MAX_ATR_MULT` (default 4.0) limits how much the MAE-floor
+      can exceed ATR-scaled SL. If `mae_floor_bps / atr_bps > MAX_ATR_MULT`,
+      the floor is recorded as `cap_triggered=1` and (when not shadow)
+      skipped — preserving the original ATR-scaled stop_dist.
 
     Always fail-open: any error inside returns original stop_dist.
     """
@@ -210,6 +228,9 @@ def apply_bounded_sl_floor(
         "base_dist": stop_dist,
         "final_dist": stop_dist,
         "delta_dist": 0.0,
+        "atr_cap_triggered": 0,
+        "atr_cap_shadow": 0,
+        "atr_cap_skipped": 0,
     }
     try:
         if not _env_bool("BOUNDED_SL_ENABLED", False):
@@ -235,6 +256,27 @@ def apply_bounded_sl_floor(
         mae_floor_dist = entry * floor_bps / 10_000.0
         base_dist_bps = (stop_dist / entry) * 10_000.0 if entry > 0 else 0.0
         telem["base_dist_bps"] = base_dist_bps
+
+        # 2026-05-27 WR fix: ATR-multiple cap. In low-vol regimes ATR shrinks
+        # but p75(MAE_30d) is computed over the whole month — the floor then
+        # dominates ATR-scaled SL → effective 9 ATR SL/TP → ~0% WR.
+        if atr is not None and float(atr) > 0.0 and entry > 0.0:
+            atr_bps = (float(atr) / entry) * 10_000.0
+            telem["atr_bps"] = atr_bps
+            if atr_bps > 0.0:
+                ratio = floor_bps / atr_bps
+                telem["mae_floor_to_atr_mult"] = ratio
+                max_mult = _env_float("BOUNDED_SL_MAX_ATR_MULT", 4.0)
+                atr_shadow = _env_bool("BOUNDED_SL_MAX_ATR_SHADOW", True)
+                telem["atr_cap_shadow"] = 1 if atr_shadow else 0
+                telem["atr_cap_max_mult"] = max_mult
+                if max_mult > 0.0 and ratio > max_mult:
+                    telem["atr_cap_triggered"] = 1
+                    if not atr_shadow:
+                        # Skip floor — preserve ATR-scaled stop_dist
+                        telem["atr_cap_skipped"] = 1
+                        telem["would_apply"] = 0
+                        return stop_dist, telem
 
         if mae_floor_dist > stop_dist:
             telem["delta_dist"] = mae_floor_dist - stop_dist

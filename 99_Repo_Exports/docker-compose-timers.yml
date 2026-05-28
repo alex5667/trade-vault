@@ -226,6 +226,9 @@ services:
     environment:
     - REDIS_URL=${REDIS_URL:-redis://redis-worker-1:6379/0}
     - REDIS_WRITE_URLS=redis://redis-worker-1:6379/0,redis://redis-worker-2:6379/0,redis://redis-worker-3:6379/0
+    # stream:liq_evt is published by go-worker to main redis (REDIS_HOST=redis:6379).
+    # Without this override, _aggregate_liquidations reads worker-1 → empty stream → all liq_* fields zero.
+    - DERIV_CTX_LIQ_REDIS_URL=${DERIV_CTX_LIQ_REDIS_URL:-redis://redis:6379/0}
     - BINANCE_FUTURES_BASE_URL=${BINANCE_FUTURES_BASE_URL:-https://fapi.binance.com}
     - BINANCE_HTTP_TIMEOUT_S=${BINANCE_HTTP_TIMEOUT_S:-8.0}
     - DERIV_CTX_POLL_INTERVAL_S=${DERIV_CTX_POLL_INTERVAL_S:-30}

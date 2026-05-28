@@ -147,6 +147,120 @@ class TestApplyBoundedSL:
 
 
 # ---------------------------------------------------------------------------
+# 2026-05-27 WR fix — ATR-multiple cap (BOUNDED_SL_MAX_ATR_MULT)
+# ---------------------------------------------------------------------------
+
+class TestBoundedSLAtrCap:
+    """In low-vol windows ATR shrinks but p75(MAE_30d) is computed over a month.
+    Without a cap the MAE floor dominates ATR-scaled SL → effective 9 ATR SL/TP
+    → 0% WR. The cap caps the ratio mae_floor_bps / atr_bps."""
+
+    def _enforce_env(self, monkeypatch):
+        monkeypatch.setenv("BOUNDED_SL_ENABLED", "1")
+        monkeypatch.setenv("BOUNDED_SL_SHADOW", "0")
+        monkeypatch.setenv("BOUNDED_SL_MAE_K", "1.0")
+        monkeypatch.setenv("BOUNDED_SL_MAE_P75_CAP_BPS", "1000")
+
+    def test_cap_triggered_in_low_vol(self, monkeypatch):
+        """ATR=5 bps, MAE floor=50 bps → ratio 10x > default cap 4.0 → triggered."""
+        self._enforce_env(monkeypatch)
+        monkeypatch.setenv("BOUNDED_SL_MAX_ATR_MULT", "4.0")
+        monkeypatch.setenv("BOUNDED_SL_MAX_ATR_SHADOW", "0")
+        # entry=100, atr=0.05 (5 bps). MAE=50 bps → floor_dist=0.50 (5x ATR).
+        new_dist, telem = apply_bounded_sl_floor(
+            "BTCUSDT", 100.0, 0.01, {"mae_p75_bps_30d": 50.0, "mae_sample_count_30d": 200.0},
+            atr=0.05,
+        )
+        assert telem["atr_cap_triggered"] == 1
+        assert telem["atr_cap_skipped"] == 1
+        # Floor was skipped — original stop_dist preserved
+        assert new_dist == 0.01
+        assert telem["applied"] == 0
+        assert telem["mae_floor_to_atr_mult"] == pytest.approx(10.0)
+
+    def test_cap_not_triggered_in_normal_vol(self, monkeypatch):
+        """ATR=20 bps, MAE floor=50 bps → ratio 2.5x < cap 4.0 → not triggered."""
+        self._enforce_env(monkeypatch)
+        monkeypatch.setenv("BOUNDED_SL_MAX_ATR_MULT", "4.0")
+        monkeypatch.setenv("BOUNDED_SL_MAX_ATR_SHADOW", "0")
+        # entry=100, atr=0.20 (20 bps). MAE=50 bps → ratio 2.5.
+        new_dist, telem = apply_bounded_sl_floor(
+            "BTCUSDT", 100.0, 0.01, {"mae_p75_bps_30d": 50.0, "mae_sample_count_30d": 200.0},
+            atr=0.20,
+        )
+        assert telem["atr_cap_triggered"] == 0
+        assert telem["atr_cap_skipped"] == 0
+        # Floor applied as usual
+        assert new_dist == pytest.approx(0.50)
+        assert telem["applied"] == 1
+
+    def test_cap_shadow_records_but_does_not_skip(self, monkeypatch):
+        """SHADOW=1 → cap recorded in telemetry but floor still applied."""
+        self._enforce_env(monkeypatch)
+        monkeypatch.setenv("BOUNDED_SL_MAX_ATR_MULT", "4.0")
+        monkeypatch.setenv("BOUNDED_SL_MAX_ATR_SHADOW", "1")
+        new_dist, telem = apply_bounded_sl_floor(
+            "BTCUSDT", 100.0, 0.01, {"mae_p75_bps_30d": 50.0, "mae_sample_count_30d": 200.0},
+            atr=0.05,
+        )
+        assert telem["atr_cap_triggered"] == 1
+        assert telem["atr_cap_shadow"] == 1
+        assert telem["atr_cap_skipped"] == 0
+        # Floor applied (shadow doesn't enforce skip)
+        assert new_dist == pytest.approx(0.50)
+        assert telem["applied"] == 1
+
+    def test_no_cap_when_atr_not_provided(self, monkeypatch):
+        """Backward compatibility: atr=None → no cap logic, same as before."""
+        self._enforce_env(monkeypatch)
+        new_dist, telem = apply_bounded_sl_floor(
+            "BTCUSDT", 100.0, 0.01, {"mae_p75_bps_30d": 50.0, "mae_sample_count_30d": 200.0},
+        )
+        # No atr_cap fields populated (no skip)
+        assert telem["atr_cap_triggered"] == 0
+        assert "atr_bps" not in telem
+        assert new_dist == pytest.approx(0.50)
+
+    def test_no_cap_when_atr_zero(self, monkeypatch):
+        """atr=0 → defensive: no cap (avoid div-by-zero)."""
+        self._enforce_env(monkeypatch)
+        monkeypatch.setenv("BOUNDED_SL_MAX_ATR_SHADOW", "0")
+        new_dist, telem = apply_bounded_sl_floor(
+            "BTCUSDT", 100.0, 0.01, {"mae_p75_bps_30d": 50.0, "mae_sample_count_30d": 200.0},
+            atr=0.0,
+        )
+        assert telem["atr_cap_triggered"] == 0
+        assert new_dist == pytest.approx(0.50)
+
+    def test_cap_disabled_via_zero_mult(self, monkeypatch):
+        """BOUNDED_SL_MAX_ATR_MULT=0 → cap disabled."""
+        self._enforce_env(monkeypatch)
+        monkeypatch.setenv("BOUNDED_SL_MAX_ATR_MULT", "0")
+        monkeypatch.setenv("BOUNDED_SL_MAX_ATR_SHADOW", "0")
+        new_dist, telem = apply_bounded_sl_floor(
+            "BTCUSDT", 100.0, 0.01, {"mae_p75_bps_30d": 50.0, "mae_sample_count_30d": 200.0},
+            atr=0.05,  # would normally trigger (10x ratio)
+        )
+        # No cap with 0 mult → floor still applied
+        assert telem["atr_cap_triggered"] == 0
+        assert new_dist == pytest.approx(0.50)
+
+    def test_cap_exact_boundary(self, monkeypatch):
+        """ratio == max_mult → not triggered (strict >)."""
+        self._enforce_env(monkeypatch)
+        monkeypatch.setenv("BOUNDED_SL_MAX_ATR_MULT", "5.0")
+        monkeypatch.setenv("BOUNDED_SL_MAX_ATR_SHADOW", "0")
+        # 50 bps MAE / 10 bps ATR = exactly 5.0
+        new_dist, telem = apply_bounded_sl_floor(
+            "BTCUSDT", 100.0, 0.01, {"mae_p75_bps_30d": 50.0, "mae_sample_count_30d": 200.0},
+            atr=0.10,
+        )
+        assert telem["atr_cap_triggered"] == 0
+        assert telem["mae_floor_to_atr_mult"] == pytest.approx(5.0)
+        assert new_dist == pytest.approx(0.50)
+
+
+# ---------------------------------------------------------------------------
 # compute_levels integration — SL widened when feature ON+ENFORCE
 # ---------------------------------------------------------------------------
 

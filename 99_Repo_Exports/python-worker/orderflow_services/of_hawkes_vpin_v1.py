@@ -354,6 +354,7 @@ def main() -> None:
     group = os.getenv("HAWKES_GROUP", "of-hawkes-vpin")
     consumer = os.getenv("HAWKES_CONSUMER", "of-hawkes-vpin-1")
     batch = _ENV_INT("HAWKES_BATCH", 500)
+    ctx_key_prefix = os.getenv("HAWKES_CTX_KEY_PREFIX", "ctx:hawkes")
 
     logger.info("Starting Hawkes/VPIN service: symbols=%s beta=%.4f alpha=%.4f", symbols, beta, alpha)
 
@@ -464,10 +465,10 @@ def main() -> None:
 
                     out["ts_ms"] = ts_ms
                     try:
-                        redis_client.hset(f"ctx:hawkes:{symbol}", mapping={
+                        redis_client.hset(f"{ctx_key_prefix}:{symbol}", mapping={
                             k: f"{v:.8f}" for k, v in out.items()
                         })
-                        redis_client.expire(f"ctx:hawkes:{symbol}", ttl_sec)
+                        redis_client.expire(f"{ctx_key_prefix}:{symbol}", ttl_sec)
                     except Exception as re:
                         logger.debug("Redis HSET hawkes %s failed: %s", symbol, re)
 

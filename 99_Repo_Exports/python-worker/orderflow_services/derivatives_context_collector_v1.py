@@ -49,6 +49,17 @@ class DerivativesContextCollector:
     def __init__(self) -> None:
         self.redis_url = os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
         self.r = aioredis.from_url(self.redis_url, decode_responses=True)
+        # stream:liq_evt is published by go-worker to MAIN redis (REDIS_HOST=redis:6379),
+        # but ctx:deriv:* lives on worker-1. Without a separate client, _aggregate_liquidations
+        # silently returns zeros and downstream liq_imbalance_z / force_order_imbalance_1m /
+        # liq_impulse_score / force_order_{long,short}_notional_1m all stay 0 in production.
+        # Default DERIV_CTX_LIQ_REDIS_URL → main redis to fix the wiring.
+        self.liq_redis_url = os.getenv("DERIV_CTX_LIQ_REDIS_URL", "redis://redis:6379/0")
+        self.r_liq = aioredis.from_url(self.liq_redis_url, decode_responses=True)
+        # runtime:breadth is published by go-worker to the SAME main redis as liq_evt.
+        # Reuse the liq client so breadth fields (leader_confirm, market_breadth_ret_24h,
+        # market_breadth_volume_z) are read from the correct instance.
+        self.r_breadth = self.r_liq
         write_urls_env = str(os.getenv("REDIS_WRITE_URLS", self.redis_url) or self.redis_url).split(",")
         self.write_clients = []
         for u in write_urls_env:
@@ -324,7 +335,7 @@ class DerivativesContextCollector:
         """
         from_ms = max(0, int(now_ms) - int(self.liq_window_ms))
         try:
-            entries = await self.r.xrange(self.liq_stream, min=f"{from_ms}-0", max="+")
+            entries = await self.r_liq.xrange(self.liq_stream, min=f"{from_ms}-0", max="+")
         except Exception as exc:
             logger.debug("liq xrange failed: %s", exc)
             return 0.0, 0.0, 0.0
@@ -430,9 +441,13 @@ class DerivativesContextCollector:
                 pass
             _crowding = max(-3.0, min(3.0, _fz * ls_z / 9.0))
 
-            # Read leader_confirm from runtime:breadth (go-worker publishes this)
-            breadth_ctx = await aread_breadth_context(self.r)
+            # Read leader_confirm + breadth metrics from runtime:breadth.
+            # go-worker publishes runtime:breadth to MAIN redis (same as liq_evt),
+            # so use self.r_breadth (aliased to self.r_liq) instead of self.r (worker-1).
+            breadth_ctx = await aread_breadth_context(self.r_breadth)
             leader_confirm = float(breadth_ctx.get("leader_confirm", 0.0)) if breadth_ctx else 0.0
+            breadth_ret_24h = float(breadth_ctx.get("ret_24h", 0.0)) if breadth_ctx else 0.0
+            breadth_vol_z = float(breadth_ctx.get("vol_z", 0.0)) if breadth_ctx else 0.0
 
             # G6: Monitor leader confirmation availability
             try:
@@ -464,6 +479,8 @@ class DerivativesContextCollector:
                 liq_buy_notional_1m=float(liq_buy),
                 liq_sell_notional_1m=float(liq_sell),
                 liq_imbalance_z=float(liq_z),
+                market_breadth_ret_24h=breadth_ret_24h,
+                market_breadth_volume_z=breadth_vol_z,
                 # v3
                 top_trader_long_short_ratio=float(top_trader_ls),
                 taker_buy_sell_ratio=float(taker_ratio),

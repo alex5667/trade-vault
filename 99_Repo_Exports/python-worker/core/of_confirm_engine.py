@@ -83,6 +83,15 @@ def _ctx_get(client: Any, key: str, ttl_s: float | None = None) -> Any:
         return entry[1] if entry is not None else None
 
 
+# NaN sentinel for "stale source" silent-zero defaults.
+# When OF_CONFIRM_STALE_NAN=1, derivatives/macro/etc. blocks emit float('nan')
+# instead of 0.0 so the ML trainer can distinguish "feature=0 because data was
+# empty" from "feature=0 legitimately". Default off for backwards compat with
+# downstream JSON consumers; trainer reads via _stale_sentinel().
+_OF_CONFIRM_STALE_NAN = os.getenv("OF_CONFIRM_STALE_NAN", "0").strip() in ("1", "true", "True", "yes", "on")
+_STALE_SENTINEL: float = float("nan") if _OF_CONFIRM_STALE_NAN else 0.0
+
+
 def _ext_ctx_track(source: str, stale: bool, ts_ms: float, now_ms: float) -> None:
     """Increment unified external context monitoring metrics. Best-effort, never raises."""
     try:
@@ -2874,7 +2883,42 @@ class OFConfirmEngine:
                 indicators["ok_soft_reason"] = soft_reason
             elif int(ok) == 0 and int(need) > 0 and int(have) >= int(need) - 2:
                 # near-miss: allow signals missing up to 2 legs (was: exactly 1)
-                soft_score_min = float(os.getenv("OF_SOFT_SCORE_MIN") or cfg.get("soft_score_min") or 0.55)
+                # 2026-05-27 P2.D: per-(side × regime) score floor override.
+                # ENV examples: OF_SOFT_SCORE_MIN_LONG_BEAR=0.95, OF_SOFT_SCORE_MIN_LONG=0.88.
+                # Bear-LONG requires strictly higher confidence (mean-revert traps).
+                _base_soft_min = float(os.getenv("OF_SOFT_SCORE_MIN") or cfg.get("soft_score_min") or 0.55)
+                _reg_for_soft = str(indicators.get("regime") or "").strip().lower()
+                _dir_for_soft = str(indicators.get("direction") or direction or "").strip().upper()
+                if _dir_for_soft == "BUY":
+                    _dir_for_soft = "LONG"
+                elif _dir_for_soft == "SELL":
+                    _dir_for_soft = "SHORT"
+                if _reg_for_soft in ("trending_bear", "downtrend"):
+                    _reg_norm = "BEAR"
+                elif _reg_for_soft in ("trending_bull", "uptrend", "trending"):
+                    _reg_norm = "BULL"
+                elif _reg_for_soft in ("range", "mixed"):
+                    _reg_norm = "RANGE"
+                elif _reg_for_soft == "squeeze":
+                    _reg_norm = "SQUEEZE"
+                else:
+                    _reg_norm = ""
+                soft_score_min = _base_soft_min
+                if _dir_for_soft in ("LONG", "SHORT"):
+                    if _reg_norm:
+                        _override = os.getenv(f"OF_SOFT_SCORE_MIN_{_dir_for_soft}_{_reg_norm}")
+                        if _override not in (None, ""):
+                            try:
+                                soft_score_min = float(_override)
+                            except Exception:
+                                pass
+                    if soft_score_min == _base_soft_min:
+                        _override = os.getenv(f"OF_SOFT_SCORE_MIN_{_dir_for_soft}")
+                        if _override not in (None, ""):
+                            try:
+                                soft_score_min = float(_override)
+                            except Exception:
+                                pass
                 soft_exec_max = float(os.getenv("OF_SOFT_EXEC_RISK_NORM_MAX") or cfg.get("soft_exec_risk_norm_max") or 0.80)
                 # 2026-05-23 stop-bleed: continuation в неподтверждённых регламентах
                 # (range/unknown) теряет soft-pass. cont_ctx_recent/hidden_ctx_recent
@@ -4173,33 +4217,33 @@ class OFConfirmEngine:
                     _deriv_data = {}
 
                 # Funding
-                _funding_rate = float(_deriv_data.get("funding_rate") or 0.0) if not _deriv_stale else 0.0
-                _funding_rate_z = float(_deriv_data.get("funding_rate_z") or 0.0) if not _deriv_stale else 0.0
+                _funding_rate = float(_deriv_data.get("funding_rate") or 0.0) if not _deriv_stale else _STALE_SENTINEL
+                _funding_rate_z = float(_deriv_data.get("funding_rate_z") or 0.0) if not _deriv_stale else _STALE_SENTINEL
                 indicators_with_v4.setdefault("funding_rate", _funding_rate)
                 indicators_with_v4.setdefault("funding_rate_z", _funding_rate_z)
 
                 # OI
-                _oi_notional = float(_deriv_data.get("oi_notional_usd") or 0.0) if not _deriv_stale else 0.0
-                _oi_delta_5m = float(_deriv_data.get("delta_oi_5m") or 0.0) if not _deriv_stale else 0.0
+                _oi_notional = float(_deriv_data.get("oi_notional_usd") or 0.0) if not _deriv_stale else _STALE_SENTINEL
+                _oi_delta_5m = float(_deriv_data.get("delta_oi_5m") or 0.0) if not _deriv_stale else _STALE_SENTINEL
                 indicators_with_v4.setdefault("oi_notional_usd", _oi_notional)
                 indicators_with_v4.setdefault("oi_delta_5m", _oi_delta_5m)
                 # 1m delta proxy: 1/5 of 5m delta (linear scaling, model can learn correction)
                 indicators_with_v4.setdefault("oi_delta_1m", _oi_delta_5m / 5.0)
                 # z-score from snapshot is OI accelerometer (oi_accel flag in snapshot)
-                indicators_with_v4.setdefault("oi_accel", float(_deriv_data.get("oi_accel") or 0.0) if not _deriv_stale else 0.0)
+                indicators_with_v4.setdefault("oi_accel", float(_deriv_data.get("oi_accel") or 0.0) if not _deriv_stale else _STALE_SENTINEL)
 
                 # Basis / premium
-                _basis_bps = float(_deriv_data.get("basis_bps") or 0.0) if not _deriv_stale else 0.0
-                _premium_index = float(_deriv_data.get("premium_index") or 0.0) if not _deriv_stale else 0.0
+                _basis_bps = float(_deriv_data.get("basis_bps") or 0.0) if not _deriv_stale else _STALE_SENTINEL
+                _premium_index = float(_deriv_data.get("premium_index") or 0.0) if not _deriv_stale else _STALE_SENTINEL
                 indicators_with_v4.setdefault("basis_bps", _basis_bps)
                 indicators_with_v4.setdefault("premium_index_bps", _premium_index * 10000.0)
                 # Composite basis pressure: combined funding + basis signal
                 _basis_pressure = abs(_funding_rate_z) + abs(_basis_bps) / 10.0
-                indicators_with_v4.setdefault("basis_pressure_score", _basis_pressure if not _deriv_stale else 0.0)
+                indicators_with_v4.setdefault("basis_pressure_score", _basis_pressure if not _deriv_stale else _STALE_SENTINEL)
 
                 # Liquidation imbalance (already computed in v2 of snapshot)
-                _liq_buy_1m = float(_deriv_data.get("liq_buy_notional_1m") or 0.0) if not _deriv_stale else 0.0
-                _liq_sell_1m = float(_deriv_data.get("liq_sell_notional_1m") or 0.0) if not _deriv_stale else 0.0
+                _liq_buy_1m = float(_deriv_data.get("liq_buy_notional_1m") or 0.0) if not _deriv_stale else _STALE_SENTINEL
+                _liq_sell_1m = float(_deriv_data.get("liq_sell_notional_1m") or 0.0) if not _deriv_stale else _STALE_SENTINEL
                 indicators_with_v4.setdefault("liq_long_notional_1m", _liq_buy_1m)
                 indicators_with_v4.setdefault("liq_short_notional_1m", _liq_sell_1m)
                 # 5m proxy: 5x running window (snapshot only has 1m, this is approximate)
@@ -4209,15 +4253,15 @@ class OFConfirmEngine:
                 _liq_imb_1m = (_liq_buy_1m - _liq_sell_1m) / _liq_total_1m if _liq_total_1m > 0 else 0.0
                 indicators_with_v4.setdefault("liq_imbalance_1m", _liq_imb_1m)
                 indicators_with_v4.setdefault("liq_imbalance_5m", _liq_imb_1m)  # same proxy
-                indicators_with_v4.setdefault("liq_imbalance_z", float(_deriv_data.get("liq_imbalance_z") or 0.0) if not _deriv_stale else 0.0)
+                indicators_with_v4.setdefault("liq_imbalance_z", float(_deriv_data.get("liq_imbalance_z") or 0.0) if not _deriv_stale else _STALE_SENTINEL)
 
                 # Long/short ratio
-                indicators_with_v4.setdefault("long_short_ratio", float(_deriv_data.get("long_short_ratio") or 0.0) if not _deriv_stale else 0.0)
-                indicators_with_v4.setdefault("long_short_ratio_z", float(_deriv_data.get("long_short_ratio_z") or 0.0) if not _deriv_stale else 0.0)
+                indicators_with_v4.setdefault("long_short_ratio", float(_deriv_data.get("long_short_ratio") or 0.0) if not _deriv_stale else _STALE_SENTINEL)
+                indicators_with_v4.setdefault("long_short_ratio_z", float(_deriv_data.get("long_short_ratio_z") or 0.0) if not _deriv_stale else _STALE_SENTINEL)
 
                 # Direction-conflict signal (BTC/ETH leader confirms target direction)
                 # G6: leader_confirm = (btc_ret_24h + eth_ret_24h) / 2 from runtime:breadth
-                _leader_confirm = float(_deriv_data.get("leader_btc_eth_confirm") or 0.0) if not _deriv_stale else 0.0
+                _leader_confirm = float(_deriv_data.get("leader_btc_eth_confirm") or 0.0) if not _deriv_stale else _STALE_SENTINEL
                 # Validate: must be finite and in range [-1, 1]
                 if not math.isfinite(_leader_confirm):
                     _leader_confirm = 0.0
@@ -4225,58 +4269,58 @@ class OFConfirmEngine:
                     _leader_confirm = max(-1.0, min(1.0, _leader_confirm))
                 indicators_with_v4.setdefault("leader_btc_eth_confirm", _leader_confirm)
                 # Conflict = inverse of confirmation (high abs(confirm) → low conflict)
-                indicators_with_v4.setdefault("leader_direction_conflict", 1.0 - abs(_leader_confirm) if not _deriv_stale else 0.0)
+                indicators_with_v4.setdefault("leader_direction_conflict", 1.0 - abs(_leader_confirm) if not _deriv_stale else _STALE_SENTINEL)
 
                 # Sector breadth (24h return / volume z)
-                indicators_with_v4.setdefault("sector_breadth_ret_24h", float(_deriv_data.get("market_breadth_ret_24h") or 0.0) if not _deriv_stale else 0.0)
-                indicators_with_v4.setdefault("sector_breadth_vol_z", float(_deriv_data.get("market_breadth_volume_z") or 0.0) if not _deriv_stale else 0.0)
+                indicators_with_v4.setdefault("sector_breadth_ret_24h", float(_deriv_data.get("market_breadth_ret_24h") or 0.0) if not _deriv_stale else _STALE_SENTINEL)
+                indicators_with_v4.setdefault("sector_breadth_vol_z", float(_deriv_data.get("market_breadth_volume_z") or 0.0) if not _deriv_stale else _STALE_SENTINEL)
 
                 # Phase 7.9b: composite scores derived from same snapshot.
                 # Taker buy/sell imbalance — already in DerivativesContextSnapshot.
                 indicators_with_v4.setdefault(
                     "taker_buy_sell_imbalance",
-                    float(_deriv_data.get("taker_buy_sell_imbalance") or 0.0) if not _deriv_stale else 0.0,
+                    float(_deriv_data.get("taker_buy_sell_imbalance") or 0.0) if not _deriv_stale else _STALE_SENTINEL,
                 )
                 # Phase 8.3: taker ratio + z-score (v3 snapshot fields).
                 indicators_with_v4.setdefault(
                     "taker_buy_sell_ratio",
-                    float(_deriv_data.get("taker_buy_sell_ratio") or 0.0) if not _deriv_stale else 0.0,
+                    float(_deriv_data.get("taker_buy_sell_ratio") or 0.0) if not _deriv_stale else _STALE_SENTINEL,
                 )
                 indicators_with_v4.setdefault(
                     "taker_buy_sell_ratio_z",
-                    float(_deriv_data.get("taker_buy_sell_ratio_z") or 0.0) if not _deriv_stale else 0.0,
+                    float(_deriv_data.get("taker_buy_sell_ratio_z") or 0.0) if not _deriv_stale else _STALE_SENTINEL,
                 )
                 # Alias of liq_imbalance_1m for forceOrder semantics in plan.
-                indicators_with_v4.setdefault("force_order_imbalance_1m", _liq_imb_1m if not _deriv_stale else 0.0)
+                indicators_with_v4.setdefault("force_order_imbalance_1m", _liq_imb_1m if not _deriv_stale else _STALE_SENTINEL)
                 # Phase 8.3: individual liq notionals under force_order naming.
-                indicators_with_v4.setdefault("force_order_long_notional_1m", _liq_buy_1m if not _deriv_stale else 0.0)
-                indicators_with_v4.setdefault("force_order_short_notional_1m", _liq_sell_1m if not _deriv_stale else 0.0)
+                indicators_with_v4.setdefault("force_order_long_notional_1m", _liq_buy_1m if not _deriv_stale else _STALE_SENTINEL)
+                indicators_with_v4.setdefault("force_order_short_notional_1m", _liq_sell_1m if not _deriv_stale else _STALE_SENTINEL)
                 # Phase 8.3: cluster score + top-trader + crowding (v3 snapshot).
                 indicators_with_v4.setdefault(
                     "force_order_cluster_score",
-                    float(_deriv_data.get("force_order_cluster_score") or 0.0) if not _deriv_stale else 0.0,
+                    float(_deriv_data.get("force_order_cluster_score") or 0.0) if not _deriv_stale else _STALE_SENTINEL,
                 )
                 indicators_with_v4.setdefault(
                     "top_trader_long_short_ratio",
-                    float(_deriv_data.get("top_trader_long_short_ratio") or 0.0) if not _deriv_stale else 0.0,
+                    float(_deriv_data.get("top_trader_long_short_ratio") or 0.0) if not _deriv_stale else _STALE_SENTINEL,
                 )
                 indicators_with_v4.setdefault(
                     "futures_crowding_score",
-                    float(_deriv_data.get("futures_crowding_score") or 0.0) if not _deriv_stale else 0.0,
+                    float(_deriv_data.get("futures_crowding_score") or 0.0) if not _deriv_stale else _STALE_SENTINEL,
                 )
                 # Phase 8.4: oi_delta z-score and premium_index z-score (from v3 snapshot).
                 indicators_with_v4.setdefault(
                     "oi_delta_z",
-                    float(_deriv_data.get("oi_delta_z") or 0.0) if not _deriv_stale else 0.0,
+                    float(_deriv_data.get("oi_delta_z") or 0.0) if not _deriv_stale else _STALE_SENTINEL,
                 )
                 indicators_with_v4.setdefault(
                     "premium_index_z",
-                    float(_deriv_data.get("premium_index_z") or 0.0) if not _deriv_stale else 0.0,
+                    float(_deriv_data.get("premium_index_z") or 0.0) if not _deriv_stale else _STALE_SENTINEL,
                 )
                 # Phase 8.4+: open_interest_z — z-score of OI notional level (not delta).
                 indicators_with_v4.setdefault(
                     "open_interest_z",
-                    float(_deriv_data.get("open_interest_z") or 0.0) if not _deriv_stale else 0.0,
+                    float(_deriv_data.get("open_interest_z") or 0.0) if not _deriv_stale else _STALE_SENTINEL,
                 )
                 # OI confirmation: +1 if OI delta and funding z agree (continuation),
                 # -1 if they disagree (short-cover / squeeze hint), 0 if either is 0.
@@ -4285,19 +4329,29 @@ class OFConfirmEngine:
                     if (_oi_delta_5m != 0.0 and _funding_rate_z != 0.0)
                     else 0.0
                 )
-                indicators_with_v4.setdefault("oi_confirmation_score", _oi_conf if not _deriv_stale else 0.0)
-                # Squeeze risk: funding × L/S both extreme (>1.5σ).
+                indicators_with_v4.setdefault("oi_confirmation_score", _oi_conf if not _deriv_stale else _STALE_SENTINEL)
+                # Squeeze risk: soft product |funding_z| × |ls_z|, cap 25.
+                # Prior hard gate (both legs > 1.5σ) fired <0.5% → feature dead.
+                # Soft form scales monotonically with both extremes; keep the original
+                # hard-trigger as a separate boolean for callers that relied on it.
                 _ls_z = float(_deriv_data.get("long_short_ratio_z") or 0.0)
-                _squeeze = (
-                    min(25.0, abs(_funding_rate_z) * abs(_ls_z))
-                    if (abs(_funding_rate_z) > 1.5 and abs(_ls_z) > 1.5)
-                    else 0.0
+                _afz = abs(_funding_rate_z)
+                _alz = abs(_ls_z)
+                _squeeze = min(25.0, _afz * _alz)
+                indicators_with_v4.setdefault("squeeze_risk_score", _squeeze if not _deriv_stale else _STALE_SENTINEL)
+                indicators_with_v4.setdefault(
+                    "squeeze_risk_extreme",
+                    1.0 if (_afz > 1.5 and _alz > 1.5 and not _deriv_stale) else 0.0,
                 )
-                indicators_with_v4.setdefault("squeeze_risk_score", _squeeze if not _deriv_stale else 0.0)
-                # Liquidation impulse: only when |liq_imbalance_z| > 2.0.
+                # Liquidation impulse: keep raw |liq_imbalance_z| (continuous).
+                # Prior gate (> 2.0) zeroed ≥95% of samples even when source healthy.
+                # Hard-trigger preserved as separate boolean.
                 _liq_z_abs = abs(float(_deriv_data.get("liq_imbalance_z") or 0.0))
-                _liq_impulse = _liq_z_abs if _liq_z_abs > 2.0 else 0.0
-                indicators_with_v4.setdefault("liq_impulse_score", _liq_impulse if not _deriv_stale else 0.0)
+                indicators_with_v4.setdefault("liq_impulse_score", _liq_z_abs if not _deriv_stale else _STALE_SENTINEL)
+                indicators_with_v4.setdefault(
+                    "liq_impulse_extreme",
+                    1.0 if (_liq_z_abs > 2.0 and not _deriv_stale) else 0.0,
+                )
             except Exception:
                 for _df in (
                     "funding_rate", "funding_rate_z",
@@ -4557,7 +4611,10 @@ class OFConfirmEngine:
             )
             try:
                 _hawkes_max_lag_ms = float(os.getenv("HAWKES_MAX_LAG_MS", "30000") or "30000")
-                _raw_hk = _ctx_hgetall(self._redis_client, f"ctx:hawkes:{symbol}")  # type: ignore[attr-defined]
+                # Priority: ctx:hawkes-main (main host, fresh) → ctx:hawkes (minik fallback).
+                _raw_hk = _ctx_hgetall(self._redis_client, f"ctx:hawkes-main:{symbol}")  # type: ignore[attr-defined]
+                if not _raw_hk:
+                    _raw_hk = _ctx_hgetall(self._redis_client, f"ctx:hawkes:{symbol}")  # type: ignore[attr-defined]
                 _hk_data: dict[str, str] = {
                     (k.decode() if isinstance(k, (bytes, bytearray)) else str(k)):
                     (v.decode() if isinstance(v, (bytes, bytearray)) else str(v))
@@ -5061,7 +5118,7 @@ class OFConfirmEngine:
                         _macro_stale = (int(now_ts) - _macro_ts) > _macro_max_lag_ms if _macro_ts > 0 else True
                 except Exception:
                     _macro_data = {}
-                _mf = lambda k: float(_macro_data.get(k) or 0.0) if not _macro_stale else 0.0
+                _mf = lambda k: float(_macro_data.get(k) or 0.0) if not _macro_stale else _STALE_SENTINEL
                 indicators_with_v4.setdefault("macro_event_severity", _mf("macro_event_severity"))
                 indicators_with_v4.setdefault("minutes_to_macro_event", _mf("minutes_to_macro_event"))
                 indicators_with_v4.setdefault("minutes_after_macro_event", _mf("minutes_after_macro_event"))

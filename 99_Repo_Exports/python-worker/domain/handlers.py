@@ -512,7 +512,16 @@ def maybe_arm_trailing_after_tp1(pos, *, spec, ts_ms: int) -> TradeEvent | None:
     # SECURE PROFIT: Move SL to BreakEven + Fees + Slippage immediately
     # BE_AFTER_TP1_MODE: ENFORCE (default) = apply; SHADOW = log only; OFF = skip
     # --------------------------------------------------------------------------
-    be_mode = (os.environ.get("BE_AFTER_TP1_MODE", "ENFORCE") or "ENFORCE").upper().strip()
+    # 2026-05-27 P1.6: read через tp_sl_trailing autocal override, env как fallback.
+    # Раньше env читался напрямую и autocal-snapshot (be_after_tp1_mode.value)
+    # полностью игнорировался — autocal не мог поменять mode runtime.
+    _env_be_mode = (os.environ.get("BE_AFTER_TP1_MODE", "ENFORCE") or "ENFORCE").upper().strip()
+    try:
+        from services.tp_sl_trailing_runtime_overrides import get_override as _tp_get_override
+        _ov = _tp_get_override("be_after_tp1_mode", _env_be_mode)
+        be_mode = (str(_ov) if _ov is not None else _env_be_mode).upper().strip()
+    except Exception:
+        be_mode = _env_be_mode
     current_sl = float(getattr(pos, "sl", 0.0) or 0.0)
     secured_sl = current_sl
 

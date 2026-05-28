@@ -280,6 +280,37 @@ def _canon_regime(v: Any) -> str:
     return normalize_regime_label(v)
 
 
+_REGIME_NA_TOKENS = ("", "na", "none", "unknown", "null")
+
+
+def resolve_regime_from_payload(data: dict[str, Any]) -> str:
+    """
+    Regime priority chain for raw signal payload (used by _normalize_signal
+    for trail_profile selection).
+
+    Order:
+      1. data.regime, data.entry_regime, data.regime_bucket (top-level)
+      2. data.indicators.regime (set by signal_pipeline._publish_of_inputs for
+         kinds with late regime resolution: iceberg, delta_spike).
+      3. Fallback "unknown" — triggers conservative range_protective.
+
+    2026-05-27 WR-stop-bleed fix: до фикса virtual reports показывали
+    regime=unknown в 99% сделок (range_protective везде). create_position
+    использует тот же chain (см. _process_signal_norm).
+    """
+    if not isinstance(data, dict):
+        return "unknown"
+    top = str(data.get("regime") or data.get("entry_regime") or data.get("regime_bucket") or "").strip().lower()
+    if top and top not in _REGIME_NA_TOKENS:
+        return top
+    ind = data.get("indicators")
+    if isinstance(ind, dict):
+        ind_rg = str(ind.get("regime") or "").strip().lower()
+        if ind_rg and ind_rg not in _REGIME_NA_TOKENS:
+            return ind_rg
+    return "unknown"
+
+
 def _extract_regime_from_signal(sig: Any) -> str:
     """
     Best-effort regime-at-signal extraction from normalized signal object.
@@ -3220,8 +3251,23 @@ class TradeMonitorService:
 
                 # Context for winner slicing
                 ctx = payload.get("ctx") if isinstance(payload.get("ctx"), dict) else {}
-                # Also try top-level regime/zone_id from payload if not in ctx
-                sp["regime"] = (ctx.get("regime", getattr(sig, "regime", None)) or "na").lower()  # type: ignore
+                # 2026-05-27 WR-stop-bleed fix: sp["regime"] стелсил "na" в signal_payload
+                # даже когда pos.entry_regime был корректно резолвлен через indicators.regime.
+                # Source priority согласована с L3184-L3199 (create_position).
+                _sp_regime = (
+                    ctx.get("regime")
+                    or getattr(sig, "entry_regime", None)
+                    or getattr(sig, "regime", None)
+                    or payload.get("entry_regime")
+                    or payload.get("regime")
+                )
+                if not _sp_regime:
+                    _ind = payload.get("indicators") if isinstance(payload.get("indicators"), dict) else None
+                    if _ind:
+                        _ind_rg = _ind.get("regime")
+                        if _ind_rg and str(_ind_rg).lower() not in ("", "na", "none", "null", "unknown"):
+                            _sp_regime = _ind_rg
+                sp["regime"] = (str(_sp_regime) if _sp_regime else "na").lower()
                 sp["zone_id"] = (ctx.get("zone_id", getattr(sig, "zone_id", None)) or "")  # type: ignore
 
                 # --- Calibration / shadow trade fields ---
@@ -3662,11 +3708,7 @@ class TradeMonitorService:
             # 1b) Regime-aware trail_profile override.
             # Если trail_profile не задан явно сигналом — подставляем по режиму.
             # unknown/range/mixed/thin → range_protective
-            _regime_from_payload = str(
-                data.get("regime") or data.get("entry_regime") or data.get("regime_bucket") or ""
-            ).strip().lower()
-            if _regime_from_payload in ("", "na", "none"):
-                _regime_from_payload = "unknown"
+            _regime_from_payload = resolve_regime_from_payload(data)
 
             _original_trail = (data.get("trail_profile") or "").strip()
             _was_explicit = bool(data.get("_trail_profile_explicit") or False)
@@ -5439,7 +5481,16 @@ class TradeMonitorService:
             except Exception:
                 remaining_before = 0.0
 
-            partial_mode = (os.environ.get("PARTIAL_CLOSE_TP1_MODE", "OFF") or "OFF").upper().strip()
+            # 2026-05-27 P1.6: read через tp_sl_trailing autocal override.
+            # Раньше env читался напрямую → autocal snapshot
+            # (partial_close_tp1_mode.value) игнорировался при enforce=1.
+            _env_partial_mode = (os.environ.get("PARTIAL_CLOSE_TP1_MODE", "OFF") or "OFF").upper().strip()
+            try:
+                from services.tp_sl_trailing_runtime_overrides import get_override as _tp_get_override
+                _ov = _tp_get_override("partial_close_tp1_mode", _env_partial_mode)
+                partial_mode = (str(_ov) if _ov is not None else _env_partial_mode).upper().strip()
+            except Exception:
+                partial_mode = _env_partial_mode
             try:
                 cq = float(closed_qty)
             except Exception:

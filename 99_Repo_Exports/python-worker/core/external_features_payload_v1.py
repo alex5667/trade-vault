@@ -482,7 +482,7 @@ def _f(x: Any) -> float:
 def build_external_features_payload(
     indicators_with_v4: dict[str, Any] | None,
     runtime_indicators: dict[str, Any] | None = None,
-) -> dict[str, float]:
+) -> dict[str, float | None]:
     """Return a dict of Phase 7.8/7.9/7.9b/8.1/8.2 feature keys + opt v12 base.
 
     Args:
@@ -511,14 +511,14 @@ def build_external_features_payload(
     """
     src1 = indicators_with_v4 or {}
     src2 = runtime_indicators or {}
-    out: dict[str, float] = {}
+    out: dict[str, float | None] = {}
 
-    def _pick(k: str) -> float:
+    def _pick(k: str) -> float | None:
         if _is_present(src1, k):
             return _f(src1[k])
         if _is_present(src2, k):
             return _f(src2[k])
-        return 0.0
+        return None
 
     for k in _NUM_KEYS:
         out[k] = _pick(k)

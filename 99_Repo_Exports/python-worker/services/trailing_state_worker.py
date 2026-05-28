@@ -1047,7 +1047,15 @@ class TrailingStateWorker:
                 now_ms = int(time.time() * 1000)
                 for sym in symbols:
                     stream_key = RS.TICK_TPL.format(symbol=sym)
-                    cursor = cursors.get(sym, "$")
+                    cursor = cursors.get(sym)
+                    if cursor is None:
+                        try:
+                            info = r_tick.xinfo_stream(stream_key)
+                            cursor = str(info.get("last-generated-id", "0-0")) if isinstance(info, dict) else "0-0"
+                        except Exception:
+                            cursor = "0-0"
+                        cursors[sym] = cursor
+
                     try:
                         results = r_tick.xread({stream_key: cursor}, count=20, block=None)  # type: ignore[arg-type]
                     except Exception as exc:
@@ -1061,7 +1069,6 @@ class TrailingStateWorker:
                                 price = float(fields.get("price") or fields.get("last_price") or 0.0)
                                 tick_ts = int(fields.get("ts") or fields.get("ts_ms") or now_ms)
                                 if price > 0:
-                                    if sym == "ETHUSDT": log.info(f"ETHUSDT tick {price}")
                                     self.on_tick(sym, price, tick_ts)
                             except Exception as exc:
                                 log.debug("tick parse %s: %s", sym, exc)

@@ -444,7 +444,7 @@ class PeriodicReporter:
         # For symbol="ALL", we rely on the stream (global source) and filter in loop.
         min_id = f"{cutoff_ms}-0"
         try:
-            _stream_limit = trade_window_count if trade_window_count else max(RECENT_LIMIT, 50000)
+            _stream_limit = trade_window_count if trade_window_count else RECENT_LIMIT
             entries = self.redis.xrevrange(RS.TRADES_CLOSED, max="+", min=min_id, count=_stream_limit) or []
         except Exception:
             entries = []
@@ -1188,7 +1188,7 @@ class PeriodicReporter:
         # 1) trades:closed stream
         entries = []
         try:
-            _stream_limit = max(RECENT_LIMIT, 50000)
+            _stream_limit = RECENT_LIMIT
             entries = self.redis.xrevrange(RS.TRADES_CLOSED, max="+", min=min_id, count=_stream_limit) or []
             logger.debug(f"📊 trades:closed stream: найдено {len(entries)} записей (окно: {RECENT_WINDOW_SECONDS}s)")
         except Exception as e:
@@ -3229,7 +3229,7 @@ class PeriodicReporter:
                 try:
                     # Get messages within the window directly from Redis
                     min_id = f"{since_ms}-0"
-                    messages = self.redis.xrevrange(stream, max="+", min=min_id, count=5000)
+                    messages = self.redis.xrevrange(stream, max="+", min=min_id, count=RECENT_LIMIT)
                     for msg_id, fields in messages:
                         try:
                             # Парсим timestamp из ID сообщения
@@ -3473,7 +3473,7 @@ class PeriodicReporter:
             if len(pairs) < 500:  # Если мало пар, дополняем из stream (Limit increased to 500)
                 try:  # type: ignore
                     _min_id = str(int(time.time() * 1000) - 7 * 24 * 3600 * 1000)
-                    entries = self.redis.xrevrange(RS.TRADES_CLOSED, max="+", min=_min_id, count=2000) or []
+                    entries = self.redis.xrevrange(RS.TRADES_CLOSED, max="+", min=_min_id, count=500) or []
                     logger.debug(f"🔍 Проверяю trades:closed stream, найдено {len(entries)} записей")
 
                     for _, fields in entries:

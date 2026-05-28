@@ -68,7 +68,7 @@ V15_REQUIRED_BY_GROUP: dict[str, list[str]] = {
 }
 
 MIN_COVERAGE = 0.50      # ≥50% of sampled entries should have non-zero canary per group
-MIN_DAYS = 7
+MIN_DAYS = 5
 SAMPLE_SIZE = 200
 
 

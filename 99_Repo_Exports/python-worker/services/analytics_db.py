@@ -74,25 +74,44 @@ def _entry_regime_db_value(closed: Any) -> str | None:
                 v = sp.get(k)
                 if v and str(v).lower() not in _ENTRY_REGIME_SENTINELS:
                     return str(v).strip()
-            _ind = sp.get("indicators")
-            if isinstance(_ind, dict):
-                v = _ind.get("regime")
-                if v and str(v).lower() not in _ENTRY_REGIME_SENTINELS:
-                    return str(v).strip()
+            # Check indicators dict at both top level and nested config_snapshot
+            for _path in (sp.get("indicators"), (sp.get("config_snapshot") or {}).get("indicators")):
+                if isinstance(_path, dict):
+                    v = _path.get("regime")
+                    if v and str(v).lower() not in _ENTRY_REGIME_SENTINELS:
+                        return str(v).strip()
+            # Check meta.policy_provenance for regime (legacy orderflow strategy path)
+            for _meta in (sp.get("meta") or {}, (sp.get("config_snapshot") or {}).get("meta") or {}):
+                if isinstance(_meta, dict):
+                    pp = _meta.get("policy_provenance") or {}
+                    v = pp.get("regime") if isinstance(pp, dict) else None
+                    if v and str(v).lower() not in _ENTRY_REGIME_SENTINELS:
+                        return str(v).strip()
     except Exception:
         pass
     return None
 
 
 def _policy_mode_raw_from_payload(sp: dict[str, Any]) -> tuple[Any, Any]:
+    """Extract policy mode + raw risk_surface_shadow blob from a signal payload.
+
+    Important: must check BOTH `sp.config_snapshot.meta` AND `sp.meta` for each key,
+    not via `or` short-circuit on the dict (which would skip sp.meta whenever
+    config_snapshot.meta is non-empty but lacks risk_surface_shadow).
+    Empirically 47% of cryptoorderflow rows landed with policy_mode=NULL because
+    config_snapshot.meta existed and contained other fields, masking rss living
+    only under sp.meta.
+    """
     config_snapshot = sp.get("config_snapshot") or {}
-    meta = config_snapshot.get("meta") or sp.get("meta") or {}
-    rss = meta.get("risk_surface_shadow") or {}
+    cs_meta = config_snapshot.get("meta") or {}
+    sp_meta = sp.get("meta") or {}
+    rss = cs_meta.get("risk_surface_shadow") or sp_meta.get("risk_surface_shadow") or {}
     mode = (
         rss.get("mode")
-        or meta.get("policy_effective_mode")
-        or meta.get("policy_regime")
-        or meta.get("policy_mode")
+        or cs_meta.get("policy_effective_mode") or sp_meta.get("policy_effective_mode")
+        or cs_meta.get("policy_regime") or sp_meta.get("policy_regime")
+        or cs_meta.get("policy_mode") or sp_meta.get("policy_mode")
+        or sp.get("policy_mode")
         or None
     )
     raw = json.dumps(rss, ensure_ascii=False) if rss else None

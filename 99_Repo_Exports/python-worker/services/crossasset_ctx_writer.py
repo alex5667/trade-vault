@@ -271,6 +271,21 @@ def run_cycle(r, r_ticks=None) -> dict[str, dict[str, float]]:
         "ts_ms": float(int(time.time() * 1000)),
     }
 
+    # Self-reference snapshot for BTC: alt_season inherited; btc_corr_5m=1.0
+    # and vol_ratio=1.0 by definition. Downstream consumers (feature_enricher,
+    # of_confirm_engine) expect a key for BTCUSDT — without it, BTC trades
+    # land with empty crossasset:ctx, leaving btc_corr_5m / vol_ratio / alt_season
+    # in indicators as None.
+    if BTC_SYMBOL not in out:
+        out[BTC_SYMBOL] = {
+            "btc_corr_5m": 1.0,
+            "cross_asset_vol_ratio": 1.0,
+            "alt_season_index": alt_season_index,
+            "_window_bars": float(len(btc_30)),
+            "ts_ms": float(int(time.time() * 1000)),
+            "_self_ref": 1.0,
+        }
+
     if _alt_season is not None:
         _alt_season.set(alt_season_index)
     for sym, feats in out.items():

@@ -499,15 +499,23 @@ def _entry_regime_db_value(closed: Any) -> str | None:
 
 
 def _policy_mode_raw_from_payload(sp: dict[str, Any]) -> tuple[Any, Any]:
-    """Mirror analytics_db.save_trade_closed policy extraction (risk_surface_shadow)."""
+    """Mirror analytics_db.save_trade_closed policy extraction (risk_surface_shadow).
+
+    Fix 2026-05-27: check BOTH `sp.config_snapshot.meta` AND `sp.meta` for each
+    field rather than `or`-short-circuiting on the dict. Empirically masked 47%
+    of cryptoorderflow policy_mode values when config_snapshot.meta existed but
+    lacked risk_surface_shadow (which lived under sp.meta).
+    """
     config_snapshot = sp.get("config_snapshot") or {}
-    meta = config_snapshot.get("meta") or sp.get("meta") or {}
-    rss = meta.get("risk_surface_shadow") or {}
+    cs_meta = config_snapshot.get("meta") or {}
+    sp_meta = sp.get("meta") or {}
+    rss = cs_meta.get("risk_surface_shadow") or sp_meta.get("risk_surface_shadow") or {}
     mode = (
         rss.get("mode")
-        or meta.get("policy_effective_mode")
-        or meta.get("policy_regime")
-        or meta.get("policy_mode")
+        or cs_meta.get("policy_effective_mode") or sp_meta.get("policy_effective_mode")
+        or cs_meta.get("policy_regime") or sp_meta.get("policy_regime")
+        or cs_meta.get("policy_mode") or sp_meta.get("policy_mode")
+        or sp.get("policy_mode")
         or None
     )
     raw = json.dumps(rss, ensure_ascii=False) if rss else None

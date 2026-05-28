@@ -522,6 +522,19 @@ services:
     - RELIABILITY_BUCKET_STEP=5
     - RELIABILITY_SMT_COH_THR=0.65
     - SMT_COH_CAL_ENABLED=${SMT_COH_CAL_ENABLED:-1}
+    # P2.2: confidence_threshold_calibrator (reads rel_cal curves → adaptive min_conf).
+    # CONF_CAL_ENFORCE=0 → shadow only (proposes thresholds but doesn't enforce).
+    # Promote: CONF_CAL_ENFORCE=1 after ≥3 nights of ECE↓ + WR≥target_wr proof.
+    - CONF_CAL_ENFORCE=${CONF_CAL_ENFORCE:-0}
+    - CONF_CAL_TARGET_WR=${CONF_CAL_TARGET_WR:-0.55}
+    - CONF_CAL_OUTCOME=${CONF_CAL_OUTCOME:-tp2}
+    - CONF_CAL_MIN_SAMPLES=${CONF_CAL_MIN_SAMPLES:-50}
+    - CONF_CAL_CACHE_TTL_SEC=${CONF_CAL_CACHE_TTL_SEC:-60}
+    - CONF_CAL_FLOOR=${CONF_CAL_FLOOR:-40.0}
+    - CONF_CAL_CEIL=${CONF_CAL_CEIL:-90.0}
+    - CONF_CAL_ABS_THRESH=${CONF_CAL_ABS_THRESH:-2.0}
+    - CONF_CAL_MAX_JUMP=${CONF_CAL_MAX_JUMP:-5.0}
+    - CONF_CAL_HOLD_SEC=${CONF_CAL_HOLD_SEC:-3600}
     - RELIABILITY_WRITE_LEGACY=1
     - RELIABILITY_ADJUST_ENABLED=1
     - RELIABILITY_ADJUST_TARGET=tp2
@@ -1721,6 +1734,11 @@ services:
       context: .
       dockerfile: python-worker/Dockerfile
     container_name: scanner-binance-iceberg-detector
+    # 2026-05-27 P0.A: подключаем общий env_file чтобы KIND_KILL_LIST /
+    # BTC_DROP_BLOCK_LONG_* / LONG_REQUIRE_REGIME_* пробрасывались напрямую,
+    # как в OF сервисах. Без этого compose-substitution получал пустоту.
+    env_file:
+    - config/crypto-of-common.env
     environment:
     - REDIS_URL=${REDIS_URL}
     - REDIS_TICKS_URL=redis://redis-ticks:6379/0
@@ -1734,6 +1752,20 @@ services:
     - OUTBOX_CONTRACT_MODE=warn
     - OUTBOX_CONTRACT_SAMPLE_RATE=0.1
     - USE_SIGNAL_OUTBOX=true
+    # 2026-05-27 P0.A: inline LONG-gate. Iceberg detector обходил EntryPolicyGate
+    # → HTF/BTC_DROP/KIND_KILL_LIST/DAILY_DD не отрабатывали. ENFORCE сразу:
+    # KIND_KILL_LIST уже содержит iceberg:LONG (P0.7) и blocking нужен живой.
+    - ICEBERG_INLINE_LONG_GATE_ENABLED=1
+    - ICEBERG_INLINE_LONG_GATE_MODE=enforce
+    # regime:{SYMBOL} живёт на redis-worker-1; iceberg detector использует main.
+    - REGIME_REDIS_URL=${REDIS_WORKER_1_URL:-redis://redis-worker-1:6379/0}
+    # BTC_DROP_BLOCK_LONG_* / KIND_KILL_LIST / DAILY_DD_KILLSWITCH_ENABLED /
+    # LONG_REQUIRE_REGIME_* / HTF_LONG_BIAS_* / DELTA_SPIKE_LONG_TREND_GUARD_*
+    # пробрасываются из env_file (config/crypto-of-common.env). Не дублируем
+    # их здесь — иначе compose substitution из root .env перекрывает env_file.
+    # Optional: бан LONG в trending_bear/squeeze (комплимент HTF_LONG_BIAS).
+    - ICEBERG_LONG_REGIME_BIAS_ENABLED=1
+    - ICEBERG_LONG_REGIME_BIAS_BLOCK=trending_bear,squeeze
     - TZ=UTC
     depends_on:
       redis:
@@ -2946,6 +2978,10 @@ services:
     container_name: scanner-trade-monitor
     restart: unless-stopped
     environment:
+    # 2026-05-27 P1.6: enable runtime override reader для tp_sl_trailing autocal.
+    # Без флага consumers (be_after_tp1, partial_close_tp1) читали только env →
+    # autocal snapshot игнорировался даже когда enforce=1 в knobs.
+    - AUTOCAL_TP_SL_TRAIL_READ_ENABLED=1
     - REDIS_URL=${REDIS_URL:-${REDIS_URL}}
     - ANALYTICS_DB_DSN=${ANALYTICS_DB_DSN}
     - TRADES_DB_DSN=${ANALYTICS_DB_DSN}
@@ -3917,6 +3953,16 @@ services:
     - DAILY_DD_CHECK_INTERVAL_SEC=${DAILY_DD_CHECK_INTERVAL_SEC:-60}
     - DAILY_DD_EXCLUDE_VIRTUAL=${DAILY_DD_EXCLUDE_VIRTUAL:-0}
     - DAILY_DD_PROM_PORT=9700
+    # P2.10: per-symbol daily cap (sticky, UTC-reset same as global).
+    # KILL_SYM_ENABLED=0 → disabled by default (shadow-safe).
+    # KILL_SYM_LIST="" → watch all symbols. Non-empty = comma-sep allowlist.
+    - KILL_SYM_ENABLED=${KILL_SYM_ENABLED:-0}
+    - KILL_SYM_R_LIMIT=${KILL_SYM_R_LIMIT:-5}
+    - KILL_SYM_LIST=${KILL_SYM_LIST:-}
+    # P2.10: hourly rolling cap (NOT sticky — recalculated on every check cycle).
+    # KILL_HOURLY_ENABLED=0 → disabled by default.
+    - KILL_HOURLY_ENABLED=${KILL_HOURLY_ENABLED:-0}
+    - KILL_HOURLY_R_LIMIT=${KILL_HOURLY_R_LIMIT:-5}
     - TZ=UTC
     ports:
     - "9700:9700"
@@ -3937,6 +3983,262 @@ services:
         limits:
           memory: 256M
           cpus: '0.2'
+        reservations:
+          memory: 64M
+  cross-asset-breadth-producer:
+    # 2026-05-27 P1.B: computes market_breadth_ret_5m + per-symbol rel_strength
+    # vs BTC from kline_1m streams. Writes ctx:breadth:global + ctx:breadth:{SYM}.
+    # Reader: services/breadth_reader.py (used by HTF_LONG_BIAS).
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    container_name: scanner-cross-asset-breadth-producer
+    env_file:
+    - config/crypto-of-common.env
+    environment:
+    - REDIS_URL=${REDIS_URL}
+    - BREADTH_PRODUCER_ENABLED=1
+    - BREADTH_INTERVAL_SEC=30
+    - BREADTH_MAX_SYMBOLS=30
+    # Shared `candles:data` имеет ~30 symbols → fetch=20k ≈ 60 1m bars/symbol.
+    # Нужно для ret_1h calculation (60 closed bars per BTCUSDT).
+    - BREADTH_SHARED_STREAM_FETCH=20000
+    # 9876 занят binance-executor-supervised — используем 9890.
+    - BREADTH_PROM_PORT=9890
+    - PYTHONPATH=/app/python-worker:/app
+    - LOG_LEVEL=INFO
+    - TZ=UTC
+    ports:
+    - "9890:9890"
+    depends_on:
+      redis-worker-1:
+        condition: service_healthy
+    networks:
+    - scanner-core
+    - scanner-infra
+    restart: unless-stopped
+    command: python -m services.cross_asset_breadth_producer_v1
+    deploy:
+      resources:
+        limits:
+          memory: 192M
+          cpus: '0.15'
+        reservations:
+          memory: 64M
+  lgbm-long-gate-trainer-timer:
+    # 2026-05-27 P2.A: nightly LGBM LONG-gate trainer. Preflight gates:
+    # n_train≥1000, n_pos≥200, AUC≥0.55, ECE_cal≤0.05. PROMOTE=0 default —
+    # SHADOW only (model file written but not published to cfg:lgbm_long_gate).
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    container_name: scanner-lgbm-long-gate-trainer
+    env_file:
+    - config/crypto-of-common.env
+    environment:
+    - REDIS_URL=${REDIS_URL}
+    - ANALYTICS_DB_DSN=${ANALYTICS_DB_DSN}
+    - LGBM_LONG_GATE_PG_DSN=${ANALYTICS_DB_DSN}
+    - LGBM_LONG_GATE_TRAINER_ENABLED=1
+    - LGBM_LONG_GATE_COHORT_DAYS=30
+    - LGBM_LONG_GATE_MIN_TRAIN=1000
+    - LGBM_LONG_GATE_MIN_POS=200
+    - LGBM_LONG_GATE_MIN_AUC=0.55
+    - LGBM_LONG_GATE_MAX_ECE=0.05
+    - LGBM_LONG_GATE_MODEL_DIR=/var/lib/trade/of_reports/models
+    - LGBM_LONG_GATE_PROMOTE=0
+    - LGBM_LONG_GATE_REDIS_URL=${REDIS_URL}
+    - LGBM_LONG_GATE_TRAIN_INTERVAL_SEC=${LGBM_LONG_GATE_TRAIN_INTERVAL_SEC:-86400}
+    - PYTHONPATH=/app/python-worker:/app
+    - LOG_LEVEL=INFO
+    - TZ=UTC
+    volumes:
+    - /var/lib/trade:/var/lib/trade
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis-worker-1:
+        condition: service_healthy
+    networks:
+    - scanner-core
+    - scanner-infra
+    restart: unless-stopped
+    # Поллер: после каждого успешного train_lgbm_long_gate_v1 ожидает INTERVAL_SEC
+    # и запускает снова. Минимальный launcher без cron.
+    # Note: lightgbm требует libgomp1 (OpenMP runtime), которой нет в базовом
+    # Dockerfile.python-worker. Устанавливаем один раз перед первым циклом.
+    command:
+    - sh
+    - -c
+    - |
+      if ! ldconfig -p | grep -q libgomp; then
+        echo "[init] installing libgomp1 for lightgbm"
+        apt-get update >/dev/null 2>&1 && apt-get install -y libgomp1 >/dev/null 2>&1 || \
+          echo "[init] libgomp1 install failed — LGBM training will fail"
+      fi
+      while true; do
+        echo "[$(date -u +%FT%TZ)] lgbm_long_gate_trainer: start cycle"
+        python -m tools.train_lgbm_long_gate_v1 || true
+        echo "[$(date -u +%FT%TZ)] lgbm_long_gate_trainer: sleeping $${LGBM_LONG_GATE_TRAIN_INTERVAL_SEC}s"
+        sleep "$${LGBM_LONG_GATE_TRAIN_INTERVAL_SEC}"
+      done
+    deploy:
+      resources:
+        limits:
+          memory: 1024M
+          cpus: '1.0'
+        reservations:
+          memory: 256M
+  long-cooldown-manager:
+    # 2026-05-27 P1.D: streak-tracker for consecutive LONG losses per symbol.
+    # Reads trades_closed updates (PG poll), writes risk:cooldown:long:{SYM}.
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    container_name: scanner-long-cooldown-manager
+    env_file:
+    - config/crypto-of-common.env
+    environment:
+    - REDIS_URL=${REDIS_URL}
+    - ANALYTICS_DB_DSN=${ANALYTICS_DB_DSN}
+    - COOLDOWN_LONG_PG_DSN=${ANALYTICS_DB_DSN}
+    - COOLDOWN_LONG_SOURCE=pg
+    - COOLDOWN_LONG_POLL_SEC=10
+    - COOLDOWN_LONG_PROM_PORT=9874
+    - PYTHONPATH=/app/python-worker:/app
+    - LOG_LEVEL=INFO
+    - TZ=UTC
+    ports:
+    - "9874:9874"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis-worker-1:
+        condition: service_healthy
+    networks:
+    - scanner-core
+    - scanner-infra
+    restart: unless-stopped
+    command: python -m services.long_cooldown_manager_v1
+    deploy:
+      resources:
+        limits:
+          memory: 192M
+          cpus: '0.15'
+        reservations:
+          memory: 64M
+  sweep-detector:
+    # 2026-05-27 P2.C: detects stop-hunt sweeps (closed kline pierced N-bar high
+    # + close back inside). Writes ctx:sweep:{SYM} for EntryPolicyGate veto.
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    container_name: scanner-sweep-detector
+    env_file:
+    - config/crypto-of-common.env
+    environment:
+    - REDIS_URL=${REDIS_URL}
+    - SWEEP_DETECTOR_ENABLED=1
+    - SWEEP_DETECTOR_LOOKBACK_BARS=15
+    - SWEEP_DETECTOR_THRESHOLD_BPS=30
+    - SWEEP_DETECTOR_TTL_SEC=900
+    - SWEEP_DETECTOR_POLL_SEC=5
+    - SWEEP_DETECTOR_PROM_PORT=9875
+    - SWEEP_DETECTOR_MAX_SYMBOLS=30
+    - PYTHONPATH=/app/python-worker:/app
+    - LOG_LEVEL=INFO
+    - TZ=UTC
+    ports:
+    - "9875:9875"
+    depends_on:
+      redis-worker-1:
+        condition: service_healthy
+    networks:
+    - scanner-core
+    - scanner-infra
+    restart: unless-stopped
+    command: python -m services.sweep_detector_writer_v1
+    deploy:
+      resources:
+        limits:
+          memory: 192M
+          cpus: '0.15'
+        reservations:
+          memory: 64M
+  dq-observation-producer:
+    # 2026-05-27 P2.4: feeds DqMicrostructureCalibrator + ConfirmationBarrier
+    # via side stream `stream:dq_observations`. Решает голодание калибраторов
+    # (Lane 3 audit: bins={} / n=11/200) — наблюдения теперь идут из book stream
+    # напрямую, минуя publish-path, который тоньше после P0 gate tightening.
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    container_name: scanner-dq-observation-producer
+    environment:
+    - REDIS_URL=${REDIS_URL}
+    - REDIS_TICKS_URL=redis://redis-ticks:6379/0
+    - DQ_OBS_PRODUCER_ENABLED=1
+    - DQ_OBS_PRODUCER_INTERVAL_SEC=5
+    - DQ_OBS_PRODUCER_MAX_SYMBOLS=20
+    # 2026-05-27: 9871 занят scanner-crossvenue-agree-cal — используем 9873.
+    - DQ_OBS_PRODUCER_PROM_PORT=9873
+    - PYTHONPATH=/app/python-worker:/app
+    - LOG_LEVEL=INFO
+    - TZ=UTC
+    ports:
+    - "9873:9873"
+    depends_on:
+      redis-worker-1:
+        condition: service_healthy
+      redis-ticks:
+        condition: service_healthy
+    networks:
+    - scanner-core
+    - scanner-infra
+    restart: unless-stopped
+    command: python -m services.dq_observation_producer_v1
+    deploy:
+      resources:
+        limits:
+          memory: 192M
+          cpus: '0.15'
+        reservations:
+          memory: 64M
+  regime-exec-snapshot-writer:
+    # 2026-05-27 P1.8: периодически дампит RegimeConditionalExecutionEngine
+    # state в Redis `autocal:regime_exec:state` для observability. Не затирает
+    # promotion snapshot (services/regime_exec_promotion_v1.py).
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    container_name: scanner-regime-exec-snapshot-writer
+    env_file:
+    - config/crypto-of-common.env
+    environment:
+    - REDIS_URL=${REDIS_URL}
+    - REGIME_EXEC_SNAPSHOT_ENABLED=1
+    - REGIME_EXEC_SNAPSHOT_INTERVAL_SEC=60
+    - REGIME_EXEC_SNAPSHOT_PROM_PORT=9870
+    - REGIME_EXEC_SNAPSHOT_REDIS_URL=${REDIS_URL}
+    - REGIME_EXEC_AUTOCAL_HMAC_SECRET=${REGIME_EXEC_AUTOCAL_HMAC_SECRET:-${RECS_HMAC_SECRET:-}}
+    - PYTHONPATH=/app/python-worker:/app
+    - LOG_LEVEL=INFO
+    - TZ=UTC
+    ports:
+    - "9870:9870"
+    depends_on:
+      redis-worker-1:
+        condition: service_healthy
+    networks:
+    - scanner-core
+    - scanner-infra
+    restart: unless-stopped
+    command: python -m services.regime_exec_snapshot_writer_v1
+    deploy:
+      resources:
+        limits:
+          memory: 192M
+          cpus: '0.1'
         reservations:
           memory: 64M
   atr-policy-budget-telegram-digest:
@@ -5305,8 +5607,9 @@ services:
     - HAWKES_VPIN_ALPHA=${HAWKES_VPIN_ALPHA:-0.05}
     - HAWKES_TTL_SEC=60
     - HAWKES_PORT=9148
-    - HAWKES_GROUP=of-hawkes-vpin
-    - HAWKES_CONSUMER=of-hawkes-vpin-1
+    - HAWKES_GROUP=of-hawkes-vpin-main
+    - HAWKES_CONSUMER=of-hawkes-vpin-main-1
+    - HAWKES_CTX_KEY_PREFIX=ctx:hawkes-main
     - HAWKES_MAX_LAG_MS=60000
     - LOCK_REDIS_URL=redis://redis:6379/0
     - PYTHONPATH=.:/app
@@ -5326,7 +5629,7 @@ services:
           cpus: '0.3'
         reservations:
           memory: 64M
-    command: python3 tools/run_daemon_with_minik_failover.py --job-name hawkes_vpin -- python -u orderflow_services/of_hawkes_vpin_v1.py
+    command: python -u orderflow_services/of_hawkes_vpin_v1.py
 
   scanner-pit-priors-exporter:
     build: *id001
