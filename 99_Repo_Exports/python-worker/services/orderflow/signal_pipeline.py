@@ -559,6 +559,15 @@ class SignalPipeline:
         self._cached_manip_thr_otr_z = float(os.getenv("MANIP_OTR_Z_MAX", "0") or 0.0)
         self._cached_manip_tighten_cap = float(os.getenv("MANIP_TIGHTEN_ADD_CAP_BPS", "6.0") or 6.0)
         self._cached_manip_tighten_mult = float(os.getenv("MANIP_TIGHTEN_ADD_MULT", "1.0") or 1.0)
+        
+        self._manip_autocal_enabled = os.getenv("AUTOCAL_MANIP_READ_ENABLED", "1").lower() in {"1", "true", "yes", "on"}
+        self._manip_reader: Any = None
+        try:
+            if self._manip_autocal_enabled:
+                from services.manip_gate_runtime_overrides import get_reader as _get_manip_reader
+                self._manip_reader = _get_manip_reader()
+        except Exception:
+            pass
 
         # DefiLlama slow-context gate config
         self._cached_defillama_ctx_enabled = os.getenv("DEFILLAMA_CTX_ENABLED", "0").lower() in {"1", "true", "yes", "on"}
@@ -742,9 +751,11 @@ class SignalPipeline:
                         # spread_bps_z: ML Feature Bridge in publish_signal() only runs for
                         # pass-path signals (~0% of training data at current gate thresholds).
                         # Bridge here covers veto-path signals (99%+).
-                        _sz = float(getattr(runtime, "last_spread_z", 0.0) or 0.0)
-                        if _sz != 0.0:
-                            _inds.setdefault("spread_bps_z", _sz)
+                        # NB: write unconditionally — robust z-score of 0.0 is a valid value
+                        # (spread is at its EMA mean), not a "missing" sentinel. The earlier
+                        # `if _sz != 0.0` guard caused coverage dropouts whenever last_spread_z
+                        # was exactly 0 on cold restart (v15_of audit 2026-05-28).
+                        _inds.setdefault("spread_bps_z", float(getattr(runtime, "last_spread_z", 0.0) or 0.0))
                         # trend_score / range_score: ML Feature Bridge in publish_signal() only.
                         # Veto-path signals bypass it entirely, leaving both always 0.0 in
                         # training data. Bridge from runtime._last_regime_score (updated every
@@ -753,6 +764,38 @@ class SignalPipeline:
                         if _rg != 0.0:
                             _inds.setdefault("trend_score", max(0.0, _rg))
                             _inds.setdefault("range_score", max(0.0, -_rg))
+                        # regime_id / regime_score / regime_confidence / regime_age_ms / regime_stale:
+                        # Strategy sets these on indicators only at microbar close → only ~1% of
+                        # signals in signals:of:inputs have them. Bridge from runtime attrs so
+                        # ALL tick-path and veto-path signals carry the full regime feature set.
+                        _rid = getattr(runtime, "_last_regime_id", None)
+                        if _rid is not None and _rid != 0.0:
+                            _inds.setdefault("regime_id", float(_rid))
+                        if _rg != 0.0:
+                            _inds.setdefault("regime_score", _rg)
+                            _inds.setdefault("regime_confidence", abs(_rg))
+                        _rts = getattr(runtime, "_last_regime_ts_ms", 0) or 0
+                        if _rts > 0:
+                            _now_ms_r = int(
+                                _inds.get("ts_ms", 0) or enriched_signal.get("ts_ms", 0) or 0
+                            )
+                            if _now_ms_r > 0:
+                                _inds.setdefault("regime_age_ms", int(_now_ms_r - _rts))
+                        _inds.setdefault("regime_stale", 0)
+                        # regime_micro_1m / regime_micro_age_ms: fast 5-bar micro-regime,
+                        # computed inline by bar_processor._update_regime_micro on every 1m close.
+                        # Bridges ALL signal paths (veto + tick) so training data is complete.
+                        _rm = str(getattr(runtime, "last_regime_micro", "") or "").strip().lower()
+                        _rm_ts = int(getattr(runtime, "last_regime_micro_ts_ms", 0) or 0)
+                        if _rm and _rm not in ("na", "none", ""):
+                            _inds.setdefault("regime_micro_1m", _rm)
+                            _now_ms_rm = int(
+                                _inds.get("ts_ms", 0)
+                                or enriched_signal.get("ts_ms", 0)
+                                or 0
+                            )
+                            if _now_ms_rm > 0 and _rm_ts > 0:
+                                _inds.setdefault("regime_micro_age_ms", max(0, _now_ms_rm - _rm_ts))
                         # trade_msg_rate_hz/z: strategy.py sets these from runtime attrs, but
                         # iceberg/delta_spike service instances may not run that strategy block.
                         # Bridge as fallback so all veto-path signals carry the rate features.
@@ -927,6 +970,11 @@ class SignalPipeline:
                             self._sync_redis_client = _sync_redis  # cache on pipeline
                         except Exception:
                             _sync_redis = None
+                    # Bridge direction into indicators so _enrich_derived can compute
+                    # conf_rsi_agree (direction is top-level in enriched_signal, not in _inds).
+                    _sig_direction = enriched_signal.get("direction") or enriched_signal.get("side")
+                    if _sig_direction:
+                        _inds.setdefault("direction", str(_sig_direction).upper())
                     _enriched = enrich_indicators(
                         indicators=_inds,
                         symbol=symbol,
@@ -2937,14 +2985,31 @@ class SignalPipeline:
             )): return
 
         if self._cached_manip_enabled:
+            _manip_thr_qs = self._cached_manip_thr_qs
+            _manip_thr_lay = self._cached_manip_thr_lay
+            _manip_tighten_cap = self._cached_manip_tighten_cap
+            
+            if self._manip_reader is not None:
+                try:
+                    _cal_manip = self._manip_reader.get_thresholds(symbol)
+                    if _cal_manip:
+                        if _cal_manip.get("layering_score_max", 0) > 0:
+                            _manip_thr_lay = _cal_manip["layering_score_max"]
+                        if _cal_manip.get("qs_score_max", 0) > 0:
+                            _manip_thr_qs = _cal_manip["qs_score_max"]
+                        if _cal_manip.get("tighten_bps", 0) > 0:
+                            _manip_tighten_cap = _cal_manip["tighten_bps"]
+                except Exception:
+                    pass
+
             if _apply_decision(self.orchestrator.check_manipulation_gate(  # type: ignore
                 ctx, kind,
                 profile=self._cached_manip_profile,
-                thr_qs=self._cached_manip_thr_qs,
-                thr_lay=self._cached_manip_thr_lay,
+                thr_qs=_manip_thr_qs,
+                thr_lay=_manip_thr_lay,
                 thr_otr_z=self._cached_manip_thr_otr_z,
                 tighten_mult=self._cached_manip_tighten_mult,
-                tighten_cap_bps=self._cached_manip_tighten_cap,
+                tighten_cap_bps=_manip_tighten_cap,
             )): return
 
         if _apply_decision(self.orchestrator.consistency_once(ctx=ctx, symbol=symbol, kind=kind, side=direction)): return  # type: ignore
@@ -4018,13 +4083,23 @@ class SignalPipeline:
         # Phase 4: ATR Selector Profile for TradeMonitor Trailing
         if atr_meta:
             enriched_signal.setdefault("meta", {})
-            enriched_signal["meta"]["atr_profile"] = {
-                "atr_value": float(atr_meta.get("atr_value") or atr),
-                "atr_tf_ms": int(atr_meta.get("atr_tf_ms") or 0),
-                "atr_tf": str(atr_meta.get("atr_tf") or indicators.get("atr_tf_used") or ""),
-                "ts_ms": int(atr_meta.get("ts_ms") or 0),
-                "src": str(atr_meta.get("src") or atr_meta.get("source") or ""),
-            }
+            # Only overwrite if the profile was not already set by a richer source
+            # (e.g. select_runtime_atr_profile called via attach_phase0_contract in
+            # strategy.py before publish_signal).  A pre-built profile has "mode" key;
+            # the simple dict below does not, so we skip overwrite when "mode" present.
+            _existing_profile = enriched_signal["meta"].get("atr_profile", {})
+            if not isinstance(_existing_profile, dict) or "mode" not in _existing_profile:
+                _entry_px = float(indicators.get("price") or enriched_signal.get("entry") or 0.0)
+                _atr_val_p = float(atr_meta.get("atr_value") or atr_meta.get("atr") or atr or 0.0)
+                enriched_signal["meta"]["atr_profile"] = {
+                    "atr_value": _atr_val_p,
+                    "atr_tf_ms": int(atr_meta.get("atr_tf_ms") or 0),
+                    "atr_tf": str(atr_meta.get("atr_tf") or atr_meta.get("picked_tf") or indicators.get("atr_tf_used") or ""),
+                    "ts_ms": int(atr_meta.get("ts_ms") or 0),
+                    "src": str(atr_meta.get("src") or atr_meta.get("source") or ""),
+                    "atr_age_ms": int(atr_meta.get("atr_age_ms") or atr_meta.get("age_ms") or 0),
+                    "atr_pct": (_atr_val_p / _entry_px) if _entry_px > 0 and _atr_val_p > 0 else 0.0,
+                }
             # Phase 6: Expose atr_tf_ms and atr_stop_pct in indicators for ML v5 feature vector.
             # setdefault — does not overwrite if already present (e.g. set by tick_processor).
             try:
@@ -5697,8 +5772,9 @@ class SignalPipeline:
         # BOUNDED_SL_ENABLED=1, SHADOW=0 → enforce; fail-open on any error.
         try:
             from signals.bounded_sl import apply_bounded_sl_floor
-            # 2026-05-27 WR fix: pass atr_value so bounded_sl can apply MAX_ATR_MULT cap.
-            _atr_for_cap = float(indicators.get("atr") or indicators.get("atr_1m") or 0.0) or None
+            # 2026-05-28 fix: use canonical HTF ATR (same one used for stop_dist) for cap ratio.
+            # indicators["atr"] is the raw signal ATR (1m/tick), not the level ATR — produces wrong ratio.
+            _atr_for_cap = atr if atr > 0 else None
             _bsl_new, _bsl_meta = apply_bounded_sl_floor(runtime.symbol, entry, stop_dist, cfg, atr=_atr_for_cap)
             if _bsl_meta.get("applied"):
                 stop_dist = _bsl_new

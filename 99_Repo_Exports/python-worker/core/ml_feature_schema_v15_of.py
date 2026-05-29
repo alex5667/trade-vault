@@ -307,10 +307,8 @@ _GROUP_BREADTH_RET: list[str] = [
 # Set by of_confirm_engine.py before _publish_of_inputs; 0.0 for non-OF paths.
 # ──────────────────────────────────────────────────────────────────────────────
 _GROUP_SIGNAL_DQ_CONFIRM: list[str] = [
-    "div_match",           # 0/1: CVD ↔ orderflow divergence match
-    "div_match_fallback",  # 0/1: fallback match when CVD unavailable
-    "dq_level",            # 0/1/2: DQ gate severity (ok/soft/hard)
-    "dq_pen",              # 0.0–pen_max: continuous DQ penalty from health_score
+    "dq_level",                         # 0/1/2: DQ gate severity (ok/soft/hard)
+    "dq_pen",                           # 0.0–pen_max: continuous DQ penalty
 ]
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -432,7 +430,7 @@ V15_OF_NUMERIC_KEYS: list[str] = _build_keys()
 # Hard invariant: pinned count. v14_of base + dedup'd new groups.
 # Bump _EXPECTED_KEYS when intentionally adding/removing groups and refresh
 # SCHEMA_HASH accordingly. Catches accidental drift.
-_EXPECTED_KEYS = 541
+_EXPECTED_KEYS = 531
 assert len(V15_OF_NUMERIC_KEYS) == _EXPECTED_KEYS, (
     f"v15_of key count drift: got {len(V15_OF_NUMERIC_KEYS)}, expected {_EXPECTED_KEYS}. "
     f"If this is intentional, bump _EXPECTED_KEYS and update SCHEMA_HASH."

@@ -1656,6 +1656,26 @@ class MLConfirmGate:
                 exec_risk_bps = float(indicators.get("exec_risk_bps", 0.0) or 0.0)
                 sb = indicators.get("score_breakdown") or {}
 
+            # ── feature_schema_ver — stamped on every payload so downstream
+            # consumers (monitor_v14_of_canary --schema, drift tools, rollup)
+            # can filter without an out-of-band lookup. Read from the loaded
+            # model pack (dict) or model attribute (object); empty string if
+            # unknown. Best-effort: never blocks emission.
+            # Mirrors services/ml_confirm/metrics_writer.py (P1.6 wire).
+            feature_schema_ver = ""
+            try:
+                _m = getattr(self, "_model", None)
+                if isinstance(_m, dict):
+                    feature_schema_ver = str(
+                        _m.get("feature_schema_ver")
+                        or _m.get("feature_schema_version")
+                        or ""
+                    )
+                elif _m is not None:
+                    feature_schema_ver = str(getattr(_m, "feature_schema_ver", "") or "")
+            except Exception:
+                feature_schema_ver = ""
+
             payload: dict[str, Any] = {
                 "ts_ms": ts_ms,
                 "sid": sid,
@@ -1664,6 +1684,7 @@ class MLConfirmGate:
                 "kind": dec.kind or "",
                 "model_run_id": str(dec.model_run_id or ""),
                 "model_ver": str(dec.model_run_id or ""),
+                "feature_schema_ver": feature_schema_ver,
                 "bucket": bucket,
                 "cfg_source": getattr(self, "_cfg_source", "none"),
                 "direction": str(direction),
@@ -1777,16 +1798,36 @@ class MLConfirmGate:
 
             import asyncio
             is_async = "aioredis" in type(redis).__module__ or "asyncio" in type(redis).__module__ or (hasattr(redis.xadd, "__call__") and asyncio.iscoroutinefunction(redis.xadd))
+
+            # ── Per-schema dual-write (opt-in via ENV, default OFF) ─────────
+            # See services/ml_confirm/metrics_writer.py for the canonical
+            # contract. Same env name + same suffixing rule keeps the two
+            # writers symmetric so consumers see one combined view.
+            per_schema_enabled = os.getenv(
+                "ML_CONFIRM_METRICS_PER_SCHEMA_STREAM", "0"
+            ).strip() in ("1", "true", "TRUE", "yes")
+            schema_stream = (
+                f"{self._metrics_stream}:{feature_schema_ver}"
+                if per_schema_enabled and feature_schema_ver
+                else ""
+            )
+
             if is_async:
                 try:
                     from utils.task_manager import safe_create_task
                     safe_create_task(redis.xadd(self._metrics_stream, payload, maxlen=self._metrics_maxlen, approximate=True))
+                    if schema_stream:
+                        safe_create_task(redis.xadd(schema_stream, payload, maxlen=self._metrics_maxlen, approximate=True))
                 except ImportError:
                     asyncio.create_task(redis.xadd(self._metrics_stream, payload, maxlen=self._metrics_maxlen, approximate=True))
+                    if schema_stream:
+                        asyncio.create_task(redis.xadd(schema_stream, payload, maxlen=self._metrics_maxlen, approximate=True))
             else:
                 def _sync_xadd():
                     try:
                         redis.xadd(self._metrics_stream, payload, maxlen=self._metrics_maxlen, approximate=True)
+                        if schema_stream:
+                            redis.xadd(schema_stream, payload, maxlen=self._metrics_maxlen, approximate=True)
                     except Exception:
                         pass
                 try:

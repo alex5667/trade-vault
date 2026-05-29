@@ -308,6 +308,13 @@ def apply_position_sizing_to_ctx(
                 min_notional = float(specs.min_notional)
         else:
             r = getattr(ctx, "redis", None)
+            if r is not None:
+                try:
+                    _mod = type(r).__module__ or ""
+                    if "asyncio" in _mod or "aioredis" in _mod:
+                        r = None
+                except Exception:
+                    r = None
             if r:
                 try:
                     from symbol_specs_store import SymbolSpecsStore

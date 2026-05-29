@@ -61,8 +61,8 @@ def run_once() -> bool:
                 # Upsert to DB
                 cur.execute("""
                     INSERT INTO atr_policy_factor_clusters (
-                        symbol, factor_cluster, updated_at_ms
-                    ) VALUES (%s, %s, %s)
+                        symbol, factor_cluster, updated_at_ms, beta_leader
+                    ) VALUES (%s, %s, %s, False)
                     ON CONFLICT (symbol) DO UPDATE SET 
                         factor_cluster = EXCLUDED.factor_cluster,
                         updated_at_ms = EXCLUDED.updated_at_ms

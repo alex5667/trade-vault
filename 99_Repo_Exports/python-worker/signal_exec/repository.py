@@ -64,7 +64,7 @@ class SignalRepository:
         meta = ctx_dict.get("meta", {})
         
         atr_1m = getattr(ctx, "atr_1m", 0.0) or getattr(ctx, "atr_14", 0.0) or ctx_dict.get("atr_14", 0.0) or meta.get("atr_1m") or meta.get("atr_14", 0.0)
-        atr_5m = getattr(ctx, "atr_5m", None) or ctx_dict.get("atr_5m") or meta.get("atr_5m")
+        atr_5m = getattr(ctx, "atr_5m", None) or ctx_dict.get("atr_5m") or meta.get("atr_5m") or 0.0
         session = getattr(ctx, "session", None) or ctx_dict.get("session")
         regime = getattr(ctx, "regime", None) or ctx_dict.get("regime")
         
@@ -74,8 +74,9 @@ class SignalRepository:
             
         obi = getattr(ctx, "obi", None) or ctx_dict.get("obi") or meta.get("obi")
         weak_progress = getattr(ctx, "weak_progress", None) or ctx_dict.get("weak_progress") or meta.get("weak_progress")
-        tick_size = getattr(ctx, "tick_size", None) or ctx_dict.get("tick_size") or meta.get("tick_size")
-        contract_size = getattr(ctx, "contract_size", None) or ctx_dict.get("contract_size") or meta.get("contract_size")
+        tick_size = getattr(ctx, "tick_size", None) or ctx_dict.get("tick_size") or meta.get("tick_size") or 0.0
+        contract_size = getattr(ctx, "contract_size", None) or ctx_dict.get("contract_size") or meta.get("contract_size") or 0.0
+        tick_value = getattr(ctx, "tick_value", None) or ctx_dict.get("tick_value") or meta.get("tick_value") or 0.0
 
         with self._conn() as conn, conn.cursor(cursor_factory=dict_row) as cur:
             cur.execute(
@@ -96,6 +97,7 @@ class SignalRepository:
                     weak_progress,
                     tick_size,
                     contract_size,
+                    tick_value,
                     final_score,
                     experiment_id,
                     experiment_variant,
@@ -116,6 +118,7 @@ class SignalRepository:
                     %(weak_progress)s,
                     %(tick_size)s,
                     %(contract_size)s,
+                    %(tick_value)s,
                     %(final_score)s,
                     %(experiment_id)s,
                     %(experiment_variant)s,
@@ -139,6 +142,7 @@ class SignalRepository:
                     "weak_progress": weak_progress,
                     "tick_size": tick_size,
                     "contract_size": contract_size,
+                    "tick_value": tick_value,
                     "final_score": getattr(ctx, "final_score", 0.0),
                     "experiment_id": getattr(ctx, "experiment_id", None),
                     "experiment_variant": getattr(ctx, "experiment_variant", None),

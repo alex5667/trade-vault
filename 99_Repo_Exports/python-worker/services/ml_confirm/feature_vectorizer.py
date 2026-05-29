@@ -238,11 +238,24 @@ class FeatureVectorizerMixin:
             cache[name] = float(x)
             return cache[name]
 
+        # Phase 0.4 — coverage observability for f_* feature_cols (read-only).
+        # Counts run alongside the existing loop so we add at most a few cheap
+        # increments per scoring call; histograms are emitted once at loop end.
+        _cov_f_total = 0
+        _cov_f_present = 0
+        _cov_f_nonzero = 0
+
         row: list[float] = []
         for col in feature_cols:
             if col.startswith("f_"):
                 key = col[2:]
-                row.append(num(key))
+                v = num(key)
+                row.append(v)
+                _cov_f_total += 1
+                if key in indicators:
+                    _cov_f_present += 1
+                if v != 0.0:
+                    _cov_f_nonzero += 1
             elif col.startswith("mul_"):
                 # interaction term: mul_a__b -> a*b (after per-feature transform/scale)
                 pair = col[4:]
@@ -290,6 +303,34 @@ class FeatureVectorizerMixin:
                 row.append(1.0 if val == str(vol_label) else 0.0)
             else:
                 row.append(0.0)
+
+        # Phase 0.4 — emit coverage / zero-rate histograms (read-only, no
+        # decision impact). Best-effort; metrics import failures are silenced.
+        if _cov_f_total > 0:
+            try:
+                from services.orderflow.metrics import (
+                    ml_feature_group_coverage,
+                    ml_feature_group_zero_rate,
+                )
+                schema_ver = ""
+                if isinstance(model, dict):
+                    schema_ver = str(
+                        model.get("feature_schema_ver")
+                        or model.get("feature_schema_version")
+                        or ""
+                    )
+                else:
+                    schema_ver = str(getattr(model, "feature_schema_ver", "") or "")
+                coverage = _cov_f_present / _cov_f_total
+                zero_rate = (_cov_f_total - _cov_f_nonzero) / _cov_f_total
+                ml_feature_group_coverage.labels(
+                    group="edge_stack_f", schema_ver=schema_ver or "unknown"
+                ).observe(coverage)
+                ml_feature_group_zero_rate.labels(
+                    group="edge_stack_f", schema_ver=schema_ver or "unknown"
+                ).observe(zero_rate)
+            except Exception:
+                pass
 
         return row, missing
 

@@ -896,8 +896,11 @@ class OrderFlowStrategy:
             if snapshot:
                 from common.market_mode import regime_to_id
                 now_ms = int(tick_ts)
-                indicators["regime"] = str(snapshot.label.value)
-                indicators["regime_id"] = regime_to_id(snapshot.label.value)
+                # Use runtime.last_regime (Redis-authoritative) for the string label;
+                # snapshot provides score/confidence from local MarketRegimeService.
+                _regime_label = str(getattr(runtime, "last_regime", None) or snapshot.label.value or "na")
+                indicators["regime"] = _regime_label
+                indicators["regime_id"] = regime_to_id(_regime_label)
                 indicators["regime_score"] = float(snapshot.score)
                 indicators["regime_confidence"] = float(snapshot.confidence)
                 indicators["regime_age_ms"] = int(snapshot.age_ms(now_ms))
@@ -1306,18 +1309,9 @@ class OrderFlowStrategy:
             if hasattr(runtime, "rsi_cvd") and runtime.rsi_cvd.value is not None:
                 indicators["rsi_cvd"] = float(runtime.rsi_cvd.value)
 
-            # RSI Confirmation check
-            rp = float(indicators.get("rsi_price", 50.0))
-            rc = float(indicators.get("rsi_cvd", 50.0))
-
-            # v7 structure
-            indicators.setdefault("conf_rsi_agree", 0)
-            conf_feature_seen_total.labels(feature="rsi_agree", src="strategy").inc()
-
-            if direction == "LONG" and rp > 50 and rc > 50 or direction == "SHORT" and rp < 50 and rc < 50:
-                confirmations.append("rsi_agree=1")
-                indicators["conf_rsi_agree"] = 1
-                conf_feature_true_total.labels(feature="rsi_agree", src="strategy").inc()
+            # conf_rsi_agree is computed in feature_enricher_v1._enrich_derived
+            # where rsi_cvd from _enrich_rsi_cvd (book_rates) is already available.
+            # Do NOT freeze it here — leaving it absent lets the enricher fill it.
 
             if runtime.last_swing_high:
                 sh = runtime.last_swing_high
@@ -4260,10 +4254,12 @@ class OrderFlowStrategy:
              if rg_val:
                  new_regime = str(rg_val)
 
-             # ── Inline fallback: compute regime when Redis key is absent ──
-             # This covers Shard 3/3B symbols that have no handler pipeline
-             # writing regime:{symbol} to Redis.
-             if new_regime == "na" and self._regime_svc is not None and RegimeFeatures is not None:
+             # ── Inline regime compute (always, not just on "na") ──
+             # Always call update_regime() to keep state.snapshot fresh so that
+             # regime_id/score/confidence are populated in indicators regardless of
+             # whether Redis provides the label. The label from Redis wins for
+             # runtime.last_regime; the local score/confidence are used for ML features.
+             if self._regime_svc is not None and RegimeFeatures is not None:
                  try:
                      price = float(getattr(bar, "close", 0) or 0)
                      volume = float(getattr(bar, "vol", 0) or 0)
@@ -4348,12 +4344,25 @@ class OrderFlowStrategy:
                              open_day=runtime._regime_open_day,
                          )
 
-                         new_regime = self._regime_svc.update_regime(features)
+                         _computed = self._regime_svc.update_regime(features)
+                         # Redis is authoritative for the label; only use computed
+                         # value when Redis returned nothing (na / missing key).
+                         if new_regime == "na":
+                             new_regime = _computed
 
-                         # Store for ML feature bridge in publish_signal
+                         # Store for ML feature bridge in publish_signal / _publish_of_inputs.
+                         # Storing here (at bar close) ensures ALL tick-path signals also get
+                         # regime features via the _publish_of_inputs bridge rather than only
+                         # bar-close signals that go through _on_microbar_closed indicators.
                          try:
                              runtime._last_atr_q = float(features.atr_q)
-                             runtime._last_regime_score = float(self._regime_svc.state.score)
+                             _svc_state = self._regime_svc.state
+                             runtime._last_regime_score = float(_svc_state.score)
+                             # Additional regime features for full bridge coverage.
+                             from common.market_mode import regime_to_id as _r2id
+                             runtime._last_regime_id = float(_r2id(str(new_regime)))
+                             runtime._last_regime_confidence = abs(float(_svc_state.score))
+                             runtime._last_regime_ts_ms = int(ts_bar)
                          except Exception:
                              pass
 

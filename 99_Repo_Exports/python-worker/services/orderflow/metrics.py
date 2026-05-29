@@ -2491,6 +2491,23 @@ regime_stale_total = _get_or_create_prom_counter(
 )
 
 # ---------------------------------------------------------------------------
+# Fast micro-regime metrics (dual-regime: slow structural + fast adaptive)
+# Labels: symbol, regime_micro — 6 labels + "na" for guard
+# ---------------------------------------------------------------------------
+
+regime_micro_emit_total = _get_or_create_prom_counter(
+    "regime_micro_emit_total",
+    "Total micro-regime classifications emitted per symbol and label",
+    ["symbol", "regime_micro"],
+)
+
+regime_micro_age_ms = _get_or_create_prom_gauge(
+    "regime_micro_age_ms",
+    "Age of latest micro-regime label at publish time (ms)",
+    ["symbol"],
+)
+
+# ---------------------------------------------------------------------------
 # Unified external context source monitoring (P94 plan — Phase 8.5+)
 #
 # Sources: breadth, deribit, sentiment, crossvenue, coingecko, defillama
@@ -2513,4 +2530,66 @@ external_ctx_age_ms = _get_or_create_prom_gauge(
     "external_ctx_age_ms",
     "Age of the last successful external context read in milliseconds",
     ["source"],
+)
+
+# ---------------------------------------------------------------------------
+# Phase 0.1/0.2 — ML schema drift hygiene (v15_of P1 integration plan).
+# Set once at startup so dashboards/alerts can detect silent schema bumps and
+# feature-vector / model shape mismatches at serve time.
+# ---------------------------------------------------------------------------
+
+ml_feature_schema_hash_active = _get_or_create_prom_gauge(
+    "ml_feature_schema_hash_active",
+    "Active ML feature schema (=1). Labels expose ver+hash so drift is visible.",
+    ["ver", "hash"],
+)
+
+ml_feature_schema_hash_mismatch_total = _get_or_create_prom_counter(
+    "ml_feature_schema_hash_mismatch_total",
+    "Loaded model feature count != registry expected count for the schema version",
+    ["ver", "expected", "got"],
+)
+
+# ---------------------------------------------------------------------------
+# Phase 0.3 — generalised source health (extends external_ctx_* with explicit
+# availability flag + error code dimension; per source slug).
+# ---------------------------------------------------------------------------
+
+external_source_available = _get_or_create_prom_gauge(
+    "external_source_available",
+    "External source availability (1=fresh/known good, 0=stale/missing/error)",
+    ["source"],
+)
+
+external_source_age_ms = _get_or_create_prom_gauge(
+    "external_source_age_ms",
+    "Age of the last successful external source read in milliseconds",
+    ["source"],
+)
+
+external_source_error_total = _get_or_create_prom_counter(
+    "external_source_error_total",
+    "External source error events by source and error_code (rate_limited, http_402, parse, …)",
+    ["source", "error_code"],
+)
+
+# ---------------------------------------------------------------------------
+# Phase 0.4 — serving-time feature coverage observability (read-only mirror of
+# meta_feature_coverage). Histograms emitted from _build_feature_row so dead
+# producers, schema drift, and zero-storms are visible in Grafana without
+# adding per-feature label cardinality.
+# ---------------------------------------------------------------------------
+
+ml_feature_group_coverage = _get_or_create_prom_histogram(
+    "ml_feature_group_coverage",
+    "Fraction of f_* feature_cols whose key is present in indicators at serve time",
+    ["group", "schema_ver"],
+    buckets=(0.5, 0.7, 0.8, 0.85, 0.9, 0.95, 0.98, 1.0),
+)
+
+ml_feature_group_zero_rate = _get_or_create_prom_histogram(
+    "ml_feature_group_zero_rate",
+    "Fraction of f_* feature_cols whose extracted value is exactly 0.0 at serve time",
+    ["group", "schema_ver"],
+    buckets=(0.1, 0.25, 0.5, 0.75, 0.9, 0.95, 1.0),
 )

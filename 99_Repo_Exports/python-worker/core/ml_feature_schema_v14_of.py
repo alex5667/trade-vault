@@ -11,8 +11,20 @@ nightly_v14_of_train_bundle defaults to V14_FEATURE_SCHEMA_VER=v15_of since
 
 SCHEMA_HASH = "v14_merged_20250517"
 
+# Keys confirmed perma-zero since v10 with no active writer. Removed from the
+# schema so they stop polluting the ML feature vector and coverage metrics.
+_V14_DEAD_KEYS: frozenset[str] = frozenset({
+    "abs_lvl_eff_quote_th", "abs_lvl_min_quote_delta",
+    "book_health_veto_book_evidence", "conf_rsi_agree",
+    "cooldown_hit_rate_ema",
+    "cvd_jump_events_total",
+    "data_health_shadow_only", "data_health_veto_book_evidence",
+    "div_match", "div_match_fallback",
+})
+
+
 def get_v14_of_numeric_keys() -> list[str]:
-    """v14_of numeric keys: v13_of base + v5_of additions."""
+    """v14_of numeric keys: v13_of base + v5_of additions, minus perma-dead keys."""
     from core.ml_feature_schema_v13_of import get_v13_of_numeric_keys
     v13_keys = set(get_v13_of_numeric_keys())
 
@@ -55,7 +67,8 @@ def get_v14_of_numeric_keys() -> list[str]:
         "deribit_btc_funding_8h", "deribit_eth_funding_8h", "deribit_vol_regime_code",
         "fear_greed_index", "fear_greed_regime_extreme_fear", "fear_greed_regime_extreme_greed",
     ]
-    return sorted(list(v13_keys) + [k for k in v5_additions if k not in v13_keys])
+    all_keys = v13_keys | {k for k in v5_additions if k not in v13_keys}
+    return sorted(all_keys - _V14_DEAD_KEYS)
 
 def v14_of_info() -> dict:
     keys = get_v14_of_numeric_keys()
@@ -68,7 +81,7 @@ V14_OF_NUMERIC_KEYS = get_v14_of_numeric_keys()
 # v5_additions incl OG 16 + OE Phase 8.1 composites). Append-only contract:
 # bump _EXPECTED_KEYS when intentionally adding keys.
 # Catches accidental edits to v5_additions list or v13_of base drift.
-_EXPECTED_KEYS = 359
+_EXPECTED_KEYS = 349
 assert len(V14_OF_NUMERIC_KEYS) == _EXPECTED_KEYS, (
     f"v14_of key count drift: got {len(V14_OF_NUMERIC_KEYS)}, expected {_EXPECTED_KEYS}. "
     f"If this is intentional, bump _EXPECTED_KEYS and update SCHEMA_HASH."

@@ -151,6 +151,48 @@ def compute_cvd(ticks: list[tuple[int, float, float, float]]) -> float:
     return sum(t[3] for t in ticks)
 
 
+def compute_cvd_median_abs_delta_usd(ticks: list[tuple[int, float, float, float]]) -> float:
+    """Rolling median of |signed_qty × price| per tick — typical CVD tick magnitude in USD.
+
+    Used as normalisation denominator for CVD-z-score. Returns 0.0 when window empty.
+    ticks: (ts_ms, price, qty, signed_qty).
+    """
+    if not ticks:
+        return 0.0
+    deltas = sorted(abs(t[3] * t[1]) for t in ticks)
+    n = len(deltas)
+    mid = n // 2
+    return (deltas[mid] + deltas[mid - 1]) / 2.0 if n % 2 == 0 else deltas[mid]
+
+
+def compute_cvd_divergence_from_price(ticks: list[tuple[int, float, float, float]]) -> float:
+    """Signed divergence between net CVD direction and price direction over the window.
+
+    Returns a value in [-1, 1]:
+      > 0  bullish divergence: net buying pressure despite falling price
+      < 0  bearish divergence: net selling pressure despite rising price
+        0  aligned or insufficient data
+
+    CVD norm = cvd / total_abs_flow → [-1, 1] direction fraction.
+    Price norm = tanh(price_delta_bps / 5.0) — 5 bps ≈ 1σ for a typical 1-min move.
+    Divergence = (cvd_norm - price_norm) / 2 → [-1, 1].
+    """
+    if len(ticks) < 10:
+        return 0.0
+    price_start = ticks[0][1]
+    price_end = ticks[-1][1]
+    if price_start <= 0:
+        return 0.0
+    cvd = compute_cvd(ticks)
+    total_abs_flow = sum(abs(t[3]) for t in ticks)
+    if total_abs_flow < 1e-9:
+        return 0.0
+    cvd_norm = max(-1.0, min(1.0, cvd / total_abs_flow))
+    price_delta_bps = 10000.0 * (price_end - price_start) / price_start
+    price_norm = math.tanh(price_delta_bps / 5.0)
+    return (cvd_norm - price_norm) / 2.0
+
+
 def compute_sweep_div_match(ticks: list[tuple[int, float, float, float]],
                             sweep_direction: int) -> float:
     """1.0 if CVD sign matches sweep direction, else 0.0.
@@ -290,6 +332,8 @@ def run() -> int:
                     velocity, direction = compute_sweep_velocity_bps_s(buf)
                     div_match = compute_sweep_div_match(buf, direction)
                     jump_usd = compute_source_jump_usd(buf)
+                    cvd_mad = compute_cvd_median_abs_delta_usd(buf)
+                    cvd_div = compute_cvd_divergence_from_price(buf)
                     n_sigs = count_recent_signals_for_symbol(sym, sig_entries, sig_since_ms)
                     cluster_flag = 1.0 if n_sigs >= CLUSTER_MIN_COUNT else 0.0
                     feats = {
@@ -297,6 +341,8 @@ def run() -> int:
                         "sweep_div_match": div_match,
                         "source_jump_usd": jump_usd,
                         "signal_cluster_flag": cluster_flag,
+                        "cvd_median_abs_delta_usd": cvd_mad,
+                        "cvd_divergence_from_price": cvd_div,
                         "_n_signals_recent": float(n_sigs),
                         "ts_ms": now_ms,
                     }

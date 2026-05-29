@@ -152,9 +152,14 @@ class _SymbolWindow:
         # rolling imbalance history for z-score
         self._imbalance_hist: list[float] = []
         self._history_max = history_max
+        # Phase 0.3 — track most recent event timestamp so quality_status
+        # reflects real upstream availability instead of a hardcoded "OK".
+        self._last_event_ts_ms: int = 0
 
     def push(self, evt: LiqEvent) -> None:
         self._events.append((evt.ts_ms, evt.order_side.upper(), evt.notional_usd))
+        if evt.ts_ms > self._last_event_ts_ms:
+            self._last_event_ts_ms = evt.ts_ms
 
     def _evict(self, now_ms: int) -> None:
         cutoff = now_ms - self._window_ms
@@ -193,6 +198,16 @@ class _SymbolWindow:
         imbalance_z = _robust_z(imbalance, self._imbalance_hist)
         stress_flag = 1 if abs(imbalance_z) >= self._stress_z_thr else 0
 
+        # Phase 0.3 — dynamic quality_status reflecting real source state.
+        # absent: never received an event; stale: last event older than window;
+        # OK: events present in the rolling window.
+        if self._last_event_ts_ms <= 0:
+            quality = "absent"
+        elif count == 0:
+            quality = "stale"
+        else:
+            quality = "OK"
+
         return LiqContextSnapshot(
             schema_version=SCHEMA_VERSION,
             symbol=symbol.upper(),
@@ -204,7 +219,7 @@ class _SymbolWindow:
             liq_event_count_1m=count,
             largest_liq_notional_1m=round(largest, 2),
             liq_stress_flag=stress_flag,
-            quality_status="OK",
+            quality_status=quality,
         )
 
 
@@ -374,6 +389,23 @@ class LiquidationContextWorker:
                 await self._redis.set(key, snap.to_json(), ex=self._ttl_s)
             except Exception as exc:
                 logger.debug("liq_ctx: redis SET %s error: %s", key, exc)
+            # Phase 0.3 — emit source-health telemetry per symbol so the
+            # Bybit-vs-Binance liquidation feed gap is observable. Best-effort;
+            # metric import failures are silenced.
+            try:
+                from services.orderflow.metrics import (
+                    external_source_age_ms,
+                    external_source_available,
+                )
+                _src = f"liquidations:{symbol}"
+                _available = 1 if snap.quality_status == "OK" else 0
+                external_source_available.labels(source=_src).set(_available)
+                _last_ts = window._last_event_ts_ms
+                age_ms = max(0.0, float(now_ms - _last_ts)) if _last_ts > 0 else -1.0
+                if age_ms >= 0:
+                    external_source_age_ms.labels(source=_src).set(age_ms)
+            except Exception:
+                pass
 
     # ── Helpers ────────────────────────────────────────────────────────────────
 

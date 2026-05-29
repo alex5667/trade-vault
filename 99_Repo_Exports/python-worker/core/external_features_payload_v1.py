@@ -373,7 +373,7 @@ _V12_BASE_OPTIONAL_KEYS: tuple[str, ...] = (
     "liqmap_sl_base_bps", "liqmap_sl_reco_bps",
     "liqmap_sl_widen_needed", "liqmap_sl_widen_ratio",
     # v12_of features (core/v12_of_features.py)
-    "bid_ask_queue_imbalance", "calibration_age_ms", "cvd_divergence_from_price",
+    "bid_ask_queue_imbalance", "calibration_age_ms",
     "depth_migration_bps", "eth_btc_corr_5m", "large_trade_ratio",
     "last_trade_outcome_raw", "level2_wap_divergence",
     # v12_of Group MD (stable_coin_flow_delta) + Group MX (spread_percentile_rank_1d)
@@ -384,8 +384,6 @@ _V12_BASE_OPTIONAL_KEYS: tuple[str, ...] = (
     "smt_leader_conf_score",
     # Iceberg / decision-engine stats
     "iceberg_avg_qty",
-    # Veto bookkeeping (of_confirm_engine)
-    "book_health_veto_book_evidence", "data_health_veto_book_evidence",
     # Triple-barrier labels (only present when outcome is back-filled)
     "mae_r", "mfe_r",
     # ── v14_of schema-completeness backfill (2026-05-24) ─────────────────
@@ -456,6 +454,127 @@ _V12_BASE_OPTIONAL_KEYS: tuple[str, ...] = (
     # regime binary features (signal_pipeline._enrich_signal line 2344 + of_confirm_engine)
     "range_score",            # max(0, -regime_score): regime range-ness
     "rsi_agree",              # 0/1: RSI confirmation gate passed
+    # ── Phase 1 P1 shadow features (not in v15_of schema yet) ─────────────────
+    # Group A: event-aligned MLOFI microstructure (#1-5)
+    "mlofi_accel_1s",
+    "mlofi_flip_count_3s",
+    "mlofi_same_dir_secs",
+    "microprice_ret_1s",
+    "microprice_reversion_3s",
+    # Group B: queue/fill/adverse selection (#6-10)
+    "queue_depletion_rate_l1",
+    "queue_refill_rate_l1",
+    "adverse_selection_1s_bps",
+    "post_fill_reversion_prob",
+    "limit_vs_market_entry_edge_bps",
+    # Group C: execution-adjusted EV (#11-12)
+    "ev_after_slippage_bps",
+    "net_edge_to_cost_ratio",
+    # Group D: cost dynamics (#13)
+    "cost_widening_5s_bps",
+    # Group E: regime transitions (#14-15)
+    "regime_transition_code",
+    "failed_breakout_count_30m",
+    # Group F: source health metadata (#18, #21-22)
+    "bybit_data_age_ms",
+    "liq_source_available",
+    "liq_source_age_ms",
+    # Group G: cross-venue quality (#19-20)
+    "cross_venue_lead_lag_ms",
+    "venue_consensus_persistence_3s",
+    # Group H: liquidation cascade risk (#23)
+    "liq_cascade_risk_score",
+    # Group I: PIT priors — timeout rates (#24-25)
+    "prior_timeout_rate_symbol_kind_session",
+    "prior_tp1_before_timeout_rate",
+    # Group J: session-level liquidity + signal quality (#16-17)
+    "session_liquidity_z",
+    "session_signal_quality_prior",
+    # ── P2 shadow features ────────────────────────────────────────────────────
+    # Group A (P2): extended MLOFI + sub-second microprice
+    "mlofi_1_3_5_slope",
+    "mlofi_l1_l5_divergence",
+    "mlofi_accel_500ms",
+    "mlofi_exhaustion_score",
+    "microprice_ret_250ms",
+    "midprice_impact_per_1k_usd",
+    # Group B (P2): extended queue/adverse-selection
+    "queue_depletion_rate_l5",
+    "queue_refill_rate_l5",
+    "queue_position_risk_score",
+    "adverse_selection_3s_bps",
+    "fill_or_kill_edge_bps",
+    # Group C (P2): cost decomposition
+    "ev_after_fee_bps",
+    "ev_after_spread_bps",
+    "ev_after_impact_bps",
+    "tp1_net_after_cost_bps",
+    "sl_net_after_cost_bps",
+    "expected_hold_cost_bps",
+    "cost_regime_z",
+    # Group D (P2): extended regime transitions
+    "regime_transition_age_ms",
+    "trend_to_chop_prob",
+    "chop_to_expansion_prob",
+    "expansion_exhaustion_score",
+    "vol_ofi_regime_agree",
+    "vol_price_divergence_score",
+    "range_break_attempt_count_30m",
+    # Group E (P2): extended cross-venue
+    "bybit_book_age_ms",
+    "bybit_trade_rate_hz",
+    "cross_venue_latency_diff_ms",
+    "binance_leads_bybit_score",
+    "bybit_leads_binance_score",
+    "venue_consensus_flip_count_10s",
+    "cross_venue_spread_diff_bps",
+    # Group G (P2): extended pit priors
+    "prior_winrate_symbol_kind_regime_session",
+    "prior_ev_r_symbol_kind_regime_session",
+    "prior_timeout_loss_rate_session",
+    "prior_mae_before_mfe_ratio",
+    "prior_best_exit_policy_code",
+    "prior_trailing_success_rate",
+    "prior_be_stopout_rate",
+    "prior_hold_time_p50_ms",
+    "prior_hold_time_p90_ms",
+    # Group H (P2): directional change
+    "dc_event_dir",
+    "dc_event_age_ms",
+    "dc_overshoot_bps",
+    "dc_reversal_count_15m",
+    # ── External source health metadata (added 2026-05-28) ───────────────────
+    # *_data_available: 1.0 if snapshot loaded and non-stale, else 0.0
+    # *_data_age_ms:    ms since snapshot ts_ms field
+    # *_data_stale:     1.0 if age > source threshold or missing
+    # Fear & Greed (cache:fear_greed / sentiment:fear_greed:latest)
+    "fg_data_available",
+    "fg_data_age_ms",
+    "fg_data_stale",
+    # CoinMarketCap (runtime:provider:coinmarketcap:global)
+    "cmc_data_available",
+    "cmc_data_age_ms",
+    "cmc_data_stale",
+    # DefiLlama (runtime:provider:defillama:eth_dex)
+    "dl_data_available",
+    "dl_data_age_ms",
+    "dl_data_stale",
+    # Deribit (ctx:deribit:global)
+    "deribit_data_available",
+    "deribit_data_age_ms",
+    "deribit_data_stale",
+    # Bybit (runtime:bybit:{symbol}) — age already in Group F above
+    "bybit_data_available",
+    "bybit_data_stale",
+    # CoinGecko (runtime:coingecko:global) — canonical helper:
+    # core.source_health_v1.SOURCE_REGISTRY
+    "cg_data_available",
+    "cg_data_age_ms",
+    "cg_data_stale",
+    # CoinPaprika (runtime:provider:coinpaprika:global)
+    "cp_data_available",
+    "cp_data_age_ms",
+    "cp_data_stale",
 )
 
 
@@ -521,9 +640,11 @@ def build_external_features_payload(
         return None
 
     for k in _NUM_KEYS:
-        out[k] = _pick(k)
+        v = _pick(k)
+        out[k] = v if v is not None else 0.0
     for k in _BOOL_KEYS:
-        out[k] = _pick(k)
+        v = _pick(k)
+        out[k] = v if v is not None else 0.0
     for k in _V12_BASE_OPTIONAL_KEYS:
         if _is_present(src1, k):
             out[k] = _f(src1[k])

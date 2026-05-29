@@ -286,9 +286,17 @@ def preprocess_signal_for_publish(signal: dict[str, Any], symbol: str, source: s
             meta["risk_surface_live_candidate"] = live_surface
 
             # keep baseline snapshot once (idempotent) for analytics / rollback
+            # Fallback order: explicit sl_price → sl (computed by _calculate_levels) → 0.
+            # tp1_price → first element of tp_levels → 0.
+            # This ensures baseline is non-zero for all TP/SL closes so the
+            # path-tp / bounded-sl / trailing-autocal A/B control group is valid.
             meta.setdefault("live_surface_baseline", {
-                "sl_price": float(signal.get("sl_price") or 0.0),
-                "tp1_price": float(signal.get("tp1_price") or 0.0),
+                "sl_price": float(signal.get("sl_price") or signal.get("sl") or 0.0),
+                "tp1_price": float(
+                    signal.get("tp1_price")
+                    or ((signal.get("tp_levels") or [0.0])[0])
+                    or 0.0
+                ),
                 "max_signal_age_ms": int(
                     signal.get("max_signal_age_ms")
                     or meta.get("horizon", {}).get("max_signal_age_ms")

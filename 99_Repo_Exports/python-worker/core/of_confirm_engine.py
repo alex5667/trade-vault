@@ -93,19 +93,31 @@ _STALE_SENTINEL: float = float("nan") if _OF_CONFIRM_STALE_NAN else 0.0
 
 
 def _ext_ctx_track(source: str, stale: bool, ts_ms: float, now_ms: float) -> None:
-    """Increment unified external context monitoring metrics. Best-effort, never raises."""
+    """Increment unified external context monitoring metrics. Best-effort, never raises.
+
+    Also mirrors to Phase 0.3 generalised source-health gauges
+    (`external_source_available`, `external_source_age_ms`) so dashboards can
+    treat absence/staleness as a first-class signal alongside `_ctx_` metrics.
+    """
     try:
         from services.orderflow.metrics import (
             external_ctx_age_ms,
             external_ctx_read_ok_total,
             external_ctx_stale_total,
+            external_source_age_ms,
+            external_source_available,
         )
+        age_ms = max(0.0, now_ms - ts_ms) if ts_ms > 0 else -1.0
         if stale:
             external_ctx_stale_total.labels(source=source).inc()
+            external_source_available.labels(source=source).set(0)
         else:
             external_ctx_read_ok_total.labels(source=source).inc()
+            external_source_available.labels(source=source).set(1)
             if ts_ms > 0:
-                external_ctx_age_ms.labels(source=source).set(max(0.0, now_ms - ts_ms))
+                external_ctx_age_ms.labels(source=source).set(age_ms)
+        if age_ms >= 0:
+            external_source_age_ms.labels(source=source).set(age_ms)
     except Exception:
         pass
 
@@ -3177,6 +3189,15 @@ class OFConfirmEngine:
             "taker_flow_veto": int(taker_veto),
             "taker_flow_soft": int(taker_soft),
             "taker_flow_reason": str(taker_reason),
+
+            # DQ / health veto flags — written to indicators above but were missing from
+            # evidence, so of_confirm_service counters (book_health_veto_total) never fired.
+            "book_health_veto_book_evidence": int(indicators.get("book_health_veto_book_evidence", 0)),
+            "data_health_veto_book_evidence": int(indicators.get("data_health_veto_book_evidence", 0)),
+            # Divergence-match flags (v10 era, still produced by of_confirm_engine)
+            "div_match": int(indicators.get("div_match", 0)),
+            "div_match_fallback": int(indicators.get("div_match_fallback", 0)),
+            "div_match_source": str(indicators.get("div_match_source", "")),
         })
 
         # Add burst snapshot to evidence
@@ -4813,6 +4834,19 @@ class OFConfirmEngine:
                     "cp_market_cap_rank",
                     float(_cp_sym.get("rank") or 0.0) if not _cp_sym_stale else 0.0,
                 )
+                # Phase 0.3 — emit source-health telemetry (global + market).
+                _ext_ctx_track(
+                    "coinpaprika_global",
+                    _cp_global_stale,
+                    float(_cp_global.get("ts_ms") or 0),
+                    float(now_ts),
+                )
+                _ext_ctx_track(
+                    "coinpaprika_market",
+                    _cp_sym_stale,
+                    float(_cp_sym.get("ts_ms") or 0),
+                    float(now_ts),
+                )
             except Exception:
                 for _cpk in ("cp_btc_dom_pct", "cp_symbol_ret_7d", "cp_volume_mcap_ratio", "cp_market_cap_rank"):
                     indicators_with_v4.setdefault(_cpk, 0.0)
@@ -4845,6 +4879,13 @@ class OFConfirmEngine:
                 indicators_with_v4.setdefault("cmc_total_mcap_usd", _cmcf("total_market_cap_usd") / 1e12)
                 indicators_with_v4.setdefault("cmc_total_volume_usd", _cmcf("total_volume_24h_usd") / 1e9)
                 indicators_with_v4.setdefault("cmc_active_cryptos", _cmcf("active_cryptocurrencies"))
+                # Phase 0.3 — emit source-health telemetry.
+                _ext_ctx_track(
+                    "coinmarketcap",
+                    _cmc_global_stale,
+                    float(_cmc_global.get("ts_ms") or 0),
+                    float(now_ts),
+                )
             except Exception:
                 for _cmck in ("cmc_btc_dom_pct", "cmc_total_mcap_usd", "cmc_total_volume_usd", "cmc_active_cryptos"):
                     indicators_with_v4.setdefault(_cmck, 0.0)
@@ -5179,6 +5220,15 @@ class OFConfirmEngine:
                 indicators_with_v4.setdefault(
                     "binance_bybit_oi_divergence",
                     _bybit_oi_d5m - _binance_oi_d5m if not _bybit_stale else 0.0,
+                )
+                # Phase 0.3 — emit Bybit source-health telemetry. The Go
+                # collector does not yet set quality_status, so we rely on the
+                # ts_ms-derived stale flag here.
+                _ext_ctx_track(
+                    "bybit",
+                    _bybit_stale,
+                    float(_bybit_sym.get("ts_ms") or 0),
+                    float(now_ts),
                 )
             except Exception:
                 for _bk in (
@@ -5905,6 +5955,24 @@ class OFConfirmEngine:
                     _og_fail("build_raised")
                 except Exception:
                     pass
+            # Mirror og_* to Redis so feature_enricher can back-fill veto-path and
+            # cross-service signals that didn't go through of_confirm_engine directly.
+            try:
+                import time as _t
+                _rc = getattr(self, "_redis_client", None)
+                if _rc is not None:
+                    _og_snap = {
+                        k: str(round(float(v), 8))
+                        for k, v in indicators.items()
+                        if isinstance(k, str) and k.startswith("og_") and isinstance(v, (int, float))
+                    }
+                    if _og_snap:
+                        _og_snap["ts_ms"] = str(int(_t.time() * 1000))
+                        _og_key = f"og:consensus:{symbol}"
+                        _rc.hset(_og_key, mapping=_og_snap)
+                        _rc.expire(_og_key, 120)
+            except Exception:
+                pass
 
         # v14_of Group OE + Phase 7.8/7.9/7.9b: copy external/derivative/composite
         # feature keys from inference-time `indicators_with_v4` into outbound

@@ -2354,6 +2354,14 @@ def finalize_trade(
     # levels. Previously these were ONLY set in _stamp_closed_trade_meta()
     # which was called ONLY for orphan closures, leaving 100% of normal
     # TP/SL closes with selected_tp1_price = 0, selected_sl_price = 0.
+    #
+    # 2026-05-28 BLOCKER 3 fix: baseline_*_price has the SAME problem —
+    # only stamp_closed_meta filled it, so non-orphan closes left baseline=0
+    # in 100% of trades_closed rows. Without baseline the path-tp /
+    # bounded-sl / trailing-autocal A/B control group is unusable.
+    # Source priority mirrors stamp_closed_meta:
+    #   1) meta.live_surface_baseline.{sl,tp1}_price (signal_preprocess.py)
+    #   2) selected_*_price as fallback when live surface was shadow-only.
     # -------------------------------------------------------------------------
     try:
         if not getattr(closed, "selected_tp1_price", 0.0):
@@ -2363,6 +2371,20 @@ def finalize_trade(
             _pos_sl = float(getattr(pos, "sl", 0.0) or 0.0)
             if _pos_sl > 0:
                 closed.selected_sl_price = _pos_sl
+
+        _sp = getattr(pos, "signal_payload", {}) or {}
+        if isinstance(_sp, dict):
+            _cs_meta = (_sp.get("config_snapshot") or {}).get("meta") or {}
+            _meta = _sp.get("meta") or _cs_meta or {}
+            _baseline = (_meta.get("live_surface_baseline") or {}) if isinstance(_meta, dict) else {}
+        else:
+            _baseline = {}
+        if not getattr(closed, "baseline_sl_price", 0.0):
+            _b_sl = float(_baseline.get("sl_price") or 0.0)
+            closed.baseline_sl_price = _b_sl or float(getattr(closed, "selected_sl_price", 0.0) or 0.0)
+        if not getattr(closed, "baseline_tp1_price", 0.0):
+            _b_tp1 = float(_baseline.get("tp1_price") or 0.0)
+            closed.baseline_tp1_price = _b_tp1 or float(getattr(closed, "selected_tp1_price", 0.0) or 0.0)
     except Exception:
         pass
 

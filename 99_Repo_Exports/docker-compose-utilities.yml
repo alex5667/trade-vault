@@ -256,34 +256,8 @@ services:
           cpus: '0.25'
         reservations:
           memory: 24M
-  migration-runner:
-    build:
-      context: .
-      dockerfile: python-worker/Dockerfile.gpu
-    image: scanner_infra-migration-runner:latest
-    container_name: scanner-migration-runner
-    restart: 'no'
-    environment:
-    - PG_DSN=postgresql://trading:${TRADING_PASSWORD}@scanner-postgres:5432/scanner_analytics
-    - TZ=UTC
-    depends_on:
-      postgres:
-        condition: service_healthy
-    networks:
-    - scanner-core
-    - scanner-infra
-    command:
-    - sh
-    - /app/python-worker/migrations/apply_migrations.sh
-    volumes:
-    - ./python-worker/migrations:/app/python-worker/migrations:ro
-    deploy:
-      resources:
-        limits:
-          memory: 256M
-          cpus: '0.2'
-        reservations:
-          memory: 24M
+  # NOTE: migration-runner moved to docker-compose-infrastructure.yml (2026-05-28)
+  # so it auto-applies migrations alongside postgres on `docker compose up`.
   migration-runner-trade:
     build:
       context: .

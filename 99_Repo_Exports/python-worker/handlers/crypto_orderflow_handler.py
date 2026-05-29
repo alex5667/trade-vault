@@ -652,7 +652,8 @@ class CryptoOrderFlowHandler(CryptoOrderFlowInitMixin, CryptoOrderFlowL2Stalenes
             # VETO — публикуем всегда (без sampling), но можно ограничить по env.
             if not os.getenv("DECISION_TRACE_DIAG_STREAM"):
                 return
-            redis_client = getattr(self, "redis", None) or getattr(ctx, "redis", None)
+            from core.redis_async_guard import sync_or_none as _sync_or_none
+            redis_client = _sync_or_none(getattr(self, "redis", None)) or _sync_or_none(getattr(ctx, "redis", None))
             if redis_client is None:
                 return
             tr = serialize_trace_from_ctx(ctx)

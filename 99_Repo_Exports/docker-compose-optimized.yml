@@ -291,6 +291,12 @@ services:
     - CHANNELS_REFRESH_SEC=60
     - TG_WHITELIST=
     - TZ=UTC
+    # Proxy: set TELEGRAM_HTTPS_PROXY=http://user:pass@host:port to bypass Telegram blocks
+    - TELEGRAM_HTTPS_PROXY=${TELEGRAM_HTTPS_PROXY:-}
+    # Timeouts (seconds): increase if Telegram API is slow
+    - TELEGRAM_CONNECT_TIMEOUT=${TELEGRAM_CONNECT_TIMEOUT:-10}
+    - TELEGRAM_READ_TIMEOUT=${TELEGRAM_READ_TIMEOUT:-30}
+    - TELEGRAM_MAX_RETRIES=${TELEGRAM_MAX_RETRIES:-3}
     depends_on:
       redis:
         condition: service_healthy

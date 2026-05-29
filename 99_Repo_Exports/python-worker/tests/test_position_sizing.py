@@ -115,5 +115,43 @@ class TestPositionSizing(unittest.TestCase):
              apply_position_sizing_to_ctx(ctx, {"TP_MODE": "RR"}, "BTCUSDT")
              mock_dq.assert_called_with(ctx, "sizing_no_entry_price")
 
+    def test_async_redis_client_skipped_no_unawaited_coroutine(self):
+        """ctx.redis = redis.asyncio.Redis → guard skips it, defaults used,
+        no `coroutine was never awaited` RuntimeWarning leaks."""
+        import os
+        import warnings
+        from unittest.mock import MagicMock, patch
+
+        from services.position_sizing import apply_position_sizing_to_ctx
+
+        async_rc = MagicMock()
+        type(async_rc).__module__ = "redis.asyncio.client"
+
+        ctx = MagicMock()
+        ctx.stop_dist = 2.0
+        ctx.entry_price = 100.0
+        ctx.specs = None  # forces redis fallback branch
+        ctx.redis = async_rc
+
+        with patch.dict(os.environ, {
+            "RISK_USE_FIXED_DOLLAR_SIZING": "1",
+            "RISK_USD_PER_TRADE": "10",
+            "BALANCE_PROVIDER_MODE": "static",
+        }), patch("common.dq_flags.append_dq_flag"):
+            with warnings.catch_warnings(record=True) as caught:
+                warnings.simplefilter("always")
+                apply_position_sizing_to_ctx(ctx, {"TP_MODE": "RR"}, "BTCUSDT")
+
+                self.assertFalse(
+                    async_rc.get.called,
+                    "async redis client must not be touched by sync SymbolSpecsStore",
+                )
+                leaked = [
+                    w for w in caught
+                    if "never awaited" in str(w.message)
+                ]
+                self.assertEqual(leaked, [], f"unawaited coroutine warnings leaked: {leaked}")
+
+
 if __name__ == "__main__":
     unittest.main()

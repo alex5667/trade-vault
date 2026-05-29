@@ -92,7 +92,11 @@ def is_long_cooldown_active(ctx: Any, symbol: str) -> tuple[bool, str]:
     # Prefer the redis client on ctx (tests inject); fall back to lazy singleton.
     rc = None
     try:
-        rc = getattr(ctx, "redis", None) or getattr(ctx, "redis_client", None)
+        _ctx_rc = getattr(ctx, "redis", None) or getattr(ctx, "redis_client", None)
+        if _ctx_rc is not None:
+            _mod = type(_ctx_rc).__module__ or ""
+            if "asyncio" not in _mod and "aioredis" not in _mod:
+                rc = _ctx_rc
     except Exception:
         rc = None
     if rc is None:

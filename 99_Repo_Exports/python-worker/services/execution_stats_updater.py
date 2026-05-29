@@ -236,6 +236,23 @@ def compute_stats(window: list[TradeRecord]) -> dict[str, float]:
     if adverses:
         out["adverse_drift_ms"] = sum(adverses) / len(adverses)
 
+    # fill_prob_3s — fraction of trades filled within 3 seconds
+    out["fill_prob_3s"] = sum(1 for t in window if 0 < t.fill_ms <= 3000) / n
+
+    # eta_fill_sec — median fill latency in seconds
+    if fills:
+        sorted_fills_f = sorted(fills)
+        mid = len(sorted_fills_f) // 2
+        median_ms = (
+            sorted_fills_f[mid]
+            if len(sorted_fills_f) % 2
+            else (sorted_fills_f[mid - 1] + sorted_fills_f[mid]) / 2.0
+        )
+        out["eta_fill_sec"] = median_ms / 1000.0
+
+    # p_wait — fraction of trades that had measurable fill latency (> 0 ms)
+    out["p_wait"] = sum(1 for t in window if t.fill_ms > 0) / n
+
     # Provenance
     out["_n_trades"] = float(n)
     out["_updated_at_ms"] = float(int(time.time() * 1000))

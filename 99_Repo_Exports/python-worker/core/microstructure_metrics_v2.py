@@ -369,6 +369,298 @@ def pin_estimate_from_flow(buy_vols: list[float], sell_vols: list[float]) -> flo
 # ── Aggregator ────────────────────────────────────────────────────────────────
 
 
+def mlofi_features(
+    ofi_series: list[float],
+    ts_seconds: list[float],
+    window_3s: float = 3.0,
+) -> dict[str, float]:
+    """Phase 1 P1 #1-3 — MLOFI acceleration, flip count, streak.
+
+    Args:
+        ofi_series: per-second normalised OFI values (newest last).
+        ts_seconds:  wall-clock second timestamps matching ofi_series.
+        window_3s:  look-back window for flip count.
+
+    Returns keys: mlofi_accel_1s, mlofi_flip_count_3s, mlofi_same_dir_secs.
+    """
+    n = len(ofi_series)
+    if n < 2 or len(ts_seconds) != n:
+        return {}
+    out: dict[str, float] = {}
+
+    # Acceleration: most recent 1-second delta of OFI
+    out["mlofi_accel_1s"] = ofi_series[-1] - ofi_series[-2]
+
+    # Flip count in last window_3s seconds
+    t_end = ts_seconds[-1]
+    t_start = t_end - window_3s
+    window_vals = [v for v, t in zip(ofi_series, ts_seconds) if t >= t_start]
+    flips = sum(
+        1 for i in range(1, len(window_vals))
+        if window_vals[i] * window_vals[i - 1] < 0
+    )
+    out["mlofi_flip_count_3s"] = float(flips)
+
+    # Same-direction streak (seconds of consecutive same sign from newest)
+    streak = 0
+    last_sign = 1 if ofi_series[-1] >= 0 else -1
+    for v in reversed(ofi_series):
+        s = 1 if v >= 0 else -1
+        if s == last_sign:
+            streak += 1
+        else:
+            break
+    out["mlofi_same_dir_secs"] = float(streak)
+
+    return out
+
+
+def microprice_features(
+    micro_prices: list[float],
+    ts_seconds: list[float],
+) -> dict[str, float]:
+    """Phase 1 P1 #4-5 — microprice 1s return and 3s reversion.
+
+    microprice_ret_1s    : % return over last 1 second.
+    microprice_reversion_3s : current minus price 3 seconds ago (mean-reversion impulse).
+    """
+    n = len(micro_prices)
+    if n < 2 or len(ts_seconds) != n:
+        return {}
+    out: dict[str, float] = {}
+    t_end = ts_seconds[-1]
+    current = micro_prices[-1]
+    if current <= 0:
+        return {}
+
+    # 1s return
+    for i in range(n - 2, -1, -1):
+        if t_end - ts_seconds[i] >= 1.0:
+            ref_1s = micro_prices[i]
+            if ref_1s > 0:
+                out["microprice_ret_1s"] = (current - ref_1s) / ref_1s * 10_000.0  # bps
+            break
+
+    # 3s reversion: current minus 3s-ago baseline
+    for i in range(n - 2, -1, -1):
+        if t_end - ts_seconds[i] >= 3.0:
+            ref_3s = micro_prices[i]
+            if ref_3s > 0:
+                out["microprice_reversion_3s"] = (current - ref_3s) / ref_3s * 10_000.0
+            break
+
+    return out
+
+
+class SecondBucketAggregator:
+    """Aggregate tick flow into 1-second buckets for MLOFI / microprice features."""
+
+    def __init__(self, maxlen: int = 30) -> None:
+        self._buckets: deque[tuple[float, float, float, float]] = deque(maxlen=maxlen)
+        # (second_ts, cum_buy_vol, cum_sell_vol, last_price)
+        self._cur_sec: float | None = None
+        self._cur_buy = self._cur_sell = self._cur_px = 0.0
+
+    def on_tick(self, px: float, buy_vol: float, sell_vol: float, ts_ms: int) -> None:
+        sec = float(ts_ms // 1000)
+        if self._cur_sec is None:
+            self._cur_sec = sec
+        if sec != self._cur_sec:
+            self._flush()
+            self._cur_sec = sec
+        self._cur_buy += buy_vol
+        self._cur_sell += sell_vol
+        if px > 0:
+            self._cur_px = px
+
+    def _flush(self) -> None:
+        if self._cur_sec is not None:
+            self._buckets.append(
+                (self._cur_sec, self._cur_buy, self._cur_sell, self._cur_px)
+            )
+        self._cur_buy = self._cur_sell = self._cur_px = 0.0
+
+    def ofi_series(self) -> tuple[list[float], list[float]]:
+        """Return (normalised_ofi_list, ts_seconds_list) newest-last."""
+        ofi: list[float] = []
+        ts: list[float] = []
+        for sec, bv, sv, _ in self._buckets:
+            total = bv + sv
+            ofi.append((bv - sv) / max(total, 1e-9))
+            ts.append(sec)
+        return ofi, ts
+
+    def microprice_series(self) -> tuple[list[float], list[float]]:
+        """Return (microprice_list, ts_seconds_list) using last-trade price as proxy."""
+        prices: list[float] = []
+        ts: list[float] = []
+        for sec, bv, sv, px in self._buckets:
+            if px > 0:
+                total = bv + sv
+                # microprice proxy: flow-weighted mid
+                mp = px * (bv / max(total, 1e-9)) + px * (sv / max(total, 1e-9))
+                prices.append(mp)
+                ts.append(sec)
+        return prices, ts
+
+    def volumes_usd_series(self) -> list[float]:
+        """Return USD volume per 1-second bucket (newest last)."""
+        return [px * (bv + sv) for _, bv, sv, px in self._buckets if px > 0]
+
+
+class HalfSecondBucketAggregator:
+    """Aggregate tick flow into 500ms buckets for sub-second P2 features."""
+
+    def __init__(self, maxlen: int = 40) -> None:
+        self._buckets: deque[tuple[float, float, float, float]] = deque(maxlen=maxlen)
+        # (half_sec_ts_s, cum_buy_vol, cum_sell_vol, last_price)
+        self._cur_half: float | None = None
+        self._cur_buy = self._cur_sell = self._cur_px = 0.0
+
+    def on_tick(self, px: float, buy_vol: float, sell_vol: float, ts_ms: int) -> None:
+        half_s = float((ts_ms // 500) * 500) / 1000.0
+        if self._cur_half is None:
+            self._cur_half = half_s
+        if half_s != self._cur_half:
+            self._flush()
+            self._cur_half = half_s
+        self._cur_buy += buy_vol
+        self._cur_sell += sell_vol
+        if px > 0:
+            self._cur_px = px
+
+    def _flush(self) -> None:
+        if self._cur_half is not None:
+            self._buckets.append(
+                (self._cur_half, self._cur_buy, self._cur_sell, self._cur_px)
+            )
+        self._cur_buy = self._cur_sell = self._cur_px = 0.0
+
+    def ofi_series_500ms(self) -> tuple[list[float], list[float]]:
+        """Return (normalised_ofi_list, ts_seconds_list) at 500ms resolution."""
+        ofi: list[float] = []
+        ts: list[float] = []
+        for half_s, bv, sv, _ in self._buckets:
+            total = bv + sv
+            ofi.append((bv - sv) / max(total, 1e-9))
+            ts.append(half_s)
+        return ofi, ts
+
+    def microprice_series_500ms(self) -> tuple[list[float], list[float]]:
+        """Return (microprice_list, ts_seconds_list) at 500ms resolution."""
+        prices: list[float] = []
+        ts: list[float] = []
+        for half_s, bv, sv, px in self._buckets:
+            if px > 0:
+                total = bv + sv
+                mp = px * (bv / max(total, 1e-9)) + px * (sv / max(total, 1e-9))
+                prices.append(mp)
+                ts.append(half_s)
+        return prices, ts
+
+
+def mlofi_extended_features(
+    ofi_series: list[float],
+    ts_seconds: list[float],
+    *,
+    ofi_series_500ms: list[float] | None = None,
+    bars: list["OHLCBar"] | None = None,
+) -> dict[str, float]:
+    """P2 Group A — extended MLOFI + midprice-impact features.
+
+    mlofi_1_3_5_slope       — OLS slope over mean-OFI at 1s/3s/5s windows
+    mlofi_l1_l5_divergence  — divergence proxy: OFI(1s) vs OFI(5s) mean
+    mlofi_accel_500ms       — OFI delta over last 500ms (from 500ms agg if available)
+    mlofi_exhaustion_score  — OFI weakening after peak (0=trending, 1=exhausted)
+    midprice_impact_per_1k_usd — Δprice_bps per $1k USD (from OHLC bars)
+    """
+    n = len(ofi_series)
+    if n < 2 or len(ts_seconds) != n:
+        return {}
+    out: dict[str, float] = {}
+    t_end = ts_seconds[-1]
+
+    def _window_mean(secs: float) -> float | None:
+        vals = [v for v, t in zip(ofi_series, ts_seconds) if t >= t_end - secs]
+        return sum(vals) / len(vals) if vals else None
+
+    m1 = _window_mean(1.0)
+    m3 = _window_mean(3.0)
+    m5 = _window_mean(5.0)
+
+    # mlofi_1_3_5_slope: OLS slope over windows [1, 3, 5]s
+    if m1 is not None and m3 is not None and m5 is not None:
+        xs = [1.0, 3.0, 5.0]
+        ys = [m1, m3, m5]
+        xm = _mean(xs)
+        ym = _mean(ys)
+        num = sum((x - xm) * (y - ym) for x, y in zip(xs, ys))
+        den = sum((x - xm) ** 2 for x in xs)
+        if abs(den) > 1e-9:
+            out["mlofi_1_3_5_slope"] = num / den
+
+    # mlofi_l1_l5_divergence: short-term (1s) vs long-term (5s) OFI divergence
+    if m1 is not None and m5 is not None:
+        out["mlofi_l1_l5_divergence"] = m1 - m5
+
+    # mlofi_accel_500ms: from 500ms aggregator or fall back to half of 1s accel
+    if ofi_series_500ms is not None and len(ofi_series_500ms) >= 2:
+        out["mlofi_accel_500ms"] = ofi_series_500ms[-1] - ofi_series_500ms[-2]
+    elif n >= 2:
+        out["mlofi_accel_500ms"] = (ofi_series[-1] - ofi_series[-2]) * 0.5
+
+    # mlofi_exhaustion_score: OFI weakening from recent peak (0=at peak, 1=exhausted)
+    if n >= 3:
+        recent_max = max(abs(v) for v in ofi_series[-5:])
+        current_abs = abs(ofi_series[-1])
+        if recent_max > 1e-9:
+            out["mlofi_exhaustion_score"] = max(0.0, 1.0 - current_abs / recent_max)
+        else:
+            out["mlofi_exhaustion_score"] = 0.0
+
+    # midprice_impact_per_1k_usd: |Δprice_bps| per $1k USD traded (from OHLC bars)
+    if bars and len(bars) >= 3:
+        try:
+            dps: list[float] = []
+            dvs: list[float] = []
+            for i in range(1, len(bars)):
+                c_prev, c_curr = bars[i - 1].c, bars[i].c
+                vol_usd = bars[i].volume * bars[i].c
+                if c_prev > 0 and vol_usd > 1.0:
+                    dps.append(abs(c_curr / c_prev - 1.0) * 10_000.0)
+                    dvs.append(vol_usd)
+            if dps and dvs:
+                avg_dp = sum(dps) / len(dps)
+                avg_vol = sum(dvs) / len(dvs)
+                if avg_vol > 0:
+                    out["midprice_impact_per_1k_usd"] = avg_dp / avg_vol * 1_000.0
+        except Exception:
+            pass
+
+    return out
+
+
+def microprice_ret_250ms(
+    micro_prices_500ms: list[float],
+    ts_seconds_500ms: list[float],
+) -> float | None:
+    """P2 Group A — 250ms microprice return from 500ms bucket data."""
+    n = len(micro_prices_500ms)
+    if n < 2 or len(ts_seconds_500ms) != n:
+        return None
+    t_end = ts_seconds_500ms[-1]
+    current = micro_prices_500ms[-1]
+    if current <= 0:
+        return None
+    for i in range(n - 2, -1, -1):
+        if t_end - ts_seconds_500ms[i] >= 0.25:
+            ref = micro_prices_500ms[i]
+            if ref > 0:
+                return (current - ref) / ref * 10_000.0
+            break
+    return None
+
+
 def compute_all(
     *,
     prices: list[float],
@@ -478,6 +770,14 @@ def _service_main() -> int:
     bar_aggs: dict[str, MinuteBarAggregator] = {
         s: MinuteBarAggregator() for s in SYMBOLS
     }
+    # Phase 1 P1 #1-5: per-second OFI + microprice aggregators
+    sec_aggs: dict[str, SecondBucketAggregator] = {
+        s: SecondBucketAggregator(maxlen=30) for s in SYMBOLS
+    }
+    # P2 Group A: 500ms aggregators for sub-second features
+    half_aggs: dict[str, HalfSecondBucketAggregator] = {
+        s: HalfSecondBucketAggregator(maxlen=40) for s in SYMBOLS
+    }
     last_ids: dict[str, str] = {s: "$" for s in SYMBOLS}
 
     log.info("microstruct_v2: symbols=%s window=%d interval=%ds", SYMBOLS, WINDOW, INTERVAL_S)
@@ -534,6 +834,10 @@ def _service_main() -> int:
                             buys[sym].append(0.0)
                             sells[sym].append(0.0)
                         takers[sym].append(sign * qty if is_taker else 0.0)
+                        bv = qty if sign > 0 else 0.0
+                        sv = qty if sign < 0 else 0.0
+                        sec_aggs[sym].on_tick(px, bv, sv, ts_ms)
+                        half_aggs[sym].on_tick(px, bv, sv, ts_ms)
                         if _ticks_total is not None:
                             try:
                                 _ticks_total.labels(symbol=sym).inc()
@@ -567,6 +871,28 @@ def _service_main() -> int:
                     )
                     if not feats:
                         continue
+                    # Phase 1 P1 #1-5: MLOFI + microprice second-resolution features
+                    try:
+                        ofi_vals, ofi_ts = sec_aggs[sym].ofi_series()
+                        feats.update(mlofi_features(ofi_vals, ofi_ts))
+                        mp_vals, mp_ts = sec_aggs[sym].microprice_series()
+                        feats.update(microprice_features(mp_vals, mp_ts))
+                    except Exception:
+                        pass
+                    # P2 Group A: extended MLOFI + sub-second features
+                    try:
+                        ofi_500ms, _ = half_aggs[sym].ofi_series_500ms()
+                        feats.update(mlofi_extended_features(
+                            ofi_vals, ofi_ts,
+                            ofi_series_500ms=ofi_500ms,
+                            bars=bar_aggs[sym].bars(),
+                        ))
+                        mp_500ms, ts_500ms = half_aggs[sym].microprice_series_500ms()
+                        ret_250ms = microprice_ret_250ms(mp_500ms, ts_500ms)
+                        if ret_250ms is not None:
+                            feats["microprice_ret_250ms"] = ret_250ms
+                    except Exception:
+                        pass
                     feats["ts_ms"] = int(time.time() * 1000)
                     try:
                         r_write.set(f"{HASH_PREFIX}{sym}", json.dumps(feats), ex=TTL_SEC)

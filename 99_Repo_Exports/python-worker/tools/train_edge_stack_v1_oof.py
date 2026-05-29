@@ -267,6 +267,16 @@ def main() -> None:
     ap.add_argument("--out_model", required=True, help="path to joblib pack")
     ap.add_argument("--out_calib", default="", help="path to calibrator json (optional)")
     ap.add_argument("--feature_cols_json", default="", help="path to feature_cols.json (optional, will use default if not provided)")
+    ap.add_argument(
+        "--feature_schema_ver",
+        default="",
+        help=(
+            "Optional registered schema version to load feature_cols from "
+            "core.feature_registry.get_edge_stack_feature_spec (e.g. v15_of). "
+            "When set, takes precedence over the legacy default 13-col list "
+            "and is incompatible with --feature_cols_json (fail-fast)."
+        ),
+    )
     ap.add_argument("--n_splits", type=int, default=5, help="number of OOF folds")
     ap.add_argument("--purge_ms", type=int, default=5*60_000, help="purge window in ms (default: 5 min)")
     ap.add_argument("--embargo_ms", type=int, default=5*60_000, help="embargo window in ms (default: 5 min)")
@@ -291,8 +301,43 @@ def main() -> None:
     if not data:
         raise ValueError(f"No data loaded from {inp_file}")
 
-    # Load feature_cols from JSON if provided, otherwise use default
-    if args.feature_cols_json:
+    # ── feature_cols resolution ────────────────────────────────────────────
+    # Priority: --feature_schema_ver  >  --feature_cols_json  >  legacy default 13-col.
+    # Fail-fast guards (per audit P0):
+    #   1. --feature_schema_ver и --feature_cols_json одновременно — ошибка
+    #      (две конфликтующие истины).
+    #   2. REQUIRE_FEATURE_COLS_JSON=1 в env запрещает legacy default —
+    #      обучение должно явно зафиксировать схему.
+    #   3. --feature_schema_ver требует registered schema (через
+    #      core.feature_registry.get_edge_stack_feature_spec).
+    feature_schema_ver = (args.feature_schema_ver or "").strip()
+    require_explicit = os.getenv("REQUIRE_FEATURE_COLS_JSON", "0") == "1"
+
+    if feature_schema_ver and args.feature_cols_json:
+        raise ValueError(
+            "--feature_schema_ver and --feature_cols_json are mutually exclusive: "
+            f"got schema_ver={feature_schema_ver!r} and cols_json={args.feature_cols_json!r}"
+        )
+
+    if feature_schema_ver:
+        try:
+            from core.feature_registry import get_edge_stack_feature_spec  # type: ignore
+        except Exception as e:
+            raise RuntimeError(
+                f"--feature_schema_ver={feature_schema_ver!r} requested but "
+                f"core.feature_registry.get_edge_stack_feature_spec is unavailable: {e}"
+            )
+        spec = get_edge_stack_feature_spec(
+            feature_schema_ver,
+            strict_feature_cols=True,
+            forbid_scenario_v4_onehot=True,
+        )
+        feature_cols = list(spec.feature_cols)
+        if not feature_cols:
+            raise ValueError(
+                f"get_edge_stack_feature_spec({feature_schema_ver!r}) returned empty feature_cols"
+            )
+    elif args.feature_cols_json:
         try:
             with open(args.feature_cols_json, encoding="utf-8") as f:
                 feature_cols = json.load(f)
@@ -301,6 +346,11 @@ def main() -> None:
         except Exception as e:
             raise ValueError(f"Failed to load feature_cols from {args.feature_cols_json}: {e}")
     else:
+        if require_explicit:
+            raise ValueError(
+                "REQUIRE_FEATURE_COLS_JSON=1: legacy default 13-col list disabled. "
+                "Pass --feature_schema_ver=<ver> (registry) or --feature_cols_json=<path>."
+            )
         # ---- feature_cols: зафиксируйте один раз и не меняйте без version bump
         # ВАЖНО: эти фичи должны совпадать с теми, что используются в ml_confirm_gate
         feature_cols = [
@@ -465,6 +515,10 @@ def main() -> None:
         "kind": "edge_stack_v1",
         "created_ms": get_ny_time_millis(),
         "feature_cols": feature_cols,
+        # Stamp the registry schema version when --feature_schema_ver was used,
+        # so ml_confirm gate can publish runtime schema_ver label and the
+        # train/runtime hash-mismatch alert has ground truth.
+        "feature_schema_ver": feature_schema_ver or "",
         "lr": lr,
         "gbdt": gbdt,
         "meta": meta,

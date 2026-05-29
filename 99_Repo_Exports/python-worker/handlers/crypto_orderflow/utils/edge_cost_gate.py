@@ -1564,7 +1564,8 @@ class EdgeCostGate:
         ---------------------------------------------------------------------
         """
         fees_bps = self.fees_bps_default
-        redis_client = getattr(self, "redis", None) or getattr(ctx, "redis", None)
+        from core.redis_async_guard import sync_or_none as _sync_or_none
+        redis_client = _sync_or_none(getattr(self, "redis", None)) or _sync_or_none(getattr(ctx, "redis", None))
 
         # IMPORTANT (anti-regression):
         #  - НЕ приводим ts к int() здесь. В реальном потоке ts может быть строкой "1700..",
@@ -1903,7 +1904,8 @@ class EdgeCostGate:
         exec_flags: list = []
 
         if exec_mode not in {"off", "0", "false"}:
-            r_exec = getattr(self, "redis", None) or getattr(ctx, "redis", None)
+            from core.redis_async_guard import sync_or_none as _sync_or_none
+            r_exec = _sync_or_none(getattr(self, "redis", None)) or _sync_or_none(getattr(ctx, "redis", None))
             if r_exec is not None:
                 ven = str(getattr(ctx, "venue", None) or getattr(ctx, "source", None) or "na")
                 tsm = getattr(ctx, "_ts_ms_norm", None)
@@ -2055,7 +2057,8 @@ class EdgeCostGate:
         drift_score = float("nan")
         drift_feat = ""
         try:
-            redis_client = getattr(self, "redis", None) or getattr(ctx, "redis", None)
+            from core.redis_async_guard import sync_or_none as _sync_or_none
+            redis_client = _sync_or_none(getattr(self, "redis", None)) or _sync_or_none(getattr(ctx, "redis", None))
             # Determine session/tf/kind dims consistently.
             tsm = normalize_ts_ms(getattr(ctx, "ts_ms", None) or getattr(ctx, "ts", None) or 0)
             if tsm > 0:

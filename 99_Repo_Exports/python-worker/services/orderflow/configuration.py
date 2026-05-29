@@ -205,7 +205,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "cvd_reclaim_bonus_w": 0.02,
     "cvd_reclaim_bonus_cap": 0.03,
     # Adverse Selection Gate
-    "adverse_check_enable": _to_bool(os.getenv("ADVERSE_CHECK_ENABLE", "1")),
+    "adverse_check_enable": _to_bool(os.getenv("ADVERSE_CHECK_ENABLE", "0")),
     # OBI stability bonus params (used by services/signal_confidence.py)
     "obi_stable_bonus_w": 0.04,
     "obi_stable_bonus_q_floor": 0.35,

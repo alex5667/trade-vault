@@ -129,7 +129,9 @@ def test_symbol_window_empty():
     assert snap.liq_event_count_1m == 0
     assert snap.liq_buy_notional_1m == 0.0
     assert snap.liq_sell_notional_1m == 0.0
-    assert snap.quality_status == "OK"
+    # Phase 0.3 (2026-05-28): quality_status reflects real source state.
+    # No events ever observed → "absent" (was hardcoded "OK" pre-Phase 0).
+    assert snap.quality_status == "absent"
 
 
 def test_symbol_window_accumulates():

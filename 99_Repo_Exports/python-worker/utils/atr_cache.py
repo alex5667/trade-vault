@@ -111,18 +111,23 @@ class ATRCache:
         else:
             tf = str(timeframe)
 
-        # 1. Prefer sanity-calibrated selection (pre-selected meta)
+        # 1. Prefer sanity-calibrated selection (pre-selected meta).
+        # Only use when timeframe is None (caller wants "best available") or when
+        # the pre-selected tf matches the requested tf.  Ignoring tf here caused
+        # get_with_meta(timeframe="5m") to silently return a 15m-selected value.
         meta_raw = self.redis_client.get(f"cfg:atr_sel_meta:{sym}")
         if meta_raw:
             try:
                 meta: dict[str, Any] = json.loads(meta_raw)
-                atr = _f(meta.get("atr"), 0.0)
-                ts_ms = _i(meta.get("ts_ms"), 0)
-                age_ms = max(0, nm - ts_ms) if ts_ms > 0 else 0
-                meta["age_ms"] = age_ms
-                meta.setdefault("src", meta.pop("source", "selected"))
-                if atr > 0:
-                    return atr, meta
+                picked_tf = str(meta.get("picked_tf", "") or "")
+                if tf is None or not tf or not picked_tf or picked_tf == tf:
+                    atr = _f(meta.get("atr"), 0.0)
+                    ts_ms = _i(meta.get("ts_ms"), 0)
+                    age_ms = max(0, nm - ts_ms) if ts_ms > 0 else 0
+                    meta["age_ms"] = age_ms
+                    meta.setdefault("src", meta.pop("source", "selected"))
+                    if atr > 0:
+                        return atr, meta
             except Exception:  # noqa: BLE001
                 pass
 

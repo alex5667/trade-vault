@@ -914,3 +914,34 @@ fatal: Could not read from remote repository.
 Please make sure you have the correct access rights
 and the repository exists.
 2026-05-27 05:45:03 - Синхронизация завершена успешно.
+[main 88295aba] Auto-sync vault notes 2026-05-28 05:45:01
+ 49 files changed, 7424 insertions(+), 140 deletions(-)
+ create mode 100644 99_Automation/logs/update_2026-05-28_03-37-22.log
+ create mode 100644 99_Repo_Exports/python-worker/core/kelly_sizer_v2.py
+ create mode 100644 99_Repo_Exports/python-worker/services/breadth_reader.py
+ create mode 100644 99_Repo_Exports/python-worker/services/cross_asset_breadth_producer_v1.py
+ create mode 100644 99_Repo_Exports/python-worker/services/dq_observation_producer_v1.py
+ create mode 100644 99_Repo_Exports/python-worker/services/iceberg_long_gate_inline.py
+ create mode 100644 99_Repo_Exports/python-worker/services/lgbm_long_gate_reader.py
+ create mode 100644 99_Repo_Exports/python-worker/services/long_cooldown_manager_v1.py
+ create mode 100644 99_Repo_Exports/python-worker/services/long_cooldown_reader.py
+ create mode 100644 99_Repo_Exports/python-worker/services/regime_exec_snapshot_writer_v1.py
+ create mode 100644 99_Repo_Exports/python-worker/services/sweep_detector_reader.py
+ create mode 100644 99_Repo_Exports/python-worker/services/sweep_detector_writer_v1.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_of_soft_score_min_env_pinned.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_p2_1_tbl_v15of_dataset.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_p2_2_calibrator_compose_env.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_p2_6_kelly_sizing.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_p2_7_replay_validate_per_regime.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_trade_monitor_regime_indicators_fallback.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_virtual_hard_drop.py
+ create mode 100644 99_Repo_Exports/python-worker/tools/build_dataset_v5_tb_v15of.py
+ create mode 100644 99_Repo_Exports/python-worker/tools/delta_spike_long_tb_refit_v1.py
+ create mode 100644 99_Repo_Exports/python-worker/tools/replay_validate_per_regime_blend.py
+ create mode 100644 99_Repo_Exports/python-worker/tools/train_lgbm_long_gate_v1.py
+ssh: Could not resolve hostname github.com: Temporary failure in name resolution
+fatal: Could not read from remote repository.
+
+Please make sure you have the correct access rights
+and the repository exists.
+2026-05-28 05:45:15 - Синхронизация завершена успешно.

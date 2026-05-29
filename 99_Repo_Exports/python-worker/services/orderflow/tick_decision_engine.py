@@ -977,6 +977,19 @@ class TickDecisionEngine:
                 if runtime.cvd_state:
                     indicators.update(runtime.cvd_state.indicators_light())
                     indicators.update(runtime.cvd_state.robust_snapshot())
+                    # Publish snapshot to Redis so feature_enricher can access CVD
+                    # features on veto-path and cross-service signals.
+                    try:
+                        _cvd_snap = {
+                            k: str(v) for k, v in runtime.cvd_state.indicators_light().items()
+                            if isinstance(v, (int, float))
+                        }
+                        _cvd_snap["ts_ms"] = str(int(time.time() * 1000))
+                        _cvd_key = f"cvd:state:{runtime.symbol}"
+                        safe_create_task(self.redis.hset(_cvd_key, mapping=_cvd_snap))
+                        safe_create_task(self.redis.expire(_cvd_key, 120))
+                    except Exception:
+                        pass
             except Exception:
                 pass
 
@@ -1833,6 +1846,20 @@ class TickDecisionEngine:
                 indicators["abs_lvl_min_quote_delta"] = float(cfg2.get("abs_lvl_min_quote_delta", 0.0) or 0.0)
                 indicators["abs_lvl_calib_n"] = int(cfg2.get("abs_lvl_calib_n", 0) or 0)
                 indicators["abs_lvl_calib_src"] = (cfg2.get("abs_lvl_calib_src", "static"))
+                # Publish abs_lvl diagnostics to Redis for feature_enricher cross-path access.
+                try:
+                    _abs_snap = {
+                        "abs_lvl_eff_quote_th": str(indicators["abs_lvl_eff_quote_th"]),
+                        "abs_lvl_min_quote_delta": str(indicators["abs_lvl_min_quote_delta"]),
+                        "abs_lvl_calib_n": str(indicators["abs_lvl_calib_n"]),
+                        "abs_lvl_calib_src": indicators["abs_lvl_calib_src"],
+                        "ts_ms": str(int(time.time() * 1000)),
+                    }
+                    _abs_key = f"abs_lvl:state:{runtime.symbol}"
+                    safe_create_task(self.redis.hset(_abs_key, mapping=_abs_snap))
+                    safe_create_task(self.redis.expire(_abs_key, 300))
+                except Exception:
+                    pass
 
                 if ofc:
                     ev = ofc.evidence

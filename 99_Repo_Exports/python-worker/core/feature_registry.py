@@ -514,19 +514,26 @@ def _get_v14_of_keys() -> tuple:
 
 
 # ---------------------------------------------------------------------------
-# v15_of schema — v14_of + 156 new keys (Phase 8.2/8.3/8.4/8.5/P1/P2/P3/4.x).
-# Source of truth: core.ml_feature_schema_v15_of.V15_OF_NUMERIC_KEYS.
+# v15_of schema — v14_of + ~172 new keys (Phase 8.2/8.3/8.4/8.5/P1/P2/P3/4.x).
+# Source of truth: core.ml_feature_schema_v15_of.V15_OF_NUMERIC_KEYS
+# (invariant `_EXPECTED_KEYS` in that module, currently 531).
 # Append-only over v14_of. Created 2026-05-18 to close payload↔schema gap.
+# Do not hardcode the count here — always read from
+# `ml_feature_schema_v15_of._EXPECTED_KEYS` or `len(V15_OF_NUMERIC_KEYS)`.
 # ---------------------------------------------------------------------------
 
 def _get_v15_of_keys() -> tuple:
     """Returns (num_keys, bool_keys) for v15_of.
 
-    v15_of = v14_of (359) + 156 keys for Phase 8.2/8.3/8.4/8.5/P1/P2/P3/4.x
+    v15_of = v14_of (359) + extension keys for Phase 8.2/8.3/8.4/8.5/P1/P2/P3/4.x
     (Hawkes/VPIN, cross-venue, CoinGecko/CoinPaprika/CMC, Deribit term
     structure, DefiLlama, macro calendar, derivatives base, PIT priors,
     breadth segments) — all already produced by
     core/external_features_payload_v1.py.
+
+    The authoritative key count lives in
+    ``core.ml_feature_schema_v15_of._EXPECTED_KEYS`` (currently 531) and is
+    asserted at import-time against ``len(V15_OF_NUMERIC_KEYS)``.
 
     No separate bool block.
     Population path: same as v14_of (build_og_payload + build_external_features_payload).

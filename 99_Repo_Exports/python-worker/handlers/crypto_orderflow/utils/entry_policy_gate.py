@@ -144,6 +144,16 @@ try:
         "Signals annotated for maker-only execution by kind",
         ["kind", "decision"],
     )
+    # 2026-05-28 BLOCKER-2: SHORT pump-block — mirror of BTC-drop LONG-block
+    _btc_pump_block_short_total = Counter(
+        "entry_btc_pump_block_short_total",
+        "Cross-asset BTC-pump SHORT-block decisions (BLOCKER-2)",
+        ["symbol", "mode", "decision"],
+    )
+    _btc_pump_block_short_ret_g = Gauge(
+        "entry_btc_pump_block_short_btc_ret_5m",
+        "Last observed BTC 5m fractional return at SHORT pump-block eval time",
+    )
 except Exception:
     Counter = Gauge = None  # type: ignore[assignment,misc]
     _ac_cal_soft_bps = _ac_cal_hard_bps = _ac_cal_n = _ac_cal_loss_floor = _ac_veto_total = None  # type: ignore[assignment]
@@ -153,6 +163,8 @@ except Exception:
     _htf_long_bias_total = None  # type: ignore[assignment]
     _setup_rr_below_threshold = None  # type: ignore[assignment]
     _kind_kill_list_total = None  # type: ignore[assignment]
+    _btc_pump_block_short_total = None  # type: ignore[assignment]
+    _btc_pump_block_short_ret_g = None  # type: ignore[assignment]
 
 
 @dataclass(frozen=True)
@@ -403,6 +415,30 @@ class EntryPolicyGate:
             s.strip().upper() for s in _exempt_raw.split(",") if s.strip()
         )
 
+        # ── BLOCKER-2 SHORT pump-block (mirror of Plan 3.4) ──────────────────
+        # Block SHORT on alts when BTC pumped ≥ threshold over last 5m.
+        # Short signals fired into a local pump consistently produce MAE ≈ -5R
+        # (instant adverse) because the OF detector catches a brief sweep-down
+        # that immediately reverses.  Threshold default +0.7% (tighter than the
+        # drop threshold because pump stop-hunts are sharper).
+        #
+        # ENV knobs:
+        #   BTC_PUMP_BLOCK_SHORT_ENABLED  master switch               (default 0)
+        #   BTC_PUMP_BLOCK_SHORT_MODE     shadow|enforce              (default shadow)
+        #   BTC_PUMP_BLOCK_SHORT_PCT_5M   fractional rise threshold   (default +0.007)
+        #   BTC_PUMP_BLOCK_SHORT_EXEMPT   csv of symbols never blocked (default BTCUSDT)
+        self.btc_pump_block_short_enabled = _env_bool("BTC_PUMP_BLOCK_SHORT_ENABLED", False)
+        self.btc_pump_block_short_mode = (
+            os.getenv("BTC_PUMP_BLOCK_SHORT_MODE", "shadow") or "shadow"
+        ).strip().lower()
+        self.btc_pump_block_short_pct_5m = _safe_float(
+            os.getenv("BTC_PUMP_BLOCK_SHORT_PCT_5M", "0.007"), 0.007
+        )
+        _pump_exempt_raw = (os.getenv("BTC_PUMP_BLOCK_SHORT_EXEMPT", "BTCUSDT") or "").strip()
+        self.btc_pump_block_short_exempt: frozenset[str] = frozenset(
+            s.strip().upper() for s in _pump_exempt_raw.split(",") if s.strip()
+        )
+
     # ── adverse-cross calibrator persistence ──────────────────────────────────
 
     def snapshot_to_redis(self, redis: Any, now_ms: int) -> None:
@@ -563,6 +599,58 @@ class EntryPolicyGate:
             return False, btc_ret, ""
         notes = (
             f"btc_ret_5m={btc_ret:.5f}<=thr={self.btc_drop_block_long_pct_5m:.5f} "
+            f"src={src}"
+        )
+        return True, btc_ret, notes[:256]
+
+    def _eval_btc_pump_block_short(
+        self, *, ctx: Any, symbol: str, side_norm: str,
+    ) -> tuple[bool, float | None, str]:
+        """BLOCKER-2: block SHORT when BTC pumped ≥ threshold over last 5m.
+
+        Mirror of _eval_btc_drop_block_long.  SHORT signals fired into an
+        upward local pump produce instant adverse MAE ≈ -5R because the OF
+        iceberg/delta-spike detector catches a brief sweep-down that reverses
+        immediately (BTC entry 72860→73618, +1.04% in trade window).
+
+        Returns (hit, btc_ret_5m, notes). hit=True only when side_norm == 'SHORT',
+        symbol not in exempt list, and btc_ret_5m >= threshold.  Fail-open on any
+        error (returns False).
+        """
+        if not self.btc_pump_block_short_enabled or side_norm != "SHORT":
+            return False, None, ""
+        sym_u = (symbol or "").strip().upper()
+        if sym_u in self.btc_pump_block_short_exempt:
+            return False, None, ""
+
+        btc_ret: float | None = None
+        ind = getattr(ctx, "indicators", None)
+        if isinstance(ind, dict):
+            raw = ind.get("btc_ret_5m")
+            if raw is not None:
+                try:
+                    v = float(raw)
+                    if math.isfinite(v) and v != 0.0:
+                        btc_ret = v
+                except Exception:
+                    btc_ret = None
+
+        src = "ctx"
+        if btc_ret is None:
+            try:
+                btc_ret = get_btc_ret_5m()
+                src = "reader"
+            except Exception:
+                btc_ret = None
+
+        if btc_ret is None or not math.isfinite(btc_ret):
+            return False, None, ""
+
+        hit = btc_ret >= self.btc_pump_block_short_pct_5m
+        if not hit:
+            return False, btc_ret, ""
+        notes = (
+            f"btc_ret_5m={btc_ret:.5f}>=thr={self.btc_pump_block_short_pct_5m:.5f} "
             f"src={src}"
         )
         return True, btc_ret, notes[:256]
@@ -1197,6 +1285,18 @@ class EntryPolicyGate:
         if btc_drop_hit:
             soft_flags.append(f"btc_drop_block_long:{btc_drop_notes}")
 
+        # BLOCKER-2: BTC-pump SHORT-block — mirror of Plan 3.4.
+        btc_pump_hit, btc_pump_ret, btc_pump_notes = self._eval_btc_pump_block_short(
+            ctx=ctx, symbol=symbol, side_norm=side_norm,
+        )
+        try:
+            if _btc_pump_block_short_ret_g is not None and btc_pump_ret is not None:
+                _btc_pump_block_short_ret_g.set(btc_pump_ret)  # type: ignore[union-attr]
+        except Exception:
+            pass
+        if btc_pump_hit:
+            soft_flags.append(f"btc_pump_block_short:{btc_pump_notes}")
+
         # Plan 1.2: evaluate + observe early so state is captured in the throttled
         # Redis snapshot that runs below (before the veto decision path).
         htf_hit, htf_notes = self._eval_htf_long_bias(ctx=ctx, side_norm=side_norm)
@@ -1351,13 +1451,21 @@ class EntryPolicyGate:
                 ctx.btc_drop_block_long_mode = self.btc_drop_block_long_mode
                 if btc_drop_ret is not None:
                     ctx.btc_drop_block_long_btc_ret_5m = btc_drop_ret
+            # BLOCKER-2: cross-asset BTC-pump block-SHORT observability.
+            if btc_pump_hit:
+                ctx.btc_pump_block_short_alarm = 1
+                ctx.btc_pump_block_short_notes = btc_pump_notes
+                ctx.btc_pump_block_short_mode = self.btc_pump_block_short_mode
+                if btc_pump_ret is not None:
+                    ctx.btc_pump_block_short_btc_ret_5m = btc_pump_ret
         except Exception:
             pass
 
         # Optional audit stream (never affects decision)
         if self.diag_stream:
             try:
-                redis_client = getattr(ctx, "redis", None)
+                _rc_diag = getattr(ctx, "redis", None)
+                redis_client = None if _is_async_redis(_rc_diag) else _rc_diag
                 if redis_client is not None and (soft_flags or drift_hit):
                     ev = {
                         "ts_ms": get_ny_time_millis(),
@@ -1403,6 +1511,27 @@ class EntryPolicyGate:
                 try:
                     if _btc_drop_block_long_total is not None:
                         _btc_drop_block_long_total.labels(
+                            symbol=symbol, mode=mode, decision="SHADOW",
+                        ).inc()
+                except Exception:
+                    pass
+
+        # BLOCKER-2: BTC-pump SHORT-block veto (runs BEFORE profile-based gating).
+        if btc_pump_hit:
+            mode = self.btc_pump_block_short_mode
+            if mode == "enforce":
+                try:
+                    if _btc_pump_block_short_total is not None:
+                        _btc_pump_block_short_total.labels(
+                            symbol=symbol, mode=mode, decision="VETO",
+                        ).inc()
+                except Exception:
+                    pass
+                return GateDecision(True, True, "VETO_BTC_PUMP_BLOCK_SHORT", btc_pump_notes)
+            else:
+                try:
+                    if _btc_pump_block_short_total is not None:
+                        _btc_pump_block_short_total.labels(
                             symbol=symbol, mode=mode, decision="SHADOW",
                         ).inc()
                 except Exception:

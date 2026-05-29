@@ -313,4 +313,86 @@ def test_replay_mode_tick_ts_priority():
     assert ofc.ts_ms == tick_ts  # Should use tick_ts_ms, not frozen time
     assert indicators.get("now_ts_ms_used") == tick_ts
 
+
+def _base_cfg() -> dict:
+    return {
+        "require_strong_confirmation": False,
+        "w_z": 0.3, "w_wp": 0.15, "w_reclaim": 0.2,
+        "w_obi": 0.15, "w_ice": 0.15, "w_abs": 0.05,
+        "score_z_ref": 3.0,
+        "of_score_min": 0.0,
+    }
+
+
+def _base_runtime() -> object:
+    return SimpleNamespace(
+        symbol="BTCUSDT",
+        last_wp=SimpleNamespace(weak_any=False),
+        last_obi_event=None,
+        last_iceberg_event=None,
+        last_sweep=None,
+        last_reclaim=None,
+        last_div=None,
+        cont_ctx_ts_ms=0,
+    )
+
+
+def test_book_health_veto_propagates_to_evidence():
+    """book_health_veto_book_evidence set in indicators must reach evidence."""
+    eng = OFConfirmEngine(version=2)
+    indicators = {"delta_z": 1.5, "book_health_ok": 0}  # book_ok=0 triggers veto
+    ofc, _ = eng.build(
+        symbol="BTCUSDT", tf="1s", direction="LONG",
+        tick_ts_ms=10000, price=100.0, delta_z=1.5,
+        runtime=_base_runtime(), cfg=_base_cfg(), indicators=indicators,
+    )
+    assert ofc is not None
+    assert ofc.evidence.get("book_health_veto_book_evidence") == 1
+    assert ofc.evidence.get("data_health_veto_book_evidence", 0) == 0
+
+
+def test_data_health_veto_propagates_to_evidence():
+    """data_health_veto_book_evidence must reach evidence when dh < dh_min."""
+    eng = OFConfirmEngine(version=2)
+    cfg = {**_base_cfg(), "data_health_min_for_book_evidence": 0.70}
+    indicators = {"delta_z": 1.5, "data_health": 0.50}  # dh < 0.70 triggers veto
+    ofc, _ = eng.build(
+        symbol="BTCUSDT", tf="1s", direction="LONG",
+        tick_ts_ms=10000, price=100.0, delta_z=1.5,
+        runtime=_base_runtime(), cfg=cfg, indicators=indicators,
+    )
+    assert ofc is not None
+    assert ofc.evidence.get("data_health_veto_book_evidence") == 1
+
+
+def test_div_match_propagates_to_evidence():
+    """div_match and div_match_fallback written to indicators must appear in evidence."""
+    eng = OFConfirmEngine(version=2)
+    indicators = {"delta_z": 2.0}
+    runtime = _base_runtime()
+    ofc, _ = eng.build(
+        symbol="BTCUSDT", tf="1s", direction="LONG",
+        tick_ts_ms=10000, price=100.0, delta_z=2.0,
+        runtime=runtime, cfg=_base_cfg(), indicators=indicators,
+    )
+    assert ofc is not None
+    assert "div_match" in ofc.evidence
+    assert "div_match_fallback" in ofc.evidence
+    assert ofc.evidence["div_match"] in (0, 1)
+    assert ofc.evidence["div_match_fallback"] in (0, 1)
+
+
+def test_no_veto_evidence_keys_default_zero():
+    """When book and data health are OK, veto flags must be 0 in evidence."""
+    eng = OFConfirmEngine(version=2)
+    indicators = {"delta_z": 2.0, "book_health_ok": 1, "data_health": 0.95}
+    ofc, _ = eng.build(
+        symbol="BTCUSDT", tf="1s", direction="LONG",
+        tick_ts_ms=10000, price=100.0, delta_z=2.0,
+        runtime=_base_runtime(), cfg=_base_cfg(), indicators=indicators,
+    )
+    assert ofc is not None
+    assert ofc.evidence.get("book_health_veto_book_evidence", 0) == 0
+    assert ofc.evidence.get("data_health_veto_book_evidence", 0) == 0
+
     eng.clear_replay_time()

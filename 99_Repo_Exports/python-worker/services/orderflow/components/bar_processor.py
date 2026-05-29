@@ -70,7 +70,7 @@ class BarProcessor:
         self.swing_point_counters: dict[str, int] = {}
         self.adverse_continuation_counters: dict[str, int] = {}
 
-        # ── Inline regime computation (eliminates cross-service dependency) ──
+        # ── Slow regime computation (eliminates cross-service dependency) ──
         # Without this, regime:{symbol} is only written by the handler pipeline
         # (scanner-python-worker) which does NOT cover Shard 3/3B symbols.
         self._regime_svc = None
@@ -92,6 +92,12 @@ class BarProcessor:
         self._regime_pub_gap_ms: int = int(os.getenv("REGIME_REDIS_PUB_GAP_MS", "2000"))
         self._regime_redis_ttl_sec: int = int(os.getenv("REGIME_REDIS_TTL_SEC", "120"))
 
+        # ── Fast micro-regime (per-BarProcessor instance, per-symbol dict) ──
+        # Keyed by symbol so one BarProcessor shared across symbols stays correct.
+        # RegimeMicroState is per-symbol rolling window, no shared state between symbols.
+        from core.regime_micro_v1 import RegimeMicroState
+        self._regime_micro_states: dict[str, RegimeMicroState] = {}
+
     async def process_bar(self, runtime: SymbolRuntime, bar: MicroBar):
         """
         Main entry point for bar close processing.
@@ -109,6 +115,9 @@ class BarProcessor:
 
             # 3. Dynamic Regime Update (Redis read + inline fallback)
             await self._update_regime(runtime, bar)
+
+            # 3b. Fast micro-regime (5-bar window, no hysteresis, sync with 1m action)
+            self._update_regime_micro(runtime, bar)
 
             # 4. ATR TF Calibrator (Source Selection)
             await self._update_atr_tf_calib(runtime, bar)
@@ -490,6 +499,50 @@ class BarProcessor:
             return regime  # type: ignore
         except Exception:  # type: ignore
             return "na"
+
+    def _update_regime_micro(self, runtime: SymbolRuntime, bar: MicroBar) -> None:
+        """Compute fast micro-regime (5-bar window, no hysteresis) on every 1m close.
+
+        Writes to runtime.last_regime_micro / runtime.last_regime_micro_ts_ms.
+        Never raises — fail-open: leaves last_regime_micro unchanged on any error.
+        """
+        try:
+            ts_ms = int(getattr(bar, "end_ts_ms", 0) or getattr(bar, "start_ts_ms", 0) or 0)
+            close = float(getattr(bar, "close", 0) or 0)
+            high = float(getattr(bar, "high", 0) or 0)
+            low = float(getattr(bar, "low", 0) or 0)
+            if close <= 0 or ts_ms <= 0:
+                return
+
+            sym = runtime.symbol
+            state = self._regime_micro_states.get(sym)
+            if state is None:
+                from core.regime_micro_v1 import RegimeMicroState, RegimeMicroConfig
+                state = RegimeMicroState(cfg=RegimeMicroConfig.from_env())
+                self._regime_micro_states[sym] = state
+
+            if not state.cfg.enabled:
+                return
+
+            vol_state = str(
+                getattr(runtime, "dynamic_cfg", {}).get("vol_regime_label", "")
+                or "na"
+            ).strip().lower()
+
+            lbl = state.push_bar(
+                close=close, high=high, low=low,
+                vol_state=vol_state, ts_ms=ts_ms,
+            )
+            if lbl and lbl != "na":
+                runtime.last_regime_micro = lbl
+                runtime.last_regime_micro_ts_ms = ts_ms
+                try:
+                    from services.orderflow.metrics import regime_micro_emit_total
+                    regime_micro_emit_total.labels(symbol=sym, regime_micro=lbl).inc()
+                except Exception:
+                    pass
+        except Exception:
+            pass
 
     def _compute_trend_bias(self, runtime: SymbolRuntime, bar: MicroBar) -> tuple[str, str, float]:
         """

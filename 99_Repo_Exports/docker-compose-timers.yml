@@ -2749,6 +2749,9 @@ services:
           memory: 24M
     environment:
     - REDIS_URL=${LIQMAP_SNAPSHOT_REDIS_URL:-redis://redis-worker-1:6379/0}
+    # stream:liq_evt lives on main redis:6379 (written by go-worker liquidation handler).
+    # Snapshots are written to redis-worker-1 (REDIS_URL above).
+    - LIQ_EVT_REDIS_URL=${LIQ_EVT_REDIS_URL:-redis://redis:6379/0}
     - LIQMAP_SNAPSHOT_KEY_PREFIX=liqmap:snapshot
     - LIQMAP_WINDOWS=5m,1h,4h,24h
     - LIQ_EVT_STREAM=stream:liq_evt
@@ -2766,7 +2769,7 @@ services:
     working_dir: /app
     volumes:
     - ./python-worker:/app
-    command: "sh -c \"sleep 560 && while true; do\n  echo '[liqmap-snapshot-timer] Starting\
+    command: "sh -c \"sleep 10 && while true; do\n  echo '[liqmap-snapshot-timer] Starting\
       \ liquidation_map_service...';\n  python3 -u services/liquidation_map_service.py;\n\
       \  echo '[liqmap-snapshot-timer] Service exited, restarting in 5s...';\n  sleep\
       \ 5;\ndone\"\n"

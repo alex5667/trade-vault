@@ -60,6 +60,7 @@ REDIS_URL = os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
 PG_DSN = os.getenv("ANALYTICS_DB_DSN") or os.getenv("PG_DSN") or ""
 
 LOOKBACK_DAYS = int(os.getenv("V15_TRAIN_LOOKBACK_DAYS", "30"))
+MIN_COVERAGE = float(os.getenv("V15_MIN_COVERAGE", "0.80"))
 LABEL_THR_R = float(os.getenv("V15_LABEL_THRESHOLD_R", "0.3"))
 PER_REGIME = os.getenv("V15_TRAIN_PER_REGIME", "1") == "1"
 PER_REGIME_MIN = int(os.getenv("V15_PER_REGIME_MIN", "60"))
@@ -200,6 +201,7 @@ def run_trainer(verdict_path: str, candidate_out_path: str, *,
         "--source", source,
         "--lookback-days", str(LOOKBACK_DAYS),
         "--label-threshold-r", str(LABEL_THR_R),
+        "--min-coverage", str(MIN_COVERAGE),
         "--n-folds", "5",
         "--verdict-out", verdict_path,
         "--out", candidate_out_path,

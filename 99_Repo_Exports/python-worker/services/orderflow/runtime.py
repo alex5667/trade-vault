@@ -363,9 +363,13 @@ class SymbolRuntime:
     last_of_strong_ts_ms: int = 0
     last_of_dir: str = "NONE"
 
-    # NEW: dynamic regime state
+    # Slow regime (MarketRegimeService, min_hold=180s, confirm=3 bars)
     last_regime: str = "na"
     last_regime_ts_ms: int = 0
+
+    # Fast micro-regime (no hysteresis, 5-bar window, sync with 1m action)
+    last_regime_micro: str = "na"
+    last_regime_micro_ts_ms: int = 0
 
     # ── Inline regime computation state (per-symbol, updated on microbar close) ──
     # Eliminates dependency on handler pipeline (scanner-python-worker) which
@@ -382,6 +386,9 @@ class SymbolRuntime:
     _regime_last_pub_ms: int = 0
     _last_atr_q: float = 0.5
     _last_regime_score: float = 0.0
+    _last_regime_id: float = 0.0
+    _last_regime_confidence: float = 0.0
+    _last_regime_ts_ms: int = 0
 
     # Book Health State
     last_book_health_ok: int = 1

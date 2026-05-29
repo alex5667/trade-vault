@@ -462,11 +462,11 @@ services:
     - FUNDING_BASIS_CALIB_ENFORCE=${FUNDING_BASIS_CALIB_ENFORCE:-1}
     - FUNDING_BASIS_CALIB_MIN_SAMPLES=${FUNDING_BASIS_CALIB_MIN_SAMPLES:-500}
     - FEATURE_DRIFT_ENABLED=1
-    - FEATURE_DRIFT_PROFILE=hard
+    - FEATURE_DRIFT_PROFILE=tighten
     - FEATURE_DRIFT_MODE=enforce
-    - ADVERSE_CHECK_ENABLE=1
+    - ADVERSE_CHECK_ENABLE=0
     - MANIP_ENABLED=${MANIP_ENABLED:-1}
-    - MANIP_MODE=hard
+    - MANIP_MODE=tighten
     - MANIP_QUOTE_STUFF_SCORE_MAX=${MANIP_QUOTE_STUFF_SCORE_MAX:-0.6}
     - MANIP_LAYERING_SCORE_MAX=${MANIP_LAYERING_SCORE_MAX:-0.6}
     - MANIP_OTR_Z_MAX=${MANIP_OTR_Z_MAX:-3.5}
@@ -850,11 +850,11 @@ services:
     - CRYPTO_OF_DROP_ON_LAG=${CRYPTO_OF_DROP_ON_LAG:-true}
     - CRYPTO_OF_MAX_TS_SKEW_MS=${CRYPTO_OF_MAX_TS_SKEW_MS:-5000}
     - FEATURE_DRIFT_ENABLED=1
-    - FEATURE_DRIFT_PROFILE=hard
+    - FEATURE_DRIFT_PROFILE=tighten
     - FEATURE_DRIFT_MODE=enforce
-    - ADVERSE_CHECK_ENABLE=1
+    - ADVERSE_CHECK_ENABLE=0
     - MANIP_ENABLED=${MANIP_ENABLED:-1}
-    - MANIP_MODE=hard
+    - MANIP_MODE=tighten
     - MANIP_QUOTE_STUFF_SCORE_MAX=${MANIP_QUOTE_STUFF_SCORE_MAX:-0.6}
     - MANIP_LAYERING_SCORE_MAX=${MANIP_LAYERING_SCORE_MAX:-0.6}
     - MANIP_OTR_Z_MAX=${MANIP_OTR_Z_MAX:-3.5}
@@ -3129,6 +3129,12 @@ services:
     - TM_HEARTBEAT_EVERY_SEC=${TM_HEARTBEAT_EVERY_SEC:-30}
     - TM_PROMETHEUS_PORT=9845
     - TRADES_CLOSED_STREAM_NAME=trades:closed:tm2
+    # 2026-05-28 P0: stop dual analytics writes. trade-monitor (primary) is
+    # the single writer to scanner_analytics.trades_closed. tm2 keeps its own
+    # Redis stream (trades:closed:tm2) for shadow comparison but must NOT
+    # insert into Postgres — that's what caused 1 sid → 2 rows.
+    # Safety net: partial UNIQUE INDEX idx_trades_closed_sid_final_uniq.
+    - ANALYTICS_DB_WRITE_ENABLED=0
     - PGCONNECT_TIMEOUT=${PGCONNECT_TIMEOUT:-15}
     - PGOPTIONS=${PGOPTIONS:-"-c statement_timeout=30000"}
     - OUTBOX_CONTRACT_MODE=warn
@@ -4077,10 +4083,10 @@ services:
           echo "[init] libgomp1 install failed — LGBM training will fail"
       fi
       while true; do
-        echo "[$(date -u +%FT%TZ)] lgbm_long_gate_trainer: start cycle"
+        echo "[$$(date -u +%FT%TZ)] lgbm_long_gate_trainer: start cycle"
         python -m tools.train_lgbm_long_gate_v1 || true
-        echo "[$(date -u +%FT%TZ)] lgbm_long_gate_trainer: sleeping $${LGBM_LONG_GATE_TRAIN_INTERVAL_SEC}s"
-        sleep "$${LGBM_LONG_GATE_TRAIN_INTERVAL_SEC}"
+        echo "[$$(date -u +%FT%TZ)] lgbm_long_gate_trainer: sleeping $$LGBM_LONG_GATE_TRAIN_INTERVAL_SEC s"
+        sleep "$$LGBM_LONG_GATE_TRAIN_INTERVAL_SEC"
       done
     deploy:
       resources:
@@ -5489,6 +5495,39 @@ services:
           memory: 32M
     command: python -u orderflow_services/flow_toxicity_calibrator_v1.py
 
+  scanner-manip-gate-calibrator:
+    build: *id001
+    container_name: scanner-manip-gate-calibrator
+    env_file:
+    - config/generated/symbols.env
+    environment:
+    - REDIS_URL=${REDIS_URL:-redis://redis-worker-1:6379/0}
+    - MANIP_CAL_PORT=9923
+    - MANIP_CAL_POLL_SEC=10
+    - MANIP_CAL_WINDOW_MS=43200000
+    - MANIP_CAL_MIN_SAMPLES=1000
+    - MANIP_CAL_ENFORCE=0
+    - MANIP_CAL_AUTO_ENFORCE=1
+    - MANIP_CAL_NOTIFY_STREAM=notify:telegram
+    - PYTHONPATH=.:/app
+    - PYTHONUNBUFFERED=1
+    - TZ=UTC
+    working_dir: /app
+    volumes:
+    - ./python-worker:/app
+    networks:
+    - scanner-core
+    - scanner-infra
+    restart: on-failure:5
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+          cpus: '0.1'
+        reservations:
+          memory: 32M
+    command: python -u orderflow_services/manip_gate_calibrator_v1.py
+
   scanner-fills-tca-enricher:
     build: *id001
     container_name: scanner-fills-tca-enricher
@@ -5889,6 +5928,216 @@ services:
         reservations:
           memory: 32M
     command: python -u orderflow_services/score_component_weight_calibrator_v1.py
+
+  # ── Phase 1 P1 shadow producers ───────────────────────────────────────────────
+  scanner-queue-dynamics-producer:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    container_name: scanner-queue-dynamics-producer
+    environment:
+    - REDIS_URL=redis://redis-ticks:6379/0
+    - QDP_PUBLISH_URL=redis://redis-worker-1:6379/0
+    - QDP_SYMBOLS=${CRYPTO_SYMBOLS:-BTCUSDT,ETHUSDT,SOLUSDT,1000PEPEUSDT}
+    - QDP_INTERVAL_S=30
+    - QDP_TTL_SEC=120
+    - METRICS_PORT=9891
+    - PYTHONPATH=/app/python-worker:/app
+    - LOG_LEVEL=INFO
+    - TZ=UTC
+    ports:
+    - "9891:9891"
+    depends_on:
+      redis-worker-1:
+        condition: service_healthy
+      redis-ticks:
+        condition: service_healthy
+    networks:
+    - scanner-core
+    - scanner-infra
+    restart: unless-stopped
+    command: python -m services.queue_dynamics_producer
+    deploy:
+      resources:
+        limits:
+          memory: 192M
+          cpus: '0.15'
+        reservations:
+          memory: 48M
+
+  scanner-cost-dynamics-producer:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    container_name: scanner-cost-dynamics-producer
+    environment:
+    - CDP_PUBLISH_URL=redis://redis-worker-1:6379/0
+    - CDP_SYMBOLS=${CRYPTO_SYMBOLS:-BTCUSDT,ETHUSDT,SOLUSDT,1000PEPEUSDT}
+    - CDP_INTERVAL_S=30
+    - CDP_WINDOW_S=10
+    - METRICS_PORT=9892
+    - PYTHONPATH=/app/python-worker:/app
+    - LOG_LEVEL=INFO
+    - TZ=UTC
+    ports:
+    - "9892:9892"
+    depends_on:
+      redis-worker-1:
+        condition: service_healthy
+    networks:
+    - scanner-core
+    - scanner-infra
+    restart: unless-stopped
+    command: python -m services.cost_dynamics_producer
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+          cpus: '0.10'
+        reservations:
+          memory: 32M
+
+  scanner-regime-transition-producer:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    container_name: scanner-regime-transition-producer
+    environment:
+    - RTP_READ_URL=redis://redis-worker-1:6379/0
+    - RTP_PUBLISH_URL=redis://redis-worker-1:6379/0
+    - RTP_SYMBOLS=${CRYPTO_SYMBOLS:-BTCUSDT,ETHUSDT,SOLUSDT,1000PEPEUSDT}
+    - RTP_INTERVAL_S=30
+    - RTP_TTL_SEC=180
+    - METRICS_PORT=9893
+    - PYTHONPATH=/app/python-worker:/app
+    - LOG_LEVEL=INFO
+    - TZ=UTC
+    ports:
+    - "9893:9893"
+    depends_on:
+      redis-worker-1:
+        condition: service_healthy
+    networks:
+    - scanner-core
+    - scanner-infra
+    restart: unless-stopped
+    command: python -m services.regime_transition_producer
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+          cpus: '0.10'
+        reservations:
+          memory: 32M
+
+  scanner-cross-venue-health-producer:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    container_name: scanner-cross-venue-health-producer
+    environment:
+    - CVP_READ_URL=redis://redis-ticks:6379/0
+    - CVP_BYBIT_URL=${REDIS_URL:-redis://redis:6379/0}
+    - CVP_PUBLISH_URL=redis://redis-worker-1:6379/0
+    - CVP_SYMBOLS=${CRYPTO_SYMBOLS:-BTCUSDT,ETHUSDT,SOLUSDT,1000PEPEUSDT}
+    - CVP_INTERVAL_S=30
+    - CVP_TTL_SEC=120
+    - METRICS_PORT=9894
+    - PYTHONPATH=/app/python-worker:/app
+    - LOG_LEVEL=INFO
+    - TZ=UTC
+    ports:
+    - "9894:9894"
+    depends_on:
+      redis-worker-1:
+        condition: service_healthy
+      redis-ticks:
+        condition: service_healthy
+    networks:
+    - scanner-core
+    - scanner-infra
+    restart: unless-stopped
+    command: python -m services.cross_venue_health_producer
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+          cpus: '0.10'
+        reservations:
+          memory: 32M
+
+  scanner-session-volume-aggregator:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    container_name: scanner-session-volume-aggregator
+    environment:
+    - REDIS_TICKS_URL=redis://redis-ticks:6379/0
+    - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
+    - SESSION_VOL_SYMBOLS=${CRYPTO_SYMBOLS:-BTCUSDT,ETHUSDT,SOLUSDT,1000PEPEUSDT}
+    - SESSION_VOL_INTERVAL_S=10
+    - SESSION_VOL_TTL_SEC=7200
+    - SESSION_VOL_HISTORY_SESSIONS=30
+    - SESSION_VOL_MIN_HISTORY=5
+    - SESSION_VOL_METRICS_PORT=9895
+    - PYTHONPATH=/app/python-worker:/app
+    - LOG_LEVEL=INFO
+    - TZ=UTC
+    ports:
+    - "9895:9895"
+    depends_on:
+      redis:
+        condition: service_healthy
+      redis-ticks:
+        condition: service_healthy
+    networks:
+    - scanner-core
+    - scanner-infra
+    restart: unless-stopped
+    command: python -m services.session_volume_aggregator
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+          cpus: '0.10'
+        reservations:
+          memory: 32M
+
+  scanner-directional-change-producer:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    container_name: scanner-directional-change-producer
+    environment:
+    - REDIS_URL=redis://redis-ticks:6379/0
+    - DCP_PUBLISH_URL=${REDIS_PUBLISH_URL:-redis://redis-worker-1:6379/0}
+    - DCP_SYMBOLS=${CRYPTO_SYMBOLS:-BTCUSDT,ETHUSDT,SOLUSDT,1000PEPEUSDT}
+    - DCP_THRESHOLD_BPS=50
+    - DCP_INTERVAL_S=15
+    - DCP_TTL_SEC=120
+    - METRICS_PORT=9896
+    - PYTHONPATH=/app/python-worker:/app
+    - LOG_LEVEL=INFO
+    - TZ=UTC
+    ports:
+    - "9896:9896"
+    depends_on:
+      redis-ticks:
+        condition: service_healthy
+      redis-worker-1:
+        condition: service_healthy
+    networks:
+    - scanner-core
+    - scanner-infra
+    restart: unless-stopped
+    command: python -m services.directional_change_producer
+    deploy:
+      resources:
+        limits:
+          memory: 96M
+          cpus: '0.10'
+        reservations:
+          memory: 24M
 
 networks:
   scanner-core:

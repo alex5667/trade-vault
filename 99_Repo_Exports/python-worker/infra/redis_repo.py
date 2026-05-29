@@ -97,6 +97,43 @@ def _extract_entry_regime_from_obj(obj: Any) -> str:
     return "na"
 
 
+_REGIME_MICRO_SENTINELS: frozenset[str] = frozenset({"", "na", "none", "null", "unknown"})
+
+
+def _extract_entry_regime_micro_from_obj(obj: Any) -> str:
+    """Extract fast micro-regime label from position/closed-trade object.
+
+    Priority: entry_regime_micro → signal_payload.indicators.regime_micro_1m.
+    Returns 'na' when no valid value found.
+    """
+    for attr in ("entry_regime_micro",):
+        try:
+            v = getattr(obj, attr, None)
+        except Exception:
+            v = None
+        if v:
+            s = str(v).strip().lower()
+            if s not in _REGIME_MICRO_SENTINELS:
+                return s
+    try:
+        sp = getattr(obj, "signal_payload", None)
+        if isinstance(sp, str):
+            try:
+                import json as _json
+                sp = _json.loads(sp)
+            except Exception:
+                sp = None
+        if isinstance(sp, dict):
+            for _path in (sp.get("indicators"), (sp.get("config_snapshot") or {}).get("indicators")):
+                if isinstance(_path, dict):
+                    v = _path.get("regime_micro_1m")
+                    if v and str(v).lower() not in _REGIME_MICRO_SENTINELS:
+                        return str(v).strip().lower()
+    except Exception:
+        pass
+    return "na"
+
+
 def _mk_crypto_sid(symbol: str, ts_ms: int) -> str:
     """Create canonical SID: crypto-of:{symbol}:{ts_ms}"""
     return f"crypto-of:{symbol}:{ts_ms}"

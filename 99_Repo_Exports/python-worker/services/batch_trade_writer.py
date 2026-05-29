@@ -385,7 +385,7 @@ class BatchTradeWriter:
                 is_orphan_cleanup, exclude_from_ml_labels,
                 timeout_age_ms, timeout_max_hold_ms, timeout_request_ts_ms, timeout_close_latency_ms,
                 exit_order_ref, closed_trade_id,
-                entry_regime
+                entry_regime, ab_arm
             ) VALUES %s
             ON CONFLICT (order_id) DO NOTHING
         """
@@ -402,7 +402,7 @@ class BatchTradeWriter:
                             r[0],                                                              # order_id
                             _dt.datetime.fromtimestamp(r[1] / 1000.0, tz=_dt.timezone.utc),  # exit_ts
                             r[1],                                                              # exit_ts_ms
-                            *r[2:],                                                            # [2..24] scenario..v_gate_reason
+                            *r[2:],                                                            # [2..25] scenario..ab_arm
                             _dt.datetime.now(_dt.timezone.utc),                               # updated_at
                         )
                         for r in p0_rows
@@ -427,6 +427,7 @@ class BatchTradeWriter:
                             policy_raw,
                             strong_gate_ok,
                             v_gate_reason,
+                            ab_arm,
                             updated_at
                         ) VALUES %s
                         ON CONFLICT (order_id, exit_ts)
@@ -454,6 +455,7 @@ class BatchTradeWriter:
                             policy_raw = COALESCE(EXCLUDED.policy_raw, trades_closed_p0.policy_raw),
                             strong_gate_ok = COALESCE(EXCLUDED.strong_gate_ok, trades_closed_p0.strong_gate_ok),
                             v_gate_reason = COALESCE(EXCLUDED.v_gate_reason, trades_closed_p0.v_gate_reason),
+                            ab_arm = COALESCE(EXCLUDED.ab_arm, trades_closed_p0.ab_arm),
                             updated_at = now()
                     """
                     psycopg2.extras.execute_values(cur, sql_p0_adapted, p0_rows_adapted, page_size=200)  # type: ignore
@@ -727,6 +729,7 @@ def _build_main_row(closed: Any) -> tuple:
         getattr(closed, "exit_order_ref", None) or (f"virt:exit:{getattr(closed, 'sid', '')}" if getattr(closed, "is_virtual", False) else None),
         _stable_closed_trade_id(closed) if getattr(closed, "is_final_close", True) else None,
         _entry_regime_db_value(closed),
+        str(getattr(closed, "ab_arm", None) or sp.get("ab_arm") or "A").upper(),
     )
     return tuple(None if val == () else val for val in res)
 
@@ -806,6 +809,7 @@ def _build_p0_row(closed: Any) -> tuple:
         policy_raw,                                                           # [22]
         strong_gate_ok,                                                       # [23]
         _get_metric(closed, sp, "v_gate_reason", None) or None,              # [24]
+        str(getattr(closed, "ab_arm", None) or sp.get("ab_arm") or "A").upper(),  # [25]
         # NOTE: updated_at is added by the caller as now() literal
     )
     return tuple(None if val == () else val for val in res)

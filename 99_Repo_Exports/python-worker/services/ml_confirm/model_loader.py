@@ -180,6 +180,85 @@ def _load_blend_child_models(pack: dict[str, Any], *, logger: Any = None) -> Non
             )
 
 
+# Phase 0.2 — registry-aware shape guard. Cached per (ver, expected_n) so the
+# happy path is one dict lookup; the registry import is lazy to avoid breaking
+# unit tests that monkeypatch model loading without a populated registry.
+_SHAPE_GUARD_LOGGED: set[str] = set()
+_REGISTRY_EXPECTED_N: dict[str, int] = {}
+
+
+def _registry_expected_n(ver: str) -> int | None:
+    """Return registry feature_names length for `ver`, or None if unknown."""
+    if not ver:
+        return None
+    if ver in _REGISTRY_EXPECTED_N:
+        return _REGISTRY_EXPECTED_N[ver]
+    try:
+        from core.feature_registry import get_schema_info
+        info = get_schema_info(ver)
+        n = len(info.feature_names)
+    except Exception:
+        n = -1  # mark as unknown but cache to avoid retry storms
+    _REGISTRY_EXPECTED_N[ver] = n
+    return n if n > 0 else None
+
+
+def _validate_edge_stack_shape(pack: dict[str, Any], model_path: str, *, logger: Any = None) -> bool:
+    """Compare loaded pack's feature_cols length against registry expectations.
+
+    Returns False to fail-closed only when the schema is registry-known and the
+    model's feature count exceeds the schema. Subsets are accepted (training may
+    drop low-coverage features). Unknown schema versions emit one warning and
+    pass through to keep new trainers unblocked.
+    """
+    ver = str(pack.get("feature_schema_ver") or pack.get("feature_schema_version") or "").strip()
+    cols = pack.get("feature_cols") or []
+    got = len(cols)
+    expected = _registry_expected_n(ver)
+    try:
+        from services.orderflow.metrics import ml_feature_schema_hash_mismatch_total
+    except Exception:
+        ml_feature_schema_hash_mismatch_total = None  # type: ignore
+
+    if expected is None:
+        # Unknown to registry (e.g. trainer-only naming like "v15_lgbm"). Log
+        # once per (ver, path) so we have visibility but don't break loading.
+        key = f"unknown:{ver}:{model_path}"
+        if key not in _SHAPE_GUARD_LOGGED:
+            _SHAPE_GUARD_LOGGED.add(key)
+            if logger:
+                logger.warning(
+                    f"ML gate shape guard: schema_ver={ver!r} unknown to registry; "
+                    f"accepting model {model_path} with n_features={got}"
+                )
+        return True
+
+    if got > expected:
+        if ml_feature_schema_hash_mismatch_total is not None:
+            try:
+                ml_feature_schema_hash_mismatch_total.labels(
+                    ver=ver, expected=str(expected), got=str(got)
+                ).inc()
+            except Exception:
+                pass
+        if logger:
+            logger.error(
+                f"ML gate shape guard: model {model_path} has {got} feature_cols but "
+                f"registry expects ≤ {expected} for schema_ver={ver!r}; fail-closed"
+            )
+        return False
+
+    key = f"ok:{ver}:{model_path}:{got}"
+    if key not in _SHAPE_GUARD_LOGGED:
+        _SHAPE_GUARD_LOGGED.add(key)
+        if logger:
+            logger.info(
+                f"ML gate shape guard: model {model_path} schema_ver={ver!r} "
+                f"n_features={got} (registry expects ≤ {expected})"
+            )
+    return True
+
+
 def _load_model_cached(model_path: str, kind: str, logger: Any = None) -> Any | None:
     """Load model from disk or return from process-level cache if unchanged."""
     if not model_path or not os.path.exists(model_path):
@@ -267,6 +346,14 @@ def _load_model_cached(model_path: str, kind: str, logger: Any = None) -> Any | 
                 if any(k not in model for k in required_keys):
                     if logger:
                         logger.error(f"ML gate: edge_stack_v1 model at {model_path} missing keys: {[k for k in required_keys if k not in model]}")
+                    return None
+
+                # Phase 0.2 — serve-time shape guard. Compare model.feature_cols
+                # length against the registry expected count for pack's declared
+                # feature_schema_ver. Fail-closed only when the registry knows the
+                # schema; unknown versions log a warning so new trainer naming
+                # (e.g. v15_lgbm) does not break loading.
+                if not _validate_edge_stack_shape(model, model_path, logger=logger):
                     return None
 
             _SHARED_MODELS[model_path] = model

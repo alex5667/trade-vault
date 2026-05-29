@@ -182,7 +182,8 @@ services:
         reservations:
           memory: 24M
   feature-registry-contract-check-v15of:
-    # Shadow contract-check loop for v15_of (515 keys). Runs the one-shot
+    # Shadow contract-check loop for v15_of (531 keys, per
+    # core/ml_feature_schema_v15_of._EXPECTED_KEYS). Runs the one-shot
     # feature_registry_contract_check_v1 every hour and writes results to
     # metrics:feature_registry_contract:v15_of:last, consumed by the v15of
     # exporter below. Activate shadow once pins are seeded:
@@ -254,6 +255,50 @@ services:
       resources:
         reservations:
           memory: 24M
+  v15of-coverage-exporter:
+    # P1.7 — Per-group coverage / zero-rate / dead-keys exporter for the
+    # v15_of feature schema (531 keys). Reads recent `signals:of:inputs`
+    # entries from REDIS_URL, computes per-group aggregates, and exposes
+    # Prometheus gauges on :9902:
+    #   v15_of_features_total_keys                (=531)
+    #   v15_of_features_covered_keys{coverage_floor}
+    #   v15_of_feature_group_coverage_ratio{group}
+    #   v15_of_feature_group_zero_rate{group}
+    #   v15_of_feature_group_dead_keys{group}
+    # Dead-key detail is written to Redis hash
+    # `metrics:v15_of_coverage:dead_keys` (low Prom cardinality).
+    # Activate alerts once 48h of shadow coverage data is collected.
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    container_name: scanner-v15of-coverage-exporter
+    restart: unless-stopped
+    environment:
+    - REDIS_URL=${REDIS_URL}
+    - V15_OF_COV_STREAM_KEY=${V15_OF_COV_STREAM_KEY:-signals:of:inputs}
+    - V15_OF_COV_EXPORTER_PORT=9902
+    - V15_OF_COV_EXPORTER_INTERVAL_S=${V15_OF_COV_EXPORTER_INTERVAL_S:-60}
+    - V15_OF_COV_BATCH_SIZE=${V15_OF_COV_BATCH_SIZE:-2000}
+    - V15_OF_COV_MIN_SAMPLES=${V15_OF_COV_MIN_SAMPLES:-100}
+    - V15_OF_COV_DEAD_KEY_FLOOR=${V15_OF_COV_DEAD_KEY_FLOOR:-0.05}
+    - V15_OF_COV_DEAD_KEY_HASH_KEY=metrics:v15_of_coverage:dead_keys
+    - PYTHONPATH=/app
+    - TZ=UTC
+    volumes:
+    - ./python-worker:/app
+    ports:
+    - 9902:9902
+    command:
+    - python3
+    - -m
+    - orderflow_services.v15_of_coverage_exporter_v1
+    networks:
+    - scanner-ops
+    - scanner-infra
+    deploy:
+      resources:
+        reservations:
+          memory: 48M
 networks:
   scanner-ops:
     external: true

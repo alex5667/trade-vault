@@ -23,11 +23,17 @@ def test_v15_of_append_only_over_v14_of():
 
 
 def test_v15_of_append_only_over_v13_of():
-    """Transitive: v13_of (prod champion) must remain ⊆ v15_of."""
+    """Transitive: v13_of live keys must remain ⊆ v15_of.
+
+    Dead keys (_V14_DEAD_KEYS) are explicitly pruned from v14_of and therefore
+    also absent from v15_of; they are excluded from this check.
+    """
     from core.ml_feature_schema_v13_of import V13_OF_NUMERIC_KEYS
+    from core.ml_feature_schema_v14_of import _V14_DEAD_KEYS
     from core.ml_feature_schema_v15_of import V15_OF_NUMERIC_KEYS
-    removed = set(V13_OF_NUMERIC_KEYS) - set(V15_OF_NUMERIC_KEYS)
-    assert not removed, f"v15_of removed keys from v13_of: {sorted(removed)}"
+    live_v13 = set(V13_OF_NUMERIC_KEYS) - _V14_DEAD_KEYS
+    removed = live_v13 - set(V15_OF_NUMERIC_KEYS)
+    assert not removed, f"v15_of removed live keys from v13_of: {sorted(removed)}"
 
 
 def test_v15_of_keys_unique_and_sorted():
@@ -65,8 +71,8 @@ def test_v15_of_info_groups_consistent():
     from core.ml_feature_schema_v15_of import v15_of_info
     info = v15_of_info()
     assert info["ver"] == "v15_of"
-    assert info["n_numeric_keys"] == 541
-    assert info["n_v14_of_base"] == 359
+    assert info["n_numeric_keys"] == 531
+    assert info["n_v14_of_base"] == 349
     assert info["n_new_keys"] == 182
 
 

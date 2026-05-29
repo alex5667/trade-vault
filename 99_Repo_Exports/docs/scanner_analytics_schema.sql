@@ -216,7 +216,19 @@ CREATE TABLE IF NOT EXISTS trades_closed (
     timeout_request_ts_ms         BIGINT,
     timeout_close_latency_ms      BIGINT,
     exit_order_ref                TEXT,
-    closed_trade_id               TEXT
+    closed_trade_id               TEXT,
+
+    -- ── Regime & A/B arm (migration 20260528_01) ──────────────────────────
+    entry_regime                  TEXT,
+    ab_arm                        TEXT NOT NULL DEFAULT 'A',
+
+    -- ── Fast micro-regime (migration 20260528_03) ─────────────────────────
+    -- Dual-regime design: slow regime (structural gating, 180s hysteresis) +
+    -- fast micro (adaptive TP/SL/scoring, 5-bar window, no hysteresis).
+    -- Values: trend_micro_up | trend_micro_down | range_micro |
+    --         shock_micro | squeeze_micro | mixed_micro | NULL
+    entry_regime_micro            TEXT,
+    entry_regime_micro_age_ms     INTEGER
 );
 
 -- Trigger ts populator (preserves entry_ts/exit_ts on UPSERT, see migrations)

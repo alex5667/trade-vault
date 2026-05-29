@@ -219,3 +219,55 @@ class TestMaeMfePlaceholders:
         # Our function emits 0.0 only when key NOT in indicators
         # setdefault later in enrich_indicators will keep existing value
         assert "mae_r" not in out  # we only emit when missing
+
+
+# ─── conf_rsi_agree (moved from strategy.py to enricher) ─────────────────────
+
+
+class TestConfRsiAgree:
+    """conf_rsi_agree is now computed in _enrich_derived so that rsi_cvd
+    from _enrich_rsi_cvd (book_rates Redis key) is available before the check.
+    strategy.py used to compute it with rc=50.0 fallback which made rc>50 always False."""
+
+    def test_long_both_above_50_is_1(self):
+        inds = {"direction": "LONG", "rsi_price": 70.0}
+        out = _enrich_derived(inds, {"rsi_cvd": 65.0})
+        assert out["conf_rsi_agree"] == 1.0
+
+    def test_short_both_below_50_is_1(self):
+        inds = {"direction": "SHORT", "rsi_price": 30.0}
+        out = _enrich_derived(inds, {"rsi_cvd": 35.0})
+        assert out["conf_rsi_agree"] == 1.0
+
+    def test_long_rsi_cvd_below_50_is_0(self):
+        inds = {"direction": "LONG", "rsi_price": 70.0}
+        out = _enrich_derived(inds, {"rsi_cvd": 45.0})
+        assert out["conf_rsi_agree"] == 0.0
+
+    def test_short_rsi_price_above_50_is_0(self):
+        inds = {"direction": "SHORT", "rsi_price": 60.0}
+        out = _enrich_derived(inds, {"rsi_cvd": 30.0})
+        assert out["conf_rsi_agree"] == 0.0
+
+    def test_rsi_cvd_from_indicators_fallback(self):
+        # rsi_cvd already in indicators (from strategy.py runtime) — should work
+        inds = {"direction": "LONG", "rsi_price": 77.7, "rsi_cvd": 73.5}
+        out = _enrich_derived(inds, {})
+        assert out["conf_rsi_agree"] == 1.0
+
+    def test_missing_rsi_cvd_no_key_emitted(self):
+        # Without rsi_cvd, conf_rsi_agree must NOT be emitted (avoids frozen-0 in schema)
+        inds = {"direction": "LONG", "rsi_price": 77.7}
+        out = _enrich_derived(inds, {})
+        assert "conf_rsi_agree" not in out
+
+    def test_exact_boundary_50_not_triggered(self):
+        # rc == 50 is NOT > 50 — boundary check
+        inds = {"direction": "LONG", "rsi_price": 50.0}
+        out = _enrich_derived(inds, {"rsi_cvd": 50.0})
+        assert out["conf_rsi_agree"] == 0.0
+
+    def test_direction_case_insensitive(self):
+        inds = {"direction": "long", "rsi_price": 70.0}
+        out = _enrich_derived(inds, {"rsi_cvd": 65.0})
+        assert out["conf_rsi_agree"] == 1.0

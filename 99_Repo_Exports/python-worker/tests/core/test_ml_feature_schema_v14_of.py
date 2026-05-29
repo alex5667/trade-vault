@@ -12,12 +12,12 @@ def test_v14_of_schema_exists():
     assert info["ver"] == "v14_of"
 
 def test_v14_of_includes_v13_base():
-    """All v13_of keys should be in v14_of."""
+    """Live v13_of keys (minus dead key prune) should be in v14_of."""
     from core.ml_feature_schema_v13_of import get_v13_of_numeric_keys
-    from core.ml_feature_schema_v14_of import get_v14_of_numeric_keys
-    v13_keys = set(get_v13_of_numeric_keys())
+    from core.ml_feature_schema_v14_of import _V14_DEAD_KEYS, get_v14_of_numeric_keys
+    live_v13 = set(get_v13_of_numeric_keys()) - _V14_DEAD_KEYS
     v14_keys = set(get_v14_of_numeric_keys())
-    assert v13_keys.issubset(v14_keys)
+    assert live_v13.issubset(v14_keys)
 
 def test_v14_of_execution_tca_features():
     """Plan 4.2: Execution/TCA features present."""

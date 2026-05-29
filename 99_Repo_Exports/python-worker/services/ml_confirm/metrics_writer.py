@@ -243,6 +243,25 @@ class MetricsWriterMixin:
                 exec_risk_bps = float(indicators.get("exec_risk_bps", 0.0) or 0.0)
                 sb = indicators.get("score_breakdown") or {}
 
+            # ── feature_schema_ver — stamped on every payload so downstream
+            # consumers (monitor_v14_of_canary --schema, drift tools, rollup)
+            # can filter without an out-of-band lookup. Read from the loaded
+            # model pack (dict) or model attribute (object); empty string if
+            # unknown. Best-effort: never blocks emission.
+            feature_schema_ver = ""
+            try:
+                _m = getattr(self, "_model", None)
+                if isinstance(_m, dict):
+                    feature_schema_ver = str(
+                        _m.get("feature_schema_ver")
+                        or _m.get("feature_schema_version")
+                        or ""
+                    )
+                elif _m is not None:
+                    feature_schema_ver = str(getattr(_m, "feature_schema_ver", "") or "")
+            except Exception:
+                feature_schema_ver = ""
+
             payload: dict[str, Any] = {
                 "ts_ms": ts_ms,
                 "sid": sid,
@@ -252,6 +271,7 @@ class MetricsWriterMixin:
                 "model_run_id": str(dec.model_run_id or ""),
                 # model_ver mirrors model_run_id so ml_predictions_writer can persist it
                 "model_ver": str(dec.model_run_id or getattr(self, "_model_run_id", "") or ""),
+                "feature_schema_ver": feature_schema_ver,
                 "bucket": bucket,
                 "cfg_source": getattr(self, "_cfg_source", "none"),
                 "direction": str(direction),
@@ -365,14 +385,39 @@ class MetricsWriterMixin:
 
             import asyncio
             is_async = "aioredis" in type(redis).__module__ or "asyncio" in type(redis).__module__ or (hasattr(redis.xadd, "__call__") and asyncio.iscoroutinefunction(redis.xadd))
+
+            # ── Per-schema dual-write (opt-in, default OFF) ─────────────────
+            # When ML_CONFIRM_METRICS_PER_SCHEMA_STREAM=1 and the loaded model
+            # exposes feature_schema_ver, additionally XADD to
+            # `<base>:<schema_ver>` (e.g. `metrics:ml_confirm:v15_of`). The
+            # base stream is always written so existing consumers
+            # (rollup worker, autopromoter, drift monitor) keep working;
+            # per-schema consumers (monitor_v14_of_canary --stream-key …) get
+            # a clean isolated view for canary/shadow comparisons.
+            per_schema_enabled = os.getenv(
+                "ML_CONFIRM_METRICS_PER_SCHEMA_STREAM", "0"
+            ).strip() in ("1", "true", "TRUE", "yes")
+            schema_stream = (
+                f"{self._metrics_stream}:{feature_schema_ver}"  # type: ignore
+                if per_schema_enabled and feature_schema_ver
+                else ""
+            )
+
             if is_async:
                 try:
                     from utils.task_manager import safe_create_task
                     safe_create_task(redis.xadd(self._metrics_stream, payload, maxlen=self._metrics_maxlen, approximate=True))  # type: ignore
+                    if schema_stream:
+                        safe_create_task(redis.xadd(schema_stream, payload, maxlen=self._metrics_maxlen, approximate=True))  # type: ignore
                 except ImportError:
                     asyncio.create_task(redis.xadd(self._metrics_stream, payload, maxlen=self._metrics_maxlen, approximate=True))  # type: ignore
+                    if schema_stream:
+                        asyncio.create_task(redis.xadd(schema_stream, payload, maxlen=self._metrics_maxlen, approximate=True))  # type: ignore
             else:
                 redis.xadd(self._metrics_stream, payload, maxlen=self._metrics_maxlen, approximate=True)  # type: ignore
+                if schema_stream:
+                    with contextlib.suppress(Exception):
+                        redis.xadd(schema_stream, payload, maxlen=self._metrics_maxlen, approximate=True)  # type: ignore
         except Exception as e:
             # Increment error metric and rate-limited log
             if METRICS_REGISTRY_AVAILABLE:

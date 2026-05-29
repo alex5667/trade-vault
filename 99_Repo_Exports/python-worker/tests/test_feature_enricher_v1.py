@@ -354,7 +354,12 @@ class TestSentiment:
         assert out["market_breadth_score"] == 0.4
 
     def test_empty_when_redis_unavailable(self):
-        assert _enrich_sentiment(None) == {}
+        # When redis is unavailable, source-health metadata is still emitted
+        out = _enrich_sentiment(None)
+        assert out.get("fg_data_available") == 0.0
+        assert out.get("fg_data_stale") == 1.0
+        # No value features should be present
+        assert "fear_greed_norm" not in out
 
 
 # ─── _enrich_book_features ───────────────────────────────────────────────────

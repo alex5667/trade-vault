@@ -649,6 +649,22 @@ class EntryPolicyService:
 
             tighten_cap = float(os.getenv("MANIP_TIGHTEN_ADD_CAP_BPS", "6.0") or 6.0)
             tighten_mult = float(os.getenv("MANIP_TIGHTEN_ADD_MULT", "1.0") or 1.0)
+            
+            _manip_autocal_enabled = os.getenv("AUTOCAL_MANIP_READ_ENABLED", "1").lower() in {"1", "true", "yes", "on"}
+            if _manip_autocal_enabled:
+                try:
+                    from services.manip_gate_runtime_overrides import get_reader as _manip_reader
+                    sym = cand.get("symbol", "")
+                    _cal_manip = _manip_reader().get_thresholds(sym)
+                    if _cal_manip:
+                        if _cal_manip.get("layering_score_max", 0) > 0:
+                            thr_lay = _cal_manip["layering_score_max"]
+                        if _cal_manip.get("qs_score_max", 0) > 0:
+                            thr_qs = _cal_manip["qs_score_max"]
+                        if _cal_manip.get("tighten_bps", 0) > 0:
+                            tighten_cap = _cal_manip["tighten_bps"]
+                except Exception:
+                    pass
 
             qs_score = float(snap.get("quote_stuffing_score", 0.0) or 0.0)
             lay_score = float(snap.get("layering_score", 0.0) or 0.0)

@@ -3,7 +3,7 @@ services:
     image: redis:7-alpine
     container_name: redis
     ports:
-    - 192.168.0.168:6379:6379
+    - 192.168.1.106:6379:6379
     volumes:
     - redis-data:/data
     - ./redis-external-access.conf:/usr/local/etc/redis/redis.conf
@@ -418,7 +418,7 @@ services:
     expose:
     - '6379'
     ports:
-    - 192.168.0.168:6380:6379
+    - 192.168.1.106:6380:6379
     volumes:
     - redis-ticks-data:/data
     - ./redis-ticks.conf:/usr/local/etc/redis/redis.conf
@@ -550,6 +550,37 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+  # Applies python-worker/migrations/*.sql against scanner_analytics via
+  # _migrations ledger (idempotent, file = primary key). Auto-runs whenever
+  # infrastructure compose comes up; force re-run after adding new SQL:
+  #   docker compose up -d --force-recreate --no-deps migration-runner
+  migration-runner:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile.gpu
+    image: scanner_infra-migration-runner:latest
+    container_name: scanner-migration-runner
+    restart: 'no'
+    environment:
+    - PG_DSN=postgresql://trading:${TRADING_PASSWORD}@scanner-postgres:5432/scanner_analytics
+    - TZ=UTC
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+    - scanner-infra
+    command:
+    - sh
+    - /app/python-worker/migrations/apply_migrations.sh
+    volumes:
+    - ./python-worker/migrations:/app/python-worker/migrations:ro
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.2'
+        reservations:
+          memory: 24M
   postgres-exporter:
     image: prometheuscommunity/postgres-exporter:v0.15.0
     container_name: scanner-postgres-exporter
@@ -632,7 +663,7 @@ services:
     volumes:
     - ./metrics-proxy/nginx.conf:/etc/nginx/nginx.conf:ro
     ports:
-    - 192.168.0.168:9200:9200
+    - 192.168.1.106:9200:9200
     networks:
     - scanner-infra
     - scanner-core

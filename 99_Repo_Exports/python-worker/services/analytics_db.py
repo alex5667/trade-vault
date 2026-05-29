@@ -92,6 +92,38 @@ def _entry_regime_db_value(closed: Any) -> str | None:
     return None
 
 
+_ENTRY_REGIME_MICRO_SENTINELS = frozenset({"", "na", "none", "null", "unknown"})
+
+
+def _entry_regime_micro_db_value(closed: Any) -> str | None:
+    """Extract fast micro-regime label for trades_closed.entry_regime_micro.
+
+    Priority: entry_regime_micro attr → signal_payload.indicators.regime_micro_1m.
+    Returns None (SQL NULL) when not available — nullable column.
+    """
+    raw = getattr(closed, "entry_regime_micro", None)
+    if raw is not None:
+        s = str(raw).strip().lower()
+        if s not in _ENTRY_REGIME_MICRO_SENTINELS:
+            return s
+    try:
+        sp = getattr(closed, "signal_payload", None)
+        if isinstance(sp, str):
+            try:
+                sp = json.loads(sp)
+            except Exception:
+                sp = None
+        if isinstance(sp, dict):
+            for _path in (sp.get("indicators"), (sp.get("config_snapshot") or {}).get("indicators")):
+                if isinstance(_path, dict):
+                    v = _path.get("regime_micro_1m")
+                    if v and str(v).lower() not in _ENTRY_REGIME_MICRO_SENTINELS:
+                        return str(v).strip().lower()
+    except Exception:
+        pass
+    return None
+
+
 def _policy_mode_raw_from_payload(sp: dict[str, Any]) -> tuple[Any, Any]:
     """Extract policy mode + raw risk_surface_shadow blob from a signal payload.
 
@@ -147,12 +179,20 @@ try:
         "trades_closed_p0_upsert_fail_total",
         "Failed optional upsert into trades_closed_p0 (savepoint rolled back)",
     )
+    _TRADES_CLOSED_DEDUP_SKIP = _pcounter(
+        "trades_closed_dedup_skip_total",
+        "INSERT into trades_closed skipped. reason=sid_final: partial UNIQUE "
+        "INDEX idx_trades_closed_sid_final_uniq blocked dup. reason=writer_disabled: "
+        "ANALYTICS_DB_WRITE_ENABLED=0 (e.g. secondary trade-monitor-2).",
+        ["reason"],
+    )
 except Exception:
     class _NullCounter:
-        def inc(self): pass
-        def labels(self, **_): return self
+        def inc(self, *_a, **_kw): pass
+        def labels(self, *_a, **_kw): return self
     _TRADES_CLOSED_MAIN_INSERT = _NullCounter()  # type: ignore[assignment]
     _TRADES_CLOSED_P0_UPSERT_FAIL = _NullCounter()  # type: ignore[assignment]
+    _TRADES_CLOSED_DEDUP_SKIP = _NullCounter()  # type: ignore[assignment]
 
 try:
     from domain.models import TradeClosed
@@ -177,6 +217,13 @@ TRADES_DB_DSN = os.getenv("TRADES_DB_DSN") or os.getenv("ANALYTICS_DB_DSN", DEFA
 
 ANALYTICS_P0_ENABLED = os.getenv("ANALYTICS_P0_ENABLED", "1") == "1"
 ANALYTICS_P0_HARD_FAIL = os.getenv("ANALYTICS_P0_HARD_FAIL", "0") == "1"
+# Secondary trade-monitor instances (e.g. scanner-trade-monitor-2) should NOT
+# duplicate analytics writes — they run their own consumer group and write to
+# their own Redis stream (trades:closed:tm2). Set ANALYTICS_DB_WRITE_ENABLED=0
+# on the secondary so trades_closed (Postgres) stays single-writer. The
+# partial UNIQUE INDEX idx_trades_closed_sid_final_uniq is a safety net for
+# either race; this flag short-circuits at the writer level.
+ANALYTICS_DB_WRITE_ENABLED = os.getenv("ANALYTICS_DB_WRITE_ENABLED", "1") == "1"
 
 
 def _enrich_config_snapshot(closed) -> dict:
@@ -475,6 +522,9 @@ def save_trade_closed(closed: TradeClosed) -> None:  # type: ignore
     """
     if TradeClosed is None:
         raise RuntimeError("TradeClosed model not available - domain.models import failed")
+    if not ANALYTICS_DB_WRITE_ENABLED:
+        _TRADES_CLOSED_DEDUP_SKIP.labels(reason="writer_disabled").inc()  # type: ignore
+        return
 
     sql = """
         INSERT INTO trades_closed (
@@ -533,7 +583,7 @@ def save_trade_closed(closed: TradeClosed) -> None:  # type: ignore
             is_orphan_cleanup, exclude_from_ml_labels,
             timeout_age_ms, timeout_max_hold_ms, timeout_request_ts_ms, timeout_close_latency_ms,
             exit_order_ref, closed_trade_id,
-            entry_regime
+            entry_regime, entry_regime_micro, ab_arm
         ) VALUES (
             %s, %s, %s, %s, %s, %s, %s,
             %s, %s, %s, %s, %s, %s,
@@ -574,7 +624,7 @@ def save_trade_closed(closed: TradeClosed) -> None:  # type: ignore
             %s, %s,
             %s, %s, %s, %s,
             %s, %s,
-            %s
+            %s, %s, %s
         )
         ON CONFLICT (order_id) DO UPDATE SET
             exit_ts_ms = CASE
@@ -609,7 +659,9 @@ def save_trade_closed(closed: TradeClosed) -> None:  # type: ignore
             timeout_close_latency_ms = COALESCE(EXCLUDED.timeout_close_latency_ms, trades_closed.timeout_close_latency_ms),
             exit_order_ref = COALESCE(EXCLUDED.exit_order_ref, trades_closed.exit_order_ref),
             closed_trade_id = COALESCE(EXCLUDED.closed_trade_id, trades_closed.closed_trade_id),
-            entry_regime = COALESCE(EXCLUDED.entry_regime, trades_closed.entry_regime)
+            entry_regime = COALESCE(EXCLUDED.entry_regime, trades_closed.entry_regime),
+            entry_regime_micro = COALESCE(EXCLUDED.entry_regime_micro, trades_closed.entry_regime_micro),
+            ab_arm = COALESCE(EXCLUDED.ab_arm, trades_closed.ab_arm)
         WHERE EXCLUDED.is_final_close OR trades_closed.is_final_close = false
     """
 
@@ -630,6 +682,7 @@ def save_trade_closed(closed: TradeClosed) -> None:  # type: ignore
             policy_mode, policy_raw,
             strong_gate_ok,
             v_gate_reason,
+            ab_arm,
             updated_at
         ) VALUES (
             %s,
@@ -644,6 +697,7 @@ def save_trade_closed(closed: TradeClosed) -> None:  # type: ignore
             %s, %s,
             %s, %s,
             %s, %s,
+            %s,
             %s,
             %s,
             now()
@@ -673,6 +727,7 @@ def save_trade_closed(closed: TradeClosed) -> None:  # type: ignore
             policy_raw = COALESCE(EXCLUDED.policy_raw, trades_closed_p0.policy_raw),
             strong_gate_ok = COALESCE(EXCLUDED.strong_gate_ok, trades_closed_p0.strong_gate_ok),
             v_gate_reason = COALESCE(EXCLUDED.v_gate_reason, trades_closed_p0.v_gate_reason),
+            ab_arm = COALESCE(EXCLUDED.ab_arm, trades_closed_p0.ab_arm),
             updated_at = now()
     """
 
@@ -851,6 +906,8 @@ def save_trade_closed(closed: TradeClosed) -> None:  # type: ignore
         getattr(closed, "exit_order_ref", None) or (f"virt:exit:{getattr(closed, 'sid', '')}" if getattr(closed, "is_virtual", False) else None),
         _stable_closed_trade_id(closed) if getattr(closed, "is_final_close", True) else None,
         _entry_regime_db_value(closed),
+        _entry_regime_micro_db_value(closed),
+        str(getattr(closed, "ab_arm", None) or _meta_sp.get("ab_arm") or "A").upper()
     )
 
     # ---- P0 extraction (robust fallbacks) ----
@@ -926,6 +983,7 @@ def save_trade_closed(closed: TradeClosed) -> None:  # type: ignore
         policy_raw_val,
         _strong_gate_ok,
         _payload_metric(signal_payload, "v_gate_reason", getattr(closed, "v_gate_reason", None)) or None,
+        str(getattr(closed, "ab_arm", None) or sp.get("meta", {}).get("ab_arm") or "A").upper(),
     )
 
     # Sanitize parameters: replace empty tuples `()` with `None`, and unbox 1-element tuples `(x,)`
@@ -945,8 +1003,29 @@ def save_trade_closed(closed: TradeClosed) -> None:  # type: ignore
     params_p0 = sanitize_tuple(params_p0)
     try:
         with get_conn() as conn, conn.cursor() as cur:
-            cur.execute(sql, params)
-            _TRADES_CLOSED_MAIN_INSERT.inc()  # type: ignore
+            # Guard main INSERT in SAVEPOINT — UniqueViolation on
+            # idx_trades_closed_sid_final_uniq (partial UNIQUE on sid WHERE
+            # is_final_close=true) is the dedup signal from parallel
+            # trade-monitor instances. Skip cleanly: roll back to savepoint,
+            # bump counter, return without raising so caller is unaware.
+            cur.execute("SAVEPOINT trades_closed_main_insert")
+            try:
+                cur.execute(sql, params)
+                cur.execute("RELEASE SAVEPOINT trades_closed_main_insert")
+                _TRADES_CLOSED_MAIN_INSERT.inc()  # type: ignore
+            except psycopg2.errors.UniqueViolation as uv:
+                cur.execute("ROLLBACK TO SAVEPOINT trades_closed_main_insert")
+                constraint = getattr(getattr(uv, "diag", None), "constraint_name", "") or ""
+                if constraint == "idx_trades_closed_sid_final_uniq":
+                    _TRADES_CLOSED_DEDUP_SKIP.labels(reason="sid_final").inc()  # type: ignore
+                    logger.info(
+                        "trades_closed dedup skip: sid=%s already has final row",
+                        getattr(closed, "sid", "") if closed is not None else "",
+                    )
+                    conn.commit()
+                    return
+                # Unknown unique violation (e.g. order_id PK race) — re-raise.
+                raise
 
             if ANALYTICS_P0_ENABLED:
                 cur.execute("SAVEPOINT trades_closed_p0_upsert")

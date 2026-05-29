@@ -134,6 +134,12 @@ def _rolling_placeholder(now_ms: int) -> dict[str, str]:
         "profit_factor": "0.000000",
         "tp1_hit_rate": "0.000000",
         "slippage_p95_bps": "0.000000",
+        "timeout_rate": "0.000000",
+        "tp1_before_timeout_rate": "0.000000",
+        "trailing_success_rate": "0.000000",
+        "be_stopout_rate": "0.000000",
+        "hold_time_p50_ms": "0.000000",
+        "hold_time_p90_ms": "0.000000",
         "median_mae_r_winners": "0.000000",
         "p90_mae_r_winners": "0.000000",
         "median_mfe_r": "0.000000",
@@ -302,6 +308,39 @@ def _tp1_hit(t: dict[str, str]) -> bool:
     return reason.startswith("tp1") or reason == "tp" or reason == "tp_1"
 
 
+def _is_timeout(t: dict[str, str]) -> bool:
+    reason = (t.get("close_reason") or "").lower()
+    return reason.startswith("timeout") or reason in ("forced_timeout", "no_followthrough")
+
+
+def _is_tp1_before_timeout(t: dict[str, str]) -> bool:
+    return _tp1_hit(t) and _is_timeout(t)
+
+
+def _is_trailing_exit(t: dict[str, str]) -> bool:
+    reason = (t.get("close_reason") or "").lower()
+    return "trail" in reason or reason in ("trail_sl", "trailing_sl", "trail_stop")
+
+
+def _is_be_stopout(t: dict[str, str]) -> bool:
+    reason = (t.get("close_reason") or "").lower()
+    return reason.startswith("be") or "breakeven" in reason or reason in ("be_sl", "be_stop")
+
+
+def _hold_time_ms(t: dict[str, str]) -> float:
+    """Hold time in ms from explicit field or exit_ts_ms - open_ts_ms."""
+    raw = t.get("hold_time_ms") or t.get("duration_ms")
+    if raw not in (None, ""):
+        v = _f(raw)
+        if math.isfinite(v) and v > 0:
+            return v
+    exit_ms = _f(t.get("exit_ts_ms") or t.get("ts_close") or t.get("close_ts"))
+    open_ms = _f(t.get("open_ts_ms") or t.get("entry_ts_ms"))
+    if math.isfinite(exit_ms) and math.isfinite(open_ms) and exit_ms > open_ms:
+        return exit_ms - open_ms
+    return float("nan")
+
+
 def _result(t: dict[str, str]) -> str:
     """Derive WIN/LOSS/SKIP from r_multiple + close_reason.
 
@@ -383,6 +422,14 @@ def compute_rolling_priors(
         slip_vals = [_slippage_bps_sample(s) for s in samples]
         slip_vals = [v for v in slip_vals if math.isfinite(v)]
         slip_p95 = _percentile(slip_vals, 95) if slip_vals else 0.0
+        # P1 #24-25 — timeout / tp1-before-timeout rates
+        timeout_count = sum(1 for s in samples if _is_timeout(s))
+        tp1_timeout_count = sum(1 for s in samples if _is_tp1_before_timeout(s))
+        # P2 Group G — trailing / BE stopout / hold time
+        trailing_count = sum(1 for s in wins if _is_trailing_exit(s))
+        be_count = sum(1 for s in samples if _is_be_stopout(s))
+        hold_times = [_hold_time_ms(s) for s in samples]
+        hold_times = [v for v in hold_times if math.isfinite(v) and v > 0]
         return {
             "winrate": winrate,
             "ev_r": ev_r,
@@ -392,6 +439,12 @@ def compute_rolling_priors(
             "profit_factor": pf,
             "tp1_hit_rate": tp1_rate,
             "slippage_p95_bps": slip_p95,
+            "timeout_rate": timeout_count / n,
+            "tp1_before_timeout_rate": tp1_timeout_count / n,
+            "trailing_success_rate": trailing_count / len(wins) if wins else 0.0,
+            "be_stopout_rate": be_count / n,
+            "hold_time_p50_ms": _median(hold_times),
+            "hold_time_p90_ms": _percentile(hold_times, 90) if hold_times else 0.0,
             "ts_ms": float(now_ms),
         }
 

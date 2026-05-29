@@ -668,7 +668,7 @@ class PeriodicReporter:
                 if t_src != req_src and t_src not in ("binance", "bybit", "mt5", "binance_real", "binance_paper"):
                     continue
                 is_v = (fields.get("is_virtual") or "0").lower() in ("1", "true", "yes")
-                if not is_v:
+                if not is_v or PERIODIC_REPORT_SEND_VIRTUAL_ONLY:
                     count += 1
             return count
         except Exception as e:
@@ -3186,7 +3186,7 @@ class PeriodicReporter:
         except Exception as e:
             logger.error(f"❌ Ошибка в send_periodic_report: {e}", exc_info=True)
 
-    def _get_validation_stats(self, source: str, symbol: str, window_seconds: int | None = None) -> tuple[float, int, dict[str, float], int, int]:
+    def _get_validation_stats(self, source: str, symbol: str, window_seconds: int | None = None) -> tuple[float, int, dict[str, float], int, int, dict[str, int], dict[str, dict[str, int]]]:
         """
         Вычисляет статистику валидации сигналов за период.
         Возвращает:
@@ -3195,6 +3195,8 @@ class PeriodicReporter:
           - статистику по отсутствующим ногам (Dict[str, float] - процент отсутствия для каждой ноги)
           - passed_count (int)
           - bypassed_count (int)
+          - ok_fail_breakdown (dict[str, int])
+          - score_by_threshold (dict[str, dict[str, int]])
         """
         try:
             # Получаем сигналы из Redis streams

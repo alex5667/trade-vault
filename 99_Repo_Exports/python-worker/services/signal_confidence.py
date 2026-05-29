@@ -421,7 +421,13 @@ class ConfidenceScorer:
                     _ml_mode = "shadow"
 
             if _ml_mode == "enforce" and ml_conf01 is not None:
-                # Enforce: use ML result directly
+                # Enforce: use ML result directly.
+                # Safety floor: clamp to cfg.min_conf (0.05) so that schema_mismatch
+                # (which returned 0.0 before the fail-open fix) or any other edge case
+                # where the ML model outputs a value below the absolute minimum does not
+                # produce a sub-floor confidence that always hits SHADOW_DROP.
+                _ml_floor = float(getattr(self.cfg, "min_conf", 0.05))
+                ml_conf01 = float(max(ml_conf01, _ml_floor))
                 ml_parts["scorer_mode"] = "ml_canary_enforce" if _original_mode == "canary" else "ml_enforce"
                 return ml_conf01, ml_parts
             else:

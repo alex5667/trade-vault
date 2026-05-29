@@ -79,6 +79,10 @@ _STUBS_PRODUCER_BACKED: frozenset[str] = frozenset((
     "liquidation_usd_1m", "liqmap_1h_age_ms",
     "microbar_body_bps", "microbar_range_bps", "microbar_vwap_mid_bps",
     "price_to_ema_bps", "momentum_10s", "momentum_x_vol_ratio",
+    # TCA priors — tca_priors_exporter_v1 writes tca:ema:{sym}:{kind}:{session}
+    "tca_eff_spread_bps_ema", "tca_perm_impact_1s_bps_ema", "tca_samples",
+    # CVD detail — tick_decision_engine writes cvd:state:{sym}
+    "cvd_jump_events_total", "cvd_median_abs_delta_usd",
 ))
 _STUB_WARN_INTERVAL_S: float = float(os.getenv("ENRICHER_STUB_WARN_INTERVAL_S", "300"))
 # Suppress producer-backed warnings during startup (producers need time to populate keys)
@@ -100,6 +104,10 @@ _PRODUCER_LABEL: dict[str, str] = {
     "pressure_v2:":      "orderflow_pressure",
     "sweep_v2:":         "sweep_detector",
     "book_rates:":       "book_rates",
+    "cvd:state:":        "cvd_state",
+    "abs_lvl:state:":    "abs_lvl_state",
+    "og:consensus:":     "og_consensus",
+    "tca:ema:":          "tca_priors",
 }
 
 _prom_stub_miss_total = None      # Counter enricher_producer_stub_miss_total
@@ -132,6 +140,19 @@ def _init_prom() -> None:
             "Age of the last successfully read snapshot in milliseconds.",
             ["producer"],
         )
+    except Exception:
+        pass
+
+
+def _prom_inc(event: str, _label: str, key: str) -> None:
+    """Increment a named counter (no-op when prometheus not available)."""
+    try:
+        if event == "enrich_stale" and _prom_snap_stale_total is not None:
+            _prom_snap_stale_total.labels(producer=_producer_label(key)).inc()
+        elif event == "enrich_miss":
+            pass  # not currently tracked via counter
+        elif event == "enrich_err":
+            pass  # not currently tracked via counter
     except Exception:
         pass
 
@@ -198,6 +219,38 @@ def _check_ts_and_emit(data: dict, key: str, max_lag_ms: float) -> dict[str, Any
         except Exception:
             pass
     return data
+
+
+
+def _load_hash_snapshot(r: Any, key: str, max_lag_ms: float) -> dict[str, str]:
+    now_ns = time.monotonic_ns()
+    cached = _snapshot_cache.get(key)
+    if cached is not None:
+        c_val, c_ts_ns = cached
+        if now_ns - c_val.get("__cache_ts_ns", 0) < _SNAPSHOT_CACHE_TTL_NS:
+            ts_ms = _safe_float(c_val.get("ts_ms"))
+            now_ms = time.time() * 1000
+            if (now_ms - ts_ms) > max_lag_ms and ts_ms > 0:
+                _prom_inc("enrich_stale", "total", key)
+                return {}
+            return c_val
+            
+    try:
+        val = r.hgetall(key)
+        if not val:
+            _prom_inc("enrich_miss", "total", key)
+            return {}
+        val["__cache_ts_ns"] = now_ns
+        _snapshot_cache[key] = (val, now_ns)
+        ts_ms = _safe_float(val.get("ts_ms"))
+        now_ms = time.time() * 1000
+        if (now_ms - ts_ms) > max_lag_ms and ts_ms > 0:
+            _prom_inc("enrich_stale", "total", key)
+            return {}
+        return val
+    except Exception as e:
+        _prom_inc("enrich_err", "total", key)
+        return {}
 
 
 def _load_json_snapshot(r: Any, key: str, max_lag_ms: float) -> dict[str, Any]:
@@ -270,6 +323,11 @@ def _snapshot_keys_for_symbol(symbol: str) -> list[str]:
         f"crossasset:ctx:{symbol}",
         f"crossasset:corr:{symbol}",
         "crossasset:ctx:_global",
+        # NOTE: main-redis HASH keys (coinmarketcap, defillama, breadth) are NOT
+        # listed here — MGET on worker-1 returns nil for them, which would poison
+        # _snapshot_cache with {} and block the real HGETALL via redis_main.
+        # ctx:deribit:global is a JSON STRING on main redis — same issue for
+        # _load_json_snapshot; read directly in _enrich_external_ctx instead.
         "cache:fear_greed",
         "sentiment:fear_greed:latest",
         f"exec_stats:{symbol}",
@@ -278,6 +336,17 @@ def _snapshot_keys_for_symbol(symbol: str) -> list[str]:
         f"pressure_v2:{symbol}",
         f"sweep_v2:{symbol}",
         f"book_rates:{symbol}",
+        # Phase 1 P1 new producer ctx keys
+        f"ctx:queue_dynamics:{symbol}",
+        f"ctx:cost_dynamics:{symbol}",
+        f"ctx:regime_transition:{symbol}",
+        f"ctx:cross_venue:{symbol}",
+        f"ctx:session_vol:{symbol}",
+        # P2 Group H: directional change
+        f"ctx:dc:{symbol}",
+        # NOTE: cvd:state, abs_lvl:state, og:consensus, ctx:breadth:* are HASH keys
+        # (HGETALL, not GET). Do NOT add them here — MGET returns WRONGTYPE for HASH
+        # keys and would store nil → wasted slot. They're read via _load_hash_snapshot.
     ]
 
 
@@ -352,6 +421,21 @@ def _enrich_crossasset_ctx(symbol: str, redis_client: Any) -> dict[str, float]:
             )
             if glob and "alt_season_index" in glob:
                 out["alt_season_index"] = _safe_float(glob["alt_season_index"])
+
+    # ctx:breadth:{symbol} HASH — per-symbol BTC-relative returns from breadth producer
+    breadth = _load_hash_snapshot(redis_client, f"ctx:breadth:{symbol}", _CROSSASSET_MAX_LAG_MS)
+    if breadth:
+        for k in ("btc_ret_1m", "btc_ret_5m", "btc_ret_1h",
+                  "symbol_rel_strength_vs_btc_1m", "cg_rel_strength_btc_1h"):
+            v = breadth.get(k)
+            if v is not None:
+                out.setdefault(k, _safe_float(v))
+        rel_1m = out.get("symbol_rel_strength_vs_btc_1m")
+        if rel_1m is not None:
+            out.setdefault("rel_ret_1m_vs_btc", rel_1m)
+    glob_b = _load_hash_snapshot(redis_client, "ctx:breadth:global", _CROSSASSET_MAX_LAG_MS)
+    if glob_b and glob_b.get("market_breadth_ret_5m") is not None:
+        out.setdefault("market_breadth_ret_5m", _safe_float(glob_b["market_breadth_ret_5m"]))
     return out
 
 
@@ -363,14 +447,32 @@ def _enrich_sentiment(redis_client: Any) -> dict[str, float]:
       2. `sentiment:fear_greed:latest` (Python fallback)
 
     Stale window 30min — fear/greed updates only every few hours.
+    Emits source health metadata: fg_data_available, fg_data_age_ms, fg_data_stale.
     """
+    _FG_MAX_LAG_MS = _SENTIMENT_MAX_LAG_MS
+    data: dict = {}
     for key in ("cache:fear_greed", "sentiment:fear_greed:latest"):
-        data = _load_json_snapshot(redis_client, key, _SENTIMENT_MAX_LAG_MS)
-        if data:
+        d = _load_json_snapshot(redis_client, key, _FG_MAX_LAG_MS)
+        if d:
+            data = d
             break
-    else:
-        return {}
+
+    # Source health metadata — emitted regardless of value presence.
     out: dict[str, float] = {}
+    if not data:
+        out["fg_data_available"] = 0.0
+        out["fg_data_stale"] = 1.0
+        return out
+
+    ts_raw = data.get("ts_ms") or data.get("updated_at_ms") or data.get("ts")
+    if ts_raw is not None:
+        age_ms = max(0.0, _now_ms() - _safe_float(ts_raw, _now_ms()))
+        out["fg_data_age_ms"] = age_ms
+        out["fg_data_stale"] = 1.0 if age_ms > _FG_MAX_LAG_MS else 0.0
+    else:
+        out["fg_data_stale"] = 0.0  # data loaded but no ts — treat as fresh
+    out["fg_data_available"] = 1.0
+
     val = data.get("value") or data.get("fear_greed") or data.get("fg")
     if val is not None:
         # Fear&Greed index is 0..100; normalize to [0..1]. Accept both raw
@@ -378,11 +480,240 @@ def _enrich_sentiment(redis_client: Any) -> dict[str, float]:
         v = _safe_float(val)
         if v > 1.0:
             out["crypto_fear_greed"] = max(0.0, min(1.0, v / 100.0))
+            out["fear_greed_index"] = v  # raw 0-100 for v14/v15 ML schema
         else:
             out["crypto_fear_greed"] = max(0.0, min(1.0, v))
+            out["fear_greed_index"] = v * 100.0
+        cls = str(data.get("classification") or "").lower()
+        out["fear_greed_regime_extreme_fear"] = 1.0 if "fear" in cls else 0.0
+        out["fear_greed_regime_extreme_greed"] = 1.0 if "greed" in cls else 0.0
     breadth = data.get("market_breadth_score") or data.get("breadth")
     if breadth is not None:
         out["market_breadth_score"] = _safe_float(breadth)
+    return out
+
+
+
+def _source_age_and_health(data: dict, max_lag_ms: float) -> tuple[float, float, float]:
+    """Return (available, age_ms, stale) from a snapshot dict.
+
+    available: 1.0 if data loaded, 0.0 if empty
+    age_ms:    ms since ts_ms/updated_at_ms field (0.0 if no ts)
+    stale:     1.0 if age > max_lag_ms or data empty
+    """
+    if not data:
+        return 0.0, 0.0, 1.0
+    ts_raw = data.get("ts_ms") or data.get("updated_at_ms") or data.get("ts")
+    if ts_raw is None:
+        return 1.0, 0.0, 0.0
+    try:
+        age_ms = max(0.0, _now_ms() - float(ts_raw))
+    except (TypeError, ValueError):
+        return 1.0, 0.0, 0.0
+    stale = 1.0 if age_ms > max_lag_ms else 0.0
+    return 1.0, age_ms, stale
+
+
+def _enrich_external_ctx(redis_client: Any) -> dict[str, float]:
+    """CoinMarketCap, DefiLlama, Deribit context features + source health metadata.
+
+    For each external source emits:
+      {prefix}_data_available  1.0 if snapshot loaded, else 0.0
+      {prefix}_data_age_ms     ms since snapshot ts_ms
+      {prefix}_data_stale      1.0 if age > threshold or missing
+    """
+    out: dict[str, float] = {}
+    try:
+        import redis as _redis
+        host = os.getenv("REDIS_HOST", "redis")
+        port = int(os.getenv("REDIS_PORT", "6379"))
+        redis_main = _redis.Redis(host=host, port=port, decode_responses=True,
+                                  socket_connect_timeout=0.5, socket_timeout=0.5)
+    except Exception:
+        redis_main = redis_client
+
+    if redis_main is None:
+        for p in ("cmc", "dl", "deribit"):
+            out[f"{p}_data_available"] = 0.0
+            out[f"{p}_data_stale"] = 1.0
+        return out
+
+    try:
+        _CMC_MAX_LAG = 300_000
+        cmc = _load_hash_snapshot(redis_main, "runtime:provider:coinmarketcap:global", _CMC_MAX_LAG)
+        avail, age, stale = _source_age_and_health(cmc, _CMC_MAX_LAG)
+        out["cmc_data_available"] = avail
+        if age > 0:
+            out["cmc_data_age_ms"] = age
+        out["cmc_data_stale"] = stale
+        if cmc and cmc.get("total_volume_24h_usd") is not None:
+            out["cmc_total_volume_usd"] = _safe_float(cmc.get("total_volume_24h_usd")) / 1e9
+
+        _DL_MAX_LAG = 3_600_000
+        dl = _load_hash_snapshot(redis_main, "runtime:provider:defillama:eth_dex", _DL_MAX_LAG)
+        avail, age, stale = _source_age_and_health(dl, _DL_MAX_LAG)
+        out["dl_data_available"] = avail
+        if age > 0:
+            out["dl_data_age_ms"] = age
+        out["dl_data_stale"] = stale
+        if dl and dl.get("dex_volume_spike_z") is not None:
+            out["dl_dex_volume_spike_z"] = _safe_float(dl.get("dex_volume_spike_z"))
+
+        mb = _load_hash_snapshot(redis_main, "runtime:breadth", 60_000)
+        if mb and mb.get("meme_ret_1m") is not None:
+            out["meme_ret_1m"] = _safe_float(mb.get("meme_ret_1m"))
+
+        _DERIBIT_MAX_LAG = 60_000
+        db = _load_json_snapshot(redis_main, "ctx:deribit:global", _DERIBIT_MAX_LAG)
+        avail, age, stale = _source_age_and_health(db, _DERIBIT_MAX_LAG)
+        out["deribit_data_available"] = avail
+        if age > 0:
+            out["deribit_data_age_ms"] = age
+        out["deribit_data_stale"] = stale
+        if db:
+            for src_k, dst_k in (
+                ("btc_deribit_iv_proxy",   "deribit_btc_iv_proxy"),
+                ("btc_deribit_iv_z",       "deribit_btc_iv_z"),
+                ("eth_deribit_iv_proxy",   "deribit_eth_iv_proxy"),
+                ("eth_deribit_iv_z",       "deribit_eth_iv_z"),
+                ("btc_deribit_funding_8h", "deribit_btc_funding_8h"),
+                ("eth_deribit_funding_8h", "deribit_eth_funding_8h"),
+                ("btc_iv_7d",              "deribit_btc_iv_7d"),
+                ("btc_iv_30d",             "deribit_btc_iv_30d"),
+                ("eth_iv_7d",              "deribit_eth_iv_7d"),
+                ("eth_iv_30d",             "deribit_eth_iv_30d"),
+            ):
+                v = db.get(src_k)
+                if v is not None:
+                    out[dst_k] = _safe_float(v)
+            rg_str = str(db.get("btc_eth_vol_regime") or "").lower()
+            _DERIBIT_RGC = {
+                "normal": 0.0, "vol_compression": 1.0,
+                "vol_expansion": 2.0, "vol_stress": 3.0,
+            }
+            if rg_str in _DERIBIT_RGC:
+                out["deribit_vol_regime_code"] = _DERIBIT_RGC[rg_str]
+    finally:
+        try:
+            if redis_main is not None and redis_main != redis_client:
+                redis_main.close()
+        except Exception:
+            pass
+
+    return out
+
+
+def _enrich_cg_cp_source_health(redis_client: Any) -> dict[str, float]:
+    """CoinGecko and CoinPaprika `<prefix>_data_*` source-health features.
+
+    Schema-only producers (cg/cp values themselves are populated elsewhere;
+    this helper exists to close the `_data_available/_age_ms/_data_stale`
+    gap flagged in the v15_of audit). Uses the canonical thresholds and
+    key map from `core.source_health_v1.SOURCE_REGISTRY` so adding a new
+    source only touches one place.
+    """
+    out: dict[str, float] = {}
+    try:
+        from core.source_health_v1 import (
+            SNAP_KIND_HASH,
+            make_source_health_features,
+            get_source_spec,
+        )
+    except Exception:
+        return out
+
+    # Connect to the main Redis where provider snapshots live.
+    try:
+        import redis as _redis
+        host = os.getenv("REDIS_HOST", "redis")
+        port = int(os.getenv("REDIS_PORT", "6379"))
+        redis_main = _redis.Redis(
+            host=host, port=port, decode_responses=True,
+            socket_connect_timeout=0.5, socket_timeout=0.5,
+        )
+    except Exception:
+        redis_main = redis_client
+
+    if redis_main is None:
+        for prefix in ("cg", "cp"):
+            out[f"{prefix}_data_available"] = 0.0
+            out[f"{prefix}_data_stale"] = 1.0
+        return out
+
+    try:
+        now = _now_ms()
+        for prefix in ("cg", "cp"):
+            spec = get_source_spec(prefix)
+            if spec is None or spec.snap_kind != SNAP_KIND_HASH:
+                continue
+            snap = _load_hash_snapshot(redis_main, spec.redis_key, spec.max_lag_ms)
+            out.update(make_source_health_features(spec.name, snap, now))
+            # Shape determinism: always emit available/stale even if snapshot
+            # path returned nothing (e.g. helper omitted age when ts missing).
+            out.setdefault(f"{prefix}_data_available", 0.0)
+            out.setdefault(f"{prefix}_data_stale", 1.0)
+    finally:
+        try:
+            if redis_main is not None and redis_main != redis_client:
+                redis_main.close()
+        except Exception:
+            pass
+
+    return out
+
+
+def _enrich_breadth_ctx(symbol: str, redis_client: Any) -> dict[str, float]:
+    """BTC/ETH reference returns and relative-strength from cross_asset_breadth_producer.
+
+    Producer: services/cross_asset_breadth_producer_v1.py
+    Keys (HASH on redis-worker-1):
+      ctx:breadth:{SYMBOL} — btc_ret_1m/5m/1h, sym_ret_1m/5m, btc/sym rel-strength
+      ctx:breadth:global   — market_breadth_ret_5m
+
+    Unlocks: btc_ret_1m, btc_ret_5m, btc_ret_1h, eth_ret_1m, eth_ret_5m,
+             rel_ret_1m_vs_btc, rel_ret_5m_vs_btc, market_breadth_ret_5m,
+             symbol_rel_strength_vs_btc_1m.
+    """
+    if not symbol or redis_client is None:
+        return {}
+    sym = symbol.upper()
+    out: dict[str, float] = {}
+    _BREADTH_MAX_LAG_MS = 120_000  # 2 min
+
+    per_sym = _load_hash_snapshot(redis_client, f"ctx:breadth:{sym}", _BREADTH_MAX_LAG_MS)
+    if per_sym:
+        for k in ("btc_ret_1m", "btc_ret_5m", "btc_ret_1h",
+                  "symbol_rel_strength_vs_btc_1m", "cg_rel_strength_btc_1h"):
+            if k in per_sym:
+                out[k] = _safe_float(per_sym[k])
+        # Relative returns
+        btc_1m = _safe_float(per_sym.get("btc_ret_1m"))
+        btc_5m = _safe_float(per_sym.get("btc_ret_5m"))
+        sym_1m = _safe_float(per_sym.get("sym_ret_1m"))
+        sym_5m = _safe_float(per_sym.get("sym_ret_5m"))
+        if "rel_ret_1m_vs_btc" not in out and "sym_ret_1m" in per_sym:
+            out["rel_ret_1m_vs_btc"] = sym_1m - btc_1m
+        if "rel_ret_5m_vs_btc" not in out and "sym_ret_5m" in per_sym:
+            out["rel_ret_5m_vs_btc"] = sym_5m - btc_5m
+        # For ETHUSDT, sym_ret_* IS eth_ret_*
+        if sym == "ETHUSDT":
+            if "sym_ret_1m" in per_sym:
+                out["eth_ret_1m"] = sym_1m
+            if "sym_ret_5m" in per_sym:
+                out["eth_ret_5m"] = sym_5m
+        else:
+            # Pull ETH returns from ctx:breadth:ETHUSDT so any symbol gets them
+            eth_sym = _load_hash_snapshot(redis_client, "ctx:breadth:ETHUSDT", _BREADTH_MAX_LAG_MS)
+            if eth_sym:
+                if "sym_ret_1m" in eth_sym:
+                    out["eth_ret_1m"] = _safe_float(eth_sym["sym_ret_1m"])
+                if "sym_ret_5m" in eth_sym:
+                    out["eth_ret_5m"] = _safe_float(eth_sym["sym_ret_5m"])
+
+    glob = _load_hash_snapshot(redis_client, "ctx:breadth:global", _BREADTH_MAX_LAG_MS)
+    if glob and "market_breadth_ret_5m" in glob:
+        out["market_breadth_ret_5m"] = _safe_float(glob["market_breadth_ret_5m"])
+
     return out
 
 
@@ -638,7 +969,7 @@ def _enrich_execution_stats(symbol: str, redis_client: Any) -> dict[str, float]:
     for key in (
         "expectancy_bps", "profit_factor_roll20", "recovery_factor_roll",
         "kelly_fraction_roll", "slippage_realized_bps", "fill_time_p90_ms",
-        "adverse_drift_ms",
+        "adverse_drift_ms", "fill_prob_3s", "p_wait", "eta_fill_sec", "exec_cost_to_tp1_ratio", "tca_perm_impact_1s_bps_ema", "tca_perm_impact_5s_bps_ema",
     ):
         v = raw.get(key) if isinstance(raw, dict) else None
         if v is None:
@@ -788,6 +1119,155 @@ def _enrich_derived(indicators: dict[str, Any], deriv_out: dict[str, float]) -> 
         except (TypeError, ValueError):
             pass
 
+    # ── Phase 1 P1: execution-adjusted EV features ──────────────────────────────
+
+    # ev_after_slippage_bps: edge minus expected execution cost.
+    # edge_bps sources (priority order): explicit key, spread-implied, tca spread.
+    edge_bps_v = (
+        indicators.get("edge_bps")
+        or indicators.get("raw_edge_bps")
+        or indicators.get("expected_edge_bps")
+        or deriv_out.get("tca_eff_spread_bps_ema")
+        or indicators.get("tca_eff_spread_bps_ema")
+    )
+    slip_v = (
+        indicators.get("expected_slippage_bps")
+        or indicators.get("slippage_p95")
+        or indicators.get("slippage_realized_bps")
+    )
+    if edge_bps_v is not None and slip_v is not None:
+        try:
+            out["ev_after_slippage_bps"] = float(edge_bps_v) - float(slip_v)
+        except (TypeError, ValueError):
+            pass
+
+    # net_edge_to_cost_ratio: (edge - cost) / cost.
+    # cost = half-spread + slippage (execution round-trip proxy).
+    spread_v = indicators.get("spread_bps") or indicators.get("spread")
+    if edge_bps_v is not None and slip_v is not None and spread_v is not None:
+        try:
+            cost_bps = max(float(spread_v) * 0.5 + float(slip_v), 1e-6)
+            edge_f = float(edge_bps_v)
+            out["net_edge_to_cost_ratio"] = (edge_f - cost_bps) / cost_bps
+        except (TypeError, ValueError):
+            pass
+
+    # ── P2: cost decomposition features ──────────────────────────────────────────
+
+    # ev_after_fee_bps: edge minus estimated round-trip commission.
+    # tca_is_bps_ema (implementation shortfall) captures real fee+impact if available,
+    # else fall back to 3.0 bps (binance maker 0.015% × 2 roundtrip).
+    fee_v = (
+        deriv_out.get("tca_is_bps_ema")
+        or indicators.get("tca_is_bps_ema")
+        or indicators.get("fee_bps")
+    )
+    if fee_v is None:
+        fee_v = 3.0
+    if edge_bps_v is not None:
+        try:
+            out["ev_after_fee_bps"] = float(edge_bps_v) - float(fee_v)
+        except (TypeError, ValueError):
+            pass
+
+    # ev_after_spread_bps: edge minus half-spread (taker crossing cost baseline)
+    if edge_bps_v is not None and spread_v is not None:
+        try:
+            out["ev_after_spread_bps"] = float(edge_bps_v) - float(spread_v) * 0.5
+        except (TypeError, ValueError):
+            pass
+
+    # ev_after_impact_bps: edge minus permanent market impact (price impact from fill)
+    perm_impact_v = (
+        deriv_out.get("tca_perm_impact_1s_bps_ema")
+        or indicators.get("tca_perm_impact_1s_bps_ema")
+        or deriv_out.get("tca_perm_impact_5s_bps_ema")
+        or indicators.get("tca_perm_impact_5s_bps_ema")
+    )
+    if edge_bps_v is not None and perm_impact_v is not None:
+        try:
+            out["ev_after_impact_bps"] = float(edge_bps_v) - float(perm_impact_v)
+        except (TypeError, ValueError):
+            pass
+
+    # cost_bps_v: round-trip cost proxy used by tp1/sl net features
+    sl_bps_v = (
+        indicators.get("sl_dist_bps")
+        or indicators.get("atr_bps")
+        or indicators.get("atr_bps_th")
+    )
+    cost_bps_v: float | None = None
+    if spread_v is not None and slip_v is not None:
+        try:
+            cost_bps_v = float(spread_v) * 0.5 + float(slip_v)
+        except (TypeError, ValueError):
+            pass
+
+    # tp1_net_after_cost_bps: TP1 reward in bps minus round-trip entry cost
+    tp1_r_v = indicators.get("tp1_target_r") or indicators.get("tp1_r")
+    if tp1_r_v is not None and sl_bps_v is not None and cost_bps_v is not None:
+        try:
+            # tp1_target_r is the R multiple; sl_dist_bps is 1R in bps
+            tp1_abs_bps = float(tp1_r_v) * float(sl_bps_v)
+            out["tp1_net_after_cost_bps"] = tp1_abs_bps - cost_bps_v
+        except (TypeError, ValueError):
+            pass
+
+    # sl_net_after_cost_bps: total downside exposure (SL distance + entry cost)
+    if sl_bps_v is not None and cost_bps_v is not None:
+        try:
+            out["sl_net_after_cost_bps"] = float(sl_bps_v) + cost_bps_v
+        except (TypeError, ValueError):
+            pass
+
+    # expected_hold_cost_bps: half-spread as proxy for round-trip hold cost
+    tca_spread_v = (
+        deriv_out.get("tca_eff_spread_bps_ema")
+        or indicators.get("tca_eff_spread_bps_ema")
+        or spread_v
+    )
+    if tca_spread_v is not None:
+        try:
+            out["expected_hold_cost_bps"] = float(tca_spread_v)
+        except (TypeError, ValueError):
+            pass
+
+    # cost_regime_z: how current spread compares to TCA EMA (z-score proxy)
+    if spread_v is not None and tca_spread_v is not None:
+        try:
+            s = float(spread_v)
+            ema_s = float(tca_spread_v)
+            tca_p95 = (
+                deriv_out.get("tca_spread_p95_bps")
+                or indicators.get("tca_spread_p95_bps")
+            )
+            if tca_p95 is not None:
+                std_proxy = max((float(tca_p95) - ema_s) / 1.645, ema_s * 0.1, 0.1)
+            else:
+                std_proxy = max(ema_s * 0.3, 0.1)
+            out["cost_regime_z"] = max(-5.0, min(5.0, (s - ema_s) / std_proxy))
+        except (TypeError, ValueError):
+            pass
+
+    # conf_rsi_agree: RSI momentum alignment with signal direction.
+    # Moved here from strategy.py so rsi_cvd (from _enrich_rsi_cvd / book_rates)
+    # is available before the check. strategy.py's runtime.rsi_cvd warmed up only
+    # after 14 microbar closes — defaulting to 50.0 made rc > 50 always False.
+    rsi_price_v = indicators.get("rsi_price")
+    rsi_cvd_v = out.get("rsi_cvd") or deriv_out.get("rsi_cvd") or indicators.get("rsi_cvd")
+    direction_v = str(indicators.get("direction", "") or "").upper()
+    if rsi_price_v is not None and rsi_cvd_v is not None and direction_v in ("LONG", "SHORT"):
+        try:
+            rp_c = float(rsi_price_v)
+            rc_c = float(rsi_cvd_v)
+            is_aligned = (
+                (direction_v == "LONG" and rp_c > 50 and rc_c > 50)
+                or (direction_v == "SHORT" and rp_c < 50 and rc_c < 50)
+            )
+            out["conf_rsi_agree"] = 1.0 if is_aligned else 0.0
+        except (TypeError, ValueError):
+            pass
+
     return out
 
 
@@ -825,6 +1305,8 @@ def _enrich_atr_aliases(indicators: dict[str, Any]) -> dict[str, float]:
     # Floor tiers: synthesise t0/t1/t2 from picked floor and tier index
     floor_bps = _safe_float(indicators.get("atr_floor_picked_bps") or indicators.get("atr_bps_th"))
     tier = _safe_float(indicators.get("atr_floor_tier"))
+    out["atr_floor_tier"] = tier
+    out["atr_floor_ready"] = _safe_float(indicators.get("atr_floor_ready") or (1.0 if floor_bps > 0 else 0.0))
     if floor_bps > 0:
         # Approximate: t0 = floor × 0.5, t1 = floor (selected), t2 = floor × 1.5
         # When the system exposes only the picked tier, this provides a stable
@@ -945,6 +1427,19 @@ def _enrich_misc_aliases(indicators: dict[str, Any]) -> dict[str, float]:
         if mp > 0 and qty > 0:
             out["amihud_illiq"] = mp / qty
 
+    
+    if "meta_enforce_applied" not in indicators:
+        out["meta_enforce_applied"] = 0.0
+    if "news_gate_veto" not in indicators:
+        out["news_gate_veto"] = 0.0
+    if "data_health" not in indicators:
+        out["data_health"] = 1.0
+    if "signal_age_to_half_life" not in indicators:
+        age = _safe_float(indicators.get("signal_age_ms"))
+        hl = _safe_float(indicators.get("alpha_half_life_ms_norm") or 60000.0)
+        if hl > 0:
+            out["signal_age_to_half_life"] = age / hl
+
     return out
 
 
@@ -997,6 +1492,9 @@ def _enrich_microstruct_ctx(symbol: str, redis_client: Any) -> dict[str, float]:
         "hurst_exp_50", "hurst_x_vol_regime",
         "garman_klass_vol", "parkinson_vol", "yang_zhang_vol", "vol_of_vol",
         "amihud_illiquidity", "pin_estimate",
+        "obi_sustained", "ofi_age_ms", "fp_edge_absorb", "fp_edge_age_ms",
+        "quote_stuffing_score", "trade_msg_rate_z", "vol_expansion_score",
+        "cvd_buy_volume", "cvd_sell_volume",
     ):
         v = data.get(key)
         if v is not None:
@@ -1038,7 +1536,8 @@ def _enrich_sweep_v2(symbol: str, redis_client: Any) -> dict[str, float]:
     out: dict[str, float] = {}
     for key in (
         "sweep_div_match", "sweep_velocity_bps_s", "signal_cluster_flag",
-        "source_jump_usd",
+        "source_jump_usd", "sweep_eql", "div_match",
+        "cvd_median_abs_delta_usd", "cvd_divergence_from_price",
     ):
         v = data.get(key)
         if v is not None:
@@ -1047,9 +1546,11 @@ def _enrich_sweep_v2(symbol: str, redis_client: Any) -> dict[str, float]:
 
 
 def _enrich_liquidation_ctx(symbol: str, redis_client: Any) -> dict[str, float]:
-    """Liquidation context per symbol: liquidation_usd_1m + liqmap_1h_age_ms.
+    """Liquidation context per symbol: 1m aggregates + source health + cascade risk.
 
-    Source: `ctx:liq:{symbol}` HASH/JSON. Producer = liquidation_map_service.
+    Source: `ctx:liq:{symbol}` JSON (liquidation_context_worker).
+    Phase 1 P1 additions: liq_source_available (#21), liq_source_age_ms (#22),
+    liq_cascade_risk_score (#23).
     """
     if not symbol or redis_client is None:
         return {}
@@ -1064,6 +1565,323 @@ def _enrich_liquidation_ctx(symbol: str, redis_client: Any) -> dict[str, float]:
     ):
         if src in data and dst not in out:
             out[dst] = _safe_float(data[src])
+
+    # P1 #21 — liq_source_available: 1 if OK, 0 if stale/absent
+    quality = str(data.get("quality_status") or "")
+    out["liq_source_available"] = 1.0 if quality == "OK" else 0.0
+
+    # P1 #22 — liq_source_age_ms: ms since last liquidation event
+    ts_snap = _safe_float(data.get("ts_ms"), -1.0)
+    if ts_snap > 0:
+        out["liq_source_age_ms"] = max(0.0, float(_now_ms()) - ts_snap)
+
+    # P1 #23 — liq_cascade_risk_score: composite [0..1] stress indicator.
+    # Combines |imbalance_z| / 10 + stress_flag + largest_notional_ratio.
+    imb_z = _safe_float(data.get("liq_imbalance_z"), 0.0)
+    stress = _safe_float(data.get("liq_stress_flag"), 0.0)
+    largest = _safe_float(data.get("largest_liq_notional_1m"), 0.0)
+    total_notional = (
+        _safe_float(data.get("liq_buy_notional_1m"), 0.0)
+        + _safe_float(data.get("liq_sell_notional_1m"), 0.0)
+    )
+    z_component = min(abs(imb_z) / 10.0, 1.0)
+    # size_component: fraction largest_single / total_window; 0 if no trades
+    if total_notional > 1.0:
+        size_component = min(largest / total_notional, 1.0)
+    else:
+        size_component = 0.0
+    out["liq_cascade_risk_score"] = min(
+        1.0,
+        z_component * 0.5 + stress * 0.3 + size_component * 0.2,
+    )
+
+    return out
+
+
+def _enrich_bybit_health(symbol: str, redis_client: Any) -> dict[str, float]:
+    """Phase 1 P1 #18 — bybit source health from runtime:bybit:{symbol} HASH.
+
+    Emits bybit_data_age_ms, bybit_data_available, bybit_data_stale.
+    Go bybit_features_collector writes this key every ~15s.
+    """
+    _BYBIT_MAX_LAG = 120_000
+    if not symbol or redis_client is None:
+        return {"bybit_data_available": 0.0, "bybit_data_stale": 1.0}
+    data = _load_hash_snapshot(redis_client, f"runtime:bybit:{symbol}", _BYBIT_MAX_LAG)
+    avail, age_ms, stale = _source_age_and_health(data, _BYBIT_MAX_LAG)
+    out: dict[str, float] = {
+        "bybit_data_available": avail,
+        "bybit_data_stale": stale,
+    }
+    if age_ms > 0:
+        out["bybit_data_age_ms"] = age_ms
+    return out
+
+
+def _enrich_p1_queue_dynamics(symbol: str, redis_client: Any) -> dict[str, float]:
+    """P1 #6-10 queue dynamics from `ctx:queue_dynamics:{symbol}`.
+
+    Producer: services/queue_dynamics_producer.py
+    """
+    if not symbol or redis_client is None:
+        return {}
+    data = _load_json_snapshot(redis_client, f"ctx:queue_dynamics:{symbol}", 60_000)
+    if not data:
+        return {}
+    out: dict[str, float] = {}
+    for k in (
+        "queue_depletion_rate_l1", "queue_refill_rate_l1",
+        "adverse_selection_1s_bps", "post_fill_reversion_prob",
+        "limit_vs_market_entry_edge_bps",
+        # P2 Group B
+        "queue_depletion_rate_l5", "queue_refill_rate_l5",
+        "queue_position_risk_score", "adverse_selection_3s_bps",
+        "fill_or_kill_edge_bps",
+    ):
+        v = data.get(k)
+        if v is not None:
+            out[k] = _safe_float(v)
+    return out
+
+
+def _enrich_p1_cost_dynamics(symbol: str, redis_client: Any) -> dict[str, float]:
+    """P1 #13 cost widening from `ctx:cost_dynamics:{symbol}`.
+
+    Producer: services/cost_dynamics_producer.py
+    """
+    if not symbol or redis_client is None:
+        return {}
+    data = _load_json_snapshot(redis_client, f"ctx:cost_dynamics:{symbol}", 60_000)
+    if not data:
+        return {}
+    v = data.get("cost_widening_5s_bps")
+    return {"cost_widening_5s_bps": _safe_float(v)} if v is not None else {}
+
+
+def _enrich_p1_regime_transition(symbol: str, redis_client: Any) -> dict[str, float]:
+    """P1 #14-15 regime transition features from `ctx:regime_transition:{symbol}`.
+
+    Producer: services/regime_transition_producer.py
+    """
+    if not symbol or redis_client is None:
+        return {}
+    data = _load_json_snapshot(redis_client, f"ctx:regime_transition:{symbol}", 120_000)
+    if not data:
+        return {}
+    out: dict[str, float] = {}
+    for k in (
+        "regime_transition_code", "failed_breakout_count_30m",
+        # P2 Group D
+        "regime_transition_age_ms", "trend_to_chop_prob", "chop_to_expansion_prob",
+        "expansion_exhaustion_score", "range_break_attempt_count_30m",
+        "vol_ofi_regime_agree", "vol_price_divergence_score",
+    ):
+        v = data.get(k)
+        if v is not None:
+            out[k] = _safe_float(v)
+    return out
+
+
+def _enrich_p1_cross_venue(symbol: str, redis_client: Any) -> dict[str, float]:
+    """P1 #19-20 cross-venue health from `ctx:cross_venue:{symbol}`.
+
+    Producer: services/cross_venue_health_producer.py
+    """
+    if not symbol or redis_client is None:
+        return {}
+    data = _load_json_snapshot(redis_client, f"ctx:cross_venue:{symbol}", 60_000)
+    if not data:
+        return {}
+    out: dict[str, float] = {}
+    for k in (
+        "cross_venue_lead_lag_ms", "venue_consensus_persistence_3s",
+        # P2 Group E
+        "bybit_book_age_ms", "bybit_trade_rate_hz", "cross_venue_latency_diff_ms",
+        "binance_leads_bybit_score", "bybit_leads_binance_score",
+        "venue_consensus_flip_count_10s", "cross_venue_spread_diff_bps",
+    ):
+        v = data.get(k)
+        if v is not None:
+            out[k] = _safe_float(v)
+    return out
+
+
+def _enrich_p1_pit_priors(symbol: str, redis_client: Any) -> dict[str, float]:
+    """P1 #24-25 timeout/tp1-before-timeout rates from pit_priors rolling HASHes.
+
+    Reads pit_priors:rolling:7d:{symbol}:default:all for the new
+    timeout_rate and tp1_before_timeout_rate fields added in Phase 1.
+    Uses 'default:all' as the broadest available slice.
+    """
+    if not symbol or redis_client is None:
+        return {}
+    data = _load_hash_snapshot(
+        redis_client, f"pit_priors:rolling:7d:{symbol}:default:all", 86_400_000
+    )
+    if not data:
+        return {}
+    out: dict[str, float] = {}
+    tr = data.get("timeout_rate")
+    if tr is not None:
+        out["prior_timeout_rate_symbol_kind_session"] = _safe_float(tr)
+    tp1t = data.get("tp1_before_timeout_rate")
+    if tp1t is not None:
+        out["prior_tp1_before_timeout_rate"] = _safe_float(tp1t)
+    return out
+
+
+def _enrich_p1_session_vol(symbol: str, redis_client: Any) -> dict[str, float]:
+    """P1 #16 — session_liquidity_z from ctx:session_vol:{symbol}.
+
+    Producer: services/session_volume_aggregator.py
+    """
+    if not symbol or redis_client is None:
+        return {}
+    data = _load_json_snapshot(redis_client, f"ctx:session_vol:{symbol}", 7_200_000)
+    if not data:
+        return {}
+    raw = data.get("session_liquidity_z")
+    if raw is None:
+        return {}
+    return {"session_liquidity_z": max(-5.0, min(5.0, _safe_float(raw)))}
+
+
+def _enrich_p1_session_priors(symbol: str, redis_client: Any) -> dict[str, float]:
+    """P1 #17 — session_signal_quality_prior from pit_priors:rolling:7d:{sym}:default:{session}.
+
+    No new producer required: pit_priors_rolling_v1 already writes per-session HASHes.
+    Session is derived from current wall-clock UTC hour.
+    Quality composite = winrate*0.5 + (ev_r>0)*0.3 + tp1_hit_rate*0.2.
+    """
+    if not symbol or redis_client is None:
+        return {}
+    ts_now = _now_ms()
+    h = (ts_now // 3_600_000) % 24
+    if 13 <= h < 22:
+        session = "us"
+    elif 7 <= h < 16:
+        session = "europe"
+    else:
+        session = "asia"
+    key = f"pit_priors:rolling:7d:{symbol}:default:{session}"
+    data = _load_hash_snapshot(redis_client, key, 86_400_000)
+    if not data:
+        return {}
+    winrate = _safe_float(data.get("winrate"), 0.5)
+    ev_r = _safe_float(data.get("ev_r"), 0.0)
+    tp1_rate = _safe_float(data.get("tp1_hit_rate"), 0.0)
+    quality = winrate * 0.5 + (1.0 if ev_r > 0 else 0.0) * 0.3 + tp1_rate * 0.2
+    return {"session_signal_quality_prior": max(0.0, min(1.0, quality))}
+
+
+def _enrich_p2_pit_priors(symbol: str, redis_client: Any) -> dict[str, float]:
+    """P2 Group G — extended pit_priors features.
+
+    Reads (sym, default, session) for winrate/ev_r/timeout_loss_rate and
+    (sym, default, all) for trailing_success_rate, be_stopout_rate, hold_time.
+    """
+    if not symbol or redis_client is None:
+        return {}
+    out: dict[str, float] = {}
+    ts_now = _now_ms()
+    h = (ts_now // 3_600_000) % 24
+    if 13 <= h < 22:
+        session = "us"
+    elif 7 <= h < 16:
+        session = "europe"
+    else:
+        session = "asia"
+
+    # Session-specific priors for winrate/ev_r/timeout_loss_rate
+    sess_data = _load_hash_snapshot(
+        redis_client, f"pit_priors:rolling:7d:{symbol}:default:{session}", 86_400_000
+    )
+    if sess_data:
+        wr = sess_data.get("winrate")
+        if wr is not None:
+            out["prior_winrate_symbol_kind_regime_session"] = _safe_float(wr)
+        ev = sess_data.get("ev_r")
+        if ev is not None:
+            out["prior_ev_r_symbol_kind_regime_session"] = _safe_float(ev)
+        tr = sess_data.get("timeout_rate")
+        if tr is not None:
+            out["prior_timeout_loss_rate_session"] = _safe_float(tr)
+
+    # All-session priors for trailing/be/hold_time
+    all_data = _load_hash_snapshot(
+        redis_client, f"pit_priors:rolling:7d:{symbol}:default:all", 86_400_000
+    )
+    if all_data:
+        for src, dst in (
+            ("trailing_success_rate", "prior_trailing_success_rate"),
+            ("be_stopout_rate", "prior_be_stopout_rate"),
+            ("hold_time_p50_ms", "prior_hold_time_p50_ms"),
+            ("hold_time_p90_ms", "prior_hold_time_p90_ms"),
+        ):
+            v = all_data.get(src)
+            if v is not None:
+                out[dst] = _safe_float(v)
+
+        # prior_mae_before_mfe_ratio: median_mae_r_winners / max(median_mfe_r, 0.01)
+        mae_r = all_data.get("median_mae_r_winners")
+        mfe_r = all_data.get("median_mfe_r")
+        if mae_r is not None and mfe_r is not None:
+            mfe_f = max(_safe_float(mfe_r), 0.01)
+            out["prior_mae_before_mfe_ratio"] = _safe_float(mae_r) / mfe_f
+
+        # prior_best_exit_policy_code: winrate-based best policy code
+        # 1=TP1, 2=trail, 3=TP2, 0=unknown — use trailing_success_rate to discriminate
+        trail_rate = all_data.get("trailing_success_rate")
+        tp1_rate = all_data.get("tp1_hit_rate")
+        if trail_rate is not None and tp1_rate is not None:
+            trail_f = _safe_float(trail_rate)
+            tp1_f = _safe_float(tp1_rate)
+            if trail_f > tp1_f and trail_f > 0.3:
+                out["prior_best_exit_policy_code"] = 2.0  # trailing wins
+            elif tp1_f > 0.5:
+                out["prior_best_exit_policy_code"] = 1.0  # TP1 wins
+            else:
+                out["prior_best_exit_policy_code"] = 0.0  # unclear
+
+    return out
+
+
+def _enrich_p2_directional_change(symbol: str, redis_client: Any) -> dict[str, float]:
+    """P2 Group H — directional change features from `ctx:dc:{symbol}`.
+
+    Producer: services/directional_change_producer.py
+    """
+    if not symbol or redis_client is None:
+        return {}
+    data = _load_json_snapshot(redis_client, f"ctx:dc:{symbol}", 120_000)
+    if not data:
+        return {}
+    out: dict[str, float] = {}
+    for k in ("dc_event_dir", "dc_event_age_ms", "dc_overshoot_bps", "dc_reversal_count_15m"):
+        v = data.get(k)
+        if v is not None:
+            out[k] = _safe_float(v)
+    return out
+
+
+def _enrich_p2_microstruct(symbol: str, redis_client: Any) -> dict[str, float]:
+    """P2 Group A — extended microstructure features from `microstruct:ctx:{symbol}`.
+
+    Reads the P2 Group A keys written by microstructure_metrics_v2 service.
+    """
+    if not symbol or redis_client is None:
+        return {}
+    data = _load_json_snapshot(redis_client, f"microstruct:ctx:{symbol}", 120_000)
+    if not data:
+        return {}
+    out: dict[str, float] = {}
+    for k in (
+        "mlofi_1_3_5_slope", "mlofi_l1_l5_divergence", "mlofi_accel_500ms",
+        "mlofi_exhaustion_score", "microprice_ret_250ms", "midprice_impact_per_1k_usd",
+    ):
+        v = data.get(k)
+        if v is not None:
+            out[k] = _safe_float(v)
     return out
 
 
@@ -1109,6 +1927,129 @@ def _enrich_rsi_cvd(symbol: str, redis_client: Any) -> dict[str, float]:
         return {}
 
 
+def _enrich_cvd_ctx(symbol: str, redis_client: Any) -> dict[str, float]:
+    """CVD state snapshot from `cvd:state:{symbol}` HASH.
+
+    Producer: tick_decision_engine publishes after runtime.cvd_state.indicators_light().
+    Unlocks: cvd_jump_events_total, cvd_median_abs_delta_usd, cvd_tick, cvd_ema, cvd_slope
+    for veto-path and cross-service signals that didn't have runtime.cvd_state available.
+    """
+    if not symbol or redis_client is None:
+        return {}
+    data = _load_hash_snapshot(redis_client, f"cvd:state:{symbol}", 120_000)
+    if not data:
+        return {}
+    out: dict[str, float] = {}
+    for k in (
+        "cvd_jump_events_total", "cvd_median_abs_delta_usd",
+        "cvd_tick", "cvd_ema", "cvd_slope",
+    ):
+        v = data.get(k)
+        if v is not None:
+            out[k] = _safe_float(v)
+    return out
+
+
+def _enrich_abs_lvl_ctx(symbol: str, redis_client: Any) -> dict[str, float]:
+    """abs_lvl calibration diagnostics from `abs_lvl:state:{symbol}` HASH.
+
+    Producer: tick_decision_engine publishes from cfg2 (dynamic config).
+    Unlocks: abs_lvl_eff_quote_th, abs_lvl_min_quote_delta, abs_lvl_calib_n
+    for veto-path and cross-service signals.
+    """
+    if not symbol or redis_client is None:
+        return {}
+    data = _load_hash_snapshot(redis_client, f"abs_lvl:state:{symbol}", 300_000)
+    if not data:
+        return {}
+    out: dict[str, float] = {}
+    for k in ("abs_lvl_eff_quote_th", "abs_lvl_min_quote_delta", "abs_lvl_calib_n"):
+        v = data.get(k)
+        if v is not None:
+            out[k] = _safe_float(v)
+    return out
+
+
+def _enrich_og_consensus(symbol: str, redis_client: Any) -> dict[str, float]:
+    """OG gate consensus features from `og:consensus:{symbol}` HASH.
+
+    Producer: of_confirm_engine.build() after build_og_payload().
+    Fallback for signals that don't go through of_confirm_engine directly
+    (e.g. cross-service replay, signal fan-out paths).
+    """
+    if not symbol or redis_client is None:
+        return {}
+    data = _load_hash_snapshot(redis_client, f"og:consensus:{symbol}", 120_000)
+    if not data:
+        return {}
+    out: dict[str, float] = {}
+    for k in (
+        "og_have", "og_need", "og_have_minus_need", "og_ok",
+        "og_score_minus_threshold", "og_contrib_z", "og_contrib_wp",
+        "og_contrib_reclaim", "og_contrib_obi", "og_contrib_iceberg",
+        "og_contrib_absorption", "og_gate_bits_count",
+        "og_strong_need_rev", "og_strong_need_cont", "og_weak_progress_any",
+    ):
+        v = data.get(k)
+        if v is not None:
+            out[k] = _safe_float(v)
+    return out
+
+
+def _enrich_tca_priors(symbol: str, redis_client: Any) -> dict[str, float]:
+    """TCA (transaction cost analysis) EMA priors from `tca:ema:{symbol}:{kind}:{session}`.
+
+    Producer: orderflow_services/tca_priors_exporter_v1.py — EMA of eff_spread,
+    realized/permanent impact, implementation shortfall per (symbol, kind, session).
+
+    Keys mapped:
+      eff_spread  → tca_eff_spread_bps_ema
+      realized_1s → tca_realized_spread_1s_bps_ema
+      perm_1s     → tca_perm_impact_1s_bps_ema
+      perm_5s     → tca_perm_impact_5s_bps_ema
+      is_bps      → tca_is_bps_ema
+      samples     → tca_samples
+    """
+    if not symbol or redis_client is None:
+        return {}
+    sym = symbol.upper()
+    # Session bucket: same logic as tca_priors_exporter_v1._session_bucket
+    now_ms = _now_ms()
+    h = (now_ms // 3_600_000) % 24
+    if 13 <= h < 22:
+        session = "us"
+    elif 7 <= h < 16:
+        session = "europe"
+    else:
+        session = "asia"
+
+    _TCA_MAX_LAG_MS = 3600_000  # 1h — TCA EMAs are slow-moving
+    data: dict[str, str] = {}
+    # Try "default" kind first, then fallback to no-kind key
+    for kind in ("default", "iceberg", "delta_spike"):
+        d = _load_hash_snapshot(redis_client, f"tca:ema:{sym}:{kind}:{session}", _TCA_MAX_LAG_MS)
+        if d:
+            data = d
+            break
+    if not data:
+        return {}
+    out: dict[str, float] = {}
+    field_map = (
+        ("eff_spread",   "tca_eff_spread_bps_ema"),
+        ("realized_1s",  "tca_realized_spread_1s_bps_ema"),
+        ("perm_1s",      "tca_perm_impact_1s_bps_ema"),
+        ("perm_5s",      "tca_perm_impact_5s_bps_ema"),
+        ("is_bps",       "tca_is_bps_ema"),
+        ("samples",      "tca_samples"),
+        ("spread_p95_bps", "tca_spread_p95_bps"),
+    )
+    for src, dst in field_map:
+        v = data.get(src)
+        if v is not None:
+            out[dst] = _safe_float(v)
+    return out
+
+
 # ── Top-level enricher ────────────────────────────────────────────────────────
 
 
@@ -1138,7 +2079,10 @@ def enrich_indicators(
     for fn, args in (
         (_enrich_deriv_ctx, (symbol, redis_client)),
         (_enrich_crossasset_ctx, (symbol, redis_client)),
+        (_enrich_breadth_ctx, (symbol, redis_client)),
         (_enrich_sentiment, (redis_client,)),
+        (_enrich_external_ctx, (redis_client,)),
+        (_enrich_cg_cp_source_health, (redis_client,)),
         (_enrich_book_features, (indicators,)),
         (_enrich_microbar, (indicators, symbol, redis_client)),
         (_enrich_momentum, (indicators, symbol, redis_client)),
@@ -1149,7 +2093,22 @@ def enrich_indicators(
         (_enrich_orderflow_pressure_v2, (symbol, redis_client)),
         (_enrich_sweep_v2, (symbol, redis_client)),
         (_enrich_book_rates, (symbol, redis_client)),
+        (_enrich_bybit_health, (symbol, redis_client)),
+        (_enrich_p1_queue_dynamics, (symbol, redis_client)),
+        (_enrich_p1_cost_dynamics, (symbol, redis_client)),
+        (_enrich_p1_regime_transition, (symbol, redis_client)),
+        (_enrich_p1_cross_venue, (symbol, redis_client)),
+        (_enrich_p1_pit_priors, (symbol, redis_client)),
+        (_enrich_p1_session_vol, (symbol, redis_client)),
+        (_enrich_p1_session_priors, (symbol, redis_client)),
+        (_enrich_p2_pit_priors, (symbol, redis_client)),
+        (_enrich_p2_directional_change, (symbol, redis_client)),
+        (_enrich_p2_microstruct, (symbol, redis_client)),
         (_enrich_rsi_cvd, (symbol, redis_client)),
+        (_enrich_cvd_ctx, (symbol, redis_client)),
+        (_enrich_abs_lvl_ctx, (symbol, redis_client)),
+        (_enrich_og_consensus, (symbol, redis_client)),
+        (_enrich_tca_priors, (symbol, redis_client)),
         (_enrich_atr_aliases, (indicators,)),
         (_enrich_misc_aliases, (indicators,)),
     ):

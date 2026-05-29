@@ -309,8 +309,8 @@ class ATRProtectiveLifecycleEquivalenceCertService:
                         cur.execute("""
                             INSERT INTO atr_protective_drifts (
                                 drift_id, signal_id, drift_kind, severity,
-                                status, reason_code, drift_json
-                            ) VALUES (%s, %s, %s, %s, 'open', %s, %s)
+                                status, reason_code, drift_json, resolved_at
+                            ) VALUES (%s, %s, %s, %s, 'open', %s, %s, NULL)
                         """, (
                             drift_id, signal_id,
                             d["drift_kind"], d["severity"],

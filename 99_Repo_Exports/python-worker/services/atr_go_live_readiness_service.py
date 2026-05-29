@@ -58,8 +58,8 @@ class ATRGoLiveReadinessService:
         with conn.cursor() as cur:
             cur.execute("""
                 INSERT INTO atr_go_live_readiness_packages (
-                    package_id, target_scope, charter_version, package_status, verdict, summary_json
-                ) VALUES (%s, %s, %s, 'draft', 'PENDING', %s)
+                    package_id, target_scope, charter_version, package_status, verdict, summary_json, signed_at, expires_at
+                ) VALUES (%s, %s, %s, 'draft', 'PENDING', %s, NULL, NULL)
             """, (package_id, target_scope, charter_version, json.dumps({})))
             conn.commit()
 

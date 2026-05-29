@@ -410,20 +410,18 @@ class IcebergDetector:
             state["last_qty"] = qty
 
             if state["refresh"] >= self.min_refresh and (now - state["start"]) >= self.min_duration:
-                events.append(
-                    {
-                        "type": "iceberg",
-                        "side": side,
-                        "price": price,
-                        "duration": now - state["start"],
-                        "refresh": state["refresh"],
-                        "total_refresh_qty": state.get("total_refresh_qty", 0.0),
-                        "start_ts": state["start"],
-                    }
-                )
-
+                events.append({
+                    "type": "iceberg",
+                    "side": side,
+                    "price": price,
+                    "duration": now - state["start"],
+                    "refresh": state["refresh"],
+                    "total_refresh_qty": state.get("total_refresh_qty", 0.0),
+                    "start_ts": state["start"],
+                })
                 state["refresh"] = 0
                 state["total_refresh_qty"] = 0.0
+                state["start"] = now
 
         # --- Cleanup stale states (TTL + size cap) ---
         try:

@@ -1018,8 +1018,14 @@ class StreamArchiver:
         symbol = payload.get("symbol")
         scenario_v4 = payload.get("scenario_v4") or payload.get("scenario")
         schema_version = safe_int(payload.get("schema_version"))
+        if schema_version is None:
+            schema_version = 1
         ok = safe_int(payload.get("ok"))
+        if ok is None:
+            ok = 0
         ok_soft = safe_int(payload.get("ok_soft"))
+        if ok_soft is None:
+            ok_soft = 0
 
         # DQ code: reason why this row was quarantined
         dq_code = str(
@@ -1029,17 +1035,17 @@ class StreamArchiver:
             or payload.get("err")
             or "dq_unknown"
         )
-        err = payload.get("err")
-        err = str(err)[:500] if err is not None else None
+        err = payload.get("err") or payload.get("error") or ""
+        err = str(err)[:500] if err else None
 
         return (
             stream_id, ts_ms, ts,
             source_stream,
             symbol if symbol is not None else None,
             str(scenario_v4) if scenario_v4 is not None else None,
-            int(schema_version) if schema_version is not None else None,
-            int(ok) if ok is not None else None,
-            int(ok_soft) if ok_soft is not None else None,
+            int(schema_version),
+            int(ok),
+            int(ok_soft),
             dq_code[:120],
             err,
             json.dumps(payload, ensure_ascii=False),

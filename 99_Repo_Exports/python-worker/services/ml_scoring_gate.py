@@ -691,13 +691,17 @@ class MLScoringGate:
                 model_ver=model_ver,
             ).inc()
             ml_abstain_total.labels(reason="schema_mismatch", symbol=_sym).inc()
-            logger.error("MLScoringGate schema mismatch: extracted features do not match model expectations (fail-closed)")
+            logger.error("MLScoringGate schema mismatch: extracted features do not match model expectations (fail-open to rule-based)")
             parts["ml_status"] = "schema_mismatch"
-            ml_scorer_status_total.labels(symbol=_sym, status="fail-closed", mode="enforce").inc()
-            ml_scorer_latency_ms.labels(symbol=_sym, status="fail-closed").observe((time.monotonic_ns() - t0) / 1_000_000.0)
+            ml_scorer_status_total.labels(symbol=_sym, status="fail-open", mode="enforce").inc()
+            ml_scorer_latency_ms.labels(symbol=_sym, status="fail-open").observe((time.monotonic_ns() - t0) / 1_000_000.0)
 
-            # FAIL CLOSED: We return (0.0, parts) to explicitly reject the trade instead of None (which triggers rule-based fail-open)
-            return 0.0, parts
+            # FAIL OPEN: Return None so that the caller (ConfidenceScorer) falls back to the
+            # rule-based path. Returning 0.0 here caused confidence=0.0 to propagate directly
+            # into the signal when ML_SCORER_MODE=canary fires enforce, bypassing the rule-based
+            # min_conf floor (0.05) and producing sub-1% confidence values that always got
+            # SHADOW_DROP. Schema mismatches are a model deployment issue, not signal quality.
+            return None, parts
 
         # Scale
         scaled_features = self._scale_features(raw_features)

@@ -507,7 +507,8 @@ class SignalOrchestrator:
         rc_norm = normalize_reason(reason_code)
         self.observability.emit_veto_metric(kind=kind, ctx=ctx, reason_code=rc_norm)
         try:
-            redis_client = getattr(ctx, "redis", None)
+            from core.redis_async_guard import sync_or_none
+            redis_client = sync_or_none(getattr(ctx, "redis", None))
             if redis_client:
                 from core.redis_keys import RS
                 ts_raw = getattr(ctx, "ts_ms", None) or getattr(ctx, "ts", None) or 0
@@ -704,7 +705,8 @@ class SignalOrchestrator:
             # G7: Feature Drift Alarm — update EMA state so EdgeCostGate reads fresh drift:active:*
             try:
                 if self._drift_alarm is not None:
-                    _drift_redis = getattr(ctx, "redis", None)
+                    from core.redis_async_guard import sync_or_none
+                    _drift_redis = sync_or_none(getattr(ctx, "redis", None))
                     if _drift_redis is None:
                         from handlers.crypto_orderflow.config.handler_config import _get_sync_redis
                         _drift_redis = _get_sync_redis()
@@ -724,7 +726,9 @@ class SignalOrchestrator:
                     from services.slq_risk_adjust import maybe_apply_slq_to_risk_cfg
                     # FIX: ctx.redis is None in production (ctx has no redis attr).
                     # Use the sync Redis client from handler_config as fallback.
-                    redis_client = getattr(ctx, "redis", None)
+                    # Also guard against an async client accidentally being on ctx.
+                    from core.redis_async_guard import sync_or_none
+                    redis_client = sync_or_none(getattr(ctx, "redis", None))
                     if redis_client is None:
                         from handlers.crypto_orderflow.config.handler_config import _get_sync_redis
                         redis_client = _get_sync_redis()
@@ -835,7 +839,8 @@ class SignalOrchestrator:
             # 7a. Per-symbol entry rate limit — adaptive calibrator (P2 roadmap).
             # Static default: SYMBOL_ENTRY_COOLDOWN_MS (0 = disabled).
             # auto_enforce: switches to calibrated q80 inter-signal interval once warm.
-            _rc_orch = getattr(ctx, "redis", None)
+            from core.redis_async_guard import sync_or_none as _sync_or_none
+            _rc_orch = _sync_or_none(getattr(ctx, "redis", None))
             if _rc_orch is None:
                 try:
                     from handlers.crypto_orderflow.config.handler_config import _get_sync_redis
@@ -849,13 +854,11 @@ class SignalOrchestrator:
             )
             _cooldown_ms = int(_cal_cd.cooldown_ms)
             if _cooldown_ms > 0:
-                _rc_cool = getattr(ctx, "redis", None)
-                if _rc_cool is None:
-                    try:
-                        from handlers.crypto_orderflow.config.handler_config import _get_sync_redis
-                        _rc_cool = _get_sync_redis()
-                    except Exception:
-                        _rc_cool = None
+                try:
+                    from handlers.crypto_orderflow.config.handler_config import _get_sync_redis
+                    _rc_cool = _get_sync_redis()
+                except Exception:
+                    _rc_cool = None
                 if _rc_cool is not None:
                     _ck = f"entry_cooldown:{_sym_root}"
                     try:
