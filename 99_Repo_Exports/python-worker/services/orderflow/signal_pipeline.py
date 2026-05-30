@@ -485,6 +485,53 @@ class SignalPipeline:
         self._cached_virtual_min_conf_pct = float(
             os.getenv("VIRTUAL_SIGNAL_MIN_CONF", str(self._cached_min_conf_pct))
         )
+        # Autocalibrator reader for adaptive per-(kind × regime) confidence threshold.
+        # Enabled via AUTOCAL_SIGNAL_CONF_READ_ENABLED=1 after calibrator warms up.
+        # Fail-open: cold/stale/disabled → None → ENV fallback to CRYPTO_SIGNAL_MIN_CONF.
+        self._signal_conf_autocal_enabled = os.getenv("AUTOCAL_SIGNAL_CONF_READ_ENABLED", "0").lower() in {"1", "true", "yes", "on"}
+        self._signal_conf_reader: Any = None
+        try:
+            if self._signal_conf_autocal_enabled:
+                from services.signal_min_conf_runtime_overrides import get_reader as _get_sc_reader
+                self._signal_conf_reader = _get_sc_reader()
+        except Exception:
+            self._signal_conf_reader = None
+
+        # W4: funding_z / basis_bps autocal reader (AUTOCAL_FUNDING_Z_READ_ENABLED=0 default)
+        self._funding_z_reader: Any = None
+        try:
+            if os.getenv("AUTOCAL_FUNDING_Z_READ_ENABLED", "0").lower() in {"1", "true", "yes", "on"}:
+                from services.funding_basis_z_runtime_overrides import get_reader as _get_fz_reader
+                self._funding_z_reader = _get_fz_reader()
+        except Exception:
+            self._funding_z_reader = None
+
+        # W4: sl_atr_floor autocal reader (AUTOCAL_SL_ATR_FLOOR_READ_ENABLED=0 default)
+        self._sl_atr_floor_reader: Any = None
+        try:
+            if os.getenv("AUTOCAL_SL_ATR_FLOOR_READ_ENABLED", "0").lower() in {"1", "true", "yes", "on"}:
+                from services.sl_atr_floor_runtime_overrides import get_reader as _get_slf_reader
+                self._sl_atr_floor_reader = _get_slf_reader()
+        except Exception:
+            self._sl_atr_floor_reader = None
+
+        # W5: DQ soft-flag autocal reader (AUTOCAL_DQ_SOFT_FLAG_READ_ENABLED=0 default)
+        self._dq_softflag_reader: Any = None
+        try:
+            if os.getenv("AUTOCAL_DQ_SOFT_FLAG_READ_ENABLED", "0").lower() in {"1", "true", "yes", "on"}:
+                from services.dq_softflag_runtime_overrides import get_reader as _get_dqsf_reader
+                self._dq_softflag_reader = _get_dqsf_reader()
+        except Exception:
+            self._dq_softflag_reader = None
+
+        # W5: TP size fraction autocal reader (AUTOCAL_TP_SIZE_FRAC_READ_ENABLED=0 default)
+        self._tp_size_frac_reader: Any = None
+        try:
+            if os.getenv("AUTOCAL_TP_SIZE_FRAC_READ_ENABLED", "0").lower() in {"1", "true", "yes", "on"}:
+                from services.tp_size_fraction_runtime_overrides import get_reader as _get_tpsf_reader
+                self._tp_size_frac_reader = _get_tpsf_reader()
+        except Exception:
+            self._tp_size_frac_reader = None
 
         # ------------------------------------------------------------------
         # Deep Exploration Sampling (plan §7, Phase 2)
@@ -553,6 +600,8 @@ class SignalPipeline:
 
         self._cached_manip_enabled = os.getenv("MANIP_ENABLED", "1").lower() in {"1", "true", "yes", "on"}
         _manip_mode_override = (os.getenv("MANIP_MODE", "") or "").strip().lower()
+        if _manip_mode_override == "auto":
+            _manip_mode_override = ""
         self._cached_manip_profile = _manip_mode_override or os.getenv("MANIP_GATE_PROFILE", os.getenv("GATE_PROFILE", "default") or "default").strip().lower()
         self._cached_manip_thr_qs = float(os.getenv("MANIP_QUOTE_STUFF_SCORE_MAX", "0") or 0.0)
         self._cached_manip_thr_lay = float(os.getenv("MANIP_LAYERING_SCORE_MAX", "0") or 0.0)
@@ -1196,6 +1245,20 @@ class SignalPipeline:
             from core.fees_aware_policy import fees_aware_min_atr_bps
 
             tp_ratios = parse_tp_ratio(str(cfg.get("tp_ratio", "")))
+            # W5: override tp_ratios from calibrator when enabled + warm
+            if self._tp_size_frac_reader is not None:
+                try:
+                    _regime_for_tpsf = (
+                        indicators.get("regime")
+                        or getattr(runtime, "last_regime", None)
+                        or "*"
+                    )
+                    _cal_fracs = self._tp_size_frac_reader.get_fractions(_regime_for_tpsf)
+                    if _cal_fracs:
+                        indicators["tp_size_frac_shadow"] = list(_cal_fracs)
+                        tp_ratios = list(_cal_fracs)
+                except Exception:
+                    pass
             tp1_share_actual = tp_ratios[0] if tp_ratios else 0.5
             rocket_mult = self._get_rocket_multiplier(runtime.symbol) or 0.0
             fees_th, _fees_meta = fees_aware_min_atr_bps(
@@ -2020,6 +2083,14 @@ class SignalPipeline:
                 self._dq_micro_cal.stale_threshold(_dq_sym)
                 if _dq_sym else self._cached_dq_book_stale_flag_ms
             )
+            # W5: DQ soft-flag autocal override for ENV fallback path
+            if not _dq_sym and self._dq_softflag_reader is not None:
+                try:
+                    _sf = self._dq_softflag_reader.get_thresholds(runtime.symbol)
+                    if _sf is not None:
+                        dq_book_stale_flag_ms = _sf[0]
+                except Exception:
+                    pass
             if book_stale_ms > dq_book_stale_flag_ms:
                 flags.append("stale_l2")
         except Exception:
@@ -2031,6 +2102,13 @@ class SignalPipeline:
                 self._dq_micro_cal.spread_threshold(_dq_sym)
                 if _dq_sym else self._cached_dq_spread_wide_flag_bps
             )
+            if not _dq_sym and self._dq_softflag_reader is not None:
+                try:
+                    _sf = self._dq_softflag_reader.get_thresholds(runtime.symbol)
+                    if _sf is not None:
+                        dq_spread_wide_flag_bps = _sf[1]
+                except Exception:
+                    pass
             if spread_bps > dq_spread_wide_flag_bps:
                 flags.append("wide_spread")
         except Exception:
@@ -2885,11 +2963,21 @@ class SignalPipeline:
         if _apply_decision(self.orchestrator.check_breadth(ctx, kind, direction)): return  # type: ignore
         
         if self._cached_deriv_ctx_enabled:
+            _fz = self._cached_deriv_ctx_funding_z
+            _bb = self._cached_deriv_ctx_basis_bps
+            if self._funding_z_reader is not None:
+                try:
+                    _vol_reg = str(indicators.get("vol_regime") or indicators.get("regime") or "*")
+                    _fz_cal = self._funding_z_reader.get_thresholds(symbol, _vol_reg)
+                    if _fz_cal is not None:
+                        _fz, _bb = _fz_cal
+                except Exception:
+                    pass
             if _apply_decision(await self.orchestrator.check_derivatives_context(  # type: ignore
                 ctx, kind, direction,
                 profile=self._cached_deriv_ctx_profile,
-                thr_funding_z=self._cached_deriv_ctx_funding_z,
-                thr_basis_bps=self._cached_deriv_ctx_basis_bps,
+                thr_funding_z=_fz,
+                thr_basis_bps=_bb,
                 require_oi_for_veto=self._cached_deriv_ctx_require_oi,
                 tighten_mult=self._cached_deriv_ctx_tighten_mult,
                 tighten_cap_bps=self._cached_deriv_ctx_tighten_cap,
@@ -3954,7 +4042,17 @@ class SignalPipeline:
                 except (TypeError, ValueError):
                     min_conf_pct = self._cached_min_conf_pct
             else:
-                min_conf_pct = self._cached_min_conf_pct
+                # Autocal override: per-(kind × regime) EV-grid threshold.
+                # Fail-open: returns None → fall through to ENV default.
+                _autocal_thr: float | None = None
+                if self._signal_conf_reader is not None:
+                    try:
+                        _kind_for_cal = str(indicators.get("kind", "") or "")
+                        _regime_for_cal = str(indicators.get("regime", "") or "")
+                        _autocal_thr = self._signal_conf_reader.get_threshold(_kind_for_cal, _regime_for_cal)
+                    except Exception:
+                        pass
+                min_conf_pct = _autocal_thr if _autocal_thr is not None else self._cached_min_conf_pct
             if 0 < min_conf_pct <= 1:
                 min_conf_pct *= 100.0
             min_conf = min_conf_pct / 100.0
@@ -5684,12 +5782,34 @@ class SignalPipeline:
 
         # SL ATR mult floor: never less than SL_ATR_MULT_FLOOR (industry minimum)
         _sl_atr_floor = self._cached_sl_atr_mult_floor
+        if self._sl_atr_floor_reader is not None:
+            try:
+                _venue = str(getattr(runtime, "config", {}).get("venue") or "binance")
+                _cal_floor = self._sl_atr_floor_reader.get_floor(runtime.symbol, _venue)
+                if _cal_floor is not None:
+                    _sl_atr_floor = _cal_floor
+            except Exception:
+                pass
         if atr > 0 and stop_dist > 0:
             _actual_sl_mult = stop_dist / atr
             if _actual_sl_mult < _sl_atr_floor:
                 indicators["sl_atr_mult_floored"] = 1
                 indicators["sl_atr_mult_original"] = round(_actual_sl_mult, 4)
                 stop_dist = atr * _sl_atr_floor
+        elif atr <= 0:
+            # Fix (2026-05-29): atr<=0 means SL floor can't be evaluated. Previously
+            # this silently fell through, allowing arbitrarily small SL through. Now:
+            #   - always emit indicator for telemetry
+            #   - when SL_ATR_FLOOR_VETO_ON_ZERO_ATR=1, collapse stop_dist to 0 so the
+            #     downstream profitability gate (calculate_position_size →
+            #     lot_risk<=0 path at signal_pipeline.py:~4281) vetoes the signal
+            #     (virtual trade pushed for ML tracking — no real fill).
+            indicators["sl_floor_atr_invalid"] = 1
+            indicators["sl_floor_atr_invalid_reason"] = "atr_zero_or_negative"
+            indicators["sl_floor_atr_invalid_atr_raw"] = atr
+            if (os.getenv("SL_ATR_FLOOR_VETO_ON_ZERO_ATR", "0") or "0").strip().lower() in {"1", "true", "yes", "on"}:
+                indicators["sl_floor_atr_invalid_enforced"] = 1
+                stop_dist = 0.0
 
         # ------------------------------------------------------------------
         # LIQMAP Adaptive SL: widen stop_dist if an adverse liquidation cluster
@@ -5956,5 +6076,104 @@ class SignalPipeline:
             indicators["tp1_atr"] = abs(float(tps[0]) - entry) / atr
             indicators["sl_atr_mult"] = stop_dist / atr
             indicators["tp1_atr_mult"] = abs(float(tps[0]) - entry) / atr
+
+        # ── AdaptiveTP1Policy v1 (Plan 3, 2026-05-29) ─────────────────────────
+        # Evaluates argmax-EV(TP1_R) from the grid and emits shadow stream entry.
+        # SHADOW by default: indicators always written, TP1 override only when
+        # mode in {paper,enforce} AND _atp1.apply=True. Fail-open: never breaks levels.
+        try:
+            import types as _types
+            _side_s = side.upper() if isinstance(side, str) else ("LONG" if side > 0 else "SHORT")
+            _regime_s = str(
+                indicators.get("regime") or indicators.get("entry_regime")
+                or (runtime.last_regime if hasattr(runtime, "last_regime") else "")
+                or ""
+            )
+            _kind_s = str(indicators.get("kind") or "of")
+            _baseline_tp1_dist = abs(float(tps[0]) - entry) if tps else 0.0
+
+            # Build a minimal ctx proxy for the CDF reader
+            _atp1_ctx = _types.SimpleNamespace(
+                tp1_hit_prob_by_rr=None,
+                tp1_prob_samples=0,
+                tp1_calibration_ok=None,
+            )
+            try:
+                from services.tp1_hit_prob_reader import attach_tp1_phit_to_ctx as _attach_phit
+                _attach_phit(
+                    _atp1_ctx,
+                    symbol=runtime.symbol,
+                    kind=_kind_s,
+                    regime=_regime_s,
+                    direction=_side_s,
+                )
+            except Exception:
+                pass
+
+            from core.adaptive_tp1_policy import choose_adaptive_tp1
+            _atp1 = choose_adaptive_tp1(
+                ctx=_atp1_ctx,
+                entry=entry,
+                stop_dist=stop_dist,
+                baseline_tp1_dist=_baseline_tp1_dist,
+                symbol=runtime.symbol,
+                kind=_kind_s,
+                regime=_regime_s,
+            )
+
+            # Telemetry into indicators (always, shadow-safe)
+            indicators["tp1_adaptive_reason"] = _atp1.reason
+            indicators["tp1_adaptive_mode"] = _atp1.mode
+            indicators["tp1_adaptive_ev_delta_r"] = float(_atp1.ev_delta_r)
+            indicators["tp1_adaptive_ev_baseline_r"] = float(_atp1.ev_baseline_r)
+            indicators["tp1_adaptive_ev_adaptive_r"] = float(_atp1.ev_adaptive_r)
+            indicators["tp1_adaptive_samples"] = int(_atp1.samples)
+            if _atp1.tp1_rr is not None:
+                indicators["tp1_adaptive_rr_selected"] = float(_atp1.tp1_rr)
+            if _atp1.p_hit is not None:
+                indicators["tp1_adaptive_p_hit"] = float(_atp1.p_hit)
+            if _atp1.p_hit_baseline is not None:
+                indicators["tp1_adaptive_p_hit_baseline"] = float(_atp1.p_hit_baseline)
+
+            # Prometheus + XADD shadow stream (fail-open)
+            try:
+                from core.tp1_adaptive_metrics import emit_decision as _emit_atp1
+                _dir = 1 if _side_s == "LONG" else -1
+                _atp1_tp1_price = (
+                    entry + _dir * float(_atp1.tp1_dist)
+                    if _atp1.tp1_dist is not None else None
+                )
+                _emit_atp1(
+                    decision=_atp1,
+                    symbol=runtime.symbol,
+                    kind=_kind_s,
+                    side=_side_s,
+                    regime=_regime_s,
+                    entry_price=entry,
+                    sl_price=sl,
+                    baseline_tp1_price=float(tps[0]) if tps else entry,
+                    baseline_tp1_rr=_atp1.baseline_rr,
+                    adaptive_tp1_price=_atp1_tp1_price,
+                    spread_bps=float(indicators.get("spread_bps", 0.0) or 0.0),
+                    slippage_bps=float(indicators.get("slippage_ema_bps", 0.0) or 0.0),
+                    fee_bps=float(os.getenv("TAKER_FEE_BPS", "4.0") or 4.0),
+                    ts_ms=(int(indicators.get("ts_ms") or indicators.get("tick_ts") or 0) or None),
+                    sid=str(indicators.get("signal_id") or indicators.get("sid") or ""),
+                )
+            except Exception:
+                pass
+
+            # Apply override only in paper/enforce mode
+            if _atp1.apply and _atp1.tp1_dist is not None and _atp1.tp1_dist > 0.0 and tps:
+                _dir = 1 if _side_s == "LONG" else -1
+                tps[0] = entry + _dir * float(_atp1.tp1_dist)
+                tps.sort(key=lambda x: abs(x - entry))
+                indicators["tp1_adaptive_applied"] = 1
+                if atr > 0:
+                    indicators["tp1_atr"] = abs(float(tps[0]) - entry) / atr
+                    indicators["tp1_atr_mult"] = abs(float(tps[0]) - entry) / atr
+        except Exception:
+            pass
+        # ── end AdaptiveTP1Policy ─────────────────────────────────────────────
 
         return sl, tps, lot, atr, atr_meta

@@ -43,6 +43,15 @@ _LAY_MIN_PEAK_USD_DEFAULT = 5000.0
 _LAY_TRADE_RATE_LOW_HZ_DEFAULT = 2.0
 
 
+def _get_manip_basis_params(symbol: str) -> dict | None:
+    """Return calibrated manip pattern params or None (fail-open)."""
+    try:
+        from services.manip_pattern_basis_runtime_overrides import get_params as _mbp_get
+        return _mbp_get(symbol)
+    except Exception:
+        return None
+
+
 class ManipulationTracker:
     """
     Stateful L2 manipulation pattern detector.
@@ -51,7 +60,8 @@ class ManipulationTracker:
     All outputs are public floats / str; safe to read from strategy.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, symbol: str = "*") -> None:
+        self._symbol = (symbol or "*").upper()
         # ── Quote stuffing score ──────────────────────────────────────────────
         self.quote_stuffing_score: float = 0.0
 
@@ -138,6 +148,12 @@ class ManipulationTracker:
             # Read ENV dynamically so values can be changed at runtime or in tests
             thr_msg = float(os.getenv("QUOTE_STUFF_MSG_Z_THR", str(_QS_MSG_Z_THR_DEFAULT)) or _QS_MSG_Z_THR_DEFAULT)
             thr_cancel = float(os.getenv("QUOTE_STUFF_CANCEL_Z_THR", str(_QS_CANCEL_Z_THR_DEFAULT)) or _QS_CANCEL_Z_THR_DEFAULT)
+            _mbp = _get_manip_basis_params(self._symbol)
+            if _mbp:
+                if _mbp.get("qs_msg_z", 0.0) > 0:
+                    thr_msg = _mbp["qs_msg_z"]
+                if _mbp.get("qs_cancel_z", 0.0) > 0:
+                    thr_cancel = _mbp["qs_cancel_z"]
 
             # Disabled if both thresholds are <= 0 (explicit disable)
             if thr_msg <= 0.0 and thr_cancel <= 0.0:
@@ -213,6 +229,9 @@ class ManipulationTracker:
                 low_trade = trade_msg_rate_hz < low_trade_hz
                 min_peak = float(os.getenv("LAYERING_MIN_PEAK_USD", str(_LAY_MIN_PEAK_USD_DEFAULT)) or _LAY_MIN_PEAK_USD_DEFAULT)
                 build_mult = float(os.getenv("LAYERING_BUILD_MULT", str(_LAY_BUILD_MULT_DEFAULT)) or _LAY_BUILD_MULT_DEFAULT)
+                _mbp_idle = _get_manip_basis_params(self._symbol)
+                if _mbp_idle and _mbp_idle.get("build_mult", 0.0) > 0:
+                    build_mult = _mbp_idle["build_mult"]
 
                 bid_ratio = 0.0
                 ask_ratio = 0.0
@@ -232,6 +251,7 @@ class ManipulationTracker:
                     self._lay_peak_ask_usd = ask_depth_usd
                     self._lay_baseline_bid_usd = self._lay_bid_ema_usd
                     self._lay_baseline_ask_usd = self._lay_ask_ema_usd
+                    self.layering_score = 0.0  # Reset on new build phase
                 else:
                     # Decay score when idle
                     self.layering_score = float(self.layering_score * 0.85)
@@ -244,6 +264,12 @@ class ManipulationTracker:
                 elapsed_ms = float(ts_ms - self._lay_build_ts_ms)
                 revert_ms = float(os.getenv("LAYERING_REVERT_MS", str(_LAY_REVERT_MS_DEFAULT)) or _LAY_REVERT_MS_DEFAULT)
                 revert_frac = float(os.getenv("LAYERING_REVERT_FRAC", str(_LAY_REVERT_FRAC_DEFAULT)) or _LAY_REVERT_FRAC_DEFAULT)
+                _mbp_build = _get_manip_basis_params(self._symbol)
+                if _mbp_build:
+                    if _mbp_build.get("revert_ms", 0.0) > 0:
+                        revert_ms = _mbp_build["revert_ms"]
+                    if _mbp_build.get("revert_frac", 0.0) > 0:
+                        revert_frac = _mbp_build["revert_frac"]
                 ratio_min = float(os.getenv("LAYERING_RATIO_MIN", str(_LAY_RATIO_MIN_DEFAULT)) or _LAY_RATIO_MIN_DEFAULT)
 
                 # Check revert condition: depth snapped back quickly

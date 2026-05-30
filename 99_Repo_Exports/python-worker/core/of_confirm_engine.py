@@ -1886,13 +1886,29 @@ class OFConfirmEngine:
         # delta spike strength
         z_abs = abs(float(delta_z))
         z_ref = _f(cfg.get("score_z_ref", 3.0), 3.0)
-        _add("z", z_abs / max(1e-9, z_ref), _f(cfg.get("w_z", 0.30), 0.30))
+        
+        # Adjust weights dynamically based on scenario
+        w_z_val = _f(cfg.get("w_z", 0.30), 0.30)
+        w_wp_val = _f(cfg.get("w_wp", 0.15), 0.15)
+        w_reclaim_val = _f(cfg.get("w_reclaim", 0.20), 0.20)
+        scenario_base = str(indicators.get("scenario_base") or scenario or "")
+
+        if scenario_base == "continuation":
+            w_z_val = _f(cfg.get("w_z_cont", 0.10), 0.10)
+            w_wp_val = _f(cfg.get("w_wp_cont", 0.0), 0.0)
+            w_reclaim_val = _f(cfg.get("w_reclaim_cont", 0.0), 0.0)
+            
+            # Add specific continuation components
+            _add("cont_ctx", 1.0 if cont_ctx_recent else 0.0, _f(cfg.get("w_cont_ctx", 0.20), 0.20))
+            _add("hidden_ctx", 1.0 if hidden_ctx_recent else 0.0, _f(cfg.get("w_hidden_ctx", 0.15), 0.15))
+
+        _add("z", z_abs / max(1e-9, z_ref), w_z_val)
 
         # weak progress
-        _add("weak_progress", 1.0 if wp_any else 0.0, _f(cfg.get("w_wp", 0.15), 0.15))
+        _add("weak_progress", 1.0 if wp_any else 0.0, w_wp_val)
 
         # reclaim
-        _add("reclaim", 1.0 if reclaim_recent else 0.0, _f(cfg.get("w_reclaim", 0.20), 0.20))
+        _add("reclaim", 1.0 if reclaim_recent else 0.0, w_reclaim_val)
 
         # OBI stable
         _add("obi_stable", 1.0 if obi_stable else 0.0, _f(cfg.get("w_obi", 0.15), 0.15))

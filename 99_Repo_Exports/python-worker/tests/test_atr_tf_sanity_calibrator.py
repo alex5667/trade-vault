@@ -44,3 +44,34 @@ def test_persistence_roundtrip():
 
     ch = cal2.recommend_tf(regime=rg, target_bps=8.0, fallback_tf="1m", now_ts_ms=1_000, current_tf="1m", allow_switch=True)
     assert ch.tf == "15m"
+
+
+def test_shadow_mode_tracks_hold_down_independently():
+    cal = AtrTfSanityCalibrator(min_samples=10, switch_margin=0.0, hold_ms=600_000)
+    rg = "na"
+    for i in range(12):
+        cal.update_many(regime=rg, atr_bps_by_tf={"1m": 2.0, "15m": 9.5, "1h": 20.0})
+
+    # Shadow mode switch
+    ch1 = cal.recommend_tf(regime=rg, target_bps=8.0, fallback_tf="1m", now_ts_ms=1_000_000, current_tf="1m", allow_switch=False)
+    assert ch1.tf == "15m"
+
+    # Next tick in shadow mode, "1h" is better but hold-down should prevent switch
+    # current_tf is still "1m" because we are in shadow mode and the actual config didn't switch
+    ch2 = cal.recommend_tf(regime=rg, target_bps=8.0, fallback_tf="1m", now_ts_ms=1_100_000, current_tf="1m", allow_switch=False)
+    assert ch2.tf == "15m"
+
+
+def test_invalid_current_tf_skips_margin():
+    # margin is 8%, hold_ms is 10 mins
+    cal = AtrTfSanityCalibrator(min_samples=10, switch_margin=0.08, hold_ms=600_000)
+    rg = "na"
+    for i in range(12):
+        # 1m is 2.0, 15m is 10.5 (which is target 10.0 + 5%)
+        # 15m does NOT meet the 8% switch margin, but 5m (current) is invalid!
+        cal.update_many(regime=rg, atr_bps_by_tf={"5m": 5.0, "15m": 10.5})
+
+    # current_tf = "5m", target = 10.0. 5m is invalid. 15m is 10.5.
+    # Because 5m is invalid, it should switch to 15m immediately without margin requirement.
+    ch = cal.recommend_tf(regime=rg, target_bps=10.0, fallback_tf="15m", now_ts_ms=1_000_000, current_tf="5m", allow_switch=True)
+    assert ch.tf == "15m"

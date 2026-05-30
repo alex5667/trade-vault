@@ -11,7 +11,8 @@ Created 2026-05-19 alongside v14_of to keep the Meta-feature registry
 in step with [[audit-v14of-v15of-canary-shadow-2026-05-19]].
 
 Note: this is the "Meta path" feature subset, separate from the full
-v15_of 515-key vector used by feature_registry. Production v15_of model
+v15_of vector used by feature_registry. The full vector count is pinned
+by ``core.ml_feature_schema_v15_of._EXPECTED_KEYS``. Production v15_of model
 training (when it begins — gated by tools/check_v15_of_readiness.py)
 should pin one or the other depending on the model role:
   - LR baseline (lightweight, latency-sensitive) → meta_feat_v15_of

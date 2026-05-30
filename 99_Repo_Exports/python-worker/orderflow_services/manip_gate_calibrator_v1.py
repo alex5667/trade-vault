@@ -87,10 +87,8 @@ def _read_inputs_stream(r: Any, cursor: str, calibrator: ManipCalibrator) -> tup
                 layering_score = float(indicators.get("layering_score", 0.0))
                 qs_score = float(indicators.get("quote_stuffing_score", 0.0))
                 
-                # Only observe if there is some activity (avoid polluting with zeros if market is dead)
-                if layering_score > 0.0 or qs_score > 0.0:
-                    calibrator.observe(symbol, layering_score, qs_score)
-                    n += 1
+                calibrator.observe(symbol, layering_score, qs_score)
+                n += 1
             except Exception as exc:
                 logger.debug("ingest msg %s failed: %s", msg_id, exc)
 

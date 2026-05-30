@@ -167,6 +167,48 @@ def diff_levels(
     return n_add, n_cancel
 
 
+def classify_event(event: dict[str, Any]) -> str:
+    """Classify a raw book/trade event into one of: add / cancel / trade / update.
+
+    Priority order:
+      1. Explicit event_type / type / e fields
+      2. qty_delta sign (positive → add, negative → cancel)
+      3. Default → update
+    """
+    et = str(event.get("event_type") or "").lower()
+    if et:
+        if "add" in et:
+            return "add"
+        if "cancel" in et:
+            return "cancel"
+        if "trade" in et:
+            return "trade"
+
+    t = str(event.get("type") or "").lower()
+    if t:
+        if "add" in t:
+            return "add"
+        if "fill" in t:
+            return "trade"
+
+    e = str(event.get("e") or "").upper()
+    if e == "DELETE":
+        return "cancel"
+
+    delta_raw = event.get("qty_delta")
+    if delta_raw is not None:
+        try:
+            delta = float(delta_raw)
+            if delta > 0:
+                return "add"
+            if delta < 0:
+                return "cancel"
+        except (ValueError, TypeError):
+            pass
+
+    return "update"
+
+
 _running = True
 
 

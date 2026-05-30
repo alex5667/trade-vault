@@ -309,3 +309,108 @@ def test_orchestrator_init_fails_on_unknown_default(monkeypatch):
     from services.tp_hit_trailing_orchestrator import TpHitTrailingOrchestrator
     with pytest.raises(ValueError):
         TpHitTrailingOrchestrator()
+
+
+# ─────────────────── autocal atr_mult override tests ────────────────────────
+
+def _make_autocal_state(knob: str, value: float, enforce: int) -> str:
+    return json.dumps({
+        "ts_ms": 9_999_999_999_000,
+        "knobs": {knob: {"value": value, "enforce": enforce, "lift_r": 0.1, "n": 300}},
+    })
+
+
+def test_registry_autocal_applies_atr_mult_when_enforce_one(monkeypatch):
+    """get() applies atr_mult override immediately when enforce=1 in autocal state."""
+    fake = fakeredis.FakeRedis(decode_responses=True)
+    fake.set("autocal:tp_sl_trailing:state",
+             _make_autocal_state("atr_mult_rocket_v1", 1.0, enforce=1))
+    monkeypatch.setattr("services.trailing_profiles.redis.from_url", lambda *a, **kw: fake)
+    from services.trailing_profiles import TrailingProfilesRegistry
+    reg = TrailingProfilesRegistry(redis_url="redis://fake:6379/0")
+    reg._autocal_ttl_sec = 0.0  # disable TTL so first get() triggers refresh
+
+    p = reg.get("rocket_v1")
+    assert p is not None
+    assert p.atr_mult == pytest.approx(1.0), "autocal should have overridden default 1.2 → 1.0"
+
+
+def test_registry_autocal_skips_when_enforce_zero(monkeypatch):
+    """enforce=0 must NOT change the default atr_mult."""
+    fake = fakeredis.FakeRedis(decode_responses=True)
+    fake.set("autocal:tp_sl_trailing:state",
+             _make_autocal_state("atr_mult_rocket_v1", 1.0, enforce=0))
+    monkeypatch.setattr("services.trailing_profiles.redis.from_url", lambda *a, **kw: fake)
+    from services.trailing_profiles import TrailingProfilesRegistry
+    reg = TrailingProfilesRegistry(redis_url="redis://fake:6379/0")
+    reg._autocal_ttl_sec = 0.0
+
+    p = reg.get("rocket_v1")
+    assert p is not None
+    assert p.atr_mult == pytest.approx(1.2), "enforce=0 must not change the default"
+
+
+def test_registry_autocal_ttl_prevents_double_read(monkeypatch):
+    """Second get() within TTL window must not re-read Redis."""
+    import time
+    reads: list[int] = []
+
+    class _Counting:
+        def get(self, _key):
+            reads.append(1)
+            return None
+        def set(self, *a, **kw): pass
+
+    monkeypatch.setattr("services.trailing_profiles.redis.from_url",
+                        lambda *a, **kw: _Counting())
+    from services.trailing_profiles import TrailingProfilesRegistry
+    reg = TrailingProfilesRegistry(redis_url="redis://fake:6379/0")
+    reg._autocal_ttl_sec = 60.0  # long TTL
+
+    reads.clear()
+    reg.get("rocket_v1")  # triggers autocal refresh → 1 read
+    reg.get("rocket_v1")  # within TTL → no extra read
+    assert len(reads) == 1, "TTL cache must suppress second Redis GET"
+
+
+def test_registry_autocal_all_three_atr_knobs(monkeypatch):
+    """All three atr_mult knobs are applied when each has enforce=1."""
+    fake = fakeredis.FakeRedis(decode_responses=True)
+    state = json.dumps({
+        "ts_ms": 9_999_999_999_000,
+        "knobs": {
+            "atr_mult_rocket_v1":      {"value": 1.0, "enforce": 1, "n": 300},
+            "atr_mult_expansion_v1":   {"value": 1.0, "enforce": 1, "n": 300},
+            "atr_mult_rocket_v1_bear": {"value": 0.8, "enforce": 1, "n": 300},
+        },
+    })
+    fake.set("autocal:tp_sl_trailing:state", state)
+    monkeypatch.setattr("services.trailing_profiles.redis.from_url", lambda *a, **kw: fake)
+    from services.trailing_profiles import TrailingProfilesRegistry
+    reg = TrailingProfilesRegistry(redis_url="redis://fake:6379/0")
+    reg._autocal_ttl_sec = 0.0
+
+    p_rocket = reg.get("rocket_v1")
+    p_exp    = reg.get("expansion_v1")
+    p_bear   = reg.get("rocket_v1_bear")
+    assert p_rocket is not None and p_exp is not None and p_bear is not None
+    assert p_rocket.atr_mult      == pytest.approx(1.0)
+    assert p_exp.atr_mult         == pytest.approx(1.0)
+    assert p_bear.atr_mult        == pytest.approx(0.8)
+
+
+def test_registry_autocal_fail_open_on_bad_redis(monkeypatch):
+    """Redis failure must be swallowed; defaults intact."""
+    class _FailRedis:
+        def get(self, _key): raise ConnectionError("boom")
+        def set(self, *a, **kw): pass
+
+    monkeypatch.setattr("services.trailing_profiles.redis.from_url",
+                        lambda *a, **kw: _FailRedis())
+    from services.trailing_profiles import TrailingProfilesRegistry
+    reg = TrailingProfilesRegistry(redis_url="redis://fake:6379/0")
+    reg._autocal_ttl_sec = 0.0
+
+    p = reg.get("rocket_v1")
+    assert p is not None
+    assert p.atr_mult == pytest.approx(1.2), "defaults must survive Redis failure"

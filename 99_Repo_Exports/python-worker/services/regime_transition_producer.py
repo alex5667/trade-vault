@@ -42,9 +42,8 @@ READ_URL = os.getenv("RTP_READ_URL",
                      os.getenv("REDIS_WORKER_1_URL", "redis://redis-worker-1:6379/0"))
 PUBLISH_URL = os.getenv("RTP_PUBLISH_URL",
                         os.getenv("REDIS_PUBLISH_URL", "redis://redis-worker-1:6379/0"))
-SYMBOLS = [s.strip().upper() for s in os.getenv(
-    "RTP_SYMBOLS", "BTCUSDT,ETHUSDT,SOLUSDT,1000PEPEUSDT"
-).split(",") if s.strip()]
+from core.symbols_config_v1 import get_crypto_symbols  # type: ignore  # noqa: E402
+SYMBOLS = get_crypto_symbols(aliases=("RTP_SYMBOLS",))
 INTERVAL_S = float(os.getenv("RTP_INTERVAL_S", "30"))
 TTL_SEC = int(os.getenv("RTP_TTL_SEC", "180"))
 HASH_PREFIX = "ctx:regime_transition:"
@@ -124,7 +123,20 @@ class _RegimeState:
         self._last_regime = norm
 
     def compute(self, now_ms: int) -> dict[str, float]:
-        out: dict[str, float] = {"regime_transition_code": float(self._last_code)}
+        # Always emit the full declared schema (zeros until enough samples
+        # accumulate) so coverage reflects producer liveness, not the
+        # statistical sufficiency of the rolling window.
+        out: dict[str, float] = {
+            "regime_transition_code": float(self._last_code),
+            "failed_breakout_count_30m": 0.0,
+            "regime_transition_age_ms": 0.0,
+            "trend_to_chop_prob": 0.0,
+            "chop_to_expansion_prob": 0.0,
+            "expansion_exhaustion_score": 0.0,
+            "range_break_attempt_count_30m": 0.0,
+            "vol_ofi_regime_agree": 0.0,
+            "vol_price_divergence_score": 0.0,
+        }
 
         # failed_breakout_count_30m: range→trend→range round-trips within 30 min
         cutoff = now_ms - _30M_MS
@@ -160,8 +172,7 @@ class _RegimeState:
 
         # expansion_exhaustion_score: how long the expansion has persisted / failed
         # Higher = more likely exhausted. Based on failed_breakout_count.
-        if "failed_breakout_count_30m" in out:
-            out["expansion_exhaustion_score"] = min(1.0, out["failed_breakout_count_30m"] / 3.0)
+        out["expansion_exhaustion_score"] = min(1.0, out["failed_breakout_count_30m"] / 3.0)
 
         # range_break_attempt_count_30m: count of range→other transitions in 30m
         range_breaks = sum(

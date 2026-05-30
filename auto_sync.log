@@ -945,3 +945,48 @@ fatal: Could not read from remote repository.
 Please make sure you have the correct access rights
 and the repository exists.
 2026-05-28 05:45:15 - Синхронизация завершена успешно.
+[main a7624827] Auto-sync vault notes 2026-05-29 05:45:02
+ 106 files changed, 11125 insertions(+), 211 deletions(-)
+ create mode 100644 99_Automation/logs/update_2026-05-29_03-37-01.log
+ create mode 100644 99_Repo_Exports/python-worker/core/manip_calibrator.py
+ create mode 100644 99_Repo_Exports/python-worker/core/redis_async_guard.py
+ create mode 100644 99_Repo_Exports/python-worker/core/regime_micro_v1.py
+ create mode 100644 99_Repo_Exports/python-worker/core/source_health_v1.py
+ create mode 100644 99_Repo_Exports/python-worker/core/v15_of_shadow_watchlist_v1.py
+ create mode 100644 99_Repo_Exports/python-worker/migrations/20260528_01_add_ab_arm.sql
+ create mode 100644 99_Repo_Exports/python-worker/migrations/20260528_02_trades_closed_sid_dedup.sql
+ create mode 100644 99_Repo_Exports/python-worker/migrations/20260528_03_trades_closed_entry_regime_micro.sql
+ create mode 100644 99_Repo_Exports/python-worker/orderflow_services/manip_gate_calibrator_v1.py
+ create mode 100644 99_Repo_Exports/python-worker/orderflow_services/v15_of_coverage_exporter_v1.py
+ create mode 100644 99_Repo_Exports/python-worker/services/cost_dynamics_producer.py
+ create mode 100644 99_Repo_Exports/python-worker/services/cross_venue_health_producer.py
+ create mode 100644 99_Repo_Exports/python-worker/services/directional_change_producer.py
+ create mode 100644 99_Repo_Exports/python-worker/services/manip_gate_runtime_overrides.py
+ create mode 100644 99_Repo_Exports/python-worker/services/queue_dynamics_producer.py
+ create mode 100644 99_Repo_Exports/python-worker/services/regime_transition_producer.py
+ create mode 100644 99_Repo_Exports/python-worker/services/session_volume_aggregator.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/analytics/test_save_trade_closed_sid_dedup.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_entry_policy_gate_btc_pump_block_short.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_ml_confirm_metrics_per_schema_stream.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_promote_shadow_to_v15_of.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_regime_micro_integration.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_regime_micro_v1.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_source_health_v1.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_sweep_detector_v2_cvd.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_trailing_state_contract_golden.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_v15_of_count_pin.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_v15_of_coverage_exporter.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_v15_of_schema_routing.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_v15_of_shadow_watchlist.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_v15_p1_phase0_infra.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_v15_p1_phase1_features.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_v15_p2_features.py
+ create mode 100644 99_Repo_Exports/python-worker/tools/backfill_trades_closed_from_redis_v1.py
+ create mode 100644 99_Repo_Exports/python-worker/tools/promote_shadow_to_v15_of_v1.py
+ create mode 100644 99_Repo_Exports/python-worker/tools/v15_of_coverage_report.py
+git@github.com: Permission denied (publickey).
+fatal: Could not read from remote repository.
+
+Please make sure you have the correct access rights
+and the repository exists.
+2026-05-29 05:45:03 - Синхронизация завершена успешно.

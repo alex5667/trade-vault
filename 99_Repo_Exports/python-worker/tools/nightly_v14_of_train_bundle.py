@@ -234,17 +234,18 @@ def stage_build_dataset(*, inputs_path: Path, tb_labels_path: Path,
 
 # ---------------------------------------------------------------------------
 # Feature set: full feature schema (v15_of by default; v14_of via env-override).
-# v15_of (515 keys) = v14_of (359 keys) + 156 keys emitted by
-# external_features_payload_v1.py that were silently dropped from training
-# when the default was v14_of. Env `V14_FEATURE_SCHEMA_VER=v14_of` restores
-# the old 359-key schema for comparison/rollback.
-# Count is sourced live from core.ml_feature_schema_v{14,15}_of so totals
-# never drift in this file.
+# v15_of = v14_of + ext_payload-derived keys that were silently dropped from
+# training when the default was v14_of. Env `V14_FEATURE_SCHEMA_VER=v14_of`
+# restores the old schema for comparison/rollback.
+# Counts are sourced live from core.ml_feature_schema_v{14,15}_of so totals
+# never drift in this file. The authoritative v15_of count is pinned by
+# ``core.ml_feature_schema_v15_of._EXPECTED_KEYS``.
 # ---------------------------------------------------------------------------
 
-# Schema version actually trained. Default 'v15_of' (515 keys, full ext_payload
-# coverage). Override `V14_FEATURE_SCHEMA_VER=v14_of` to fall back to 359-key
-# schema. Any other value falls back to v15_of with a warning.
+# Schema version actually trained. Default 'v15_of' (full ext_payload coverage,
+# count pinned by core.ml_feature_schema_v15_of._EXPECTED_KEYS). Override
+# `V14_FEATURE_SCHEMA_VER=v14_of` to fall back to the smaller v14_of schema.
+# Any other value falls back to v15_of with a warning.
 _FEATURE_SCHEMA_VER: str = (os.environ.get("V14_FEATURE_SCHEMA_VER") or "v15_of").strip() or "v15_of"
 
 
@@ -302,7 +303,8 @@ def _model_filename(role: str, ts_str: str) -> str:
 V14_BASE_FEATURES: list[str] = _get_feature_cols()
 
 
-def _load_dataset(path: Path) -> tuple[Any, Any]:
+def _load_dataset(path: Path) -> tuple[Any, Any, Any]:
+    """Return (X, y, ts_arr). ts_arr is int64 epoch-ms from row-level ts_ms."""
     import numpy as np
 
     def _ff(v: Any, d: float = 0.0) -> float:
@@ -325,15 +327,22 @@ def _load_dataset(path: Path) -> tuple[Any, Any]:
         for r in rows
     ], dtype=np.float64)
     y = np.array([int(r.get("y_edge", 0) or 0) for r in rows], dtype=np.int64)
-    return X, y
+    ts_arr = np.array([int(r.get("ts_ms") or 0) for r in rows], dtype=np.int64)
+    return X, y, ts_arr
 
 
 # ---------------------------------------------------------------------------
 # Stage 5: train LR baseline → MetaModelLR JSON
 # ---------------------------------------------------------------------------
 
-def stage_train_lr(*, dataset_path: Path, out_dir: Path, ts_str: str) -> dict[str, Any] | None:
-    """Train sklearn LR on v14_of dataset, write MetaModelLR-compatible JSON."""
+def stage_train_lr(*, dataset_path: Path, out_dir: Path, ts_str: str,
+                   holdout_hours: int = 0) -> dict[str, Any] | None:
+    """Train sklearn LR on v14_of dataset, write MetaModelLR-compatible JSON.
+
+    holdout_hours > 0: carves the last N hours as a temporal hold-out for an
+    out-of-time quality gate (does NOT affect the final production model, which
+    is always fit on all data).
+    """
     try:
         import numpy as np
         import statistics
@@ -346,28 +355,76 @@ def stage_train_lr(*, dataset_path: Path, out_dir: Path, ts_str: str) -> dict[st
         logger.error("train_lr: sklearn import failed: %s", e)
         return None
 
-    X, y = _load_dataset(dataset_path)
+    X, y, ts_arr = _load_dataset(dataset_path)
     if len(y) < 100 or int(y.sum()) < 10:
         logger.error("train_lr: insufficient data n=%d pos=%d", len(y), int(y.sum()))
         return None
 
-    # 5-fold CV metrics
+    # ── profit_factor_roll20 drift snapshot ──────────────────────────────────
+    pf20_stats: dict[str, Any] = {}
+    if "profit_factor_roll20" in V14_BASE_FEATURES:
+        pf20_idx = V14_BASE_FEATURES.index("profit_factor_roll20")
+        pf20_col: Any = X[:, pf20_idx]
+        valid_mask: Any = ~np.isnan(pf20_col) & (pf20_col > 0)
+        valid_vals: Any = pf20_col[valid_mask]
+        if len(valid_vals) > 0:
+            pf20_stats = {
+                "median": float(np.median(valid_vals)),
+                "p25": float(np.percentile(valid_vals, 25)),
+                "p75": float(np.percentile(valid_vals, 75)),
+                "n_valid": int(len(valid_vals)),
+                "n_total": int(len(pf20_col)),
+            }
+            logger.info("profit_factor_roll20: median=%.3f p25=%.3f p75=%.3f n=%d/%d",
+                        pf20_stats["median"], pf20_stats["p25"], pf20_stats["p75"],
+                        pf20_stats["n_valid"], pf20_stats["n_total"])
+
+    # ── Temporal hold-out split (last holdout_hours as out-of-time test) ─────
+    # CV and hold-out evaluation use X_train/y_train; final production model
+    # uses ALL data (X, y) for best generalization.
+    X_train: Any = X
+    y_train: Any = y
+    X_ho: Any = None
+    y_ho: Any = None
+    holdout_metrics: dict[str, Any] = {}
+
+    if holdout_hours > 0 and len(ts_arr) > 0 and int(ts_arr.max()) > 0:
+        ts_max = int(ts_arr.max())
+        cutoff = ts_max - holdout_hours * 3_600_000
+        train_mask: Any = ts_arr <= cutoff
+        ho_mask: Any = ts_arr > cutoff
+        n_tr = int(train_mask.sum())
+        n_ho = int(ho_mask.sum())
+        if n_tr >= 100 and n_ho >= 20:
+            X_train, y_train = X[train_mask], y[train_mask]
+            X_ho, y_ho = X[ho_mask], y[ho_mask]
+            holdout_metrics = {"n_rows": n_ho, "n_pos": int(y_ho.sum())}
+            logger.info("holdout split: train_n=%d holdout_n=%d holdout_pos=%d",
+                        n_tr, n_ho, int(y_ho.sum()))
+        else:
+            logger.warning("holdout split insufficient (train=%d holdout=%d) — using all data", n_tr, n_ho)
+
+    # ── 5-fold CV on training portion ────────────────────────────────────────
     auc_l: list[float] = []
     ap_l: list[float] = []
     brier_l: list[float] = []
     ll_l: list[float] = []
     skf = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
-    for tr, te in skf.split(X, y):
-        sc_cv = StandardScaler().fit(X[tr])
-        Xtr, Xte = sc_cv.transform(X[tr]), sc_cv.transform(X[te])
+    pass_at_pmin_l: list[float] = []
+    for tr, te in skf.split(X_train, y_train):
+        sc_cv = StandardScaler().fit(X_train[tr])
+        Xtr: Any = sc_cv.transform(X_train[tr])
+        Xte: Any = sc_cv.transform(X_train[te])
         lr_cv = LogisticRegression(C=1.0, max_iter=2000, class_weight="balanced", random_state=42)
-        lr_cv.fit(Xtr, y[tr])
+        lr_cv.fit(Xtr, y_train[tr])
         p = lr_cv.predict_proba(Xte)[:, 1]
-        if len(set(y[te])) > 1:
-            auc_l.append(float(roc_auc_score(y[te], p)))
-            ap_l.append(float(average_precision_score(y[te], p)))
-        brier_l.append(float(brier_score_loss(y[te], p)))
-        ll_l.append(float(log_loss(y[te], p, labels=[0, 1])))
+        if len(set(y_train[te])) > 1:
+            auc_l.append(roc_auc_score(y_train[te], p))  # type: ignore
+            ap_l.append(average_precision_score(y_train[te], p))  # type: ignore
+        brier_l.append(brier_score_loss(y_train[te], p))  # type: ignore
+        ll_l.append(log_loss(y_train[te], p, labels=[0, 1]))  # type: ignore
+        # fraction of OOF predictions that reach p_min threshold
+        pass_at_pmin_l.append(float((p >= 0.5).mean()))
 
     cv_metrics = {
         "roc_auc_mean": statistics.mean(auc_l) if auc_l else float("nan"),
@@ -375,26 +432,51 @@ def stage_train_lr(*, dataset_path: Path, out_dir: Path, ts_str: str) -> dict[st
         "brier_mean": statistics.mean(brier_l),
         "log_loss_mean": statistics.mean(ll_l),
         "n_rows": int(len(y)),
-        "pos_rate": float(y.mean()),
+        "n_train_rows": int(len(y_train)),
+        "pos_rate": float(y.mean()),  # type: ignore
+        # What fraction of OOF preds cross p_min=0.5? <2% → model is uncalibrated/biased.
+        "pass_rate_at_p_min": statistics.mean(pass_at_pmin_l) if pass_at_pmin_l else 0.0,
     }
 
-    # Final model on ALL data
+    # ── Temporal hold-out evaluation ─────────────────────────────────────────
+    if X_ho is not None and holdout_metrics.get("n_rows", 0) >= 20 and holdout_metrics.get("n_pos", 0) >= 2:
+        sc_ho = StandardScaler().fit(X_train)
+        lr_ho = LogisticRegression(C=1.0, max_iter=2000, class_weight="balanced", random_state=42)
+        lr_ho.fit(sc_ho.transform(X_train), y_train)
+        p_ho: Any = lr_ho.predict_proba(sc_ho.transform(X_ho))[:, 1]
+        if len(set(y_ho.tolist())) > 1:
+            holdout_metrics["roc_auc"] = float(roc_auc_score(y_ho, p_ho))
+            holdout_metrics["brier"] = float(brier_score_loss(y_ho, p_ho))
+            logger.info("holdout eval: AUC=%.4f brier=%.4f n=%d pos=%d",
+                        holdout_metrics["roc_auc"], holdout_metrics["brier"],
+                        holdout_metrics["n_rows"], holdout_metrics["n_pos"])
+        else:
+            holdout_metrics["roc_auc"] = 0.0
+            logger.warning("holdout eval: only one class — AUC skipped")
+
+    # ── Final model on ALL data (X, y) for best production generalization ────
     scaler = StandardScaler().fit(X)
     lr = LogisticRegression(C=1.0, max_iter=2000, class_weight="balanced", random_state=42)
     lr.fit(scaler.transform(X), y)
 
+    assert scaler.mean_ is not None
+    assert scaler.scale_ is not None
+    mean_arr: Any = scaler.mean_
+    scale_arr: Any = scaler.scale_
     robust_scaler_params = {
         feat: {
-            "center": float(scaler.mean_[i]),
-            "scale": float(scaler.scale_[i] if scaler.scale_[i] > 1e-9 else 1.0),
+            "center": float(mean_arr[i]),
+            "scale": float(scale_arr[i] if scale_arr[i] > 1e-9 else 1.0),
         }
         for i, feat in enumerate(V14_BASE_FEATURES)
     }
 
+    intercept_arr: Any = lr.intercept_
+    coef_arr: Any = lr.coef_
     pack = {
         "features": list(V14_BASE_FEATURES),
-        "intercept": float(lr.intercept_[0]),
-        "coef": [float(c) for c in lr.coef_[0]],
+        "intercept": float(intercept_arr[0]),
+        "coef": [float(c) for c in coef_arr[0]],
         "threshold": 0.5,
         "transforms": {},
         "robust_scaler": robust_scaler_params,
@@ -431,6 +513,8 @@ def stage_train_lr(*, dataset_path: Path, out_dir: Path, ts_str: str) -> dict[st
         "run_id": pack["run_id"],
         "signature": pack["model_signature"],
         "metrics": cv_metrics,
+        "holdout_metrics": holdout_metrics,
+        "pf20_stats": pf20_stats,
     }
 
 
@@ -454,7 +538,7 @@ def stage_train_gbdt(*, dataset_path: Path, out_dir: Path, ts_str: str) -> dict[
         logger.error("train_gbdt: sklearn/joblib import failed: %s", e)
         return None
 
-    X, y = _load_dataset(dataset_path)
+    X, y, _ts_gbdt = _load_dataset(dataset_path)
     if len(y) < 200 or int(y.sum()) < 15:
         logger.error("train_gbdt: insufficient data n=%d pos=%d", len(y), int(y.sum()))
         return None
@@ -465,7 +549,8 @@ def stage_train_gbdt(*, dataset_path: Path, out_dir: Path, ts_str: str) -> dict[
     skf = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
     for tr, te in skf.split(X, y):
         sc = StandardScaler().fit(X[tr])
-        Xtr, Xte = sc.transform(X[tr]), sc.transform(X[te])
+        Xtr: Any = sc.transform(X[tr])
+        Xte: Any = sc.transform(X[te])
         lr = LogisticRegression(C=1.0, max_iter=2000, class_weight="balanced", random_state=42)
         lr.fit(Xtr, y[tr])
         oof_p_lr[te] = lr.predict_proba(Xte)[:, 1]
@@ -490,19 +575,19 @@ def stage_train_gbdt(*, dataset_path: Path, out_dir: Path, ts_str: str) -> dict[
     gbdt_full.fit(X, y)
 
     # Meta LR on OOF
-    Z = np.column_stack([oof_p_lr, oof_p_gbdt])
+    Z: Any = np.column_stack([oof_p_lr, oof_p_gbdt])
     meta_lr_model = LogisticRegression(C=1.0, max_iter=2000, class_weight="balanced", random_state=42)
     meta_lr_model.fit(Z, y)
 
     # OOF stack predictions for evaluation
     p_meta_oof = meta_lr_model.predict_proba(Z)[:, 1]
     metrics = {
-        "roc_auc_oof": float(roc_auc_score(y, p_meta_oof)),
-        "pr_auc_oof": float(average_precision_score(y, p_meta_oof)),
-        "brier_oof": float(brier_score_loss(y, p_meta_oof)),
-        "log_loss_oof": float(log_loss(y, p_meta_oof, labels=[0, 1])),
-        "n_rows": int(len(y)),
-        "pos_rate": float(y.mean()),
+        "roc_auc_oof": roc_auc_score(y, p_meta_oof),  # type: ignore
+        "pr_auc_oof": average_precision_score(y, p_meta_oof),  # type: ignore
+        "brier_oof": brier_score_loss(y, p_meta_oof),  # type: ignore
+        "log_loss_oof": log_loss(y, p_meta_oof, labels=[0, 1]),  # type: ignore
+        "n_rows": len(y),
+        "pos_rate": y.mean(),  # type: ignore
     }
 
     feature_cols_hash = hashlib.md5(",".join(V14_BASE_FEATURES).encode("utf-8")).hexdigest()
@@ -541,11 +626,12 @@ def stage_train_gbdt(*, dataset_path: Path, out_dir: Path, ts_str: str) -> dict[
 def stage_publish(*, redis_url: str, lr_info: dict | None, gbdt_info: dict | None,
                   champion_key: str, challenger_key: str,
                   auto_promote: bool,
-                  promote_brier_max: float, promote_ece_max: float) -> dict[str, Any]:
+                  promote_brier_max: float, promote_ece_max: float,
+                  promote_holdout_min_auc: float = 0.0) -> dict[str, Any]:
     """Always writes candidate keys; updates champion/challenger only if gates pass."""
     try:
         import redis
-        r = redis.Redis.from_url(redis_url, decode_responses=True)
+        r: Any = redis.Redis.from_url(redis_url, decode_responses=True)
     except Exception as e:
         logger.error("publish: redis connect failed: %s", e)
         return {"published": False, "error": str(e)}
@@ -595,6 +681,27 @@ def stage_publish(*, redis_url: str, lr_info: dict | None, gbdt_info: dict | Non
         result["promote_reason"] = "auto_promote_disabled"
         return result
 
+    def _v15_blocks_promote(*, new_auc: float) -> tuple[bool, str]:
+        """Block v14_of from overwriting champion if a v15_of model is already there with better AUC.
+        v15_of trains less frequently; guard prevents regression when v14-of-train-timer cycles."""
+        if _FEATURE_SCHEMA_VER == "v15_of":
+            return False, "training_v15_itself"
+        try:
+            raw = r.get(champion_key)
+            if not raw:
+                return False, "no_current_champion"
+            cur = json.loads(str(raw))
+            if cur.get("feature_schema_ver") != "v15_of":
+                return False, "current_not_v15"
+            cur_m = cur.get("metrics") or {}
+            cur_auc = float(cur_m.get("roc_auc_mean") or cur_m.get("roc_auc_oof") or 0.0)
+            min_delta = 0.005
+            if cur_auc > new_auc + min_delta:
+                return True, f"v15_champion_auc={cur_auc:.4f}>v14_auc={new_auc:.4f}+{min_delta}"
+        except Exception as exc:
+            logger.warning("_v15_blocks_promote check failed: %s — allowing promote", exc)
+        return False, "ok"
+
     # Promotion gates
     def _pass_lr() -> tuple[bool, str]:
         if not lr_info:
@@ -603,6 +710,17 @@ def stage_publish(*, redis_url: str, lr_info: dict | None, gbdt_info: dict | Non
         br = float(m.get("brier_mean", 1.0))
         if br > promote_brier_max:
             return False, f"brier_too_high({br:.4f}>{promote_brier_max:.4f})"
+        if promote_holdout_min_auc > 0.0:
+            ho = lr_info.get("holdout_metrics") or {}
+            ho_auc = float(ho.get("roc_auc") or 0.0)
+            if ho_auc > 0.0 and ho_auc < promote_holdout_min_auc:
+                return False, f"holdout_auc_too_low({ho_auc:.4f}<{promote_holdout_min_auc:.4f})"
+        # Threshold-reachability gate: if <2% of OOF predictions reach p_min=0.5,
+        # the model is too biased to produce actionable signals → block.
+        pass_rate = float(m.get("pass_rate_at_p_min", 1.0))
+        min_pass_rate = float(os.environ.get("V14_PROMOTE_MIN_PASS_RATE", "0.02"))
+        if pass_rate < min_pass_rate:
+            return False, f"pass_rate_at_p_min_too_low({pass_rate:.3f}<{min_pass_rate:.3f})"
         return True, "ok"
 
     def _pass_gbdt() -> tuple[bool, str]:
@@ -617,11 +735,18 @@ def stage_publish(*, redis_url: str, lr_info: dict | None, gbdt_info: dict | Non
     if lr_info:
         ok, reason = _pass_lr()
         if ok:
+            new_auc = float((lr_info.get("metrics") or {}).get("roc_auc_mean") or 0.0)
+            blocked, block_reason = _v15_blocks_promote(new_auc=new_auc)
+            if blocked:
+                logger.info("promote LR: skipped — %s", block_reason)
+                result["promote_skip_lr"] = block_reason
+                ok = False
+        if ok:
             # backup previous + promote
             try:
                 prev = r.get(champion_key)
                 if prev:
-                    r.set(champion_key + "_prev_nightly", prev)
+                    r.set(champion_key + "_prev_nightly", str(prev))
             except Exception:
                 pass
             cfg = {
@@ -636,6 +761,10 @@ def stage_publish(*, redis_url: str, lr_info: dict | None, gbdt_info: dict | Non
                 "feature_schema_ver": _FEATURE_SCHEMA_VER,
                 "fail_policy": "OPEN",
                 "model_signature": lr_info.get("signature", ""),
+                # class_weight="balanced" corrects the bias term so raw probabilities
+                # span the full [0,1] range. The isotonic sibling calibrator (autopilot)
+                # will refit within minutes on the new champion's outputs.
+                "calibrate_p_edge": True,
             }
             r.set(champion_key, json.dumps(cfg, separators=(",", ":")))
             result["promoted"].append({"key": champion_key, "kind": "meta_lr"})
@@ -648,7 +777,7 @@ def stage_publish(*, redis_url: str, lr_info: dict | None, gbdt_info: dict | Non
             try:
                 prev = r.get(challenger_key)
                 if prev:
-                    r.set(challenger_key + "_prev_nightly", prev)
+                    r.set(challenger_key + "_prev_nightly", str(prev))
             except Exception:
                 pass
             cfg = {
@@ -662,6 +791,7 @@ def stage_publish(*, redis_url: str, lr_info: dict | None, gbdt_info: dict | Non
                 "p_min": 0.5,
                 "feature_schema_ver": _FEATURE_SCHEMA_VER,
                 "fail_policy": "OPEN",
+                "calibrate_p_edge": True,  # class_weight="balanced" fixes bias; sibling calibrator refits on autopilot
             }
             r.set(challenger_key, json.dumps(cfg, separators=(",", ":")))
             result["promoted"].append({"key": challenger_key, "kind": "edge_stack_v1"})
@@ -675,34 +805,408 @@ def stage_publish(*, redis_url: str, lr_info: dict | None, gbdt_info: dict | Non
 # Stage 1+2: export streams to NDJSON
 # ---------------------------------------------------------------------------
 
+def _scan_primary_label_ts_range(labels_path: Path) -> tuple[int, int] | None:
+    """Return (min_ts_ms, max_ts_ms) over primary=1 labels in NDJSON file.
+
+    Used to bound the inputs export so we always fetch inputs that overlap the
+    label window (the join key is sid which embeds ts_ms). The export tool
+    reads XRANGE forward from a start_id; without an explicit time-bound the
+    `--max-records` cap returns OLDEST records in the window and inputs never
+    overlap with the (typically more recent) primary labels — that was the
+    root cause of `relabel processed=0`.
+    """
+    min_ts: int | None = None
+    max_ts: int | None = None
+    n_primary = 0
+    with labels_path.open() as f:
+        for line in f:
+            s = line.strip()
+            if not s:
+                continue
+            try:
+                o = json.loads(s)
+            except Exception:
+                continue
+            prim_raw = o.get("primary", 0)
+            if isinstance(prim_raw, dict):
+                prim_raw = prim_raw.get("flag", 0)
+            try:
+                primary = int(prim_raw or 0)
+            except Exception:
+                primary = 0
+            if not primary:
+                continue
+            try:
+                ts = int(o.get("ts_ms") or 0)
+            except Exception:
+                ts = 0
+            if ts <= 0:
+                continue
+            n_primary += 1
+            if min_ts is None or ts < min_ts:
+                min_ts = ts
+            if max_ts is None or ts > max_ts:
+                max_ts = ts
+    if min_ts is None or max_ts is None:
+        return None
+    logger.info("label_ts_range: primary=%d min_ts_ms=%d max_ts_ms=%d span_h=%.1f",
+                n_primary, min_ts, max_ts, (max_ts - min_ts) / 3600_000.0)
+    return (min_ts, max_ts)
+
+
 def stage_export(*, redis_url: str, inputs_stream: str, labels_stream: str,
-                 inputs_max: int, labels_max: int, work_dir: Path) -> dict[str, Path] | None:
+                 inputs_max: int, labels_max: int, labels_since_hours: int,
+                 work_dir: Path) -> dict[str, Path] | None:
     inputs_path = work_dir / "of_inputs.ndjson"
     labels_path = work_dir / "labels_tb_live.ndjson"
 
-    ok1 = _run_cmd([
-        sys.executable, "-m", "tools.export_of_inputs_ndjson_v2",
-        "--redis-url", redis_url,
-        "--stream", inputs_stream,
-        "--out", str(inputs_path),
-        "--since-hours", "72",
-        "--max-records", str(inputs_max),
-    ], log_tag="export_inputs")
-
+    # 1) Export labels first so we can derive the time window that inputs must
+    # cover. `labels:tb` records are ~4KB so even ~50k fit comfortably.
     ok2 = _run_cmd([
         sys.executable, "-m", "tools.export_stream_payload_ndjson_v1",
         "--redis-url", redis_url,
         "--stream", labels_stream,
         "--payload-field", "payload",
         "--out", str(labels_path),
-        "--since-hours", "72",
+        "--since-hours", str(labels_since_hours),
         "--max-scan", str(labels_max),
     ], log_tag="export_labels")
 
-    if not (ok1 and ok2 and inputs_path.exists() and labels_path.exists()):
+    if not (ok2 and labels_path.exists()):
+        return None
+
+    # 2) Derive bound from primary=1 labels and export inputs covering it.
+    # `signals:of:inputs` records are ~40KB so we MUST bound by ts_ms — bumping
+    # `--max-records` blindly to cover 72h would push the NDJSON above 1GB.
+    inputs_cmd = [
+        sys.executable, "-m", "tools.export_of_inputs_ndjson_v2",
+        "--redis-url", redis_url,
+        "--stream", inputs_stream,
+        "--out", str(inputs_path),
+        "--max-records", str(inputs_max),
+    ]
+    ts_range = _scan_primary_label_ts_range(labels_path)
+    if ts_range is not None:
+        # 5-min back-buffer covers minor publisher clock skew vs label ts_ms.
+        since_ms = max(0, ts_range[0] - 5 * 60_000)
+        inputs_cmd.extend(["--since-ts-ms", str(since_ms)])
+        logger.info("inputs export bounded by labels: since_ts_ms=%d", since_ms)
+    else:
+        # Fallback if labels file has no primary=1 records.
+        inputs_cmd.extend(["--since-hours", str(labels_since_hours)])
+        logger.warning("no primary=1 labels found; falling back to since-hours=%d", labels_since_hours)
+
+    ok1 = _run_cmd(inputs_cmd, log_tag="export_inputs")
+
+    if not (ok1 and inputs_path.exists()):
         return None
 
     return {"inputs": inputs_path, "labels": labels_path}
+
+
+# ---------------------------------------------------------------------------
+# Train report: build text + send to notify:telegram
+# ---------------------------------------------------------------------------
+
+def _build_train_report_text(
+    *,
+    metrics: dict[str, Any],
+    dataset_path: Path,
+    tb_path: Path,
+    status: str,
+    elapsed_sec: float,
+) -> str:
+    """Build a plain-text Telegram report with per-metric explanations."""
+    try:
+        import numpy as np
+        from sklearn.linear_model import LogisticRegression
+        from sklearn.metrics import brier_score_loss, roc_auc_score
+        from sklearn.model_selection import StratifiedKFold
+        from sklearn.preprocessing import StandardScaler
+    except ImportError:
+        return ""
+
+    # ── load dataset ──────────────────────────────────────────────────────────
+    rows: list[dict[str, Any]] = []
+    if dataset_path.exists():
+        with dataset_path.open() as f:
+            for line in f:
+                s = line.strip()
+                if s:
+                    try:
+                        rows.append(json.loads(s))
+                    except Exception:
+                        pass
+    if not rows:
+        return ""
+
+    tb_rows: list[dict[str, Any]] = []
+    if tb_path.exists():
+        with tb_path.open() as f:
+            for line in f:
+                s = line.strip()
+                if s:
+                    try:
+                        tb_rows.append(json.loads(s))
+                    except Exception:
+                        pass
+
+    n = len(rows)
+    pos = sum(int(r.get("y_edge", 0) or 0) for r in rows)
+    pos_rate = pos / n if n else 0.0
+
+    # ── feature matrix ────────────────────────────────────────────────────────
+    feat_cols = list(V14_BASE_FEATURES)
+
+    def _fv(v: Any) -> float:
+        try:
+            return float(v) if v is not None else 0.0
+        except Exception:
+            return 0.0
+
+    X = np.array([[_fv((r.get("indicators") or {}).get(k)) for k in feat_cols] for r in rows], dtype=np.float64)
+    y = np.array([int(r.get("y_edge", 0) or 0) for r in rows], dtype=np.int64)
+
+    col_med = np.nanmedian(X, axis=0)
+    for j in range(X.shape[1]):
+        nans = np.isnan(X[:, j])
+        X[nans, j] = col_med[j]
+
+    lines: list[str] = []
+    ts_label = time.strftime("%Y-%m-%d %H:%M UTC", time.gmtime())
+
+    lines.append(f"🧠 v14_of Train Report — {ts_label}")
+    lines.append(f"Schema: {_FEATURE_SCHEMA_VER} ({len(feat_cols)} фич)  время: {elapsed_sec:.0f}s")
+    lines.append("")
+
+    # ── 5.1 Dataset integrity ─────────────────────────────────────────────────
+    lines.append("── 5.1 Датасет ──")
+    lines.append(f"Rows: {n:,}  Pos: {pos}  Rate: {pos_rate:.2%}")
+    # Rate — доля прибыльных сделок (positive class). Определяет сложность задачи
+    # и ожидаемый Brier baseline = Rate*(1-Rate). Типично 3–15% для trading.
+    brier_baseline = pos_rate * (1.0 - pos_rate)
+    lines.append(f"  Rate = доля прибыльных сделок; Brier baseline={brier_baseline:.4f}")
+
+    from collections import Counter as _Counter
+    sid_dup = {s: c for s, c in _Counter(r.get("sid", "") for r in rows).items() if c > 1 and s}
+    lines.append("✓ Дублей sid нет" if not sid_dup else f"⚠ Дубли sid: {len(sid_dup)} (один сигнал обучает дважды)")
+
+    if tb_rows:
+        def _norm(s: str) -> str:
+            return s[len("crypto-of:"):] if s.startswith("crypto-of:") else s
+
+        tb_dup = {s: c for s, c in _Counter(_norm(r.get("sid", "") or "") for r in tb_rows).items() if c > 1 and s}
+        lines.append("✓ Дублей меток нет" if not tb_dup else f"⚠ Дубли меток: {len(tb_dup)} (смещение в y)")
+
+        hits = sorted(_fv(r.get("tb_hit_ms", 0)) for r in tb_rows if _fv(r.get("tb_hit_ms", 0)) > 0)
+        if hits:
+            leakage = sum(1 for r in tb_rows if _fv(r.get("tb_hit_ms", 0)) < 0)
+            n_h = len(hits)
+            p50 = hits[int(n_h * 0.50)]
+            p99 = hits[min(int(n_h * 0.99), n_h - 1)]
+            if leakage:
+                # tb_hit_ms < 0 означает: метка (исход сделки) сформирована ДО входа.
+                # Модель видит будущее → переобучение → AUC на prod будет ~0.5.
+                lines.append(f"✗ LEAKAGE: {leakage} меток с tb_hit_ms<0 — МОДЕЛЬ ВИДИТ БУДУЩЕЕ!")
+            else:
+                # tb_hit_ms = время от входа до исхода (TP/SL/timeout).
+                # p50/p99 показывают горизонт: p99>h_ms — нормально (timeout).
+                lines.append(f"✓ Утечки нет  lag p50={p50/1000:.0f}s p99={p99/1000:.0f}s")
+                lines.append(f"  lag = вход→исход (tb_hit_ms); все ≥0 означает нет leakage")
+    lines.append("")
+
+    # ── 5.2–5.4: single OOF CV pass ──────────────────────────────────────────
+    if n < 100 or pos < 10 or len(set(y.tolist())) < 2:
+        lines.append("⚠ Мало данных для CV — пропущено")
+        _append_train_metrics(lines, metrics)
+        _append_status_line(lines, status, metrics)
+        return "\n".join(lines)
+
+    oof_p = np.zeros(n, dtype=np.float64)
+    skf = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
+    fold_stats: list[dict[str, Any]] = []
+
+    for fold_i, (tr, te) in enumerate(skf.split(X, y.tolist())):
+        sc = StandardScaler().fit(X[tr])
+        lr = LogisticRegression(C=1.0, max_iter=2000, random_state=42)
+        lr.fit(sc.transform(X[tr]), y[tr])
+        p = lr.predict_proba(sc.transform(X[te]))[:, 1]
+        oof_p[te] = p
+        n_pos_te = int(y[te].sum())
+        if n_pos_te >= 2 and len(set(y[te].tolist())) > 1:
+            fold_stats.append({
+                "fold": fold_i, "n": len(te), "pos": n_pos_te,
+                "auc": float(roc_auc_score(y[te], p)),
+                "brier": float(brier_score_loss(y[te], p)),
+            })
+
+    # 5.2 per-fold table
+    lines.append("── 5.2 Кросс-валидация (5 фолдов) ──")
+    # AUC (ROC-AUC): способность модели ранжировать — отделить прибыльные от убыточных.
+    # 0.5 = случайная угадка, >0.6 = полезная модель, >0.7 = хорошо для trading.
+    # Brier score: средняя квадратичная ошибка вероятности (p_edge vs реальный исход).
+    # Чем ближе к baseline (Rate*(1-Rate)), тем меньше модель переоценивает/недооценивает.
+    lines.append(f"  AUC: ранжирование (0.5=случайно, >0.6=полезно)")
+    lines.append(f"  Brier: точность вер-стей (baseline={brier_baseline:.4f}, ниже=лучше)")
+    lines.append("Fold   N   Pos   AUC   Brier")
+    for fs in fold_stats:
+        lines.append(f"  {fs['fold']}  {fs['n']:>4}   {fs['pos']:>3}  {fs['auc']:.3f}  {fs['brier']:.4f}")
+
+    valid = oof_p > 0
+    if valid.sum() > 10 and len(set(y[valid].tolist())) > 1:
+        oof_auc = float(roc_auc_score(y[valid], oof_p[valid]))
+        oof_brier = float(brier_score_loss(y[valid], oof_p[valid]))
+        lines.append(f"OOF  {int(valid.sum()):>4}   {int(y[valid].sum()):>3}  {oof_auc:.3f}  {oof_brier:.4f}")
+
+        if fold_stats:
+            aucs = [fs["auc"] for fs in fold_stats]
+            auc_range = max(aucs) - min(aucs)
+            min_pos = min(fs["pos"] for fs in fold_stats)
+            flag = "✓" if auc_range < 0.15 else "⚠"
+            # Большой разброс AUC между фолдами → нестационарность рынка.
+            # При range>0.15 модель работает стабильно только на части периодов.
+            lines.append(f"{flag} AUC разброс={auc_range:.3f} (>0.15=нестационарность)  min-pos/fold={min_pos}")
+    lines.append("")
+
+    # 5.3 Precision@K
+    lines.append("── 5.3 Точность в топ-K ──")
+    # Prec@K: если взять K% сигналов с наибольшим p_edge — сколько из них реально прибыльны?
+    # Lift = Prec@K / base_rate: во сколько раз лучше случайного выбора.
+    # Для торговли: Lift≥2× = модель полезна, 1.2-2× = слабо, <1.2× = не лучше монеты.
+    lines.append(f"  Prec@K = доля прибыльных в топ-K сигналах по p_edge")
+    lines.append(f"  Lift = Prec/base ({pos_rate:.2%}) — во сколько раз лучше случайного")
+    lines.append(f"  ✓≥2.0× хорошо  ⚠≥1.2× слабо  ✗<1.2× не лучше базы")
+    lines.append("   k    n   prec   lift")
+    base = float(y.mean()) if n > 0 else 1.0
+    for k_frac in [0.01, 0.03, 0.05, 0.10]:
+        k_n = max(1, int(n * k_frac))
+        idx = np.argsort(oof_p)[::-1][:k_n]
+        prec = float(np.mean(y[idx]))
+        lift = prec / base if base > 0 else 0.0
+        flag = "✓" if lift >= 2.0 else ("⚠" if lift >= 1.2 else "✗")
+        lines.append(f" {k_frac*100:>3.0f}%  {k_n:>4}  {prec:.3f}  {lift:.1f}× {flag}")
+    lines.append("")
+
+    # 5.4 Calibration
+    lines.append("── 5.4 Калибровка ──")
+    # Таблица показывает: при p_edge в диапазоне [lo, hi] — какой реальный win-rate?
+    # Δ = actual − p̂: если Δ>0 — модель недооценивает (осторожная), Δ<0 — переоценивает.
+    # Для ранжирования сигналов калибровка не критична (нужен только порядок).
+    # Для буквального использования p_edge как вероятности нужно ECE<0.05.
+    lines.append("  Δ=actual−p̂: >0 недооценка (осторожная), <0 переоценка")
+    lines.append("  ECE<0.05=хорошо; при ECE>0.10 p_edge — только для ранжирования")
+    lines.append("Bucket    n    p̂    actual    Δ")
+    max_gap = 0.0
+    for i in range(10):
+        lo, hi = i / 10, (i + 1) / 10
+        mask = (oof_p >= lo) & (oof_p < hi) if i < 9 else (oof_p >= lo) & (oof_p <= hi)
+        if mask.sum() == 0:
+            continue
+        pred_avg = float(np.mean(oof_p[mask]))
+        actual_r = float(np.mean(y[mask]))
+        delta = actual_r - pred_avg
+        max_gap = max(max_gap, abs(delta))
+        flag = "ok" if abs(delta) < 0.10 else ("⚠" if abs(delta) < 0.20 else "✗")
+        lines.append(f"{lo:.1f}-{hi:.1f}  {mask.sum():>4}  {pred_avg:.3f}  {actual_r:.3f}  {delta:+.3f} {flag}")
+
+    ece_val = 0.0
+    if valid.sum() > 0:
+        yv = y[valid].astype(float)
+        pv = oof_p[valid]
+        for i in range(10):
+            lo, hi = i / 10, (i + 1) / 10
+            mask = (pv >= lo) & (pv < hi) if i < 9 else (pv >= lo) & (pv <= hi)
+            if mask.sum() == 0:
+                continue
+            ece_val += (mask.sum() / len(yv)) * abs(float(np.mean(yv[mask])) - float(np.mean(pv[mask])))
+
+    cal_flag = "✓" if max_gap < 0.10 else ("⚠" if max_gap < 0.20 else "✗")
+    lines.append(f"ECE={ece_val:.4f}  max_gap={max_gap:.3f} {cal_flag}")
+    lines.append("")
+
+    _append_train_metrics(lines, metrics)
+    _append_status_line(lines, status, metrics)
+    return "\n".join(lines)
+
+
+def _append_train_metrics(lines: list[str], metrics: dict[str, Any]) -> None:
+    lr_m = (metrics.get("lr") or {}).get("metrics") or {}
+    gbdt_m = (metrics.get("gbdt") or {}).get("metrics") or {}
+    if lr_m or gbdt_m:
+        lines.append("── Метрики моделей ──")
+        # LR (логистическая регрессия) — champion: быстрая, стабильная, хорошо калибруется.
+        # GBDT (градиентный бустинг) — challenger: ловит нелинейности, но переобучается на малом n.
+        # Если GBDT сильно обгоняет LR по AUC, это может быть переобучением — смотри фолды.
+        lines.append("  LR=champion (быстро, стабильно)  GBDT=challenger (нелинейности)")
+    if lr_m:
+        ho = (metrics.get("lr") or {}).get("holdout_metrics") or {}
+        ho_str = f"  holdout_AUC={ho['roc_auc']:.3f}" if ho.get("roc_auc") else ""
+        lines.append(f"LR:   AUC={lr_m.get('roc_auc_mean', 0):.3f}  Brier={lr_m.get('brier_mean', 0):.4f}{ho_str}")
+    if gbdt_m:
+        lines.append(f"GBDT: AUC={gbdt_m.get('roc_auc_oof', 0):.3f}  Brier={gbdt_m.get('brier_oof', 0):.4f}  (OOF на всём датасете)")
+
+
+def _append_status_line(lines: list[str], status: str, metrics: dict[str, Any]) -> None:
+    promoted = (metrics.get("publish") or {}).get("promoted") or []
+    skips = [
+        (metrics.get("publish") or {}).get("promote_skip_lr"),
+        (metrics.get("publish") or {}).get("promote_skip_gbdt"),
+    ]
+    lines.append("── Итог ──")
+    if status == "ok":
+        if promoted:
+            kinds = ", ".join(p.get("kind", "?") for p in promoted)
+            lines.append(f"✅ Промоутировано: [{kinds}]")
+            # promoted = модель записана в cfg:ml_confirm:champion/challenger в режиме SHADOW.
+            # Для перевода в enforce нужно вручную изменить mode=ENFORCE в Redis.
+            lines.append("  Режим SHADOW — enforce включить вручную через Redis")
+        else:
+            skip_reason = next((s for s in skips if s), "candidate_only")
+            lines.append(f"✅ Кандидат записан  (промоут пропущен: {skip_reason})")
+            # candidate_only = V14_PROMOTE_AUTO=0. Модель сохранена в файл,
+            # но в Redis cfg:ml_confirm не записана. Промоут выполняется вручную.
+            lines.append("  cfg:ml_confirm не обновлён — для активации нужен ручной промоут")
+    elif status == "skipped_small_dataset":
+        lines.append("⚠ Пропущено — датасет слишком мал")
+        min_rows = int(os.environ.get("V14_MIN_DATASET_ROWS", "500"))
+        lines.append(f"  Нужно ≥{min_rows} строк (V14_MIN_DATASET_ROWS). Накопи больше меток.")
+    else:
+        lines.append(f"✗ Ошибка: {status}")
+
+
+def _notify_train_report(
+    *,
+    redis_url: str,
+    metrics: dict[str, Any],
+    dataset_path: Path,
+    tb_path: Path,
+    status: str,
+    elapsed_sec: float,
+) -> None:
+    """Best-effort: build validation report and push to notify:telegram stream."""
+    try:
+        text = _build_train_report_text(
+            metrics=metrics,
+            dataset_path=dataset_path,
+            tb_path=tb_path,
+            status=status,
+            elapsed_sec=elapsed_sec,
+        )
+        if not text:
+            logger.warning("notify_train_report: empty report, skipping")
+            return
+        import redis as _redis_mod
+        r: Any = _redis_mod.Redis.from_url(redis_url, decode_responses=True)
+        stream = _env("NOTIFY_TELEGRAM_STREAM", "notify:telegram")
+        r.xadd(
+            stream,
+            {"type": "report", "subtype": "v14_of_train", "text": text, "ts": str(int(time.time() * 1000))},
+            maxlen=200000,
+            approximate=True,
+        )
+        logger.info("train report sent → %s", stream)
+    except Exception as e:
+        logger.warning("notify_train_report failed (best-effort): %s", e)
 
 
 def main() -> int:
@@ -728,6 +1232,7 @@ def main() -> int:
         labels_stream=_env("V14_LABELS_STREAM", "labels:tb"),
         inputs_max=_env_int("V14_INPUTS_MAX_RECORDS", 5000),
         labels_max=_env_int("V14_LABELS_MAX_RECORDS", 5000),
+        labels_since_hours=_env_int("V14_LABELS_SINCE_HOURS", 168),
         work_dir=work_dir,
     )
     if paths is None:
@@ -772,7 +1277,8 @@ def main() -> int:
         ts_str = time.strftime("%Y%m%d_%H%M%S", time.gmtime())
 
         # Stage 5: train LR baseline
-        lr_info = stage_train_lr(dataset_path=dataset_path, out_dir=out_dir, ts_str=ts_str)
+        lr_info = stage_train_lr(dataset_path=dataset_path, out_dir=out_dir, ts_str=ts_str,
+                                 holdout_hours=_env_int("V14_HOLDOUT_HOURS", 24))
         metrics["lr"] = lr_info
 
         # Stage 6: train GBDT challenger
@@ -793,6 +1299,7 @@ def main() -> int:
                 auto_promote=bool(args.auto_promote),
                 promote_brier_max=_env_float("V14_PROMOTE_BRIER_MAX", 0.20),
                 promote_ece_max=_env_float("V14_PROMOTE_ECE_MAX", 0.10),
+                promote_holdout_min_auc=_env_float("V14_PROMOTE_HOLDOUT_MIN_AUC", 0.55),
             )
             metrics["publish"] = pub_info
 
@@ -804,11 +1311,30 @@ def main() -> int:
     metrics_key = _env("V14_TRAIN_METRICS_KEY", "metrics:v14_of_train:last")
     try:
         import redis
-        r = redis.Redis.from_url(redis_url, decode_responses=True)
+        r: Any = redis.Redis.from_url(redis_url, decode_responses=True)
         r.set(metrics_key, json.dumps(metrics, separators=(",", ":")))
+        
+        # Keep legacy SRE monitor happy (ml_sre_monitor.py expects these keys)
+        r.set("meta_model:last_train_ts_ms", metrics["finished_at_ms"])
+        if status == "ok":
+            r.set("meta_model:last_status", "ok")
+        else:
+            r.set("meta_model:last_status", f"err:{status}")
+            
         logger.info("wrote summary → %s (elapsed=%.1fs status=%s)", metrics_key, metrics["elapsed_sec"], status)
     except Exception as e:
         logger.warning("failed to write summary metrics to redis: %s", e)
+
+    # Stage 8: send Telegram report (best-effort, does not affect exit code)
+    if _env_int("V14_NOTIFY_ENABLED", 1):
+        _notify_train_report(
+            redis_url=redis_url,
+            metrics=metrics,
+            dataset_path=dataset_path,
+            tb_path=tb_path,
+            status=status,
+            elapsed_sec=metrics["elapsed_sec"],
+        )
 
     return 0
 

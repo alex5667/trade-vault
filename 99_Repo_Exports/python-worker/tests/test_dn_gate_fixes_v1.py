@@ -182,8 +182,8 @@ def _patch_dn_counter():
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_dn_gate_veto_calibrator_not_called():
-    """Stage 1 veto → tick_dn_calib.update() must NOT be called."""
+async def test_dn_gate_veto_calibrator_is_called():
+    """Stage 1 veto → tick_dn_calib.update() MUST be called (EXPERT FIX 2026-02-15)."""
     # delta = 10 USD, tier0 = 1 000 000 → well below tier0 → tier = -1 → veto
     calib = _SpyDNCalib(tier0=1_000_000.0, tier1=2_000_000.0, tier2=3_000_000.0)
     facade = _make_facade()
@@ -198,8 +198,8 @@ async def test_dn_gate_veto_calibrator_not_called():
         result = await engine.process_tick(rt, _make_tick(delta_abs=10.0))
 
     assert result is None, "expected veto (return None)"
-    assert calib.update_calls == [], (
-        "calibrator must NOT be updated for a vetoed tick (Fix 1)"
+    assert len(calib.update_calls) == 1, (
+        "calibrator MUST be updated even for a vetoed tick (EXPERT FIX)"
     )
 
 

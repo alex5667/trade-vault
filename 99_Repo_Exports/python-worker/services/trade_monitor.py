@@ -516,6 +516,12 @@ def parse_open_position_hash(
                     pos.meta_enforce_applied = int(float(h[MetaKeys.ENFORCE_APPLIED]))
                 except (ValueError, TypeError):
                     pos.meta_enforce_applied = -1
+            pos.meta_enforce_key = h.get(MetaKeys.ENFORCE_KEY) or ""
+            pos.meta_enforce_salt = h.get(MetaKeys.ENFORCE_SALT) or ""
+            try:
+                pos.meta_veto = int(float(h.get(MetaKeys.VETO) or 0))
+            except (ValueError, TypeError):
+                pos.meta_veto = 0
         except Exception:
             pass
 

@@ -188,7 +188,14 @@ def _parse_trade(fields: dict[str, Any]) -> dict[str, Any] | None:
 
 
 def _knob_lift(knob: str, trade: dict[str, Any], be_fee_bps: float = 6.0) -> float | None:
-    """Per-trade counterfactual lift_R for given knob. None if not eligible."""
+    """Per-trade counterfactual lift_R for given knob. None if not eligible.
+
+    Eligibility is knob-specific: a trade is included in the mean only when
+    the candidate would actually change the outcome (a "would-have-fired"
+    event). Trades that the candidate cannot affect return None so that the
+    denominator is restricted to eligible-only — preventing zeros from
+    diluting the mean toward 0 (Plan 1.1 follow-up 2026-05-29).
+    """
     mfe_r = trade["mfe_r"]
     pnl_r = trade["pnl_r"]
     kind  = KNOB_SPECS[knob]["kind"]
@@ -198,7 +205,7 @@ def _knob_lift(knob: str, trade: dict[str, Any], be_fee_bps: float = 6.0) -> flo
     if kind == "tp1_partial":
         # TP1@0.5R + close 50%; remaining 50% rides to actual exit.
         if mfe_r < 0.5:
-            return 0.0  # no hypothetical TP1 hit → no change
+            return None  # candidate never fires → not eligible
         partial_r = 0.5 * 0.5  # 50% of qty at 0.5R = 0.25R
         rem_r = 0.5 * pnl_r
         cf = partial_r + rem_r
@@ -207,7 +214,7 @@ def _knob_lift(knob: str, trade: dict[str, Any], be_fee_bps: float = 6.0) -> flo
     if kind == "be_partial":
         # TP1@0.5R + 50% close + BE on remaining (conservative -fee_bps loss).
         if mfe_r < 0.5:
-            return 0.0
+            return None
         partial_r = 0.5 * 0.5
         be_loss_r = -(be_fee_bps / 10_000.0) * 0.5  # fee on remaining 50%
         cf = partial_r + max(be_loss_r, 0.5 * pnl_r)  # whichever better
@@ -220,7 +227,7 @@ def _knob_lift(knob: str, trade: dict[str, Any], be_fee_bps: float = 6.0) -> flo
             keep_r = 0.5 * mfe_r  # OF_LAYER_D_KEEP_FRACTION default
             cf = max(pnl_r, keep_r)
             return cf - pnl_r
-        return 0.0
+        return None
 
     if kind == "trail_mult":
         # Tighter trailing (1.5→1.0 or 1.2→1.0): less giveback when TP1 hit.
@@ -232,7 +239,7 @@ def _knob_lift(knob: str, trade: dict[str, Any], be_fee_bps: float = 6.0) -> flo
             ratio = (current - candidate) / max(current, 1e-6)
             est_recovered = giveback_r * ratio * 0.5  # conservative 50% recovery factor
             return est_recovered
-        return 0.0
+        return None
 
     return None
 

@@ -1135,6 +1135,16 @@ class EntryPolicyGate:
                     base_env="ENTRY_RR_MIN", base_default=1.3,
                     side_norm=_side_norm_thr, regime=_reg_for_thr,
                 )
+                # Autocal override: per-(side × regime) p25-winner RR floor.
+                # Fail-open: returns None → ENV _per_side_regime_threshold above used.
+                if os.getenv("AUTOCAL_ENTRY_RR_READ_ENABLED", "0").lower() in ("1", "true", "yes", "on"):
+                    try:
+                        from services.entry_rr_min_runtime_overrides import get_rr_min as _get_rr_min
+                        _cal_rr = _get_rr_min(_side_norm_thr, _reg_for_thr)
+                        if _cal_rr is not None:
+                            _rr_min = _cal_rr
+                    except Exception:
+                        pass
                 _rr = (_tp / _sl) if _sl > 0 else 0.0
                 _rr_breach = _tp > 0 and _sl > 0 and _rr < _rr_min
                 if _rr_breach:

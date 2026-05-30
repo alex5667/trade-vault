@@ -251,6 +251,33 @@ def _enrich_closed_from_pos(closed: TradeClosed, pos: PositionState, exit_px: fl
     # P41 Native Meta Fields
     closed.meta_enforce_cov_bucket = getattr(pos, "meta_enforce_cov_bucket", "")
     closed.meta_enforce_applied = getattr(pos, "meta_enforce_applied", -1)
+    closed.meta_enforce_key = getattr(pos, "meta_enforce_key", "") or ""
+    closed.meta_enforce_salt = getattr(pos, "meta_enforce_salt", "") or ""
+    closed.meta_veto = getattr(pos, "meta_veto", 0) or 0
+    # Fallback: extract key/salt/veto from signal_payload.indicators.of_confirm.evidence
+    # (PositionState fields may not be populated if position was loaded from hash)
+    if not closed.meta_enforce_key:
+        try:
+            _sp = pos.signal_payload if isinstance(pos.signal_payload, dict) else {}
+            _ind = _sp.get("indicators") or {}
+            if isinstance(_ind, str):
+                import json as _json
+                _ind = _json.loads(_ind)
+            _ev: dict = {}
+            for _oc in ("of_confirm", "of_confirm_v3", "of_confirm_v2", "of"):
+                _oc_d = _ind.get(_oc) if isinstance(_ind, dict) else None
+                if isinstance(_oc_d, dict):
+                    _ev = _oc_d.get("evidence") or {}
+                    if isinstance(_ev, dict) and _ev:
+                        break
+            if _ev:
+                closed.meta_enforce_key = str(_ev.get("meta_enforce_key") or "")
+                if not closed.meta_enforce_salt:
+                    closed.meta_enforce_salt = str(_ev.get("meta_enforce_salt") or "")
+                if closed.meta_veto == 0:
+                    closed.meta_veto = int(_ev.get("meta_veto") or 0)
+        except Exception:
+            pass
 
     # Phase 5: ATR selection metadata for post-trade analytics
     # Extract from meta.atr_profile (enriched in Phase 4 SignalPipeline)

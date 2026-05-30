@@ -32,8 +32,8 @@ class ManipCalibrator:
         self.window_ms = window_ms
         self.bins: dict[str, SymbolManipStats] = {}
 
-    def observe(self, symbol: str, layering_score: float, quote_stuffing_score: float, ts_ms: int = 0) -> None:
-        if not ts_ms:
+    def observe(self, symbol: str, layering_score: float, quote_stuffing_score: float, ts_ms: int | None = None) -> None:
+        if ts_ms is None:
             ts_ms = int(time.time() * 1000)
             
         if symbol not in self.bins:
@@ -45,8 +45,8 @@ class ManipCalibrator:
             quote_stuffing_score=quote_stuffing_score
         ))
 
-    def evict_all(self, now_ms: int = 0) -> None:
-        if not now_ms:
+    def evict_all(self, now_ms: int | None = None) -> None:
+        if now_ms is None:
             now_ms = int(time.time() * 1000)
         cutoff = now_ms - self.window_ms
         for stats in self.bins.values():

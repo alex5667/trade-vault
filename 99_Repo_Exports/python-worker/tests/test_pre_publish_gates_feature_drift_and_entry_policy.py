@@ -80,11 +80,11 @@ def test_regime_session_gate_uses_depth_5_fields_only(monkeypatch):
         # Wrong/legacy fields that MUST NOT be used:
         l2_depth_bid=1e9,
         l2_depth_ask=1e9,
+        regime="normal",
     )
 
     d = gate.evaluate(ctx=ctx, symbol="BTCUSDT", kind="breakout")
-    assert d.apply is True
-    assert d.veto is True
+    assert d.decision == "DENY"
     assert d.reason_code == "VETO_RS_DEPTH"
 
 

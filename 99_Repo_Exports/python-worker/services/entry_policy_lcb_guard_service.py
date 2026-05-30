@@ -43,6 +43,21 @@ _STREAK_PROGRESS = Gauge(
 def _now_ms() -> int:
     return get_ny_time_millis()
 
+def _safe_float(val: Any, default: float = 0.0) -> float:
+    try:
+        v = float(val)
+        if math.isfinite(v):
+            return v
+    except (TypeError, ValueError):
+        pass
+    return default
+
+def _safe_int(val: Any, default: int = 0) -> int:
+    try:
+        return int(val)
+    except (TypeError, ValueError):
+        return default
+
 @dataclass
 class LcbConfig:
     in_stream: str
@@ -122,11 +137,12 @@ class EntryPolicyLcbGuardService:
         ab_group = (payload.get("ab_group", "default")).lower()
         scenario = (payload.get("scenario", "na")).lower()
         regime = (payload.get("regime", "na")).lower()
-        arm_ver = int(payload.get("arm_ver", 0))
+        arm_ver = _safe_int(payload.get("arm_ver", 0))
 
         # Performance data
-        r_mult = float(payload.get("r_mult", 0.0))
-        pnl_net = float(payload.get("pnl", 0.0))
+        r_mult = _safe_float(payload.get("r_mult", 0.0))
+        pnl_net = _safe_float(payload.get("pnl", 0.0))
+
 
         # We only use Arm A to unfreeze, as it's the only one executing during shadow freeze.
         if ab_arm != "A":
@@ -161,7 +177,8 @@ class EntryPolicyLcbGuardService:
             return
 
         # P2: Track active freeze for observability
-        _ACTIVE_FREEZES.labels(symbol=sym, scenario=scenario).inc()
+        _ACTIVE_FREEZES.labels(symbol=sym, scenario=scenario).set(1)
+
 
         # Unfreeze ONLY for shadow-frozen regimes (where Arm A was allowed to provide evidence)
         if fz.mode != "shadow":
@@ -199,7 +216,7 @@ class EntryPolicyLcbGuardService:
 
             # P2: Metric: successful unfreeze + time-to-unfreeze
             _UNFREEZE_ATTEMPTS.labels(symbol=sym, scenario=scenario, result="unfrozen").inc()
-            _ACTIVE_FREEZES.labels(symbol=sym, scenario=scenario).dec()
+            _ACTIVE_FREEZES.labels(symbol=sym, scenario=scenario).set(0)
             time_to_unfreeze = (now - fz.created_ts_ms) / 1000.0  # convert to seconds
             _TIME_TO_UNFREEZE_SECONDS.labels(symbol=sym, scenario=scenario).observe(time_to_unfreeze)
             _STREAK_PROGRESS.labels(symbol=sym, scenario=scenario, regime=regime).set(0)

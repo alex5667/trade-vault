@@ -32,8 +32,11 @@ class BadTimeQuarantinePolicy:
     trigger_streak: int = int(os.getenv("BAD_TIME_TRIGGER_STREAK", "3"))
     quarantine_ms: int = int(os.getenv("BAD_TIME_QUARANTINE_MS", "60000"))
 
-    # "совсем жёстко": отдельный контур freeze state (не кормим EMA/окна), когда время реально сломано
-    state_trigger_streak: int = int(os.getenv("BAD_TIME_STATE_TRIGGER_STREAK", "10"))
+    # "совсем жёстко": отдельный контур freeze state (не кормим EMA/окна), когда время реально сломано.
+    # Bug fix 2026-05-29: было 10 (слишком большой разрыв с trigger_streak=3).
+    # Теперь 5 — state_freeze наступает чуть позже quarantine, но не в 3x разрыве.
+    # Настраивается через BAD_TIME_STATE_TRIGGER_STREAK.
+    state_trigger_streak: int = int(os.getenv("BAD_TIME_STATE_TRIGGER_STREAK", "5"))
     state_freeze_ms: int = int(os.getenv("BAD_TIME_STATE_FREEZE_MS", "15000"))
 
     soft_penalty: float = float(os.getenv("BAD_TIME_SOFT_PENALTY", "0.2"))
@@ -101,6 +104,12 @@ class BadTimeQuarantine:
         self._recovery_ok: int = 0
         self._recovery_deadline_ms: int = 0
         self._last_seen_state_until_ms: int = 0
+
+        # Bug fix 2026-05-29: transition guards for metric emission.
+        # Metrics quarantine.enabled / state_freeze.enabled must fire only once
+        # per transition inactive→active, not on every hard drop after the threshold.
+        self._quarantine_metric_emitted: bool = False
+        self._state_freeze_metric_emitted: bool = False
 
     @property
     def until_ms(self) -> int:
@@ -195,12 +204,19 @@ class BadTimeQuarantine:
         if self._hard_streak >= int(self.policy.trigger_streak) or self._score >= float(self.policy.trigger_score):
             # включаем карантин
             self._until_ms = max(int(self._until_ms), int(now_ms) + int(self.policy.quarantine_ms))
-            self._m("tick.time.quarantine.enabled", 1)
+            # Bug fix 2026-05-29: emit only on first transition inactive→active.
+            # До фикса: метрика стреляла при каждом hard_drop после порога → inflate счётчика.
+            if not self._quarantine_metric_emitted:
+                self._m("tick.time.quarantine.enabled", 1)
+                self._quarantine_metric_emitted = True
 
         # state-freeze (ещё жестче): включаем, когда уже явно "сломано время"
         if self._hard_streak >= int(self.policy.state_trigger_streak) or self._score >= float(self.policy.state_trigger_score):
             self._state_until_ms = max(int(self._state_until_ms), int(now_ms) + int(self.policy.state_freeze_ms))
-            self._m("tick.time.state_freeze.enabled", 1)
+            # Bug fix 2026-05-29: same transition guard for state_freeze metric.
+            if not self._state_freeze_metric_emitted:
+                self._m("tick.time.state_freeze.enabled", 1)
+                self._state_freeze_metric_emitted = True
 
     def on_soft_event(self, flag: str) -> None:
         # мягкие искажения времени: penalize score, но не дергаем streak
@@ -239,6 +255,15 @@ class BadTimeQuarantine:
         self._score = max(0.0, float(self._score) - float(self.policy.decay_per_ok))
         self._reorder_soft_streak = 0
         self._m("tick.time.ok", 1)
+
+        # Bug fix 2026-05-29: reset metric-emission flags when quarantine expires
+        # so that a new quarantine cycle correctly emits the metric again.
+        # We check _until_ms: if it's in the past we're no longer quarantined.
+        now_ms = self._now_ms_fallback()
+        if self._quarantine_metric_emitted and int(now_ms) >= int(self._until_ms):
+            self._quarantine_metric_emitted = False
+        if self._state_freeze_metric_emitted and int(now_ms) >= int(self._state_until_ms):
+            self._state_freeze_metric_emitted = False
 
         # In recovery: count OK streak
         if self._recovery_active:

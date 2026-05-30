@@ -134,11 +134,18 @@ class ExecutionRouter:
         # Block scale-in when owner FSM is in mid-flight state (PROTECTION_ARMING,
         # PROTECTION_REPLACING, PENDING_RECONCILE).  Default ON for safety.
         self.reconcile_first = _env_bool("EXEC_ROUTER_RECONCILE_FIRST", True)
-        # Hard deadline for PROTECTION_ARMING: if the owner has been arming longer
-        # than this many ms (even with reconcile_first=False), block scale-in.
-        # Mirrors PROTECTION_ARM_TIMEOUT_MS in binance_executor.py (default 2500ms)
-        # with an extra safety margin.  Set to 0 to disable the hard deadline.
+        # Hard deadline for PROTECTION_ARMING. binance_executor default is 2500ms;
+        # router uses 5000ms as a conservative fallback when calibrator is cold.
+        # When AUTOCAL_EXEC_LATENCY_READ_ENABLED=1, the calibrated router_ms overrides
+        # this at check time. Set to 0 to disable the hard deadline entirely.
         self.protection_arm_timeout_ms = _env_int("EXEC_ROUTER_PROTECTION_ARM_TIMEOUT_MS", 5000)
+        self._exec_latency_reader: Any = None
+        try:
+            if os.getenv("AUTOCAL_EXEC_LATENCY_READ_ENABLED", "0").lower() in {"1", "true", "yes", "on"}:
+                from services.exec_latency_timeout_runtime_overrides import get_reader as _get_el_reader
+                self._exec_latency_reader = _get_el_reader()
+        except Exception:
+            self._exec_latency_reader = None
 
         # Dynamic WCL budget: per_leg = deposit * risk_pct / 100, total = per_leg * max_legs
         # Falls back to EXEC_ROUTER_RISK_BUDGET_USDT if set explicitly.
@@ -172,6 +179,19 @@ class ExecutionRouter:
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
+
+    def _get_protection_arm_timeout_ms(self) -> int:
+        """Return effective arm timeout: calibrated router_ms when warm, else ENV default."""
+        if self._exec_latency_reader is not None:
+            try:
+                tup = self._exec_latency_reader.get_timeouts()
+                if tup is not None:
+                    _, router_ms = tup
+                    if router_ms > 0:
+                        return int(router_ms)
+            except Exception:
+                pass
+        return self.protection_arm_timeout_ms
 
     def _load_active_guard(self, symbol: str) -> dict[str, Any]:
         """Load active symbol guard doc from Redis."""
@@ -238,7 +258,8 @@ class ExecutionRouter:
             # 0a. Hard deadline: if arming has been running longer than
             #     protection_arm_timeout_ms (even with reconcile_first=False),
             #     the position may be unprotected — always block.
-            if owner_fsm == _FSM_PROTECTION_ARMING and self.protection_arm_timeout_ms > 0:
+            _arm_timeout_ms = self._get_protection_arm_timeout_ms()
+            if owner_fsm == _FSM_PROTECTION_ARMING and _arm_timeout_ms > 0:
                 # fsm_ts_ms is written by _transition_state in the executor when
                 # entering PROTECTION_ARMING.  Fall back to updated_at_ms / ts_ms.
                 arm_started_ms = int(
@@ -250,13 +271,13 @@ class ExecutionRouter:
                 )
                 if arm_started_ms > 0:
                     age_ms = _ms_now() - arm_started_ms
-                    if age_ms > self.protection_arm_timeout_ms:
+                    if age_ms > _arm_timeout_ms:
                         return {
                             "ok": False,
                             "reason": "protection_arm_timeout",
                             "owner_fsm": owner_fsm,
                             "arm_age_ms": age_ms,
-                            "timeout_ms": self.protection_arm_timeout_ms,
+                            "timeout_ms": _arm_timeout_ms,
                         }
 
             # 0b. Reconcile-first: block while owner is in any unsafe FSM state.

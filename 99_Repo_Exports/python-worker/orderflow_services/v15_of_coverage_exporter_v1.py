@@ -271,12 +271,24 @@ def main() -> None:  # pragma: no cover — integration entry
     port = int(os.getenv("V15_OF_COV_EXPORTER_PORT", "9902"))
     interval_s = float(os.getenv("V15_OF_COV_EXPORTER_INTERVAL_S", "60"))
     batch_size = int(os.getenv("V15_OF_COV_BATCH_SIZE", "2000"))
+    # min_samples: skip the cycle until at least this many records are in
+    # the window. Default 100 → ±2% binomial standard error at 95%
+    # coverage, robust enough for promotion-gate alerting. The companion
+    # `V15_OF_COV_WINDOW_MS` (default 4h) is sized so even a slow shadow
+    # stream (~36 signals/h) accumulates ≥100 records before each cycle.
     min_samples = int(os.getenv("V15_OF_COV_MIN_SAMPLES", "100"))
     dead_floor = float(os.getenv("V15_OF_COV_DEAD_KEY_FLOOR", "0.05"))
     dead_hash_key = os.getenv("V15_OF_COV_DEAD_KEY_HASH_KEY", "metrics:v15_of_coverage:dead_keys")
     # 48h-gate promotion floor: a shadow group is promotion-ready when every
     # key in it has coverage≥this floor over the last window.
     shadow_gate_floor = float(os.getenv("V15_OF_COV_SHADOW_GATE_FLOOR", "0.95"))
+    # Time-window cap (ms). When > 0, only records with stream-id timestamp
+    # within `now − window_ms` are counted. Lets coverage track the live
+    # producer state without being diluted by stale rolling-window records
+    # left over from a producer/enricher restart. 0 = disabled (legacy mode).
+    # 4h default → fits ≥100 records at the canonical shadow signal rate
+    # (~36/h). Tune up for prod streams or down when accelerating restarts.
+    window_ms = int(os.getenv("V15_OF_COV_WINDOW_MS", "14400000"))  # 4h
     shadow_dead_hash_key = os.getenv(
         "V15_OF_COV_SHADOW_DEAD_KEY_HASH_KEY",
         "metrics:v15_of_coverage:shadow_dead_keys",
@@ -296,7 +308,19 @@ def main() -> None:  # pragma: no cover — integration entry
 
     while True:
         try:
-            entries = r.xrevrange(stream_key, count=batch_size)  # type: ignore[misc]
+            # Time-window filter: ask Redis for only entries within the cap
+            # so a slow signal flow rate can't dilute coverage with stale
+            # pre-restart records. When window_ms<=0 the legacy behavior
+            # (last `batch_size` regardless of age) is preserved.
+            if window_ms > 0:
+                cutoff_ms = int(time.time() * 1000) - window_ms
+                entries = r.xrange(  # type: ignore[misc]
+                    stream_key,
+                    min=f"{cutoff_ms}-0",
+                    count=batch_size,
+                )
+            else:
+                entries = r.xrevrange(stream_key, count=batch_size)  # type: ignore[misc]
             records = [fields for _id, fields in (entries or [])]  # type: ignore[misc]
             WINDOW_SIZE.set(len(records))
             UP.set(1)

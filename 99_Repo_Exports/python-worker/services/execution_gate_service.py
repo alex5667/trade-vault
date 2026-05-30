@@ -303,14 +303,15 @@ class ExecutionGateService:
             # Always count
             proposals_received_total.labels(symbol=symbol).inc()
 
-            is_virtual = bool(data.get("is_virtual", 0) or 0)
+            is_virtual_raw = data.get("is_virtual", 0)
+            is_virtual = str(is_virtual_raw).lower() in ("1", "true", "yes")
 
             # --- VIRTUAL SHADOW mode (legacy): always proceed, match if possible ---
             if is_virtual and not self.enforce_virtual:
                 matched_confirm = self._try_match_confirm_for_proposal(proposal)
                 if matched_confirm is not None:
                     proposal.payload["validation_status"] = (
-                        "passed" if matched_confirm.data.get("ok") == 1 else "failed"
+                        "passed" if int(matched_confirm.data.get("ok", 0)) == 1 else "failed"
                     )
                     proposal.payload["validation_reason"] = matched_confirm.data.get(
                         "reason", "confirmed"
@@ -421,7 +422,7 @@ class ExecutionGateService:
                 symbol, direction, ts_ms
             )
             if matched_prop is not None:
-                ok = data.get("ok", 0)
+                ok = int(data.get("ok", 0))
                 matched_prop.payload["validation_status"] = (
                     "passed" if ok == 1 else "failed"
                 )
@@ -475,7 +476,8 @@ class ExecutionGateService:
     ):
         """Publish the verified order to the execution queue."""
         try:
-            is_virtual = bool(proposal.payload.get("is_virtual", 0) or 0)
+            is_virtual_raw = proposal.payload.get("is_virtual", 0)
+            is_virtual = str(is_virtual_raw).lower() in ("1", "true", "yes")
 
             # --- OVERRIDE FOR GLOBAL VIRTUAL MODE ---
             if self.shadow_only:
@@ -569,7 +571,11 @@ class ExecutionGateService:
                         exec_gate_qty_mismatch.labels(symbol=proposal.symbol).inc()
                     order_payload["qty"] = new_qty
 
-            has_qty = order_payload.get("qty") is not None or order_payload.get("quantity") is not None or order_payload.get("lot") is not None
+            try:
+                has_qty = float(order_payload.get("qty") or 0.0) > 0
+            except ValueError:
+                has_qty = False
+                
             has_sl = order_payload.get("sl") is not None
             has_tp = bool(order_payload.get("tp_levels"))
             if not has_qty or not has_sl or not has_tp:

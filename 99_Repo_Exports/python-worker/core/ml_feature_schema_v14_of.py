@@ -3,9 +3,9 @@ from __future__ import annotations
 """v14_of — v13_of (242 keys, academic) + v5_additions (execution/TCA/queue/
 cross-symbol + OG rule-gate consensus + Phase 8.1 OE composites).
 
-359-key frozen schema. The 156-key gap vs external_features_payload_v1.py
+359-key frozen schema. The gap vs external_features_payload_v1.py
 (Phase 8.2/8.3/8.4/8.5/P1/P2/P3/4.x — Hawkes, cross-venue, cg_*, dl_*,
-deribit term structure, macro calendar, etc.) is closed in v15_of (515 keys).
+deribit term structure, macro calendar, etc.) is closed in v15_of (531 keys).
 nightly_v14_of_train_bundle defaults to V14_FEATURE_SCHEMA_VER=v15_of since
 2026-05-22; use V14_FEATURE_SCHEMA_VER=v14_of to compare against this baseline."""
 

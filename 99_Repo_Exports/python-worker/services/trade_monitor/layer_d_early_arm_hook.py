@@ -93,6 +93,14 @@ class _Config:
         if env_mode not in ("off", "shadow", "enforce"):
             env_mode = "off"
 
+        # arm_threshold_r reads autocal reader (has own redis) — update in every path.
+        _arm_env = _env_f("OF_LAYER_D_ARM_THRESHOLD_R", 0.25)
+        try:
+            from services.tp_sl_trailing_runtime_overrides import get_override as _tp_ov
+            self.arm_threshold_r = _tp_ov("arm_threshold_r", _arm_env)
+        except Exception:
+            self.arm_threshold_r = _arm_env
+
         # Redis hot-override + canary symbols + HMAC verify
         if redis_client is None:
             self.mode = env_mode
@@ -149,7 +157,6 @@ class _Config:
 
         self.canary_symbols = {s.strip().upper()
                                for s in str(symbols).split(",") if s.strip()}
-        self.arm_threshold_r = _env_f("OF_LAYER_D_ARM_THRESHOLD_R", 0.25)
 
 
 _CFG = _Config()

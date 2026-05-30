@@ -395,6 +395,15 @@ def _fmt(stats: dict[str, Any], alerts: list[dict[str, Any]], *, window_min: int
         f"dn_avg=${_f(stats.get('dn_usd_avg',0.0),0.0):,.0f} thresh_avg=${_f(stats.get('dn_thresh_avg',0.0),0.0):,.0f}"
     )
 
+    miss_top = stats.get("missing_legs_top", [])
+    if isinstance(miss_top, list) and miss_top:
+        try:
+            pairs = [f"{d.get('leg','')}:{int(d.get('n',0))}" for d in miss_top[:5]]
+            lines.append("missing_legs=" + ",".join(pairs))
+        except Exception:
+            pass
+
+
     if alerts:
         lines.append("ALERTS:")
         for a in alerts:

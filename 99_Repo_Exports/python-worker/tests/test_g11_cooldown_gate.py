@@ -1,4 +1,4 @@
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -7,6 +7,11 @@ from core.pressure_tracker import PressureTracker
 from services.orderflow.runtime import SymbolRuntime
 from services.orderflow.strategy import OrderFlowStrategy
 
+
+@pytest.fixture(autouse=True)
+def patch_redis():
+    with patch("redis.from_url"), patch("core.redis_client.get_redis"):
+        yield
 
 @pytest.fixture
 def runtime():
@@ -197,3 +202,61 @@ async def test_g11_direction_normalization(runtime):
     # Should be buffered (different direction triggers longer cooldown)
     assert res is None
     assert runtime.pending_payload is not None
+
+@pytest.mark.asyncio
+async def test_g11_burst_min_gap_integration(runtime):
+    # Setup Strategy
+    redis_mock = AsyncMock()
+    ticks_mock = AsyncMock()
+    pub_mock = AsyncMock()
+    of_engine = MagicMock()
+
+    strategy = OrderFlowStrategy(redis_mock, ticks_mock, pub_mock, of_engine)
+
+    # 1. First payload passes immediately
+    payload1 = {
+        "direction": "LONG",
+        "confidence": 0.8,
+        "indicators": {"strong_gate_scn": "reversal", "of_confirm_score": 0.8}
+    }
+    runtime.last_signal_ts = 0
+
+    res1 = await strategy._emit_payload(runtime, payload1, now_ms=100000)
+    assert res1 == payload1
+
+    # Simulate emission
+    runtime.last_signal_ts = 100000
+    runtime.last_emit_dir = "LONG"
+
+    # 2. Second payload arrives after normal cooldown (age 40s > 30s)
+    # BUT BURST_MIN_GAP_SEC is set to 60s
+    payload2 = {
+        "direction": "SHORT",
+        "confidence": 0.9,
+        "indicators": {"strong_gate_scn": "reversal", "of_confirm_score": 0.9}
+    }
+    
+    with patch("os.environ.get", side_effect=lambda k, d=None: "120" if k == "BURST_MIN_GAP_SEC" else d):
+        # 40 seconds later
+        now_ms = 100000 + 40000
+        res2 = await strategy._emit_payload(runtime, payload2, now_ms=now_ms)
+        
+        # It should be buffered because burst gap is 60s
+        assert res2 is None
+        assert runtime.pending_payload == payload2
+        assert runtime.burst_gate_would_veto == 1
+        assert runtime.burst_gate_floor_ms == 120000
+
+        # 3. Third payload arrives at 70s later (passes burst gap)
+        payload3 = {
+            "direction": "SHORT",
+            "confidence": 0.9,
+            "indicators": {"strong_gate_scn": "reversal", "of_confirm_score": 0.9}
+        }
+        now_ms = 100000 + 130000
+        res3 = await strategy._emit_payload(runtime, payload3, now_ms=now_ms)
+        
+        # It emits the pending payload from earlier because they have same score, actually pending_score is 0.9 and cur is 0.9
+        # So pending takes precedence
+        assert res3 == payload2
+        assert runtime.burst_gate_would_veto == 1

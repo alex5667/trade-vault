@@ -1,89 +1,150 @@
-import json
-from types import SimpleNamespace
+import unittest
+from unittest.mock import MagicMock
+from handlers.crypto_orderflow.utils.pre_publish_gates import SmtCoherenceGate
 
-import pytest
+class TestSmtCoherenceGate(unittest.TestCase):
+    def setUp(self):
+        # Default enabled gate with 0.65 threshold and observe mode
+        self.gate = SmtCoherenceGate(
+            enabled=True,
+            mode="observe",
+            bundle_id="btc_eth_v1",
+            coh_min=0.65,
+            state_stale_ms=5000,
+            diag_stream="",
+            diag_enabled=False,
+            diag_maxlen=1000
+        )
+        self.ctx = MagicMock()
+        self.ctx.indicators = {}
+        self.ctx.config = {}
+        self.ctx.ts_ms = 1000000000000  # 2001-09-09
 
-from handlers.crypto_orderflow.utils.smt_coherence_gate import SmtLeaderCoherenceGate
-from tests.fake_redis import FakeRedis
+        self.redis_mock = MagicMock()
+        
+    def test_disabled_gate(self):
+        self.gate.enabled = False
+        res = self.gate.evaluate(ctx=self.ctx, redis_client=self.redis_mock, symbol="ALGOUSDT", kind="buy", side="LONG")
+        self.assertEqual(res.decision, "ABSTAIN")
+        self.assertEqual(res.reason_code, "OK")
 
+    def test_missing_state_fail_open(self):
+        self.redis_mock.hgetall.return_value = {}
+        res = self.gate.evaluate(ctx=self.ctx, redis_client=self.redis_mock, symbol="ALGOUSDT", kind="buy", side="LONG")
+        self.assertEqual(res.decision, "ALLOW")
+        self.assertEqual(res.notes.get("msg"), "no_state_or_stale")
 
-def _mk_state(*, leader="BTCUSDT", leader_dir="UP", leader_confirm=1, coh=0.72):
-    return {"leader": leader, "leader_dir": leader_dir, "leader_confirm": int(leader_confirm), "coh": float(coh)}
+    def test_stale_state_fail_open(self):
+        # Current time is ~2026, state is 2001
+        self.redis_mock.hgetall.return_value = {
+            b"leader": b"BTCUSDT",
+            b"leader_dir": b"UP",
+            b"leader_confirm": b"1",
+            b"coh": b"0.8",
+            b"ts_ms": b"1000000000000"
+        }
+        res = self.gate.evaluate(ctx=self.ctx, redis_client=self.redis_mock, symbol="ALGOUSDT", kind="buy", side="LONG")
+        self.assertEqual(res.decision, "ALLOW")
+        self.assertEqual(res.notes.get("msg"), "no_state_or_stale")
+        self.assertTrue(self.ctx.smt_state_stale)
 
+    def test_observe_mode_always_allows(self):
+        import time
+        now_ms = time.time() * 1000
+        self.redis_mock.hgetall.return_value = {
+            b"leader": b"BTCUSDT",
+            b"leader_dir": b"DOWN",
+            b"leader_confirm": b"1",
+            b"coh": b"0.9",
+            b"ts_ms": str(now_ms).encode("utf-8")
+        }
+        # Countertrend (leader is DOWN, signal is LONG), but mode is observe
+        self.gate.mode = "observe"
+        res = self.gate.evaluate(ctx=self.ctx, redis_client=self.redis_mock, symbol="ALGOUSDT", kind="buy", side="LONG")
+        self.assertEqual(res.decision, "ALLOW")
+        self.assertEqual(res.notes.get("msg"), "observe_only")
+        self.assertTrue(res.notes.get("countertrend"))
+        
+        # Verify context is enriched
+        self.assertEqual(self.ctx.smt_leader_dir, "DOWN")
+        self.assertEqual(self.ctx.smt_leader_confirm, 1)
+        self.assertEqual(self.ctx.smt_coh, 0.9)
+        self.assertFalse(self.ctx.smt_state_stale)
 
-def test_smt_gate_observe_attaches_ctx_fields(monkeypatch):
-    r = FakeRedis()
-    monkeypatch.setenv("SMT_COH_BUNDLE", "btc_eth_sol")
-    monkeypatch.setenv("SMT_LEADER_MODE", "observe")
-    monkeypatch.setenv("SMT_COH_HI_THRESHOLD", "0.65")
+    def test_monitor_mode_alias_for_observe(self):
+        import time
+        now_ms = time.time() * 1000
+        self.redis_mock.hgetall.return_value = {
+            b"leader": b"BTCUSDT",
+            b"leader_dir": b"DOWN",
+            b"leader_confirm": b"1",
+            b"coh": b"0.9",
+            b"ts_ms": str(now_ms).encode("utf-8")
+        }
+        self.gate.mode = "monitor"
+        res = self.gate.evaluate(ctx=self.ctx, redis_client=self.redis_mock, symbol="ALGOUSDT", kind="buy", side="LONG")
+        self.assertEqual(res.decision, "ALLOW")
+        self.assertEqual(res.notes.get("msg"), "observe_only")
 
-    r.set("smt:bundle:v1:btc_eth_sol", json.dumps(_mk_state(), ensure_ascii=False))
-    g = SmtLeaderCoherenceGate.from_env(redis_client=r)
+    def test_veto_mode_allows_trend(self):
+        import time
+        now_ms = time.time() * 1000
+        self.redis_mock.hgetall.return_value = {
+            b"leader": b"BTCUSDT",
+            b"leader_dir": b"UP",
+            b"leader_confirm": b"1",
+            b"coh": b"0.8",
+            b"ts_ms": str(now_ms).encode("utf-8")
+        }
+        self.gate.mode = "veto"
+        # Trend (leader is UP, signal is LONG)
+        res = self.gate.evaluate(ctx=self.ctx, redis_client=self.redis_mock, symbol="ALGOUSDT", kind="buy", side="LONG")
+        self.assertEqual(res.decision, "ALLOW")
 
-    ctx = SimpleNamespace(ts_ms=1_700_000_000_000)
-    dec = g.evaluate(ctx=ctx, symbol="ETHUSDT", kind="absorption", direction="LONG")
+    def test_veto_mode_blocks_countertrend(self):
+        import time
+        now_ms = time.time() * 1000
+        self.redis_mock.hgetall.return_value = {
+            b"leader": b"BTCUSDT",
+            b"leader_dir": b"DOWN",
+            b"leader_confirm": b"1",
+            b"coh": b"0.8",
+            b"ts_ms": str(now_ms).encode("utf-8")
+        }
+        self.gate.mode = "veto"
+        # Countertrend (leader is DOWN, signal is LONG)
+        res = self.gate.evaluate(ctx=self.ctx, redis_client=self.redis_mock, symbol="ALGOUSDT", kind="buy", side="LONG")
+        self.assertEqual(res.decision, "DENY")
+        self.assertEqual(res.reason_code, "VETO_SMT_COUNTERTREND")
+        self.assertEqual(res.notes.get("coh"), 0.8)
 
-    assert dec.apply is True
-    assert dec.veto is False
+    def test_veto_mode_allows_countertrend_low_coherence(self):
+        import time
+        now_ms = time.time() * 1000
+        self.redis_mock.hgetall.return_value = {
+            b"leader": b"BTCUSDT",
+            b"leader_dir": b"DOWN",
+            b"leader_confirm": b"1",
+            b"coh": b"0.4", # Lower than 0.65 threshold
+            b"ts_ms": str(now_ms).encode("utf-8")
+        }
+        self.gate.mode = "veto"
+        res = self.gate.evaluate(ctx=self.ctx, redis_client=self.redis_mock, symbol="ALGOUSDT", kind="buy", side="LONG")
+        self.assertEqual(res.decision, "ALLOW")
 
-    # Required audit fields
-    assert ctx.smt_bundle_id == "btc_eth_sol"
-    assert ctx.smt_leader == "BTCUSDT"
-    assert ctx.smt_leader_dir == "UP"
-    assert int(ctx.smt_leader_confirm) == 1
-    assert float(ctx.smt_coh) == pytest.approx(0.72)
-    assert int(ctx.smt_coh_hi) == 1
-    assert int(ctx.smt_align) == 1
-    assert int(ctx.smt_blocked) == 0
+    def test_veto_mode_allows_countertrend_leader_not_confirmed(self):
+        import time
+        now_ms = time.time() * 1000
+        self.redis_mock.hgetall.return_value = {
+            b"leader": b"BTCUSDT",
+            b"leader_dir": b"DOWN",
+            b"leader_confirm": b"0", # Leader not confirmed
+            b"coh": b"0.8",
+            b"ts_ms": str(now_ms).encode("utf-8")
+        }
+        self.gate.mode = "veto"
+        res = self.gate.evaluate(ctx=self.ctx, redis_client=self.redis_mock, symbol="ALGOUSDT", kind="buy", side="LONG")
+        self.assertEqual(res.decision, "ALLOW")
 
-
-def test_smt_gate_veto_only_countertrend_when_confirm_and_coh_hi(monkeypatch):
-    r = FakeRedis()
-    monkeypatch.setenv("SMT_COH_BUNDLE", "btc_eth_sol")
-    monkeypatch.setenv("SMT_LEADER_MODE", "veto")
-    monkeypatch.setenv("SMT_COH_HI_THRESHOLD", "0.65")
-
-    r.set("smt:bundle:v1:btc_eth_sol", json.dumps(_mk_state(leader_dir="UP", leader_confirm=1, coh=0.80), ensure_ascii=False))
-    g = SmtLeaderCoherenceGate.from_env(redis_client=r)
-
-    # Countertrend: SHORT while leader_dir=UP
-    ctx = SimpleNamespace(ts_ms=1_700_000_000_000)
-    dec = g.evaluate(ctx=ctx, symbol="ETHUSDT", kind="absorption", direction="SHORT")
-
-    assert dec.apply is True
-    assert dec.veto is True
-    assert dec.reason_code == "VETO_SMT_COUNTERTREND"
-    assert int(ctx.smt_blocked) == 1
-    assert str(ctx.smt_block_reason) == "COUNTERTREND_VS_CONFIRMED_LEADER"
-
-
-def test_smt_gate_veto_mode_does_not_veto_when_align(monkeypatch):
-    r = FakeRedis()
-    monkeypatch.setenv("SMT_COH_BUNDLE", "btc_eth_sol")
-    monkeypatch.setenv("SMT_LEADER_MODE", "veto")
-    monkeypatch.setenv("SMT_COH_HI_THRESHOLD", "0.65")
-
-    r.set("smt:bundle:v1:btc_eth_sol", json.dumps(_mk_state(leader_dir="DOWN", leader_confirm=1, coh=0.90), ensure_ascii=False))
-    g = SmtLeaderCoherenceGate.from_env(redis_client=r)
-
-    # Align: SHORT while leader_dir=DOWN
-    ctx = SimpleNamespace(ts_ms=1_700_000_000_000)
-    dec = g.evaluate(ctx=ctx, symbol="ETHUSDT", kind="absorption", direction="SHORT")
-    assert dec.apply is True
-    assert dec.veto is False
-    assert int(ctx.smt_align) == 1
-
-
-def test_smt_gate_fail_open_when_no_state(monkeypatch):
-    r = FakeRedis()
-    monkeypatch.setenv("SMT_COH_BUNDLE", "btc_eth_sol")
-    monkeypatch.setenv("SMT_LEADER_MODE", "veto")
-    monkeypatch.setenv("SMT_COH_HI_THRESHOLD", "0.65")
-
-    g = SmtLeaderCoherenceGate.from_env(redis_client=r)
-    ctx = SimpleNamespace(ts_ms=1_700_000_000_000)
-    dec = g.evaluate(ctx=ctx, symbol="ETHUSDT", kind="absorption", direction="SHORT")
-
-    # Must not veto without state
-    assert dec.veto is False
-    assert dec.apply is False
+if __name__ == '__main__':
+    unittest.main()

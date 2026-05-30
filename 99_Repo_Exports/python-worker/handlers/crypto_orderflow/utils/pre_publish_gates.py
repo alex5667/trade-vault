@@ -534,7 +534,7 @@ class SmtCoherenceGate:
     ) -> None:
         self.enabled = enabled
         self.mode = (mode or "observe").strip().lower()
-        if self.mode not in ("observe", "veto"):
+        if self.mode not in ("observe", "veto", "monitor"):
             self.mode = "observe"
         self.bundle_id = (bundle_id or "").strip()
         self.coh_min = coh_min
@@ -565,11 +565,14 @@ class SmtCoherenceGate:
         def _f(name: str, d: float) -> float:
             return _env_float(name, d)
         enabled = (_cached_getenv("SMT_GATE_ENABLED") or "1").strip().lower() not in ("0", "false", "no", "off")
+        coh_min_raw = _f("SMT_LEADER_CONF_MIN_SCORE", _f("SMT_COH_MIN", 0.65))
+        coh_min_norm = coh_min_raw / 100.0 if coh_min_raw > 1.0 else coh_min_raw
+        
         return cls(
             enabled=enabled,
             mode=(_cached_getenv("SMT_LEADER_MODE", "observe") or "observe"),
             bundle_id=(_cached_getenv("SMT_COH_BUNDLE", "") or "").strip(),
-            coh_min=_f("SMT_COH_MIN", 0.65),
+            coh_min=coh_min_norm,
             state_stale_ms=_i("SMT_STATE_STALE_MS", 5_000),
             diag_stream=_cached_getenv("SMT_DIAG_STREAM", "") or "",
             diag_enabled=(_cached_getenv("SMT_DIAG_ENABLED", "0") or "0").strip() in ("1", "true", "yes", "on"),
@@ -731,7 +734,7 @@ class SmtCoherenceGate:
         if st is None or stale or not leader_dir:
             return _make_res("ALLOW", "OK", {"msg": "no_state_or_stale"})
 
-        if self.mode == "observe":
+        if self.mode in ("observe", "monitor"):
             return _make_res("ALLOW", "OK", {"msg": "observe_only", "countertrend": countertrend})
 
         # Phase 1: P²-streaming q80 calibrator (no outcome data required)
@@ -809,10 +812,21 @@ class AtrFloorGate:
             return _make_res("ABSTAIN", "OK", {"msg": "disabled"})
 
         indicators = getattr(ctx, "indicators", {})
-        atr_bps = indicators.get("atr_bps") or indicators.get("atr_bps_exec")
-        if atr_bps is None:
+        atr_bps = indicators.get("atr_bps")
+        
+        if atr_bps is None or atr_bps <= 0:
+            atr_bps = indicators.get("atr_bps_exec")
+
+        if atr_bps is None or atr_bps <= 0:
             if self.fail_open: return _make_res("ALLOW", "OK", {"msg": "atr_missing_fail_open"})
             return _make_res("DENY", "VETO_ATR_MISSING")
+
+        atr_bad = int(indicators.get("atr_bad", 0) or 0)
+        # Default to 1 (ready) if indicator is missing so legacy paths pass
+        atr_ready = int(indicators.get("atr_floor_ready", 1))
+
+        if self.fail_open and (atr_bad != 0 or atr_ready == 0):
+            return _make_res("ALLOW", "OK", {"msg": f"atr_not_ready_fail_open:bad={atr_bad},ready={atr_ready}"})
 
         regime = _get_regime(ctx)
         cfg = getattr(ctx, "config", {})
@@ -824,6 +838,7 @@ class AtrFloorGate:
             return _make_res("DENY", "VETO_ATR_FLOOR", {"atr": atr_bps, "thr": threshold, "tier": tier, "regime": rg})
 
         return _make_res("ALLOW", "OK")
+
 
 @dataclass
 class BreadthGate:

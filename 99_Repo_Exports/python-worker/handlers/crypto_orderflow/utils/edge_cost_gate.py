@@ -2088,7 +2088,7 @@ class EdgeCostGate:
                 mode = "enforce"
             elif _fdp == "tighten":
                 mode = "tighten"
-        tighten = bool(getattr(ctx, "_edge_drift_tighten", False)) or (mode == "enforce")
+        tighten = bool(getattr(ctx, "_edge_drift_tighten", False)) or (mode in {"enforce", "tighten"})
         if tighten and drift_factor > 1.0:
             k_cap = _env_float("EDGE_DRIFT_K_CAP_MULT", 2.5)
             km = min(k_cap, max(1.0, drift_factor))

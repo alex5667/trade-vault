@@ -53,7 +53,9 @@ OF_GATE_METRICS_SAMPLE_SALT = os.getenv("OF_GATE_METRICS_SAMPLE_SALT", "").strip
 OF_GATE_METRICS_SAMPLE_KEY_MODE = "symbol_ts_v1"
 
 # ── Fail-open Defaults ────────────────────────────────────────────────────────
-DATA_HEALTH_ON_SPREAD_MISSING = float(os.getenv("DATA_HEALTH_ON_SPREAD_MISSING", "0.5") or 0.5)
+DATA_HEALTH_ON_SPREAD_MISSING = float(os.getenv("DATA_HEALTH_ON_SPREAD_MISSING", "0.80") or 0.80)
+DATA_HEALTH_SHADOW_ONLY_ENABLE = os.getenv("DATA_HEALTH_SHADOW_ONLY_ENABLE", "1").strip().lower() in ("1", "true", "yes", "on")
+DATA_HEALTH_SHADOW_ONLY_TH = float(os.getenv("DATA_HEALTH_SHADOW_ONLY_TH", "0.40") or 0.40)
 DEBUG_DELTAS = os.getenv("DEBUG_DELTAS", "0") == "1"
 SLIPPAGE_BPS_MISSING_DEFAULT = float(os.getenv("SLIPPAGE_BPS_MISSING_DEFAULT", "2.0") or 2.0)
 SPREAD_BPS_MISSING_DEFAULT = float(os.getenv("SPREAD_BPS_MISSING_DEFAULT", "15.0") or 15.0)
@@ -1142,13 +1144,27 @@ class TickDecisionEngine:
                             g4_canary_veto_total.labels(symbol=runtime.symbol).inc()
 
                 indicators["data_health_veto_active"] = is_veto
-                # shadow-only uses its own threshold (data_health_shadow_only_below, default 0.40)
-                # independent from veto_thr (default 0.70) — apply_shadow_only_policy owns this
-                apply_shadow_only_policy(indicators=indicators, dh=dh, cfg=cfg)
+
+                if DATA_HEALTH_SHADOW_ONLY_ENABLE:
+                    _shadow_cfg = cfg if "data_health_shadow_only_below" in cfg else {**cfg, "data_health_shadow_only_below": DATA_HEALTH_SHADOW_ONLY_TH}
+                    apply_shadow_only_policy(indicators=indicators, dh=dh, cfg=_shadow_cfg)
+                    if indicators.get("data_health_shadow_only") == 1:
+                        indicators.setdefault("data_health_shadow_reason", ",".join(list(dh.reasons)[:5]) if dh.reasons else "score_low")
+                        if data_health_shadow_only_gauge:
+                            data_health_shadow_only_gauge.labels(symbol=runtime.symbol).set(1)
+                    else:
+                        if data_health_shadow_only_gauge:
+                            data_health_shadow_only_gauge.labels(symbol=runtime.symbol).set(0)
+                else:
+                    indicators["data_health_shadow_only"] = 0
+                    indicators["data_health_shadow_reason"] = ""
+                    if data_health_shadow_only_gauge:
+                        data_health_shadow_only_gauge.labels(symbol=runtime.symbol).set(0)
 
                 if dh.reasons:
                     indicators["data_health_veto_reason"] = ",".join(list(dh.reasons)[:5])
-                    indicators["data_health_shadow_reason"] = indicators["data_health_veto_reason"]
+                    if not indicators.get("data_health_shadow_reason"):
+                        indicators["data_health_shadow_reason"] = indicators["data_health_veto_reason"]
             except Exception:
                 pass
 
@@ -2812,10 +2828,10 @@ class TickDecisionEngine:
                 # REVERSAL CHECK (Immediate Veto)
                 if "reversal" in scn:
                     # Evidence required: cvd_reclaim OR absorption OR obi_stable OR ofi_stable
-                    has_reclaim = bool(indicators.get("cvd_reclaim_ok", 0))
-                    has_absorb = bool(indicators.get("absorption_volume", 0) > 0)
-                    has_obi = bool(indicators.get("obi_stable", 0))
-                    has_ofi = bool(indicators.get("ofi_stable", 0))
+                    has_reclaim = bool(int(indicators.get("cvd_reclaim_ok", 0) or 0))
+                    has_absorb = bool(float(indicators.get("absorption_volume", 0.0) or 0.0) > 0)
+                    has_obi = bool(int(indicators.get("obi_stable", 0) or 0))
+                    has_ofi = bool(int(indicators.get("ofi_stable", 0) or 0))
 
                     if not (has_reclaim or has_absorb or has_obi or has_ofi):
                         g10_adverse_veto_total.labels(gate="G10_ADVERSE_REVERSAL", symbol=runtime.symbol).inc()
@@ -2996,9 +3012,10 @@ class TickDecisionEngine:
                     # ADVERSE Selection Check: Continuation Verify
                     if runtime.pending_adverse_payload:
                         sig = runtime.pending_adverse_payload
-                        # Check timeout (e.g. 2 * tf or 5s)
+                        # Check timeout (e.g. 2 * tf or 10s default)
                         age_adv = now_ts - runtime.pending_adverse_ts_ms
-                        if 0 < age_adv < 5000:
+                        timeout_ms = int(runtime.config.get("adverse_timeout_ms", 10000))
+                        if 0 < age_adv < timeout_ms:
                             s_dir = sig.get("direction", "").upper()
                             # Verified if bar closes in favor
                             verified = False

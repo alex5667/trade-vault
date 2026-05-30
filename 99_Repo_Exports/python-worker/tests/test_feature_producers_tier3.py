@@ -5,6 +5,7 @@ import json
 import time
 from unittest.mock import MagicMock
 
+import core.feature_enricher_v1 as _enricher_mod
 from core.feature_enricher_v1 import _enrich_derived, _enrich_book_rates
 from services.book_rate_ema_producer import EmaState, classify_event
 from services.liquidation_ctx_writer import parse_liq_event, get_liqmap_age_ms
@@ -243,6 +244,9 @@ class TestLiquidationParser:
 
 
 class TestEnrichBookRates:
+
+    def setup_method(self):
+        _enricher_mod._snapshot_cache.clear()
 
     def test_reads_book_rates_snapshot(self):
         now = int(time.time() * 1000)

@@ -80,6 +80,11 @@ class _DCState:
         self._direction: int = 0                  # 1=up, -1=down (last DC direction)
         # (ts_ms, direction, overshoot_bps) — DC events
         self._events: deque[tuple[int, int, float]] = deque(maxlen=200)
+        # Extended state for new features
+        self._trend_start_ms: int = 0             # ts_ms of last direction flip
+        self._last_confirmation_bps: float = 0.0  # overshoot of PREVIOUS DC event
+        self._last_overshoot_bps: float = 0.0     # overshoot of most recent DC event
+        self._event_ts_15m: deque[int] = deque()  # ts_ms of all DC events (for noise ratio)
 
     def on_tick(self, price: float, ts_ms: int) -> None:
         if price <= 0:
@@ -102,6 +107,12 @@ class _DCState:
             # Upward DC event
             overshoot = (move - self._threshold) * 10_000.0
             self._events.append((ts_ms, 1, overshoot))
+            # direction flip tracking
+            if self._direction != 1:
+                self._trend_start_ms = ts_ms
+            self._last_confirmation_bps = self._last_overshoot_bps
+            self._last_overshoot_bps = overshoot
+            self._event_ts_15m.append(ts_ms)
             self._dc_price = price
             self._extreme_price = price
             self._direction = 1
@@ -114,6 +125,12 @@ class _DCState:
             # Downward DC event
             overshoot = (-move - self._threshold) * 10_000.0
             self._events.append((ts_ms, -1, overshoot))
+            # direction flip tracking
+            if self._direction != -1:
+                self._trend_start_ms = ts_ms
+            self._last_confirmation_bps = self._last_overshoot_bps
+            self._last_overshoot_bps = overshoot
+            self._event_ts_15m.append(ts_ms)
             self._dc_price = price
             self._extreme_price = price
             self._direction = -1
@@ -130,6 +147,9 @@ class _DCState:
                 "dc_event_age_ms": float(now_ms),
                 "dc_overshoot_bps": 0.0,
                 "dc_reversal_count_15m": 0.0,
+                "dc_trend_duration_ms": 0.0,
+                "dc_last_confirmation_bps": 0.0,
+                "dc_noise_ratio": 0.0,
             }
         last_ts, last_dir, last_over = self._events[-1]
         out: dict[str, Any] = {
@@ -145,6 +165,20 @@ class _DCState:
             if events_15m[i][1] != events_15m[i - 1][1]
         )
         out["dc_reversal_count_15m"] = float(reversals)
+
+        # dc_trend_duration_ms: ms since last direction flip
+        out["dc_trend_duration_ms"] = float(max(0, now_ms - self._trend_start_ms))
+
+        # dc_last_confirmation_bps: overshoot at previous DC event
+        out["dc_last_confirmation_bps"] = self._last_confirmation_bps
+
+        # dc_noise_ratio: micro-reversals / total DC events in 15m window ∈ [0, 1]
+        # Expire stale entries from _event_ts_15m
+        while self._event_ts_15m and self._event_ts_15m[0] < cutoff:
+            self._event_ts_15m.popleft()
+        total_events_15m = float(len(self._event_ts_15m))
+        out["dc_noise_ratio"] = min(1.0, reversals / max(1.0, total_events_15m))
+
         return out
 
 

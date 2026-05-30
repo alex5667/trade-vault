@@ -207,6 +207,10 @@ def parse_open_position_hash(
             if h.get(MetaKeys.ENFORCE_APPLIED):
                 with contextlib.suppress(ValueError, TypeError):
                     pos.meta_enforce_applied = int(float(h[MetaKeys.ENFORCE_APPLIED]))
+            pos.meta_enforce_key = h.get(MetaKeys.ENFORCE_KEY) or ""
+            pos.meta_enforce_salt = h.get(MetaKeys.ENFORCE_SALT) or ""
+            with contextlib.suppress(ValueError, TypeError):
+                pos.meta_veto = int(float(h.get(MetaKeys.VETO) or 0))
 
         # Phase 0.3: scalar-first recovery, then nested hydration
         with contextlib.suppress(Exception):

@@ -12,6 +12,8 @@ include:
   - path: docker-compose.tp-trailing.yml
   - path: docker-compose.tp-sl-trail-autocal.yml
   - path: docker-compose.path-tp-autocal.yml
+  - path: docker-compose.tp1-phit-publisher.yml
+  - path: docker-compose.tp1-adaptive-shadow-persister.yml
   - path: docker-compose.regime-exec-promotion.yml
   - path: docker-compose.crossvenue-agree-cal.yml
   - path: docker-compose.ml-canary-autopromoter.yml

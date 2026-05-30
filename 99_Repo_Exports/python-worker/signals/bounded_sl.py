@@ -29,9 +29,24 @@ ENV
   BOUNDED_SL_MAE_P75_CAP_BPS (float, default "200.0") — safety cap on the
                               MAE-derived floor (bps).
   BOUNDED_SL_CACHE_TTL_S    (float, default "60.0")  — in-process TTL cache.
-  BOUNDED_SL_MIN_SAMPLES    (int,   default "30")    — require N closed
+  BOUNDED_SL_MIN_SAMPLES    (int,   default "15")    — require N closed
                               samples in the 30d window before trusting
-                              the percentile.
+                              the per-symbol percentile. Lowered 30→15 on
+                              2026-05-29 — sparse symbols had floor=0 too
+                              often (BOUNDED_SL no-op on the most fragile
+                              setups).
+  BOUNDED_SL_GROUP_FALLBACK_ENABLED ("0"/"1", default "1") — when the
+                              per-symbol sample count is below
+                              BOUNDED_SL_MIN_SAMPLES, fall back to a global
+                              median floor read from
+                              ``pit_priors:rolling:30d:_global:default:all``
+                              (or the legacy `_global` key) before giving up.
+                              The fallback uses p50 (more conservative than
+                              p75) and is gated by
+                              BOUNDED_SL_GROUP_MIN_SAMPLES.
+  BOUNDED_SL_GROUP_MIN_SAMPLES (int, default "50") — minimum sample count
+                              required on the global/group key before its
+                              p50 is trusted as a fallback floor.
   BOUNDED_SL_MAX_ATR_MULT   (float, default "4.0")   — 2026-05-27 WR fix:
                               if mae_floor_bps / atr_bps > this multiple,
                               the floor is treated as too-wide for current
@@ -42,6 +57,21 @@ ENV
   BOUNDED_SL_MAX_ATR_SHADOW ("0"/"1", default "1")   — if 1, the ATR-multiple
                               cap is recorded in telemetry but NOT enforced
                               (shadow). Flip to 0 to enforce.
+  BOUNDED_SL_ATR_CAP_MODE   ("skip"/"clamp", default "skip") — 2026-05-29:
+                              behaviour when the ATR-multiple cap triggers
+                              (ratio = floor_bps/atr_bps > MAX_ATR_MULT).
+                              * "skip"  — legacy: drop the floor entirely,
+                                          keep ATR-scaled stop_dist. Risk:
+                                          on tiny ATR (e.g. 4-5 bps on ETH
+                                          in calm sessions) SL collapses to
+                                          1.2 ATR ≈ 5 bps and gets noise-hit.
+                              * "clamp" — new: keep the floor but clamp it
+                                          to max_mult × atr_bps. Yields a
+                                          balanced SL = MAX_ATR_MULT × ATR
+                                          when the raw floor would be too
+                                          wide, instead of falling back to
+                                          the unsafe ATR-scaled minimum.
+                              Only takes effect when MAX_ATR_SHADOW=0.
 """
 from __future__ import annotations
 
@@ -142,6 +172,53 @@ def _get_priors(symbol: str, ttl_s: float) -> dict[str, float]:
     return data
 
 
+def _read_group_priors_from_redis() -> dict[str, float]:
+    """Best-effort read of a global/group fallback prior.
+
+    Tries `pit_priors:rolling:30d:_global:default:all` first; if absent or
+    unparseable, returns {}. Failures are silent (fail-open).
+    """
+    try:
+        from core.redis_client import get_redis
+        r = get_redis()
+    except Exception:
+        return {}
+
+    key = "pit_priors:rolling:30d:_global:default:all"
+    try:
+        raw_any: Any = r.hgetall(key)  # type: ignore[union-attr]
+    except Exception:
+        return {}
+    if not isinstance(raw_any, dict) or not raw_any:
+        return {}
+
+    normalized: dict[str, str] = {}
+    for k, v in raw_any.items():
+        ks = k.decode("utf-8", "ignore") if isinstance(k, (bytes, bytearray)) else str(k)
+        vs = v.decode("utf-8", "ignore") if isinstance(v, (bytes, bytearray)) else str(v)
+        normalized[ks] = vs
+
+    return {
+        "p50_mae_bps_30d": _f(normalized.get("p50_mae_bps_30d"), 0.0),
+        "p75_mae_bps_30d": _f(normalized.get("p75_mae_bps_30d"), 0.0),
+        "p90_mae_bps_30d": _f(normalized.get("p90_mae_bps_30d"), 0.0),
+        "sample_count": _f(normalized.get("sample_count"), 0.0),
+    }
+
+
+def _get_group_priors(ttl_s: float) -> dict[str, float]:
+    now = time.time()
+    cache_key = "__GROUP__"
+    with _CACHE_LOCK:
+        cached = _CACHE.get(cache_key)
+        if cached and (now - cached[0]) < ttl_s:
+            return cached[1]
+    data = _read_group_priors_from_redis()
+    with _CACHE_LOCK:
+        _CACHE[cache_key] = (now, data)
+    return data
+
+
 def resolve_mae_floor_bps(symbol: str, cfg: dict | None = None) -> tuple[float, dict[str, float]]:
     """Return (floor_bps, meta) for the MAE-percentile floor.
 
@@ -154,15 +231,19 @@ def resolve_mae_floor_bps(symbol: str, cfg: dict | None = None) -> tuple[float, 
     cfg = cfg or {}
     k_mae = _env_float("BOUNDED_SL_MAE_K", 1.0)
     cap_bps = _env_float("BOUNDED_SL_MAE_P75_CAP_BPS", 200.0)
-    min_samples = _env_int("BOUNDED_SL_MIN_SAMPLES", 30)
+    # 2026-05-29: default lowered 30→15 so thin/new symbols still get a floor.
+    min_samples = _env_int("BOUNDED_SL_MIN_SAMPLES", 15)
     ttl_s = _env_float("BOUNDED_SL_CACHE_TTL_S", 60.0)
+    group_fallback_enabled = _env_bool("BOUNDED_SL_GROUP_FALLBACK_ENABLED", True)
+    group_min_samples = _env_int("BOUNDED_SL_GROUP_MIN_SAMPLES", 50)
 
     meta: dict[str, float] = {
         "mae_p75_bps": 0.0,
         "mae_p75_bps_raw": 0.0,
         "sample_count": 0.0,
         "floor_bps": 0.0,
-        "source": 0.0,  # 0=none, 1=cfg, 2=redis
+        # 0=none, 1=cfg, 2=redis_symbol, 3=group_fallback_p50
+        "source": 0.0,
     }
 
     injected = cfg.get("mae_p75_bps_30d")
@@ -180,12 +261,27 @@ def resolve_mae_floor_bps(symbol: str, cfg: dict | None = None) -> tuple[float, 
         p75_raw = priors.get("p75_mae_bps_30d", 0.0)
         meta["mae_p75_bps_raw"] = p75_raw
         meta["sample_count"] = sample_count
-        if sample_count < min_samples:
-            # not enough samples → no floor
-            return 0.0, meta
-        if p75_raw <= 0.0:
-            return 0.0, meta
-        meta["source"] = 2.0
+
+        # Per-symbol path (preferred when enough samples).
+        if sample_count >= min_samples and p75_raw > 0.0:
+            meta["source"] = 2.0
+        else:
+            # Group fallback: use global p50 (median) as a conservative floor.
+            # Median is preferred over p75 for the global key because the global
+            # distribution is much wider (mixes calm + meme tape) — using p75
+            # there would oversize SL on majors during quiet sessions.
+            if not group_fallback_enabled:
+                return 0.0, meta
+            group = _get_group_priors(ttl_s)
+            g_count = group.get("sample_count", 0.0)
+            g_p50 = group.get("p50_mae_bps_30d", 0.0)
+            meta["group_sample_count"] = g_count
+            meta["group_p50_bps_raw"] = g_p50
+            if g_count < group_min_samples or g_p50 <= 0.0:
+                return 0.0, meta
+            p75_raw = g_p50  # treat group median as the working percentile
+            meta["mae_p75_bps_raw"] = g_p50
+            meta["source"] = 3.0
 
     # Apply k multiplier + safety cap
     floor_bps = p75_raw * max(0.0, k_mae)
@@ -272,8 +368,22 @@ def apply_bounded_sl_floor(
                 telem["atr_cap_max_mult"] = max_mult
                 if max_mult > 0.0 and ratio > max_mult:
                     telem["atr_cap_triggered"] = 1
-                    if not atr_shadow:
-                        # Skip floor — preserve ATR-scaled stop_dist
+                    cap_mode = (os.getenv("BOUNDED_SL_ATR_CAP_MODE", "skip") or "skip").strip().lower()
+                    telem["atr_cap_mode"] = cap_mode
+                    if cap_mode == "clamp":
+                        # Clamp floor at max_mult × atr_bps instead of skipping.
+                        # Recompute mae_floor_dist with the clamped floor so the
+                        # downstream max(stop_dist, mae_floor_dist) check uses it.
+                        clamped_floor_bps = max_mult * atr_bps
+                        telem["atr_cap_clamped"] = 1
+                        telem["atr_cap_clamped_floor_bps"] = clamped_floor_bps
+                        # Shadow=1 still records the clamp but does not change behaviour.
+                        if not atr_shadow:
+                            floor_bps = clamped_floor_bps
+                            mae_floor_dist = entry * floor_bps / 10_000.0
+                            telem["mae_floor_bps"] = floor_bps
+                    elif not atr_shadow:
+                        # Legacy: skip floor — preserve ATR-scaled stop_dist.
                         telem["atr_cap_skipped"] = 1
                         telem["would_apply"] = 0
                         return stop_dist, telem

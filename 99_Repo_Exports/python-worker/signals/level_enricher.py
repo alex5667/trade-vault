@@ -298,6 +298,139 @@ def attach_trade_levels_to_ctx(
             levels = baseline
             with contextlib.suppress(Exception):
                 ctx.levels_source = "baseline_cfg"
+
+        # ──────────────────────────────────────────────────────────────────
+        # AdaptiveTP1Policy v1 (Plan 3, 2026-05-29)
+        #
+        # Подменяет ТОЛЬКО TP1 distance на argmax_EV(TP1_R) кандидата из сетки.
+        # SL/TP2/TP3 НЕ трогаются. Запускается через compute_levels(..., tp1_dist_override=...)
+        # → все safety floors (EDGE_LEVELS_MIN_TP1_BPS, tp1_min_rr) применяются повторно.
+        # SHADOW по умолчанию: метрики пишутся, но baseline TP1 остаётся.
+        # Master switch: TP1_ADAPTIVE_ENABLED=0; mode: TP1_ADAPTIVE_MODE=shadow|paper|enforce.
+        # ──────────────────────────────────────────────────────────────────
+        try:
+            _pre_sl = levels.get("sl", None)
+            _pre_tps = levels.get("tp_levels", None)
+            _pre_stop = levels.get("stop_dist", None)
+            if (
+                _pre_sl is not None
+                and isinstance(_pre_tps, list)
+                and len(_pre_tps) > 0
+                and _pre_stop is not None
+            ):
+                # Phase 2: seed ctx.tp1_hit_prob_by_rr from publisher snapshot.
+                # Fail-open: if reader disabled/unavailable or no matching bucket,
+                # ctx.tp1_hit_prob_by_rr remains None → AdaptiveTP1Policy returns
+                # skip_no_prob_curve and pipeline is unchanged.
+                # Only seed if caller hasn't already provided a curve (e.g. tests).
+                if getattr(ctx, "tp1_hit_prob_by_rr", None) is None:
+                    try:
+                        from services.tp1_hit_prob_reader import attach_tp1_phit_to_ctx
+
+                        attach_tp1_phit_to_ctx(
+                            ctx,
+                            symbol=symbol,
+                            kind=str(kind or ""),
+                            regime=str(regime_s or ""),
+                            direction=side_norm,
+                        )
+                    except Exception:
+                        pass
+
+                from core.adaptive_tp1_policy import choose_adaptive_tp1
+
+                _cur_tp1_dist = abs(float(_pre_tps[0]) - float(entry_f))
+                _cur_stop_dist = float(_pre_stop)
+                _atp1 = choose_adaptive_tp1(
+                    ctx=ctx,
+                    entry=float(entry_f),
+                    stop_dist=_cur_stop_dist,
+                    baseline_tp1_dist=_cur_tp1_dist,
+                    symbol=symbol,
+                    kind=str(kind or ""),
+                    regime=str(regime_s or ""),
+                )
+                # Always write telemetry (shadow-mode friendly).
+                with contextlib.suppress(Exception):
+                    ctx.tp1_adaptive_reason = _atp1.reason
+                    ctx.tp1_adaptive_mode = _atp1.mode
+                    ctx.tp1_adaptive_enabled = bool(_atp1.enabled)
+                    ctx.tp1_adaptive_apply = bool(_atp1.apply)
+                    ctx.tp1_adaptive_ev_baseline_r = float(_atp1.ev_baseline_r)
+                    ctx.tp1_adaptive_ev_adaptive_r = float(_atp1.ev_adaptive_r)
+                    ctx.tp1_adaptive_ev_delta_r = float(_atp1.ev_delta_r)
+                    ctx.tp1_adaptive_cost_r = float(_atp1.cost_r)
+                    ctx.tp1_adaptive_samples = int(_atp1.samples)
+                    if _atp1.tp1_rr is not None:
+                        ctx.tp1_adaptive_rr_selected = float(_atp1.tp1_rr)
+                    if _atp1.p_hit is not None:
+                        ctx.tp1_adaptive_p_hit = float(_atp1.p_hit)
+                    if _atp1.p_hit_baseline is not None:
+                        ctx.tp1_adaptive_p_hit_baseline = float(_atp1.p_hit_baseline)
+                    if _atp1.baseline_rr is not None:
+                        ctx.tp1_adaptive_baseline_rr = float(_atp1.baseline_rr)
+
+                # Enforce only when policy explicitly approved AND mode in {paper, enforce}.
+                if _atp1.apply and _atp1.tp1_dist is not None and _atp1.tp1_dist > 0.0:
+                    try:
+                        _adaptive_levels = compute_levels(
+                            entry_f,
+                            float(atr_f),
+                            side_norm,
+                            dict(cfgd),
+                            symbol=symbol,
+                            stop_dist_override=float(_cur_stop_dist),
+                            tp1_dist_override=float(_atp1.tp1_dist),
+                        )
+                        _new_sl = _adaptive_levels.get("sl", None)
+                        _new_tps = _adaptive_levels.get("tp_levels", None)
+                        _new_stop = _adaptive_levels.get("stop_dist", None)
+                        if (
+                            _new_sl is not None
+                            and isinstance(_new_tps, list)
+                            and len(_new_tps) > 0
+                            and _new_stop is not None
+                        ):
+                            levels = _adaptive_levels
+                            with contextlib.suppress(Exception):
+                                ctx.levels_source = "adaptive_tp1"
+                    except Exception:
+                        # fail-open: keep prior levels untouched
+                        with contextlib.suppress(Exception):
+                            ctx.tp1_adaptive_reason = "tp1_adaptive_skip_recompute_failed"
+
+                # Phase 2: Prometheus counters + XADD shadow stream.
+                # Never raises; obeys TP1_ADAPTIVE_EMIT_ENABLED master switch.
+                try:
+                    from core.tp1_adaptive_metrics import emit_decision
+
+                    _adaptive_tp1_price = None
+                    if _atp1.tp1_dist is not None:
+                        side_dir = 1 if side_norm == "LONG" else -1
+                        _adaptive_tp1_price = float(entry_f) + side_dir * float(_atp1.tp1_dist)
+                    emit_decision(
+                        decision=_atp1,
+                        symbol=symbol,
+                        kind=str(kind or ""),
+                        side=side_norm,
+                        regime=str(regime_s or ""),
+                        entry_price=float(entry_f),
+                        sl_price=float(_pre_sl),
+                        baseline_tp1_price=float(_pre_tps[0]),
+                        baseline_tp1_rr=_atp1.baseline_rr,
+                        adaptive_tp1_price=_adaptive_tp1_price,
+                        spread_bps=float(cfgd.get("spread_bps", 0.0) or 0.0),
+                        slippage_bps=float(cfgd.get("slippage_ema_bps", 0.0) or 0.0),
+                        fee_bps=float(os.getenv("TAKER_FEE_BPS", "4.0") or 4.0),
+                        ts_ms=getattr(ctx, "ts_event_ms", None),
+                        sid=getattr(ctx, "sid", None),
+                    )
+                except Exception:
+                    pass
+        except Exception:
+            # AdaptiveTP1 is best-effort; never break enrichment
+            with contextlib.suppress(Exception):
+                ctx.tp1_adaptive_reason = "tp1_adaptive_skip_internal_error"
     except Exception:
         return
 

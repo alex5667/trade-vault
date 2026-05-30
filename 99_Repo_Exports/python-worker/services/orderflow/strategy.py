@@ -195,6 +195,29 @@ def _sample_uid_symbol_ts(symbol: str, ts_ms: int) -> int:
     h = hashlib.sha1(b).digest()
     return int.from_bytes(h[:8], byteorder="big", signed=False)
 
+def _g10_canary_sample(symbol: str, ts_ms: int) -> bool:
+    """Deterministic hash-based canary sampler for G10 adverse-gate enforce.
+
+    Returns True for approximately ADVERSE_ENFORCE_CANARY_PCT% of (symbol, ts_ms)
+    pairs. Decorrelated across symbols — each symbol has an independent hash.
+    Clamps out-of-range percentages: negative → off, >100 → always True.
+    """
+    pct_str = os.getenv("ADVERSE_ENFORCE_CANARY_PCT", "")
+    try:
+        pct = float(pct_str)
+    except (ValueError, TypeError):
+        return False
+    pct = max(0.0, min(100.0, pct))
+    if pct <= 0:
+        return False
+    if pct >= 100:
+        return True
+    key = f"{symbol}:{int(ts_ms)}".encode("utf-8")
+    h = hashlib.sha256(key).digest()
+    bucket = int.from_bytes(h[:4], "big") % 10000
+    return bucket < pct * 100
+
+
 # Fail-open defaults to avoid exec-risk penalty becoming 0 silently
 SPREAD_BPS_MISSING_DEFAULT = float(os.getenv("SPREAD_BPS_MISSING_DEFAULT", "15.0") or 15.0)
 SLIPPAGE_BPS_MISSING_DEFAULT = float(os.getenv("SLIPPAGE_BPS_MISSING_DEFAULT", "4.0") or 4.0)
@@ -2409,6 +2432,15 @@ class OrderFlowStrategy:
                         _enforce_applied = ev.get(MetaKeys.ENFORCE_APPLIED)
                         if _enforce_applied is not None:
                             indicators[MetaKeys.ENFORCE_APPLIED] = int(_enforce_applied)
+                        _enf_key = ev.get(MetaKeys.ENFORCE_KEY) or ""
+                        if _enf_key:
+                            indicators[MetaKeys.ENFORCE_KEY] = _enf_key
+                        _enf_salt = ev.get(MetaKeys.ENFORCE_SALT) or ""
+                        if _enf_salt:
+                            indicators[MetaKeys.ENFORCE_SALT] = _enf_salt
+                        _veto = ev.get(MetaKeys.VETO)
+                        if _veto is not None:
+                            indicators[MetaKeys.VETO] = int(_veto)
                 except Exception:
                     pass
 
@@ -3640,10 +3672,10 @@ class OrderFlowStrategy:
 
         # REVERSAL CHECK (Immediate Veto)
         if "reversal" in scn:
-            has_reclaim = bool(indicators.get("cvd_reclaim_ok", 0))
-            has_absorb = bool(indicators.get("absorption_volume", 0) > 0)
-            has_obi = bool(indicators.get("obi_stable", 0))
-            has_ofi = bool(indicators.get("ofi_stable", 0))
+            has_reclaim = bool(int(indicators.get("cvd_reclaim_ok", 0) or 0))
+            has_absorb = bool(float(indicators.get("absorption_volume", 0.0) or 0.0) > 0)
+            has_obi = bool(int(indicators.get("obi_stable", 0) or 0))
+            has_ofi = bool(int(indicators.get("ofi_stable", 0) or 0))
 
             if not (has_reclaim or has_absorb or has_obi or has_ofi):
                 sampled_warning(
@@ -3658,7 +3690,7 @@ class OrderFlowStrategy:
                     indicators.get("ofi_stable", "UNSET"),
                     scn,
                 )
-                g10_adverse_veto_total.labels(gate="G10_ADVERSE_REVERSAL").inc()
+                g10_adverse_veto_total.labels(gate="G10_ADVERSE_REVERSAL", symbol=runtime.symbol).inc()
                 return "veto_reversal"
 
         # CONTINUATION CHECK (Wait for Bar)
@@ -4193,9 +4225,10 @@ class OrderFlowStrategy:
                 # ADVERSE Selection Check: Continuation Verify
                 if runtime.pending_adverse_payload:
                     sig = runtime.pending_adverse_payload
-                    # Check timeout (e.g. 2 * tf or 5s)
+                    # Check timeout (e.g. 2 * tf or 10s default)
                     age_adv = ts - int(runtime.pending_adverse_ts_ms or 0)
-                    if 0 < age_adv < 5000:
+                    timeout_ms = int(runtime.config.get("adverse_timeout_ms", 10000))
+                    if 0 < age_adv < timeout_ms:
                         s_dir = (sig.get("direction", "")).upper()
                         # Verified if bar closes in favor
                         verified = False
@@ -4217,9 +4250,9 @@ class OrderFlowStrategy:
                                 preprocess_signal_for_publish(final_sig, runtime.symbol, "CryptoOrderFlow", logger)
                                 await self.publish_signal(runtime, final_sig)
                         else:
-                            g10_adverse_veto_total.labels(gate="G10_ADVERSE_CONTINUATION").inc()
+                            g10_adverse_veto_total.labels(gate="G10_ADVERSE_CONTINUATION", symbol=runtime.symbol).inc()
                     else:
-                        g10_adverse_veto_total.labels(gate="G10_ADVERSE_TIMEOUT").inc()
+                        g10_adverse_veto_total.labels(gate="G10_ADVERSE_TIMEOUT", symbol=runtime.symbol).inc()
 
                     # Clear buffer after check (one-shot)
                     runtime.pending_adverse_payload = None

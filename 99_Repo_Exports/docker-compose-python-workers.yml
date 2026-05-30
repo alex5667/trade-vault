@@ -1096,11 +1096,7 @@ services:
     - python
     - geometry/htf_zones_publisher.py
   post-sl-analyzer:
-    profiles:
-    - disabled
-    build:
-      context: .
-      dockerfile: python-worker/Dockerfile
+    image: scanner-python-worker:latest
     container_name: scanner-post-sl-analyzer
     environment:
     - REDIS_URL=${REDIS_URL}
@@ -1152,6 +1148,9 @@ services:
     - SLQ_CONSUMER=slq-worker-1
     - SLQ_WRITE_EVERY_SEC=10
     - SLQ_MAX_SAMPLES=1000
+    # 2026-05-29: disable legacy non-tf-scoped keys so 1m/5m/15m never share a bucket.
+    # Reader falls back to "no SLQ data" when tf-bucket has < min_n samples (safer than mixed-TF q90).
+    - SLQ_WRITE_LEGACY_KEYS=0
     - OUTBOX_CONTRACT_MODE=warn
     - OUTBOX_CONTRACT_SAMPLE_RATE=0.1
     - USE_SIGNAL_OUTBOX=true
@@ -5528,6 +5527,39 @@ services:
           memory: 32M
     command: python -u orderflow_services/manip_gate_calibrator_v1.py
 
+  scanner-manip-pattern-basis-cal:
+    build: *id001
+    container_name: scanner-manip-pattern-basis-cal
+    env_file:
+    - config/generated/symbols.env
+    environment:
+    - REDIS_URL=${REDIS_URL:-redis://redis-worker-1:6379/0}
+    - MANIP_BASIS_CAL_PORT=9894
+    - MANIP_PATTERN_BASIS_CAL_ENFORCE=0
+    - MANIP_PATTERN_BASIS_CAL_AUTO_ENFORCE=${MANIP_PATTERN_BASIS_CAL_AUTO_ENFORCE:-1}
+    - MANIP_BASIS_CAL_MIN_SAMPLES=200
+    - MANIP_BASIS_CAL_SNAPSHOT_SEC=120
+    - MANIP_BASIS_CAL_BATCH=500
+    - AUTOCAL_MANIP_PATTERN_BASIS_READ_ENABLED=${AUTOCAL_MANIP_PATTERN_BASIS_READ_ENABLED:-0}
+    - PYTHONPATH=.:/app
+    - PYTHONUNBUFFERED=1
+    - TZ=UTC
+    working_dir: /app
+    volumes:
+    - ./python-worker:/app
+    networks:
+    - scanner-core
+    - scanner-infra
+    restart: on-failure:5
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+          cpus: '0.1'
+        reservations:
+          memory: 32M
+    command: python -u orderflow_services/manip_pattern_basis_calibrator_v1.py
+
   scanner-fills-tca-enricher:
     build: *id001
     container_name: scanner-fills-tca-enricher
@@ -5938,7 +5970,9 @@ services:
     environment:
     - REDIS_URL=redis://redis-ticks:6379/0
     - QDP_PUBLISH_URL=redis://redis-worker-1:6379/0
-    - QDP_SYMBOLS=${CRYPTO_SYMBOLS:-BTCUSDT,ETHUSDT,SOLUSDT,1000PEPEUSDT}
+    # Symbol list resolved via core.symbols_config_v1.get_crypto_symbols
+    # (CRYPTO_SYMBOLS is the single source of truth across producers).
+    - CRYPTO_SYMBOLS=${CRYPTO_SYMBOLS}
     - QDP_INTERVAL_S=30
     - QDP_TTL_SEC=120
     - METRICS_PORT=9891
@@ -5972,7 +6006,10 @@ services:
     container_name: scanner-cost-dynamics-producer
     environment:
     - CDP_PUBLISH_URL=redis://redis-worker-1:6379/0
-    - CDP_SYMBOLS=${CRYPTO_SYMBOLS:-BTCUSDT,ETHUSDT,SOLUSDT,1000PEPEUSDT}
+    # Sources tca:ema and ctx:deriv live in main redis, not redis-worker-1
+    - CDP_READ_URL=${REDIS_MAIN_URL:-redis://redis:6379/0}
+    # Symbol list resolved via core.symbols_config_v1 (single source of truth)
+    - CRYPTO_SYMBOLS=${CRYPTO_SYMBOLS}
     - CDP_INTERVAL_S=30
     - CDP_WINDOW_S=10
     - METRICS_PORT=9892
@@ -6005,7 +6042,8 @@ services:
     environment:
     - RTP_READ_URL=redis://redis-worker-1:6379/0
     - RTP_PUBLISH_URL=redis://redis-worker-1:6379/0
-    - RTP_SYMBOLS=${CRYPTO_SYMBOLS:-BTCUSDT,ETHUSDT,SOLUSDT,1000PEPEUSDT}
+    # Symbol list resolved via core.symbols_config_v1 (single source of truth)
+    - CRYPTO_SYMBOLS=${CRYPTO_SYMBOLS}
     - RTP_INTERVAL_S=30
     - RTP_TTL_SEC=180
     - METRICS_PORT=9893
@@ -6039,7 +6077,8 @@ services:
     - CVP_READ_URL=redis://redis-ticks:6379/0
     - CVP_BYBIT_URL=${REDIS_URL:-redis://redis:6379/0}
     - CVP_PUBLISH_URL=redis://redis-worker-1:6379/0
-    - CVP_SYMBOLS=${CRYPTO_SYMBOLS:-BTCUSDT,ETHUSDT,SOLUSDT,1000PEPEUSDT}
+    # Symbol list resolved via core.symbols_config_v1 (single source of truth)
+    - CRYPTO_SYMBOLS=${CRYPTO_SYMBOLS}
     - CVP_INTERVAL_S=30
     - CVP_TTL_SEC=120
     - METRICS_PORT=9894
@@ -6138,6 +6177,360 @@ services:
           cpus: '0.10'
         reservations:
           memory: 24M
+
+  # ── W1: Signal Min Conf Calibrator ──────────────────────────────────────────
+  scanner-signal-min-conf-cal:
+    build: *id001
+    container_name: scanner-signal-min-conf-cal
+    environment:
+    - REDIS_URL=${REDIS_URL:-redis://redis-worker-1:6379/0}
+    - SIGNAL_CONF_CAL_PORT=9890
+    - SIGNAL_MIN_CONF_CAL_ENFORCE=${SIGNAL_MIN_CONF_CAL_ENFORCE:-0}
+    - SIGNAL_MIN_CONF_CAL_AUTO_ENFORCE=${SIGNAL_MIN_CONF_CAL_AUTO_ENFORCE:-1}
+    - SIGNAL_CONF_CAL_WINDOW_DAYS=7.0
+    - SIGNAL_CONF_CAL_MIN_SAMPLES=100
+    - PYTHONPATH=.:/app
+    - PYTHONUNBUFFERED=1
+    - TZ=UTC
+    working_dir: /app
+    volumes:
+    - ./python-worker:/app
+    - ./var:/var/lib/trade
+    networks:
+    - scanner-core
+    - scanner-infra
+    restart: on-failure:5
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+          cpus: '0.10'
+        reservations:
+          memory: 32M
+    command: python -u orderflow_services/signal_min_conf_calibrator_v1.py
+
+  # ── W1: Entry RR Min Calibrator ──────────────────────────────────────────────
+  scanner-entry-rr-min-cal:
+    build: *id001
+    container_name: scanner-entry-rr-min-cal
+    environment:
+    - REDIS_URL=${REDIS_URL:-redis://redis-worker-1:6379/0}
+    - ENTRY_RR_CAL_PORT=9891
+    - ENTRY_RR_MIN_CAL_ENFORCE=${ENTRY_RR_MIN_CAL_ENFORCE:-0}
+    - ENTRY_RR_MIN_CAL_AUTO_ENFORCE=${ENTRY_RR_MIN_CAL_AUTO_ENFORCE:-1}
+    - ENTRY_RR_CAL_WINDOW_DAYS=14.0
+    - ENTRY_RR_CAL_MIN_SAMPLES=50
+    - PYTHONPATH=.:/app
+    - PYTHONUNBUFFERED=1
+    - TZ=UTC
+    working_dir: /app
+    volumes:
+    - ./python-worker:/app
+    - ./var:/var/lib/trade
+    networks:
+    - scanner-core
+    - scanner-infra
+    restart: on-failure:5
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+          cpus: '0.10'
+        reservations:
+          memory: 32M
+    command: python -u orderflow_services/entry_rr_min_calibrator_v1.py
+
+  # ── W2: Daily DD Per-Tier Calibrator ─────────────────────────────────────────
+  scanner-daily-dd-tier-cal:
+    build: *id001
+    container_name: scanner-daily-dd-tier-cal
+    environment:
+    - REDIS_URL=${REDIS_URL:-redis://redis-worker-1:6379/0}
+    - DAILY_DD_TIER_CAL_PORT=9892
+    - DAILY_DD_TIER_CAL_ENFORCE=${DAILY_DD_TIER_CAL_ENFORCE:-0}
+    - DAILY_DD_TIER_CAL_AUTO_ENFORCE=${DAILY_DD_TIER_CAL_AUTO_ENFORCE:-1}
+    - DAILY_DD_TIER_CAL_WINDOW_DAYS=30
+    - DAILY_DD_TIER_CAL_MIN_DAYS=10
+    - PYTHONPATH=.:/app
+    - PYTHONUNBUFFERED=1
+    - TZ=UTC
+    working_dir: /app
+    volumes:
+    - ./python-worker:/app
+    - ./var:/var/lib/trade
+    networks:
+    - scanner-core
+    - scanner-infra
+    restart: on-failure:5
+    deploy:
+      resources:
+        limits:
+          memory: 96M
+          cpus: '0.10'
+        reservations:
+          memory: 24M
+    command: python -u orderflow_services/daily_dd_per_tier_calibrator_v1.py
+
+  # ── W2: Entry Slippage Cap Calibrator ────────────────────────────────────────
+  scanner-entry-slip-cap-cal:
+    build: *id001
+    container_name: scanner-entry-slip-cap-cal
+    environment:
+    - REDIS_URL=${REDIS_URL:-redis://redis-worker-1:6379/0}
+    - ENTRY_SLIP_CAL_PORT=9893
+    - ENTRY_SLIP_CAP_CAL_ENFORCE=${ENTRY_SLIP_CAP_CAL_ENFORCE:-0}
+    - ENTRY_SLIP_CAP_CAL_AUTO_ENFORCE=${ENTRY_SLIP_CAP_CAL_AUTO_ENFORCE:-1}
+    - ENTRY_SLIP_CAL_WINDOW_DAYS=7.0
+    - ENTRY_SLIP_CAL_MIN_SAMPLES=50
+    - PYTHONPATH=.:/app
+    - PYTHONUNBUFFERED=1
+    - TZ=UTC
+    working_dir: /app
+    volumes:
+    - ./python-worker:/app
+    - ./var:/var/lib/trade
+    networks:
+    - scanner-core
+    - scanner-infra
+    restart: on-failure:5
+    deploy:
+      resources:
+        limits:
+          memory: 96M
+          cpus: '0.10'
+        reservations:
+          memory: 24M
+    command: python -u orderflow_services/entry_slippage_cap_calibrator_v1.py
+
+  # ── W3: Exec Latency Timeout Calibrator ──────────────────────────────────────
+  scanner-exec-latency-cal:
+    build: *id001
+    container_name: scanner-exec-latency-cal
+    environment:
+    - REDIS_URL=${REDIS_URL:-redis://redis-worker-1:6379/0}
+    - EXEC_LATENCY_CAL_PORT=9895
+    - EXEC_LATENCY_TIMEOUT_CAL_ENFORCE=${EXEC_LATENCY_TIMEOUT_CAL_ENFORCE:-0}
+    - EXEC_LATENCY_TIMEOUT_CAL_AUTO_ENFORCE=${EXEC_LATENCY_TIMEOUT_CAL_AUTO_ENFORCE:-1}
+    - EXEC_LATENCY_CAL_BATCH=200
+    - EXEC_LATENCY_CAL_SNAPSHOT_SEC=120
+    - PYTHONPATH=.:/app
+    - PYTHONUNBUFFERED=1
+    - TZ=UTC
+    working_dir: /app
+    volumes:
+    - ./python-worker:/app
+    - ./var:/var/lib/trade
+    networks:
+    - scanner-core
+    - scanner-infra
+    restart: on-failure:5
+    deploy:
+      resources:
+        limits:
+          memory: 96M
+          cpus: '0.10'
+        reservations:
+          memory: 24M
+    command: python -u orderflow_services/exec_latency_timeout_calibrator_v1.py
+
+  # ── W4: Funding Basis Z Calibrator ───────────────────────────────────────────
+  scanner-funding-z-cal:
+    build: *id001
+    container_name: scanner-funding-z-cal
+    environment:
+    - REDIS_URL=${REDIS_URL:-redis://redis-worker-1:6379/0}
+    - FUNDING_Z_CAL_PORT=9896
+    - FUNDING_Z_CAL_ENFORCE=${FUNDING_Z_CAL_ENFORCE:-0}
+    - FUNDING_Z_CAL_AUTO_ENFORCE=${FUNDING_Z_CAL_AUTO_ENFORCE:-1}
+    - FUNDING_Z_CAL_MIN_SAMPLES=100
+    - FUNDING_Z_CAL_WINDOW_DAYS=7
+    - FUNDING_Z_CAL_SNAPSHOT_SEC=60
+    - PYTHONPATH=.:/app
+    - PYTHONUNBUFFERED=1
+    - TZ=UTC
+    working_dir: /app
+    volumes:
+    - ./python-worker:/app
+    - ./var:/var/lib/trade
+    networks:
+    - scanner-core
+    - scanner-infra
+    restart: on-failure:5
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+          cpus: '0.10'
+        reservations:
+          memory: 32M
+    command: python -u orderflow_services/funding_basis_z_calibrator_v1.py
+
+  # ── W4: SL ATR Floor Calibrator ──────────────────────────────────────────────
+  scanner-sl-atr-floor-cal:
+    build: *id001
+    container_name: scanner-sl-atr-floor-cal
+    environment:
+    - REDIS_URL=${REDIS_URL:-redis://redis-worker-1:6379/0}
+    - SL_ATR_FLOOR_CAL_PORT=9897
+    - SL_ATR_FLOOR_CAL_ENFORCE=${SL_ATR_FLOOR_CAL_ENFORCE:-0}
+    - SL_ATR_FLOOR_CAL_AUTO_ENFORCE=${SL_ATR_FLOOR_CAL_AUTO_ENFORCE:-1}
+    - SL_ATR_FLOOR_CAL_MIN_SAMPLES=30
+    - SL_ATR_FLOOR_CAL_SNAPSHOT_SEC=60
+    - PYTHONPATH=.:/app
+    - PYTHONUNBUFFERED=1
+    - TZ=UTC
+    working_dir: /app
+    volumes:
+    - ./python-worker:/app
+    - ./var:/var/lib/trade
+    networks:
+    - scanner-core
+    - scanner-infra
+    restart: on-failure:5
+    deploy:
+      resources:
+        limits:
+          memory: 96M
+          cpus: '0.10'
+        reservations:
+          memory: 24M
+    command: python -u orderflow_services/sl_atr_floor_calibrator_v1.py
+
+  # ── W5: TP Size Fraction Calibrator ──────────────────────────────────────────
+  scanner-tp-size-frac-cal:
+    build: *id001
+    container_name: scanner-tp-size-frac-cal
+    environment:
+    - REDIS_URL=${REDIS_URL:-redis://redis-worker-1:6379/0}
+    - TP_SIZE_FRAC_CAL_PORT=9898
+    - TP_SIZE_FRAC_CAL_ENFORCE=${TP_SIZE_FRAC_CAL_ENFORCE:-0}
+    - TP_SIZE_FRAC_CAL_AUTO_ENFORCE=${TP_SIZE_FRAC_CAL_AUTO_ENFORCE:-1}
+    - TP_SIZE_FRAC_CAL_BATCH=200
+    - TP_SIZE_FRAC_CAL_SNAPSHOT_SEC=300
+    - PYTHONPATH=.:/app
+    - PYTHONUNBUFFERED=1
+    - TZ=UTC
+    working_dir: /app
+    volumes:
+    - ./python-worker:/app
+    - ./var:/var/lib/trade
+    networks:
+    - scanner-core
+    - scanner-infra
+    restart: on-failure:5
+    deploy:
+      resources:
+        limits:
+          memory: 96M
+          cpus: '0.10'
+        reservations:
+          memory: 24M
+    command: python -u orderflow_services/tp_size_fraction_calibrator_v1.py
+
+  # ── W5: DQ Soft Flag Calibrator ──────────────────────────────────────────────
+  scanner-dq-softflag-cal:
+    build: *id001
+    container_name: scanner-dq-softflag-cal
+    environment:
+    - REDIS_URL=${REDIS_URL:-redis://redis-worker-1:6379/0}
+    - DQ_SOFT_CAL_PORT=9899
+    - DQ_SOFT_FLAG_CAL_ENFORCE=${DQ_SOFT_FLAG_CAL_ENFORCE:-0}
+    - DQ_SOFT_FLAG_CAL_AUTO_ENFORCE=${DQ_SOFT_FLAG_CAL_AUTO_ENFORCE:-1}
+    - DQ_SOFT_CAL_MIN_SAMPLES=100
+    - DQ_SOFT_CAL_SNAPSHOT_SEC=60
+    - DQ_SOFT_CAL_BATCH=500
+    - PYTHONPATH=.:/app
+    - PYTHONUNBUFFERED=1
+    - TZ=UTC
+    working_dir: /app
+    volumes:
+    - ./python-worker:/app
+    - ./var:/var/lib/trade
+    networks:
+    - scanner-core
+    - scanner-infra
+    restart: on-failure:5
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+          cpus: '0.10'
+        reservations:
+          memory: 32M
+    command: python -u orderflow_services/dq_softflag_calibrator_v1.py
+
+  # ── W5: TB Cost Bps Calibrator ────────────────────────────────────────────────
+  scanner-tb-cost-bps-cal:
+    build: *id001
+    container_name: scanner-tb-cost-bps-cal
+    environment:
+    - REDIS_URL=${REDIS_URL:-redis://redis-worker-1:6379/0}
+    - TB_COST_BPS_CAL_PORT=9901
+    - TB_COST_BPS_CAL_ENFORCE=${TB_COST_BPS_CAL_ENFORCE:-0}
+    - TB_COST_BPS_CAL_AUTO_ENFORCE=${TB_COST_BPS_CAL_AUTO_ENFORCE:-1}
+    - TB_COST_BPS_CAL_BATCH=200
+    - TB_COST_BPS_CAL_SNAPSHOT_SEC=60
+    - TB_COST_BPS_CAL_WINDOW_DAYS=${TB_COST_BPS_CAL_WINDOW_DAYS:-7.0}
+    - TB_COST_BPS_CAL_MIN_SAMPLES=${TB_COST_BPS_CAL_MIN_SAMPLES:-50}
+    - TB_COST_BPS_DEFAULT=${TB_COST_BPS:-7.0}
+    - TB_COST_BPS_FEE_BPS=${TB_COST_BPS_FEE_BPS:-3.0}
+    - REJECT_REASON_WEIGHTS_ENABLED=${REJECT_REASON_WEIGHTS_ENABLED:-0}
+    - PYTHONPATH=.:/app
+    - PYTHONUNBUFFERED=1
+    - TZ=UTC
+    working_dir: /app
+    volumes:
+    - ./python-worker:/app
+    - ./var:/var/lib/trade
+    networks:
+    - scanner-core
+    - scanner-infra
+    restart: on-failure:5
+    deploy:
+      resources:
+        limits:
+          memory: 96M
+          cpus: '0.10'
+        reservations:
+          memory: 24M
+    command: python -u orderflow_services/tb_cost_bps_calibrator_v1.py
+
+  # ── W5: Pre-Publish Gate Calibrator ───────────────────────────────────────────
+  scanner-pre-publish-gate-cal:
+    build: *id001
+    container_name: scanner-pre-publish-gate-cal
+    environment:
+    - REDIS_URL=${REDIS_URL:-redis://redis-worker-1:6379/0}
+    - PRE_PUBLISH_GATE_CAL_PORT=9902
+    - PRE_PUBLISH_GATE_CAL_ENFORCE=${PRE_PUBLISH_GATE_CAL_ENFORCE:-0}
+    - PRE_PUBLISH_GATE_CAL_AUTO_ENFORCE=${PRE_PUBLISH_GATE_CAL_AUTO_ENFORCE:-1}
+    - PRE_PUBLISH_GATE_CAL_BATCH=500
+    - PRE_PUBLISH_GATE_CAL_SNAPSHOT_SEC=60
+    - PRE_PUBLISH_GATE_CAL_WINDOW_HOURS=${PRE_PUBLISH_GATE_CAL_WINDOW_HOURS:-24.0}
+    - PRE_PUBLISH_GATE_CAL_MIN_SAMPLES=${PRE_PUBLISH_GATE_CAL_MIN_SAMPLES:-50}
+    - PRE_PUBLISH_GATE_MAD_Z_MULT=${PRE_PUBLISH_GATE_MAD_Z_MULT:-1.5}
+    - PRE_PUBLISH_GATE_OBI_SAFETY_MULT=${PRE_PUBLISH_GATE_OBI_SAFETY_MULT:-1.2}
+    - DELTA_Z_THRESHOLD=${DELTA_Z_THRESHOLD:-2.0}
+    - OBI_THRESHOLD=${OBI_THRESHOLD:-0.35}
+    - PYTHONPATH=.:/app
+    - PYTHONUNBUFFERED=1
+    - TZ=UTC
+    working_dir: /app
+    volumes:
+    - ./python-worker:/app
+    - ./var:/var/lib/trade
+    networks:
+    - scanner-core
+    - scanner-infra
+    restart: on-failure:5
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+          cpus: '0.10'
+        reservations:
+          memory: 32M
+    command: python -u orderflow_services/pre_publish_gate_calibrator_v1.py
 
 networks:
   scanner-core:

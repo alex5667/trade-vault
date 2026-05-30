@@ -127,34 +127,41 @@ def _parse_entry(fields: dict[Any, Any]) -> dict[str, Any]:
     # Confirmed path (via Redis inspection):
     #   signal_payload → indicators → of_confirm → evidence → meta_enforce_bucket
     # and also: indicators → of_confirm_v3 → evidence → meta_enforce_bucket
+    #
+    # NOTE: meta_enforce_cov_bucket is a native TradeClosed field (added P41) and
+    # is always present in stream_data via asdict(closed). meta_enforce_key is NOT
+    # a TradeClosed field — it only lives in signal_payload.indicators.of_confirm.evidence.
+    # We must always attempt to extract key/salt/veto/applied from evidence regardless
+    # of whether the bucket is already found at the top level.
     try:
-        if not str(out.get("meta_enforce_bucket") or out.get(MetaKeys.ENFORCE_COV_BUCKET) or "").strip():
-            sp = out.get("signal_payload") or {}
-            if isinstance(sp, str):
+        sp = out.get("signal_payload") or {}
+        if isinstance(sp, str):
+            try:
+                import json as _j
+                sp = _j.loads(sp)
+            except Exception:
+                sp = {}
+        if isinstance(sp, dict):
+            # Navigate: sp.indicators.{of_confirm|of_confirm_v3}.evidence
+            ind = sp.get("indicators") or {}
+            if isinstance(ind, str):
                 try:
-                    import json as _j
-                    sp = _j.loads(sp)
+                    import json as _j2
+                    ind = _j2.loads(ind)
                 except Exception:
-                    sp = {}
-            if isinstance(sp, dict):
-                # Navigate: sp.indicators.{of_confirm|of_confirm_v3}.evidence
-                ind = sp.get("indicators") or {}
-                if isinstance(ind, str):
-                    try:
-                        import json as _j2
-                        ind = _j2.loads(ind)
-                    except Exception:
-                        ind = {}
+                    ind = {}
 
-                evidence: dict[str, Any] = {}
-                for _oc_key in ("of_confirm", "of_confirm_v3", "of_confirm_v2", "of"):
-                    _oc = ind.get(_oc_key) if isinstance(ind, dict) else None
-                    if isinstance(_oc, dict):
-                        _ev = _oc.get("evidence") or {}
-                        if isinstance(_ev, dict) and _ev:
-                            evidence = _ev
-                            break
+            evidence: dict[str, Any] = {}
+            for _oc_key in ("of_confirm", "of_confirm_v3", "of_confirm_v2", "of"):
+                _oc = ind.get(_oc_key) if isinstance(ind, dict) else None
+                if isinstance(_oc, dict):
+                    _ev = _oc.get("evidence") or {}
+                    if isinstance(_ev, dict) and _ev:
+                        evidence = _ev
+                        break
 
+            # Extract bucket only if not already present at top level
+            if not str(out.get("meta_enforce_bucket") or out.get(MetaKeys.ENFORCE_COV_BUCKET) or "").strip():
                 bkt = str(
                     evidence.get("meta_enforce_bucket")
                     or evidence.get(MetaKeys.ENFORCE_COV_BUCKET)
@@ -165,11 +172,12 @@ def _parse_entry(fields: dict[Any, Any]) -> dict[str, Any]:
                     if not (out.get("meta_enforce_bucket") or "").strip():
                         out["meta_enforce_bucket"] = bkt
 
-                for _fld in ("meta_enforce_key", "meta_enforce_salt", "meta_veto", "meta_enforce_applied"):
-                    if not (out.get(_fld) or "").strip():
-                        _val = evidence.get(_fld)
-                        if _val is not None:
-                            out[_fld] = _val
+            # Always extract key/salt/veto/applied from evidence if missing at top level
+            for _fld in ("meta_enforce_key", "meta_enforce_salt", "meta_veto", "meta_enforce_applied"):
+                if not (out.get(_fld) or "").strip():
+                    _val = evidence.get(_fld)
+                    if _val is not None:
+                        out[_fld] = _val
     except Exception:
         pass  # fail-open: guard degradation better than crash
 

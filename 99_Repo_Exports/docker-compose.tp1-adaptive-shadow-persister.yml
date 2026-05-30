@@ -1,0 +1,68 @@
+services:
+  tp1-adaptive-shadow-persister:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    image: scanner-python-worker:latest
+    container_name: scanner-tp1-adaptive-shadow-persister
+    restart: unless-stopped
+    environment:
+      - PYTHONUNBUFFERED=1
+      - REDIS_URL=${REDIS_URL:-redis://redis-worker-1:6379/0}
+      - ANALYTICS_DB_DSN=${ANALYTICS_DB_DSN:-postgresql://trading:${TRADING_PASSWORD}@scanner-postgres:5432/scanner_analytics}
+      - TASP_STREAM=${TASP_STREAM:-stream:tp1_adaptive_shadow_events}
+      - TASP_GROUP=${TASP_GROUP:-tp1-adaptive-shadow-persister}
+      - TASP_CONSUMER=${TASP_CONSUMER:-tasp-1}
+      - TASP_BATCH_SIZE=${TASP_BATCH_SIZE:-100}
+      - TASP_BLOCK_MS=${TASP_BLOCK_MS:-5000}
+      - TASP_FLUSH_INTERVAL_S=${TASP_FLUSH_INTERVAL_S:-5}
+      - TASP_MAX_RETRIES=${TASP_MAX_RETRIES:-5}
+      - TASP_DLQ_STREAM=${TASP_DLQ_STREAM:-tp1_adaptive_shadow_persister:dlq}
+      - METRICS_PORT=9886
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - TZ=UTC
+    ports:
+      - "9886:9886"
+    depends_on:
+      redis-worker-1:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    networks:
+      - scanner-core
+      - scanner-infra
+    deploy:
+      resources:
+        limits:
+          memory: 384M
+          cpus: '0.3'
+        reservations:
+          memory: 96M
+    command:
+      - sh
+      - -c
+      - |
+        sleep 15
+        python -m services.tp1_adaptive_shadow_persister
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - "wget -qO- http://localhost:9886/metrics 2>/dev/null | grep -q tasp_msgs_read_total || exit 1"
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    labels:
+      - com.scanner.service=tp1-adaptive-shadow-persister
+      - com.scanner.description=PG persister for AdaptiveTP1Policy shadow decisions (Plan 3 Phase 2)
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '3'
+
+networks:
+  scanner-core:
+    external: true
+  scanner-infra:
+    external: true

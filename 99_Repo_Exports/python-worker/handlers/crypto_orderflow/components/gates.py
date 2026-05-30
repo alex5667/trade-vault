@@ -772,52 +772,94 @@ class GateOrchestrator:
             veto = (getattr(res, "decision", "ALLOW") == "DENY")
             rc = getattr(res, "reason_code", getattr(res, "reason", "OK"))
             notes = dict(getattr(res, "notes", {}))
-            
-            # 2. Fees-aware Logic (if rocket_v1)
+
+            # 2. Fees-aware unified threshold — applied to ALL trail profiles
+            # (was rocket_v1-only; protective_only/range setups were bypassing
+            # "SL covers fees+spread+TP buffer" check entirely).
             indicators = getattr(ctx, "indicators", {})
-            trail_profile = indicators.get("trail_profile", "")
-            if trail_profile == "rocket_v1":
+            trail_profile = str(indicators.get("trail_profile", "") or "")
+            is_rocket = trail_profile in ("rocket_v1", "expansion_v1")
+
+            # Master + non-rocket shadow flags (rocket_v1 stays enforce-by-default).
+            unified_enabled = (os.getenv("ATR_UNIFIED_GATE_ALL_PROFILES_ENABLED", "1") or "1") == "1"
+            non_rocket_shadow = (os.getenv("ATR_UNIFIED_GATE_NON_ROCKET_SHADOW", "1") or "1") == "1"
+
+            if unified_enabled:
                 fees_bps_rt = float(os.getenv("FEES_BPS_RT", "10.0"))
                 tp_bps_buffer = float(os.getenv("TP_BPS_BUFFER", "5.0"))
-                tp1_share = 0.5 # Default
-                
-                # Try to get tp1_share from config if possible
+                tp1_share = 0.5  # Default
+
                 cfg = getattr(ctx, "config", {})
                 if cfg and "tp_ratio" in cfg:
                     from services.tp_config import parse_tp_ratio
                     tp_ratios = parse_tp_ratio(cfg["tp_ratio"])
                     if tp_ratios:
                         tp1_share = tp_ratios[0]
-                
-                rocket_mult = 1.5 # Default
-                # ... (could resolve rocket_mult from sym_specs if needed)
+
+                # Per-profile TP1 ATR multiplier (= tp1_atr / atr).
+                # rocket_v1/expansion_v1: TP1 = atr * rocket_mult.
+                # else: TP1 = stop_dist * rr1 = atr * sl_atr_mult * rr1.
+                if is_rocket:
+                    tp1_atr_mult = float(os.getenv("ROCKET_TP1_ATR_MULT", "1.5") or 1.5)
+                else:
+                    # signal_pipeline floors sl_atr_mult at SL_ATR_MULT_FLOOR (default 0.78)
+                    sl_atr_mult_floor = float(os.getenv("SL_ATR_MULT_FLOOR", "0.78") or 0.78)
+                    rr1 = 1.3  # default first TP RR
+                    if cfg and "tp_rr" in cfg:
+                        try:
+                            rr1_str = str(cfg["tp_rr"]).split(",")[0].strip()
+                            if rr1_str:
+                                rr1 = float(rr1_str)
+                        except Exception:
+                            pass
+                    tp1_atr_mult = sl_atr_mult_floor * rr1
 
                 fees_th, _ = fees_aware_min_atr_bps(
                     fees_bps_rt=fees_bps_rt,
                     tp_bps_buffer=tp_bps_buffer,
                     tp1_share=tp1_share,
-                    rocket_mult=rocket_mult,
+                    rocket_mult=tp1_atr_mult,
                 )
-                
+
                 floor_th = notes.get("thr", 0.0)
                 unified_th = max(floor_th, fees_th)
-                
+
                 atr_bps = notes.get("atr", 0.0)
                 if atr_bps == 0:
-                     atr_bps = indicators.get("atr_bps_exec", 0.0)
+                    atr_bps = indicators.get("atr_bps_exec", 0.0)
 
-                # Meme Relaxation
+                # Meme relaxation (×0.05) PLUS absolute bps floor — ensures SL still
+                # covers roundtrip fees even after relax (Fix #3).
                 is_meme = _ic.symbol_env_prefix(sym) in ("PEPE", "SHIB", "DOGE", "BONK", "FLOKI", "WIF")  # type: ignore
+                meme_abs_floor_bps = float(os.getenv("ATR_UNIFIED_MEME_ABS_FLOOR_BPS", "20.0") or 20.0)
+                meme_abs_shadow = (os.getenv("ATR_UNIFIED_MEME_ABS_FLOOR_SHADOW", "1") or "1") == "1"
+
                 effective_th = unified_th
                 if is_meme:
-                    effective_th *= 0.05
-                
+                    relaxed_th = unified_th * 0.05
+                    effective_th = relaxed_th
+                    if meme_abs_floor_bps > 0:
+                        notes["meme_abs_floor_bps"] = meme_abs_floor_bps
+                        notes["meme_relaxed_th"] = relaxed_th
+                        if not meme_abs_shadow and meme_abs_floor_bps > effective_th:
+                            effective_th = meme_abs_floor_bps
+                            notes["meme_abs_floor_applied"] = 1
+                        elif meme_abs_floor_bps > relaxed_th:
+                            notes["meme_abs_floor_would_apply"] = 1
+
+                notes["unified_th"] = unified_th
+                notes["fees_th"] = fees_th
+                notes["effective_th"] = effective_th
+                notes["tp1_atr_mult_used"] = tp1_atr_mult
+                notes["unified_gate_profile"] = "rocket" if is_rocket else "non_rocket"
+
                 if effective_th > 0 and atr_bps < effective_th:
-                    veto = True
-                    rc = "VETO_ATR_UNIFIED"
-                    notes["unified_th"] = unified_th
-                    notes["effective_th"] = effective_th
-                    notes["fees_th"] = fees_th
+                    if is_rocket or not non_rocket_shadow:
+                        veto = True
+                        rc = "VETO_ATR_UNIFIED"
+                    else:
+                        notes["unified_th_would_veto"] = 1
+                        notes["unified_th_shadow"] = 1
                 elif is_meme and atr_bps < unified_th:
                     notes["relaxed_pass"] = True
 

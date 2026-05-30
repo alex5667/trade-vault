@@ -259,6 +259,105 @@ class TestBoundedSLAtrCap:
         assert telem["mae_floor_to_atr_mult"] == pytest.approx(5.0)
         assert new_dist == pytest.approx(0.50)
 
+    # ── 2026-05-29 ATR-cap CLAMP mode (replaces skip on low-ATR conditions) ──
+    def test_cap_clamp_mode_clamps_floor_to_max_mult(self, monkeypatch):
+        """clamp mode + shadow=0 → floor clamped at max_mult × atr_bps."""
+        self._enforce_env(monkeypatch)
+        monkeypatch.setenv("BOUNDED_SL_MAX_ATR_MULT", "4.0")
+        monkeypatch.setenv("BOUNDED_SL_MAX_ATR_SHADOW", "0")
+        monkeypatch.setenv("BOUNDED_SL_ATR_CAP_MODE", "clamp")
+        # entry=100, atr=0.05 (5 bps), raw floor=50 bps → ratio 10x → cap triggered.
+        # Clamp to 4.0 × 5 bps = 20 bps → floor_dist = 100 × 20/10000 = 0.20.
+        new_dist, telem = apply_bounded_sl_floor(
+            "BTCUSDT", 100.0, 0.01, {"mae_p75_bps_30d": 50.0, "mae_sample_count_30d": 200.0},
+            atr=0.05,
+        )
+        assert telem["atr_cap_triggered"] == 1
+        assert telem["atr_cap_mode"] == "clamp"
+        assert telem["atr_cap_clamped"] == 1
+        assert telem["atr_cap_clamped_floor_bps"] == pytest.approx(20.0)
+        assert telem.get("atr_cap_skipped", 0) == 0
+        # Clamped floor of 20 bps applies (0.20 > original stop_dist 0.01)
+        assert new_dist == pytest.approx(0.20)
+        assert telem["applied"] == 1
+
+    def test_cap_clamp_mode_shadow_records_but_does_not_apply(self, monkeypatch):
+        """clamp mode + shadow=1 → telemetry records clamp, behaviour = legacy floor."""
+        self._enforce_env(monkeypatch)
+        monkeypatch.setenv("BOUNDED_SL_MAX_ATR_MULT", "4.0")
+        monkeypatch.setenv("BOUNDED_SL_MAX_ATR_SHADOW", "1")
+        monkeypatch.setenv("BOUNDED_SL_ATR_CAP_MODE", "clamp")
+        new_dist, telem = apply_bounded_sl_floor(
+            "BTCUSDT", 100.0, 0.01, {"mae_p75_bps_30d": 50.0, "mae_sample_count_30d": 200.0},
+            atr=0.05,
+        )
+        assert telem["atr_cap_triggered"] == 1
+        assert telem["atr_cap_clamped"] == 1
+        assert telem["atr_cap_clamped_floor_bps"] == pytest.approx(20.0)
+        # Shadow=1: raw floor of 50 bps still applied (legacy behaviour preserved)
+        assert new_dist == pytest.approx(0.50)
+        assert telem["applied"] == 1
+
+    def test_cap_skip_mode_default_legacy_behaviour(self, monkeypatch):
+        """No BOUNDED_SL_ATR_CAP_MODE set → default 'skip' = legacy."""
+        self._enforce_env(monkeypatch)
+        monkeypatch.setenv("BOUNDED_SL_MAX_ATR_MULT", "4.0")
+        monkeypatch.setenv("BOUNDED_SL_MAX_ATR_SHADOW", "0")
+        monkeypatch.delenv("BOUNDED_SL_ATR_CAP_MODE", raising=False)
+        new_dist, telem = apply_bounded_sl_floor(
+            "BTCUSDT", 100.0, 0.01, {"mae_p75_bps_30d": 50.0, "mae_sample_count_30d": 200.0},
+            atr=0.05,
+        )
+        assert telem["atr_cap_triggered"] == 1
+        assert telem["atr_cap_mode"] == "skip"
+        assert telem["atr_cap_skipped"] == 1
+        # Floor skipped — original tiny stop_dist preserved.
+        assert new_dist == 0.01
+
+    def test_cap_clamp_not_triggered_passes_through(self, monkeypatch):
+        """clamp mode + ratio <= max_mult → no clamp, raw floor applies."""
+        self._enforce_env(monkeypatch)
+        monkeypatch.setenv("BOUNDED_SL_MAX_ATR_MULT", "4.0")
+        monkeypatch.setenv("BOUNDED_SL_MAX_ATR_SHADOW", "0")
+        monkeypatch.setenv("BOUNDED_SL_ATR_CAP_MODE", "clamp")
+        # ATR=20 bps, floor=50 bps → ratio 2.5 < 4.0 → not triggered.
+        new_dist, telem = apply_bounded_sl_floor(
+            "BTCUSDT", 100.0, 0.01, {"mae_p75_bps_30d": 50.0, "mae_sample_count_30d": 200.0},
+            atr=0.20,
+        )
+        assert telem["atr_cap_triggered"] == 0
+        assert telem.get("atr_cap_clamped", 0) == 0
+        # Raw floor of 50 bps applies
+        assert new_dist == pytest.approx(0.50)
+
+    def test_cap_clamp_reproduces_ethusdt_incident(self, monkeypatch):
+        """Repro of the 2026-05-29 ETHUSDT report (avg SL=7.51 ATR).
+
+        ETH at ~2008, ATR=0.958 (4.77 bps), MAE floor=83.8 bps.
+        Legacy 'skip' → SL collapses to 1.2 ATR = 5.7 bps (noise-hit).
+        New 'clamp' → SL = 4.0 × ATR = 19.1 bps (sane minimum).
+        """
+        self._enforce_env(monkeypatch)
+        monkeypatch.setenv("BOUNDED_SL_MAX_ATR_MULT", "4.0")
+        monkeypatch.setenv("BOUNDED_SL_MAX_ATR_SHADOW", "0")
+        monkeypatch.setenv("BOUNDED_SL_ATR_CAP_MODE", "clamp")
+        entry = 2008.0
+        atr = 0.958  # ~4.77 bps
+        base_stop = atr * 1.2  # 1.149 ≈ 5.72 bps
+        new_dist, telem = apply_bounded_sl_floor(
+            "ETHUSDT", entry, base_stop,
+            {"mae_p75_bps_30d": 83.8, "mae_sample_count_30d": 3772.0},
+            atr=atr,
+        )
+        # ATR in bps = 0.958/2008 × 10000 = 4.77
+        atr_bps = (atr / entry) * 10000.0
+        assert telem["atr_cap_triggered"] == 1
+        assert telem["atr_cap_clamped"] == 1
+        # Clamped floor = 4.0 × 4.77 ≈ 19.1 bps
+        assert telem["atr_cap_clamped_floor_bps"] == pytest.approx(4.0 * atr_bps)
+        # Final dist ≈ 19.1 bps × entry / 10000 ≈ 3.83 price units = 4.0 ATR exactly
+        assert new_dist / atr == pytest.approx(4.0, rel=1e-3)
+
 
 # ---------------------------------------------------------------------------
 # compute_levels integration — SL widened when feature ON+ENFORCE

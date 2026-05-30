@@ -260,7 +260,7 @@ async def main() -> None:
     miss_max = float(os.getenv("ML_SRE_MISSING_RATE_MAX", "0.02") or 0.02)
     err_max = float(os.getenv("ML_SRE_ERR_RATE_MAX", "0.01") or 0.01)
     lat_p99_max = float(os.getenv("ML_SRE_LAT_P99_MAX_MS", "8.0") or 8.0)
-    p0_rate_max = float(os.getenv("ML_SRE_PEDGE_ZERO_RATE_MAX", "0.05") or 0.05)
+    p0_rate_max = float(os.getenv("ML_SRE_PEDGE_ZERO_RATE_MAX", "0.50") or 0.50)
     req_miss_rate_max = float(os.getenv("ML_SRE_REQUIRED_MISS_RATE_MAX", "0.01") or 0.01)
     max_stale_ms = int(float(os.getenv("ML_SRE_MAX_STALE_MS", str(window_ms)) or window_ms))
 

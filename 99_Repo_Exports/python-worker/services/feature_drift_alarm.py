@@ -221,9 +221,11 @@ class FeatureDriftAlarm:
             updated[f"f_mu:{fn}"] = f"{f_mu2:.12g}"
             updated[f"f_var:{fn}"] = f"{f_var2:.12g}"
 
-            # drift score: compare fast mean vs baseline mean using baseline sigma
-            sigma = math.sqrt(max(b_var2, eps))
-            z = abs(f_mu2 - b_mu2) / sigma
+            # drift score: compare fast mean vs baseline mean using standard error of the difference
+            # var(f_mu - b_mu) ≈ sigma^2 * (fast_alpha / (2 - fast_alpha))
+            var_diff = max(b_var2, eps) * (fast_a / (2.0 - fast_a))
+            sigma_diff = math.sqrt(max(var_diff, eps))
+            z = abs(f_mu2 - b_mu2) / sigma_diff
             if math.isfinite(z) and z > best_score:
                 best_score = float(z)
                 best_feat = str(fn)

@@ -557,6 +557,29 @@ def evaluate_risk_policy(inp: RiskPolicyInput, limits: RiskPolicyLimits | None =
     allow = True
     risk_multiplier = 1.0
     reasons: list[str] = []
+
+    # W2: entry_slippage_cap autocal override (AUTOCAL_ENTRY_SLIP_CAP_READ_ENABLED=0 default)
+    _effective_slippage_cap = tier_policy.slippage_bps_cap
+    try:
+        from services.entry_slippage_cap_runtime_overrides import get_cap_bps as _get_slip_cap
+        _cal_slip = _get_slip_cap(symbol)
+        if _cal_slip and _cal_slip > 0:
+            _effective_slippage_cap = _cal_slip
+    except Exception:
+        pass
+
+    # W2: daily_dd_tier autocal override (AUTOCAL_DAILY_DD_TIER_READ_ENABLED=0 default)
+    _effective_daily_loss_pct = abs(lim.max_daily_loss_pct)
+    try:
+        from services.daily_dd_tier_runtime_overrides import get_reader as _get_dd_reader
+        _dd_rdr = _get_dd_reader()
+        if _dd_rdr is not None:
+            _cal_hard = _dd_rdr.get_hard_limit(tier, "*")
+            if _cal_hard and _cal_hard > 0:
+                _effective_daily_loss_pct = _cal_hard
+    except Exception:
+        pass
+
     # Maker policy: tier must allow it AND infra must not be degraded
     maker_allowed = bool(tier_policy.maker_allowed) and not bool(inp.infra_degraded)
     effective_execution_policy = "MAKER_FIRST" if (maker_allowed and bool(inp.maker_policy_requested)) else "SAFETY_FIRST"
@@ -568,7 +591,7 @@ def evaluate_risk_policy(inp: RiskPolicyInput, limits: RiskPolicyLimits | None =
         reasons.append("kill_switch")
 
     # ── Priority 2: Daily loss limit (force-flatten) ──────────────────────────
-    elif _f(inp.daily_pnl_pct) <= -abs(lim.max_daily_loss_pct):
+    elif _f(inp.daily_pnl_pct) <= -_effective_daily_loss_pct:
         level = RISK_FORCE_FLATTEN
         allow = False
         reasons.append("daily_loss_limit")
@@ -647,7 +670,7 @@ def evaluate_risk_policy(inp: RiskPolicyInput, limits: RiskPolicyLimits | None =
         level = RISK_DENY_HARD
         allow = False
         reasons.append("spread_hard_cap")
-    if allow and expected_slippage_bps > tier_policy.slippage_bps_cap:
+    if allow and expected_slippage_bps > _effective_slippage_cap:
         level = RISK_DENY_HARD
         allow = False
         reasons.append("slippage_hard_cap")
@@ -680,7 +703,7 @@ def evaluate_risk_policy(inp: RiskPolicyInput, limits: RiskPolicyLimits | None =
         if spread_bps > lim.soft_spread_bps_cap:
             risk_multiplier *= 0.75
             reasons.append("spread_soft_cap")
-        if expected_slippage_bps > (tier_policy.slippage_bps_cap * 0.66):
+        if expected_slippage_bps > (_effective_slippage_cap * 0.66):
             risk_multiplier *= 0.75
             reasons.append("slippage_soft_cap")
         if not maker_allowed and bool(inp.maker_policy_requested):

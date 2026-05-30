@@ -19,7 +19,10 @@ def service():
 def runtime():
     rt = MagicMock()
     rt.symbol = "BTCUSDT"
-    rt.config = {"adverse_check_enable": 1}
+    rt.config = {
+        "adverse_check_enable": 1,
+        "adverse_timeout_ms": 5000,
+    }
     rt.pending_adverse_payload = None
     rt.pending_adverse_ts_ms = 0
     rt.atr_range_agg = MagicMock()

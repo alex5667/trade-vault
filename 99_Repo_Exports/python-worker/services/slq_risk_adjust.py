@@ -5,11 +5,18 @@ Stop-Risk Contract: SLQ может только РАСШИРЯТЬ стоп, н�
 Если расширенный стоп слишком широк или EV < min_ev → DENY (cfgd["sizing_ok"]=False),
 а не "ставим ближе".
 
-Bucket hierarchy (fallback cascade, most → least specific):
-  slq:{sym}:{side}:{scenario}:{regime}:{session}:{vol_bucket}:{liq_bucket}
-  slq:{sym}:{side}:{scenario}:{regime}
-  slq:{sym}:{side}:{regime}
-  slq:{sym}:{side}
+Bucket hierarchy (fallback cascade, most → least specific). Primary cascade
+is scoped by ATR timeframe so 1m/5m/15m samples never get mixed; legacy
+non-scoped keys are still consulted as a final fallback during the migration
+window so this reader keeps working against older snapshots.
+  slq:tf={atr_tf}:{sym}:{side}:{scenario}:{regime}:{session}:{vol_bucket}:{liq_bucket}
+  slq:tf={atr_tf}:{sym}:{side}:{scenario}:{regime}
+  slq:tf={atr_tf}:{sym}:{side}:{regime}
+  slq:tf={atr_tf}:{sym}:{side}
+  slq:{sym}:{side}:{scenario}:{regime}:{session}:{vol_bucket}:{liq_bucket}   (legacy)
+  slq:{sym}:{side}:{scenario}:{regime}                                       (legacy)
+  slq:{sym}:{side}:{regime}                                                  (legacy)
+  slq:{sym}:{side}                                                           (legacy)
 """
 from __future__ import annotations
 
@@ -91,10 +98,46 @@ def _ctx_str(ctx: Any, *attrs: str, default: str = "na") -> str:
     return default
 
 
+_ATR_TF_LABELS = {
+    60_000: "1m",
+    180_000: "3m",
+    300_000: "5m",
+    900_000: "15m",
+    1_800_000: "30m",
+    3_600_000: "1h",
+    14_400_000: "4h",
+    86_400_000: "1d",
+}
+
+
+def _atr_tf_label_from_ctx(ctx: Any) -> str:
+    """
+    Resolve ATR timeframe label from ctx (atr_tf_ms primary, atr_tf string fallback).
+    Returns "na" when unknown so we don't silently collapse multi-scale buckets.
+    """
+    raw_ms = 0
+    for attr in ("atr_tf_ms", "atr_selected_tf_ms"):
+        try:
+            v = getattr(ctx, attr, None)
+            if v:
+                raw_ms = int(float(v))
+                break
+        except Exception:
+            pass
+    if raw_ms > 0:
+        return _ATR_TF_LABELS.get(raw_ms, f"{raw_ms}ms")
+    # String fallback: ctx.atr_tf already in "1m"/"5m" form
+    s = _ctx_str(ctx, "atr_tf", "atr_tf_selected", default="")
+    return s or "na"
+
+
 def _build_slq_key_cascade(symbol: str, side_s: str, ctx: Any) -> list[tuple[str, str]]:
     """
     Returns list of (redis_key, bucket_level_label) from most to least specific.
     Caller tries each in order and stops at first hit with N >= min_n.
+
+    tf-scoped keys come first (primary), legacy non-scoped keys are appended
+    as a transitional fallback while SLQ aggregator still emits both layouts.
     """
     sym = symbol.upper()
     scenario = _ctx_str(ctx, "scenario")
@@ -102,12 +145,19 @@ def _build_slq_key_cascade(symbol: str, side_s: str, ctx: Any) -> list[tuple[str
     session  = _ctx_str(ctx, "session")
     vol_b    = _ctx_str(ctx, "vol_bucket", "catr_bucket")
     liq_b    = _ctx_str(ctx, "liq_bucket")
+    atr_tf   = _atr_tf_label_from_ctx(ctx)
 
+    tf = f"tf={atr_tf}:"
     return [
-        (f"slq:{sym}:{side_s}:{scenario}:{regime}:{session}:{vol_b}:{liq_b}", "exact"),
-        (f"slq:{sym}:{side_s}:{scenario}:{regime}", "sym_side_scenario_regime"),
-        (f"slq:{sym}:{side_s}:{regime}", "sym_side_regime"),
-        (f"slq:{sym}:{side_s}", "sym_side"),
+        (f"slq:{tf}{sym}:{side_s}:{scenario}:{regime}:{session}:{vol_b}:{liq_b}", "exact"),
+        (f"slq:{tf}{sym}:{side_s}:{scenario}:{regime}", "sym_side_scenario_regime"),
+        (f"slq:{tf}{sym}:{side_s}:{regime}", "sym_side_regime"),
+        (f"slq:{tf}{sym}:{side_s}", "sym_side"),
+        # Legacy (no atr_tf scope) — kept until aggregator drops SLQ_WRITE_LEGACY_KEYS.
+        (f"slq:{sym}:{side_s}:{scenario}:{regime}:{session}:{vol_b}:{liq_b}", "legacy_exact"),
+        (f"slq:{sym}:{side_s}:{scenario}:{regime}", "legacy_sym_side_scenario_regime"),
+        (f"slq:{sym}:{side_s}:{regime}", "legacy_sym_side_regime"),
+        (f"slq:{sym}:{side_s}", "legacy_sym_side"),
     ]
 
 

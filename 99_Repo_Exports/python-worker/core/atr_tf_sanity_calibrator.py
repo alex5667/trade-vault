@@ -36,6 +36,7 @@ class AtrTfChoice:
     target_bps: float
     picked_p50_bps: float
     tfs_p50: dict[str, float]
+    score: float = 0.0
 
 
 class AtrTfSanityCalibrator:
@@ -71,6 +72,8 @@ class AtrTfSanityCalibrator:
         # runtime-side bookkeeping (persist separately if нужно)
         self.last_switch_ts_ms: int = 0
         self.last_tf: str = ""
+        self.shadow_last_switch_ts_ms: int = 0
+        self.shadow_last_tf: str = ""
 
     def update_many(self, *, regime: str, atr_bps_by_tf: dict[str, float]) -> None:
         r = (regime or "na")
@@ -156,6 +159,7 @@ class AtrTfSanityCalibrator:
                 target_bps=target,
                 picked_p50_bps=float(p50s.get(fallback_tf, 0.0) or 0.0),
                 tfs_p50=p50s,
+                score=0.0,
             )
 
         # deterministic order: sort by logical timeframe size
@@ -173,22 +177,42 @@ class AtrTfSanityCalibrator:
 
         picked_p50 = float(p50s.get(pick, 0.0) or 0.0)
 
-        # Hysteresis / hold-down
-        if allow_switch and current_tf and pick != current_tf:
-            # 1) hold-down
-            if self.hold_ms > 0 and (now_ts_ms - int(self.last_switch_ts_ms or 0)) < self.hold_ms:
-                pick = current_tf
-                picked_p50 = float(p50s.get(pick, 0.0) or 0.0)
-            else:
-                # 2) margin above target
-                need = target * (1.0 + float(self.switch_margin))
-                if picked_p50 < need:
-                    pick = current_tf
-                    picked_p50 = float(p50s.get(pick, 0.0) or 0.0)
+        eff_current_tf = current_tf if allow_switch else (self.shadow_last_tf or current_tf or fallback_tf)
+        eff_last_switch = self.last_switch_ts_ms if allow_switch else self.shadow_last_switch_ts_ms
+
+        if eff_current_tf and pick != eff_current_tf:
+            current_p50 = float(p50s.get(eff_current_tf, 0.0) or 0.0)
+            is_current_valid = current_p50 >= target
+
+            if is_current_valid:
+                # 1) hold-down
+                if self.hold_ms > 0 and (now_ts_ms - int(eff_last_switch or 0)) < self.hold_ms:
+                    pick = eff_current_tf
+                    picked_p50 = current_p50
                 else:
-                    # commit switch bookkeeping
+                    # 2) margin above target
+                    need = target * (1.0 + float(self.switch_margin))
+                    if picked_p50 < need:
+                        pick = eff_current_tf
+                        picked_p50 = current_p50
+                    else:
+                        # commit switch bookkeeping
+                        if allow_switch:
+                            self.last_switch_ts_ms = int(now_ts_ms)
+                            self.last_tf = str(pick)
+                        else:
+                            self.shadow_last_switch_ts_ms = int(now_ts_ms)
+                            self.shadow_last_tf = str(pick)
+            else:
+                # current_tf is INVALID. Switch immediately to the best pick without margin or hold-down!
+                if allow_switch:
                     self.last_switch_ts_ms = int(now_ts_ms)
                     self.last_tf = str(pick)
+                else:
+                    self.shadow_last_switch_ts_ms = int(now_ts_ms)
+                    self.shadow_last_tf = str(pick)
+
+        score = float(picked_p50 / max(0.1, target))
 
         return AtrTfChoice(
             tf=str(pick or fallback_tf),
@@ -197,6 +221,7 @@ class AtrTfSanityCalibrator:
             target_bps=target,
             picked_p50_bps=float(picked_p50),
             tfs_p50=p50s,
+            score=score,
         )
 
     # ---------------- Persistence (per symbol/regime) ----------------

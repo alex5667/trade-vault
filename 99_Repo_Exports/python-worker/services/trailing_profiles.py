@@ -16,6 +16,8 @@ Phase A (P0):
 import hashlib
 import json
 import os
+import threading
+import time
 from dataclasses import asdict, dataclass, field
 
 import redis
@@ -23,6 +25,14 @@ import redis
 from common.log import setup_logger
 
 log = setup_logger("trailing_profiles")
+
+_AUTOCAL_STATE_KEY = "autocal:tp_sl_trailing:state"
+# knob name (in autocal state) → profile name in registry
+_AUTOCAL_ATR_KNOB_TO_PROFILE: dict[str, str] = {
+    "atr_mult_rocket_v1":      "rocket_v1",
+    "atr_mult_expansion_v1":   "expansion_v1",
+    "atr_mult_rocket_v1_bear": "rocket_v1_bear",
+}
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -177,6 +187,12 @@ class TrailingProfilesRegistry:
         self._init_default()
         self._load_from_redis()
 
+        self._autocal_ts: float = 0.0
+        self._autocal_ttl_sec: float = float(
+            os.getenv("TRAILING_AUTOCAL_REFRESH_SEC", "30")
+        )
+        self._autocal_lock = threading.Lock()
+
         log.info("✅ TrailingProfilesRegistry initialized with %d profiles", len(self._profiles))
 
     # ─────────────────────────────── defaults ────────────────────────────────
@@ -279,11 +295,49 @@ class TrailingProfilesRegistry:
         except Exception as e:
             log.error("Failed to save profiles to Redis: %s", e)
 
+    # ─────────────────────── autocal atr_mult overrides ──────────────────────
+    def _maybe_apply_autocal_overrides(self) -> None:
+        """TTL-cached read of autocal state; apply enforce=1 atr_mult overrides in-place."""
+        now = time.monotonic()
+        if (now - self._autocal_ts) < self._autocal_ttl_sec:
+            return
+        with self._autocal_lock:
+            if (now - self._autocal_ts) < self._autocal_ttl_sec:
+                return
+            self._autocal_ts = now
+            try:
+                raw = self.r.get(_AUTOCAL_STATE_KEY)
+                if not raw:
+                    return
+                data = json.loads(raw)
+                knobs: dict = data.get("knobs") or {}
+                for knob, profile_name in _AUTOCAL_ATR_KNOB_TO_PROFILE.items():
+                    entry = knobs.get(knob) or {}
+                    if not int(entry.get("enforce") or 0):
+                        continue
+                    value = entry.get("value")
+                    if value is None:
+                        continue
+                    profile = self._profiles.get(profile_name)
+                    if profile is None:
+                        continue
+                    new_val = float(value)
+                    if profile.atr_mult != new_val:
+                        log.info(
+                            "autocal apply: %s.atr_mult %.3f → %.3f (enforce=1)",
+                            profile_name, profile.atr_mult, new_val,
+                        )
+                        profile.atr_mult = new_val
+            except Exception as exc:
+                log.debug("autocal override refresh fail (fail-open): %s", exc)
+
     # ───────────────────────────── CRUD/getters ──────────────────────────────
     def get(self, name: str) -> TrailingProfile | None:
+        self._maybe_apply_autocal_overrides()
         return self._profiles.get(name)
 
     def get_v2(self, name: str) -> TrailingProfileV2 | None:
+        self._maybe_apply_autocal_overrides()
         p = self._profiles.get(name)
         return p.to_v2() if p else None
 

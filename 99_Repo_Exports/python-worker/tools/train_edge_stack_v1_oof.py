@@ -26,6 +26,7 @@ Output:
 """
 
 import argparse
+import datetime
 import json
 import math
 import os
@@ -161,6 +162,25 @@ def _bucket_from_scenario(scenario: str) -> str:
     return "other"
 
 
+def _session_from_hour_utc(hour: int) -> str:
+    """Canonical UTC-hour → session label.
+
+    Matches the registry one-hot ``session_{asia,eu,us,off}`` emitted by
+    ``feature_registry.get_edge_stack_feature_spec`` when ``ver_num >= 7``.
+    Must agree with the runtime session resolver used at serve time so the
+    train/serve representation doesn't drift.
+    """
+    if hour < 0 or hour >= 24:
+        return "off"
+    if 0 <= hour < 7:
+        return "asia"
+    if 7 <= hour < 13:
+        return "eu"
+    if 13 <= hour < 21:
+        return "us"
+    return "off"
+
+
 def build_feature_row(
     *,
     feature_cols: list[str],
@@ -201,11 +221,11 @@ def build_feature_row(
     s = _scenario_norm(scenario)
     bucket = _bucket_from_scenario(scenario)
 
-    # ВАЖНО: здесь вы должны повторить ТО ЖЕ преобразование,
-    # что и в gate через transforms/scaler.
-    # Для "первого прохода" оставляем identity, а scaling/transforms
-    # внедряется через P0 fix (pack содержит robust_scaler/feature_transforms,
-    # а gate применяет их в проде).
+    _dt = datetime.datetime.fromtimestamp(ts_ms / 1000.0, tz=datetime.timezone.utc)
+    _hour = _dt.hour
+    _dow = _dt.weekday()  # 0=Mon … 6=Sun
+    _session = _session_from_hour_utc(_hour)
+
     cache: dict[str, float] = {}
 
     def num(name: str) -> float:
@@ -230,16 +250,43 @@ def build_feature_row(
             else:
                 row.append(0.0)
         elif col.startswith("direction_"):
-            # one-hot: direction_LONG, direction_SHORT
+            # legacy one-hot: direction_LONG, direction_SHORT
             val = col[len("direction_"):].upper()
             row.append(1.0 if val == d else 0.0)
+        elif col.startswith("dir:"):
+            # registry one-hot: dir:LONG, dir:SHORT
+            val = col[len("dir:"):].upper()
+            row.append(1.0 if val == d else 0.0)
         elif col.startswith("scenario_v4_"):
-            # one-hot: scenario_v4_trend, scenario_v4_range, scenario_v4_other
+            # legacy one-hot: scenario_v4_trend, scenario_v4_range, scenario_v4_other
             val = col[len("scenario_v4_"):].lower()
             row.append(1.0 if val == s else 0.0)
+        elif col.startswith("bucket:"):
+            # registry one-hot: bucket:trend, bucket:range, bucket:other
+            val = col[len("bucket:"):]
+            row.append(1.0 if val == bucket else 0.0)
+        elif col.startswith("hour:"):
+            # time one-hot: hour:0 .. hour:23
+            try:
+                row.append(1.0 if int(col[len("hour:"):]) == _hour else 0.0)
+            except ValueError:
+                row.append(0.0)
+        elif col.startswith("dow:"):
+            # time one-hot: dow:0 (Mon) .. dow:6 (Sun)
+            try:
+                row.append(1.0 if int(col[len("dow:"):]) == _dow else 0.0)
+            except ValueError:
+                row.append(0.0)
+        elif col.startswith("session_"):
+            # registry one-hot: session_{asia,eu,us,off}. Emitted by
+            # feature_registry when ver_num>=7 (v9_of+ → v15_of). Encoding
+            # must agree with the runtime session resolver so training rows
+            # and serve rows land on the same bucket.
+            val = col[len("session_"):].lower()
+            row.append(1.0 if val == _session else 0.0)
         else:
-            # session_/spread_bucket_/liq_regime_/vol_regime_ —
-            # лучше включить после того как вы утвердите генераторы в одном месте.
+            # spread_bucket_/liq_regime_/vol_regime_ — not yet wired; add
+            # explicit encoders before training any model that pins them.
             row.append(0.0)
 
     return row, missing
@@ -289,6 +336,24 @@ def main() -> None:
     ap.add_argument("--calib_l2", type=float, default=1e-3, help="Platt calibration L2 regularization")
     ap.add_argument("--calib_max_iter", type=int, default=50, help="Platt calibration max iterations")
     ap.add_argument("--calibrate", type=int, default=1, help="enable calibration (1) or disable (0)")
+    ap.add_argument(
+        "--feature_zero_rate_report",
+        default="",
+        help=(
+            "Optional path for the train_feature_zero_rate_v1 JSON report. "
+            "When empty and TRAIN_FEATURE_ZERO_RATE_REPORT env is set, that "
+            "path is used instead."
+        ),
+    )
+    ap.add_argument(
+        "--skip_categorical_fail_fast",
+        action="store_true",
+        help=(
+            "Disable the v15_of CategoricalAllZeroError guard. Off by default — "
+            "the guard catches build_feature_row regressions where an entire "
+            "bucket:/hour:/dow:/session_/dir: family encodes to constant 0."
+        ),
+    )
     args = ap.parse_args()
 
     # Determine input file (prefer new format, fallback to old)
@@ -393,6 +458,54 @@ def main() -> None:
     # Проверка на NaN/Inf
     if not np.all(np.isfinite(X)):
         raise ValueError("X contains NaN or Inf values")
+
+    # ── Feature zero-rate report + categorical fail-fast ───────────────────
+    # Per audit-2026-05-29 item 6: the v15_of registry adds categorical
+    # one-hots (bucket:/hour:/dow:/session_/dir:) on top of f_* numerics.
+    # If build_feature_row regresses and silently zeros an entire family,
+    # we'd ship a model that loses access to the category. Emit a JSON
+    # report + Prometheus gauges and fail-fast when a required family is
+    # uniformly zero for v15_of.
+    try:
+        from tools.train_feature_zero_rate_v1 import (  # type: ignore
+            CategoricalAllZeroError,
+            assert_categorical_families_alive,
+            compute_zero_rates,
+            emit_prometheus,
+            write_report_json,
+        )
+    except Exception as _zr_imp_exc:
+        print(f"[train_feature_zero_rate_v1] unavailable, skipping: {_zr_imp_exc}")
+    else:
+        _zr_report = compute_zero_rates(X, feature_cols)
+        _report_path = (
+            args.feature_zero_rate_report
+            or os.environ.get("TRAIN_FEATURE_ZERO_RATE_REPORT", "")
+        )
+        if _report_path:
+            try:
+                _zr_report_full = {
+                    "feature_schema_ver": feature_schema_ver or "",
+                    **_zr_report,
+                }
+                write_report_json(_zr_report_full, _report_path)
+                print(f"[train_feature_zero_rate_v1] report saved → {_report_path}")
+            except Exception as _zr_w_exc:
+                print(f"[train_feature_zero_rate_v1] report save failed: {_zr_w_exc}")
+        try:
+            emit_prometheus(_zr_report, schema_ver=feature_schema_ver or "unknown")
+        except Exception as _zr_p_exc:
+            print(f"[train_feature_zero_rate_v1] prometheus emit failed: {_zr_p_exc}")
+        if not args.skip_categorical_fail_fast:
+            try:
+                assert_categorical_families_alive(
+                    _zr_report, schema_ver=feature_schema_ver or "",
+                )
+            except CategoricalAllZeroError as _zr_fail:
+                # Re-raise as ValueError so existing error-handling paths
+                # (CI report parsers, trainer wrappers) treat it as a
+                # standard validation failure rather than a generic crash.
+                raise ValueError(str(_zr_fail)) from _zr_fail
 
     # OOF splitting
     splitter = PurgedEmbargoTimeSeriesSplit(

@@ -261,16 +261,15 @@ def _cooldown_ms_for(runtime, *, scenario: str, now_ms: int, new_dir: str = "") 
     if floor_ms > 0:
         shadow = (os.environ.get("BURST_MIN_GAP_SHADOW", "0").strip().lower()
                   in ("1", "true", "yes", "on"))
-        if shadow:
-            try:
-                # Record would-veto state for indicators; no behavioural change.
-                runtime.burst_gate_would_veto = 1 if floor_ms > cd else 0
-                runtime.burst_gate_floor_ms = floor_ms
-            except Exception:
-                pass
-        else:
-            if floor_ms > cd:
-                cd = floor_ms
+        try:
+            # Record would-veto state for indicators; no behavioural change.
+            runtime.burst_gate_would_veto = 1 if floor_ms > cd else 0
+            runtime.burst_gate_floor_ms = floor_ms
+        except Exception:
+            pass
+
+        if not shadow and floor_ms > cd:
+            cd = floor_ms
 
     # clamp to safe range
     cd_min = _safe_int(cfg.get("cooldown_min_ms", 1000), 1000)

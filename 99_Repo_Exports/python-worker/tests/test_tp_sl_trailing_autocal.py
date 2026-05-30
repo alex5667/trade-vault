@@ -13,7 +13,6 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
-import os
 import time
 from typing import Any
 
@@ -24,10 +23,17 @@ import pytest
 # autocal service unit tests
 # ──────────────────────────────────────────────────────────────────────────
 
-def test_knob_lift_tp1_partial_below_05r_returns_zero() -> None:
+def test_knob_lift_tp1_partial_below_05r_returns_none() -> None:
+    """Candidate never fires (MFE < 0.5R) → trade not eligible → None (not 0.0).
+
+    Returning 0.0 would dilute the mean across the full window; only trades
+    where the candidate would actually fire should be included.
+    """
     from orderflow_services.tp_sl_trailing_autocal_v1 import _knob_lift
     trade = {"mfe_r": 0.2, "pnl_r": -1.0, "sl_dist": 100.0, "tp_hits": 0.0, "regime": "trend"}
-    assert _knob_lift("tp1_target_r", trade) == 0.0
+    assert _knob_lift("tp1_target_r", trade) is None
+    assert _knob_lift("be_after_tp1_mode", trade) is None
+    assert _knob_lift("partial_close_tp1_mode", trade) is None
 
 
 def test_knob_lift_tp1_partial_at_mfe1r_positive_when_pnl_negative() -> None:
@@ -44,10 +50,13 @@ def test_knob_lift_arm_threshold_eligible_only_for_losing_with_mfe_in_band() -> 
     # mfe 0.3 (in band), pnl -1.0 (losing) — should give some positive lift
     trade = {"mfe_r": 0.3, "pnl_r": -1.0, "sl_dist": 100.0, "tp_hits": 0.0, "regime": "trend"}
     lift = _knob_lift("arm_threshold_r", trade)
-    assert lift > 0
-    # mfe 0.3, but pnl_r positive — no benefit
+    assert lift is not None and lift > 0
+    # mfe 0.3, but pnl_r positive — candidate would not lock partial → ineligible
     trade2 = {"mfe_r": 0.3, "pnl_r": 0.5, "sl_dist": 100.0, "tp_hits": 1.0, "regime": "trend"}
-    assert _knob_lift("arm_threshold_r", trade2) == 0.0
+    assert _knob_lift("arm_threshold_r", trade2) is None
+    # mfe outside [0.25, 0.5) band → ineligible
+    trade3 = {"mfe_r": 0.1, "pnl_r": -1.0, "sl_dist": 100.0, "tp_hits": 0.0, "regime": "trend"}
+    assert _knob_lift("arm_threshold_r", trade3) is None
 
 
 def test_knob_lift_trail_mult_reduces_giveback_proportional() -> None:
@@ -57,6 +66,49 @@ def test_knob_lift_trail_mult_reduces_giveback_proportional() -> None:
     lift = _knob_lift("atr_mult_rocket_v1", trade)
     # ratio = (1.2-1.0)/1.2 = 0.1667; est = 1.5 * 0.1667 * 0.5 ≈ 0.125
     assert lift == pytest.approx(0.125, rel=1e-2)
+
+
+def test_knob_lift_trail_mult_no_tp1_returns_none() -> None:
+    """Trail-mult candidate only matters when TP1 hit; otherwise ineligible."""
+    from orderflow_services.tp_sl_trailing_autocal_v1 import _knob_lift
+    no_tp1 = {"mfe_r": 0.4, "pnl_r": -1.0, "sl_dist": 100.0, "tp_hits": 0.0, "regime": "trend"}
+    assert _knob_lift("atr_mult_rocket_v1", no_tp1) is None
+    assert _knob_lift("atr_mult_expansion_v1", no_tp1) is None
+    assert _knob_lift("atr_mult_rocket_v1_bear", no_tp1) is None
+    # tp1 hit but mfe<=pnl → no giveback to recover → ineligible
+    no_giveback = {"mfe_r": 0.6, "pnl_r": 0.8, "sl_dist": 100.0, "tp_hits": 1.0, "regime": "trend"}
+    assert _knob_lift("atr_mult_rocket_v1", no_giveback) is None
+
+
+def test_evaluate_window_eligible_only_denominator_no_dilution() -> None:
+    """Regression: mean lift_r computed over eligible-only — not full window.
+
+    Without this, 10 eligible giveback-recovery trades (lift=0.125 each) mixed
+    with 100 ineligible ones would yield mean ≈ 0.011 (below 0.05 threshold).
+    With eligible-only denominator: mean = 0.125 → passes.
+    """
+    from orderflow_services.tp_sl_trailing_autocal_v1 import Cfg, evaluate_window
+
+    cfg = Cfg(
+        enable=True, enforce=False, interval_sec=60, window_h=24.0,
+        min_trades=5, lift_r=0.05, tol_r=0.10, dwell_h=24.0,
+        hmac_secret="", prom_port=9999, stream="trades:closed",
+        redis_url="redis://localhost:6379/0",
+    )
+    eligible = [
+        {"mfe_r": 2.0, "pnl_r": 0.5, "sl_dist": 100.0, "tp_hits": 1.0, "regime": "trend"}
+        for _ in range(10)
+    ]
+    ineligible = [
+        {"mfe_r": 0.2, "pnl_r": -1.0, "sl_dist": 100.0, "tp_hits": 0.0, "regime": "trend"}
+        for _ in range(100)
+    ]
+    out = evaluate_window(eligible + ineligible, cfg, {}, int(time.time() * 1000))
+
+    rocket = out["atr_mult_rocket_v1"]
+    assert rocket["n"] == 10, "denominator must be eligible-only, not 110"
+    assert rocket["lift_r"] == pytest.approx(0.125, rel=1e-2)
+    assert rocket["passes"] == 1
 
 
 def test_evaluate_window_pass_requires_min_trades() -> None:
@@ -146,7 +198,7 @@ def test_publish_state_signs_with_hmac() -> None:
         def __init__(self) -> None:
             self.stored: dict[str, str] = {}
 
-        def set(self, k: str, v: str, ex: int | None = None) -> None:
+        def set(self, k: str, v: str, ex: int | None = None) -> None:  # noqa: ARG002
             self.stored[k] = v
 
     cfg = Cfg(
@@ -249,6 +301,76 @@ def test_reader_stale_snapshot_returns_default() -> None:
     fake = _FakeRedis(json.dumps({"ts_ms": old_ts, "knobs": knobs}))
     rdr = TpSlTrailOverridesReader(fake, hmac_secret="")
     assert rdr.get_override("tp1_target_r", 0.0) == 0.0
+
+
+def test_layer_d_arm_threshold_reads_autocal_override(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """_Config.maybe_refresh() picks up arm_threshold_r override from autocal reader."""
+    from services import tp_sl_trailing_runtime_overrides as mod
+    mod.reset_reader_for_tests()
+
+    monkeypatch.setenv("AUTOCAL_TP_SL_TRAIL_READ_ENABLED", "1")
+    monkeypatch.setenv("OF_LAYER_D_ARM_THRESHOLD_R", "0.25")  # env default
+
+    knobs = {"arm_threshold_r": {"value": 0.40, "enforce": 1}}
+    fake_redis_payload = json.dumps({
+        "ts_ms": int(time.time() * 1000),
+        "knobs": knobs,
+    })
+
+    import unittest.mock as mock
+    with mock.patch("redis.from_url") as mock_redis:
+        mock_client = mock.MagicMock()
+        mock_client.get.return_value = fake_redis_payload
+        mock_redis.return_value = mock_client
+
+        mod.reset_reader_for_tests()
+
+        from services.trade_monitor.layer_d_early_arm_hook import _Config
+        cfg = _Config()
+        cfg.cache_ts = 0.0  # force refresh
+        cfg.maybe_refresh(redis_client=None)  # config refresh uses ENV/reader path
+        assert cfg.arm_threshold_r == pytest.approx(0.40), (
+            "arm_threshold_r autocal override (enforce=1) must be applied"
+        )
+
+    mod.reset_reader_for_tests()
+
+
+def test_layer_d_arm_threshold_falls_back_to_env_when_enforce_zero(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """enforce=0 must not change arm_threshold_r from ENV default."""
+    from services import tp_sl_trailing_runtime_overrides as mod
+    mod.reset_reader_for_tests()
+
+    monkeypatch.setenv("AUTOCAL_TP_SL_TRAIL_READ_ENABLED", "1")
+    monkeypatch.setenv("OF_LAYER_D_ARM_THRESHOLD_R", "0.25")
+
+    knobs = {"arm_threshold_r": {"value": 0.40, "enforce": 0}}
+    fake_redis_payload = json.dumps({
+        "ts_ms": int(time.time() * 1000),
+        "knobs": knobs,
+    })
+
+    import unittest.mock as mock
+    with mock.patch("redis.from_url") as mock_redis:
+        mock_client = mock.MagicMock()
+        mock_client.get.return_value = fake_redis_payload
+        mock_redis.return_value = mock_client
+
+        mod.reset_reader_for_tests()
+
+        from services.trade_monitor.layer_d_early_arm_hook import _Config
+        cfg = _Config()
+        cfg.cache_ts = 0.0
+        cfg.maybe_refresh(redis_client=None)
+        assert cfg.arm_threshold_r == pytest.approx(0.25), (
+            "enforce=0 must leave arm_threshold_r at ENV default 0.25"
+        )
+
+    mod.reset_reader_for_tests()
 
 
 def test_get_reader_disabled_by_default(monkeypatch: pytest.MonkeyPatch) -> None:

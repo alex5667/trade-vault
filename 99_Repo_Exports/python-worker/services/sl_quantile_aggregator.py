@@ -6,11 +6,14 @@ SL Quantile Aggregator Service.
 
 Consumes: trades:post_sl (from PostSlAnalyzer)
 Aggregates: post_sl_req_buffer_atr
-Outputs: Redis keys with JSON snapshot in 4 cascade levels:
-  - slq:{symbol}:{side}:{scenario}:{regime}:{session}:{vol_bucket}:{liq_bucket}
-  - slq:{symbol}:{side}:{scenario}:{regime}
-  - slq:{symbol}:{side}:{regime}
-  - slq:{symbol}:{side}
+Outputs: Redis keys with JSON snapshot in 4 cascade levels, each scoped by
+ATR timeframe label so 1m/5m/15m samples never mix in a single bucket:
+  - slq:tf={atr_tf}:{symbol}:{side}:{scenario}:{regime}:{session}:{vol_bucket}:{liq_bucket}
+  - slq:tf={atr_tf}:{symbol}:{side}:{scenario}:{regime}
+  - slq:tf={atr_tf}:{symbol}:{side}:{regime}
+  - slq:tf={atr_tf}:{symbol}:{side}
+Legacy (non-tf-scoped) keys are also written while SLQ_WRITE_LEGACY_KEYS=1
+(default) so consumers can migrate without an outage.
 """
 
 import json
@@ -43,6 +46,29 @@ MAX_SAMPLES = int(os.getenv("SLQ_MAX_SAMPLES", "1000"))
 MIN_SAMPLES_FOR_WRITE = int(os.getenv("SLQ_MIN_SAMPLES_WRITE", "20"))
 WRITE_EVERY_SEC = int(os.getenv("SLQ_WRITE_EVERY_SEC", "10"))
 TTL_SEC = int(os.getenv("SLQ_TTL_SEC", "604800")) # 7 days
+
+# Back-compat: also write legacy keys without atr_tf scope during transition.
+# Flip to 0 once all readers route through tf-scoped cascade.
+WRITE_LEGACY_KEYS = os.getenv("SLQ_WRITE_LEGACY_KEYS", "1").strip().lower() in ("1", "true", "yes", "on")
+
+# ATR timeframe normalization. Anything unknown / 0 falls back to "na" so it
+# stays in its own bucket rather than polluting a real-tf bucket.
+_ATR_TF_LABELS = {
+    60_000: "1m",
+    180_000: "3m",
+    300_000: "5m",
+    900_000: "15m",
+    1_800_000: "30m",
+    3_600_000: "1h",
+    14_400_000: "4h",
+    86_400_000: "1d",
+}
+
+
+def _atr_tf_label(atr_tf_ms: int) -> str:
+    if atr_tf_ms <= 0:
+        return "na"
+    return _ATR_TF_LABELS.get(atr_tf_ms, f"{atr_tf_ms}ms")
 
 class SlQuantileAggregator:
     def __init__(self):
@@ -225,24 +251,41 @@ class SlQuantileAggregator:
         try:
             req_buf = float(fields.get("post_sl_req_buffer_atr", 0.0))
             tp1_hit = int(fields.get("post_sl_tp1_hit", 0))
+            atr_tf_ms = int(float(fields.get("atr_tf_ms", 0) or 0))
         except (ValueError, TypeError):
             return False
+        atr_tf = _atr_tf_label(atr_tf_ms)
 
         # 3. Data Quality Check (Finite)
         if not np.isfinite(req_buf) or req_buf < 0:
             return False
 
-        # 4. Aggregate into ALL relevant bucket levels
-        #    Consumer cascade: exact → scenario+regime → regime → sym+side
-        keys = [
-            f"{symbol}:{side_raw}:{scenario}:{regime}:{session}:{vol_b}:{liq_b}",  # exact
-            f"{symbol}:{side_raw}:{scenario}:{regime}",
-            f"{symbol}:{side_raw}:{regime}",  # legacy primary
-            f"{symbol}:{side_raw}",
+        # 4. Aggregate into ALL relevant bucket levels.
+        #    Primary cascade is scoped by ATR timeframe so 1m/5m/15m samples
+        #    never mix in a single bucket. Legacy non-tf-scoped keys are kept
+        #    in parallel while WRITE_LEGACY_KEYS=1 for back-compat with
+        #    readers that have not yet migrated.
+        tf_prefix = f"tf={atr_tf}:"
+        tf_keys = [
+            f"{tf_prefix}{symbol}:{side_raw}:{scenario}:{regime}:{session}:{vol_b}:{liq_b}",
+            f"{tf_prefix}{symbol}:{side_raw}:{scenario}:{regime}",
+            f"{tf_prefix}{symbol}:{side_raw}:{regime}",
+            f"{tf_prefix}{symbol}:{side_raw}",
         ]
-        for k in keys:
+        for k in tf_keys:
             self.buckets[k].append(req_buf)
             self.buckets_hits[k].append(tp1_hit)
+
+        if WRITE_LEGACY_KEYS:
+            legacy_keys = [
+                f"{symbol}:{side_raw}:{scenario}:{regime}:{session}:{vol_b}:{liq_b}",
+                f"{symbol}:{side_raw}:{scenario}:{regime}",
+                f"{symbol}:{side_raw}:{regime}",
+                f"{symbol}:{side_raw}",
+            ]
+            for k in legacy_keys:
+                self.buckets[k].append(req_buf)
+                self.buckets_hits[k].append(tp1_hit)
 
         return True
 

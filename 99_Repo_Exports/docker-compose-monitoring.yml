@@ -282,6 +282,11 @@ services:
     - V15_OF_COV_MIN_SAMPLES=${V15_OF_COV_MIN_SAMPLES:-100}
     - V15_OF_COV_DEAD_KEY_FLOOR=${V15_OF_COV_DEAD_KEY_FLOOR:-0.05}
     - V15_OF_COV_DEAD_KEY_HASH_KEY=metrics:v15_of_coverage:dead_keys
+    # Time-window cap in ms (default 4h = 14_400_000). 0 → use last BATCH_SIZE
+    # records regardless of age (legacy behaviour, dilutes coverage on slow
+    # streams). 4h is sized so even ~36 signals/h shadow flow accumulates the
+    # 100-sample min_samples floor before each cycle.
+    - V15_OF_COV_WINDOW_MS=${V15_OF_COV_WINDOW_MS:-14400000}
     - PYTHONPATH=/app
     - TZ=UTC
     volumes:

@@ -115,6 +115,10 @@ def compute_liqmap_features_from_snapshot(
     best_short_liq_usd = -1.0
     best_short_liq_px = -1.0
 
+    # Cluster strength accumulators (for liq_cluster_strength_above/below)
+    cluster_short_usd_above = 0.0  # sum of short_usd ABOVE mid_px (upper half)
+    cluster_long_usd_below = 0.0   # sum of long_usd BELOW mid_px (lower half)
+
     # 1. Сбор пиков
     start_idx = bisect.bisect_left(num_levels, (lower_bound, -1.0, -1.0))
     end_idx = bisect.bisect_right(num_levels, (upper_bound, float("inf"), float("inf")))
@@ -132,6 +136,12 @@ def compute_liqmap_features_from_snapshot(
             best_short_liq_usd = s_usd
             best_short_liq_px = p
 
+        # Cluster strength: accumulate within peak_range_bps window
+        if p > mid_px:
+            cluster_short_usd_above += s_usd
+        elif p < mid_px:
+            cluster_long_usd_below += l_usd
+
     total_usd = tot_long_usd + tot_short_usd
     if total_usd > 0:
         # bias > 0.5 means more shorts are liquidated (bullish overall positioning)
@@ -141,6 +151,17 @@ def compute_liqmap_features_from_snapshot(
     feats["long_peak_usd"] = best_long_liq_usd if best_long_liq_usd > 0 else 0.0
     feats["short_peak_price"] = best_short_liq_px if best_short_liq_px > 0 else 0.0
     feats["short_peak_usd"] = best_short_liq_usd if best_short_liq_usd > 0 else 0.0
+
+    # 1b. Cluster strength features (Group 1)
+    # liq_cluster_strength_above: sum short_usd above mid_px / tot_short_usd ∈ [0, 1]
+    strength_above = (cluster_short_usd_above / tot_short_usd) if tot_short_usd > 0 else 0.0
+    # liq_cluster_strength_below: sum long_usd below mid_px / tot_long_usd ∈ [0, 1]
+    strength_below = (cluster_long_usd_below / tot_long_usd) if tot_long_usd > 0 else 0.0
+    feats["liq_cluster_strength_above"] = min(1.0, max(0.0, strength_above))
+    feats["liq_cluster_strength_below"] = min(1.0, max(0.0, strength_below))
+    # liq_cluster_asymmetry ∈ [-1, 1]
+    denom = strength_above + strength_below + 1e-9
+    feats["liq_cluster_asymmetry"] = (strength_above - strength_below) / denom
 
     # 2. Расчет анкоров и рекомендаций для LONG сделки
     # (покупаем сейчас, TP наверху, SL внизу)

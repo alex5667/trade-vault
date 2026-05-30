@@ -56,9 +56,9 @@ _SCHEMA_VERSIONS: list[str] = [
     # v14_of — v13_of (242) + Group OG (16) rule-gate + Group OE (81) external/execution = 359 (incl Phase 8.1 composites)
     "v14",
     "v14_of",
-    # v15_of — v14_of (359) + 156 keys (Phase 8.2/8.3/8.4/8.5/P1/P2/P3/4.x: Hawkes/VPIN,
+    # v15_of — v14_of (349) + 182 keys (Phase 8.2/8.3/8.4/8.5/P1/P2/P3/4.x: Hawkes/VPIN,
     # cross-venue, CoinGecko/CoinPaprika/CMC, Deribit term structure, DefiLlama,
-    # macro calendar, derivatives base, PIT priors, breadth segments) = 515 numeric keys
+    # macro calendar, derivatives base, PIT priors, breadth segments) = 531 numeric keys
     "v15",
     "v15_of",
 ]

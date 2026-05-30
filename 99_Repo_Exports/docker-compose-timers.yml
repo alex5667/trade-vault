@@ -1930,7 +1930,8 @@ services:
     - META_MODEL_PATH=/var/lib/trade/of_reports/models/meta_lr_v14_of_latest.json
     - CHAMPION_KEY=${CHAMPION_KEY:-cfg:ml_confirm:champion}
     - CAL_KEY=${CAL_KEY:-cfg:ml_confirm:v14_of:calibrator}
-    - META_LR_RETRAIN_ENABLED=${META_LR_RETRAIN_ENABLED:-1}
+    # Disabled by default: replaced by v14-of-train-timer (nightly_v14_of_train_bundle.py).
+    - META_LR_RETRAIN_ENABLED=${META_LR_RETRAIN_ENABLED:-0}
     - TZ=UTC
     working_dir: /app
     volumes:

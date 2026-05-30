@@ -990,6 +990,9 @@ class RedisTradeRepository:
             # P41 compliance (native meta)
             "meta_enforce_cov_bucket": str(getattr(pos, "meta_enforce_cov_bucket", "") or ""),
             "meta_enforce_applied": _to_str(int(getattr(pos, "meta_enforce_applied", -1))),
+            "meta_enforce_key": str(getattr(pos, "meta_enforce_key", "") or ""),
+            "meta_enforce_salt": str(getattr(pos, "meta_enforce_salt", "") or ""),
+            "meta_veto": _to_str(int(getattr(pos, "meta_veto", 0))),
 
             # MFE/MAE
             "max_favorable_price": _to_str(getattr(pos, "max_favorable_price", 0.0)),

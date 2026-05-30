@@ -107,6 +107,10 @@ class TrackState:
     start_ts_ms: int
     atr_entry: float
     regime: str = "na"
+    # ATR timeframe (ms) at trade entry — needed so downstream aggregators
+    # can bucket `post_sl_req_buffer_atr` by ATR scale (1m vs 5m vs 15m).
+    # Without this, dynamic ATR-TF selectors silently mix scales in slq:*.
+    atr_tf_ms: int = 0
 
     # Tracking State
     max_favorable: float = field(init=False)
@@ -503,6 +507,7 @@ class PostSlAnalyzer:
             # FIX: canonical field is "atr" (from TradeClosed.atr / PositionState.atr).
             # "atr_entry" was never written by any producer.
             atr = float(t.get("atr", 0) or t.get("atr_entry", 0))
+            atr_tf_ms = int(float(t.get("atr_tf_ms", 0) or 0))
             exit_ts = int(t.get("exit_ts_ms", 0) or t.get("closed_time", 0))
         except (ValueError, TypeError):
             return
@@ -521,7 +526,8 @@ class PostSlAnalyzer:
             tp1_price=tp1,
             start_ts_ms=exit_ts,
             atr_entry=atr,
-            regime=regime
+            regime=regime,
+            atr_tf_ms=atr_tf_ms,
         )
 
         self.tracks[symbol].append(track)
@@ -710,6 +716,9 @@ class PostSlAnalyzer:
             "post_sl_mfe_r": float(mfe_r),
             "post_sl_mfe_atr": float(mfe_atr),
             "post_sl_req_buffer_atr": float(req_buffer_atr),
+            # ATR timeframe at entry — required by SlQuantileAggregator to
+            # bucket samples by ATR scale (prevents 1m/5m/15m mixing in slq:*).
+            "atr_tf_ms": int(track.atr_tf_ms),
             "event_ts_ms": int(track.start_ts_ms or 0),
             "end_ts_ms": int(end_ts_ms or 0),
             "ingest_ts_ms": now_ms,

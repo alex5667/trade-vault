@@ -367,6 +367,9 @@ class TradeClosed:
     # P41 Native Meta Fields
     meta_enforce_cov_bucket: str = ""
     meta_enforce_applied: int = -1
+    meta_enforce_key: str = ""
+    meta_enforce_salt: str = ""
+    meta_veto: int = 0
 
     # telemetry/health
     _health_snapshot: dict[str, Any] | None = None
@@ -621,6 +624,9 @@ class PositionState:
     # P41 Native Meta Fields
     meta_enforce_cov_bucket: str = ""
     meta_enforce_applied: int = -1
+    meta_enforce_key: str = ""
+    meta_enforce_salt: str = ""
+    meta_veto: int = 0
 
     # -------------------------------------------------------------------------
     # Phase 0.2: Horizon-Aware Contract (convenience attributes)

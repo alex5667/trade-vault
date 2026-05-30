@@ -25,6 +25,7 @@ def test_strict_missing_levels_after_enricher_floor_skip(monkeypatch: pytest.Mon
     monkeypatch.setenv("EDGE_DISABLE_EMA", "1")
     monkeypatch.setenv("EDGE_TS_BAD_POLICY", "correct_skip_ema")
     monkeypatch.setenv("EDGE_DRIFT_TIGHTEN", "0")
+    monkeypatch.setenv("SL_FLOOR_DEFAULT_BPS", "0")
 
     # floors: stop must be >= 10 bps → enricher will SKIP attaching levels
     monkeypatch.setenv("EDGE_LEVELS_MIN_STOP_BPS", "10")

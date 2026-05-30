@@ -118,6 +118,8 @@ services:
     # (LIQ_BINANCE_WS_URL moved up to the Liquidation block; disabled by default.)
     - TZ=UTC
     - CANDLE_STREAM_MAXLEN=10000
+    # 2026-05-29: prevent auto-rediscovery of non-active symbols after index cleanup
+    - ENABLE_BINANCE_TOP_SYMBOLS=false
     depends_on:
       redis:
         condition: service_healthy

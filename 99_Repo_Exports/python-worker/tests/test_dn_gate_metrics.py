@@ -101,11 +101,11 @@ class TestDNGateMetrics:
         with patch.dict(os.environ, {"OF_GATE_METRICS_ENABLE": "1", "OF_GATE_METRICS_SAMPLE": "1.0"}):
             # Reload not strictly necessary if we patch global vars or if the class reads env on init/usage
             # But strategy reads OF_GATE_METRICS_ENABLE global.
-            # Patch tick_processor globals
-            with patch("services.orderflow.components.tick_processor.OF_GATE_METRICS_ENABLE", True), \
-                 patch("services.orderflow.components.tick_processor.OF_GATE_METRICS_SAMPLE", 1.0), \
-                 patch("services.orderflow.components.tick_processor._should_sample", return_value=True), \
-                 patch("services.orderflow.components.tick_processor.sampled_warning") as mock_warning:
+            # Patch tick_decision_engine globals
+            with patch("services.orderflow.tick_decision_engine.OF_GATE_METRICS_ENABLE", True), \
+                 patch("services.orderflow.tick_decision_engine.OF_GATE_METRICS_SAMPLE", 1.0), \
+                 patch("services.orderflow.tick_decision_engine._should_sample", return_value=True), \
+                 patch("services.orderflow.tick_decision_engine.sampled_warning") as mock_warning:
 
                 tick_ts = get_ny_time_millis()
                 # Small delta ($500 * 0.1 = $50) vs Threshold $100,000

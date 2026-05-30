@@ -675,6 +675,39 @@ class PeriodicReporter:
             logger.debug(f"⚠️ _count_real_trades_in_window failed for {source}/{symbol}: {e}")
             return -1  # unknown → caller should proceed
 
+    def _fetch_ml_confirm_stream_stats(self, window_ms: int) -> dict:
+        """Read metrics:ml_confirm XREVRANGE and aggregate p_edge by cfg_source for the window."""
+        cutoff_ms = int(time.time() * 1000) - window_ms
+        result: dict = {}
+        try:
+            entries = self.redis.xrevrange("metrics:ml_confirm", count=2000)
+            for _eid, fields in entries:
+                ts = int(fields.get(b"ts_ms", 0) or fields.get("ts_ms", 0))
+                if ts and ts < cutoff_ms:
+                    break
+                source = (fields.get(b"cfg_source", b"") or fields.get("cfg_source", ""))
+                if isinstance(source, bytes):
+                    source = source.decode("utf-8", errors="replace")
+                source = source.strip() or "none"
+                p_raw = fields.get(b"p_edge", None) or fields.get("p_edge", None)
+                try:
+                    p = float(p_raw) if p_raw is not None else 0.0
+                except Exception:
+                    p = 0.0
+                kind_raw = fields.get(b"kind", b"") or fields.get("kind", "")
+                if isinstance(kind_raw, bytes):
+                    kind_raw = kind_raw.decode("utf-8", errors="replace")
+                bucket = source if source in ("champion", "challenger") else "other"
+                if bucket not in result:
+                    result[bucket] = {"n": 0, "p_sum": 0.0, "pass": 0, "kind": kind_raw}
+                result[bucket]["n"] += 1
+                result[bucket]["p_sum"] += p
+                if p >= 0.5:
+                    result[bucket]["pass"] += 1
+        except Exception:
+            pass
+        return result
+
     def _clear_hourly_report_dedup(self, source: str, symbol: str) -> None:
         """Clear all dedup keys for a source/symbol hourly report slot."""
         src = canon_source(source)
@@ -2634,6 +2667,27 @@ class PeriodicReporter:
                             else:
                                 share = 0.0
                             ml_lines.append(f"  {bucket}: <b>{cnt}</b> ({share:.1f}%)")
+
+            # Raw ML stream stats — all signals (not only closed trades), split champion/challenger
+            try:
+                stream_stats = self._fetch_ml_confirm_stream_stats(window_ms=(window_seconds or 3600) * 1000)
+                if stream_stats:
+                    ml_lines.append("")
+                    ml_lines.append("<b>📡 ML Stream (все сигналы, не только сделки):</b>")
+                    for bucket_key in ("champion", "challenger", "other"):
+                        bs = stream_stats.get(bucket_key)
+                        if not bs or bs["n"] == 0:
+                            continue
+                        n = bs["n"]
+                        avg_p = bs["p_sum"] / n if n else 0.0
+                        pass_rate = bs["pass"] / n * 100.0 if n else 0.0
+                        kind_label = f" ({bs['kind']})" if bs.get("kind") else ""
+                        ml_lines.append(
+                            f"  {bucket_key}{kind_label}: n=<b>{n}</b> | "
+                            f"avg_p=<b>{avg_p:.3f}</b> | pass≥0.5: <b>{pass_rate:.1f}%</b>"
+                        )
+            except Exception:
+                pass
 
             sections.extend(ml_lines)
 

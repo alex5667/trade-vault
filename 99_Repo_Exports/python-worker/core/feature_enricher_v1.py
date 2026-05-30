@@ -1645,17 +1645,32 @@ def _enrich_p1_queue_dynamics(symbol: str, redis_client: Any) -> dict[str, float
 
 
 def _enrich_p1_cost_dynamics(symbol: str, redis_client: Any) -> dict[str, float]:
-    """P1 #13 cost widening from `ctx:cost_dynamics:{symbol}`.
+    """P1 #13 + P2 cost decomposition from `ctx:cost_dynamics:{symbol}`.
 
-    Producer: services/cost_dynamics_producer.py
+    Producer: services/cost_dynamics_producer.py (writes the full
+    p1_d_cost_dynamics + p2_c_cost_decomposition feature set).
     """
     if not symbol or redis_client is None:
         return {}
     data = _load_json_snapshot(redis_client, f"ctx:cost_dynamics:{symbol}", 60_000)
     if not data:
         return {}
-    v = data.get("cost_widening_5s_bps")
-    return {"cost_widening_5s_bps": _safe_float(v)} if v is not None else {}
+    out: dict[str, float] = {}
+    for k in (
+        "cost_widening_5s_bps",            # P1 #13
+        # P2 Group C — cost decomposition
+        "ev_after_fee_bps",
+        "ev_after_spread_bps",
+        "ev_after_impact_bps",
+        "tp1_net_after_cost_bps",
+        "sl_net_after_cost_bps",
+        "expected_hold_cost_bps",
+        "cost_regime_z",
+    ):
+        v = data.get(k)
+        if v is not None:
+            out[k] = _safe_float(v)
+    return out
 
 
 def _enrich_p1_regime_transition(symbol: str, redis_client: Any) -> dict[str, float]:
@@ -1846,10 +1861,13 @@ def _enrich_p2_pit_priors(symbol: str, redis_client: Any) -> dict[str, float]:
     return out
 
 
-def _enrich_p2_directional_change(symbol: str, redis_client: Any) -> dict[str, float]:
+def _enrich_p2_directional_change(symbol: str, redis_client: Any, indicators: dict | None = None) -> dict[str, float]:
     """P2 Group H — directional change features from `ctx:dc:{symbol}`.
 
     Producer: services/directional_change_producer.py
+
+    Extended keys (new): dc_trend_duration_ms, dc_last_confirmation_bps,
+    dc_noise_ratio, dc_overshoot_to_atr_ratio.
     """
     if not symbol or redis_client is None:
         return {}
@@ -1857,11 +1875,71 @@ def _enrich_p2_directional_change(symbol: str, redis_client: Any) -> dict[str, f
     if not data:
         return {}
     out: dict[str, float] = {}
-    for k in ("dc_event_dir", "dc_event_age_ms", "dc_overshoot_bps", "dc_reversal_count_15m"):
+    for k in (
+        "dc_event_dir", "dc_event_age_ms", "dc_overshoot_bps", "dc_reversal_count_15m",
+        "dc_trend_duration_ms", "dc_last_confirmation_bps", "dc_noise_ratio",
+    ):
         v = data.get(k)
         if v is not None:
             out[k] = _safe_float(v)
+
+    # dc_overshoot_to_atr_ratio — computed here because ATR is available in indicators
+    dc_overshoot_bps = out.get("dc_overshoot_bps", 0.0)
+    ind = indicators or {}
+    atr_bps = _safe_float(ind.get("atr_bps") or data.get("atr_bps"), 0.0)
+    out["dc_overshoot_to_atr_ratio"] = (dc_overshoot_bps / atr_bps) if atr_bps > 0 else 0.0
+
     return out
+
+
+def _enrich_liq_cluster_v2(
+    symbol: str,
+    indicators: dict,
+    redis_client: Any,
+    now_ms: int | None = None,
+) -> dict[str, float]:
+    """Liq cluster v2: sweep-distance and absorption score.
+
+    liq_sweep_to_cluster_dist_bps — distance from most recent sweep event to nearest
+      liqmap cluster (min of liq_cluster_dist_above_bps / liq_cluster_dist_below_bps
+      from indicators). 0.0 if sweep older than 60s.
+
+    liq_absorption_after_sweep_score — composite score [0, 1] measuring how much a
+      recent sweep's velocity has been "absorbed" near the cluster. Decays linearly
+      over 60s.
+    """
+    if not symbol or redis_client is None:
+        return {}
+    _now = now_ms if now_ms is not None else _now_ms()
+    sweep_data = _load_json_snapshot(redis_client, f"sweep_v2:{symbol}", 60_000)
+
+    # liq_sweep_to_cluster_dist_bps
+    sweep_dist = 0.0
+    absorption_score = 0.0
+
+    if sweep_data:
+        sweep_ts = _safe_float(sweep_data.get("ts_ms"), 0.0)
+        age_ms = max(0.0, float(_now) - sweep_ts) if sweep_ts > 0 else 61_000.0
+        if age_ms <= 60_000.0:
+            dist_above = _safe_float(indicators.get("liq_cluster_dist_above_bps"), 0.0)
+            dist_below = _safe_float(indicators.get("liq_cluster_dist_below_bps"), 0.0)
+            # nearest cluster: pick smallest non-zero, else sum/2
+            if dist_above > 0 and dist_below > 0:
+                sweep_dist = min(dist_above, dist_below)
+            elif dist_above > 0:
+                sweep_dist = dist_above
+            elif dist_below > 0:
+                sweep_dist = dist_below
+
+            # absorption score: recency × velocity saturation
+            velocity = abs(_safe_float(sweep_data.get("sweep_velocity_bps_s"), 0.0))
+            recency_factor = max(0.0, 1.0 - age_ms / 60_000.0)
+            absorption_score = recency_factor * min(1.0, velocity / 50.0)
+
+    return {
+        "liq_sweep_to_cluster_dist_bps": sweep_dist,
+        "liq_absorption_after_sweep_score": absorption_score,
+    }
 
 
 def _enrich_p2_microstruct(symbol: str, redis_client: Any) -> dict[str, float]:
@@ -2102,8 +2180,9 @@ def enrich_indicators(
         (_enrich_p1_session_vol, (symbol, redis_client)),
         (_enrich_p1_session_priors, (symbol, redis_client)),
         (_enrich_p2_pit_priors, (symbol, redis_client)),
-        (_enrich_p2_directional_change, (symbol, redis_client)),
+        (_enrich_p2_directional_change, (symbol, redis_client, indicators)),
         (_enrich_p2_microstruct, (symbol, redis_client)),
+        (_enrich_liq_cluster_v2, (symbol, indicators, redis_client)),
         (_enrich_rsi_cvd, (symbol, redis_client)),
         (_enrich_cvd_ctx, (symbol, redis_client)),
         (_enrich_abs_lvl_ctx, (symbol, redis_client)),

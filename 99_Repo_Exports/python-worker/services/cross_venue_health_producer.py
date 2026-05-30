@@ -41,9 +41,8 @@ CVP_READ_URL = os.getenv("CVP_READ_URL", "redis://redis-ticks:6379/0")
 CVP_BYBIT_URL = os.getenv("CVP_BYBIT_URL", "redis://redis:6379/0")
 PUBLISH_URL = os.getenv("CVP_PUBLISH_URL",
                         os.getenv("REDIS_PUBLISH_URL", "redis://redis-worker-1:6379/0"))
-SYMBOLS = [s.strip().upper() for s in os.getenv(
-    "CVP_SYMBOLS", "BTCUSDT,ETHUSDT,SOLUSDT,1000PEPEUSDT"
-).split(",") if s.strip()]
+from core.symbols_config_v1 import get_crypto_symbols  # type: ignore  # noqa: E402
+SYMBOLS = get_crypto_symbols(aliases=("CVP_SYMBOLS",))
 INTERVAL_S = float(os.getenv("CVP_INTERVAL_S", "30"))
 TTL_SEC = int(os.getenv("CVP_TTL_SEC", "120"))
 HASH_PREFIX = "ctx:cross_venue:"
@@ -90,7 +89,19 @@ class _CrossVenueState:
         bybit_window_ms: int = 30_000,
         bybit_book_age_ms: float = 0.0,
     ) -> dict[str, float]:
-        out: dict[str, float] = {}
+        # Always emit the full declared schema (zeros when no data is available)
+        # so coverage reflects producer health, not transient feature events.
+        out: dict[str, float] = {
+            "cross_venue_lead_lag_ms": 0.0,
+            "venue_consensus_persistence_3s": 0.0,
+            "bybit_book_age_ms": 0.0,
+            "bybit_trade_rate_hz": 0.0,
+            "cross_venue_latency_diff_ms": 0.0,
+            "binance_leads_bybit_score": 0.0,
+            "bybit_leads_binance_score": 0.0,
+            "venue_consensus_flip_count_10s": 0.0,
+            "cross_venue_spread_diff_bps": 0.0,
+        }
         now_s = time.time()
         now_ms = int(now_s * 1000)
 
@@ -249,8 +260,9 @@ def _main() -> int:
                         bybit_window_ms=int(INTERVAL_S * 1000),
                         bybit_book_age_ms=bybit_book_age_ms,
                     )
-                    if not feats:
-                        continue
+                    # compute() always returns the full declared schema —
+                    # publish unconditionally so coverage tracks producer
+                    # liveness, not transient cross-venue events.
                     feats["ts_ms"] = int(time.time() * 1000)
                     feats["quality_status"] = "OK" if bybit_ts_ms > 0 else "absent"
                     try:

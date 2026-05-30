@@ -18,7 +18,7 @@ for env_path in ['/opt/trade-agent/compose/.env', '/home/alex/front/trade/scanne
     except Exception:
         pass
 
-VERSION = "15.8.0"
+VERSION = "15.8.1"
 
 # ── Настройки ─────────────────────────────────────────────────────────────────
 # Prometheus авто-обнаружение: сначала проверяет env var, затем сканирует известные порты
@@ -94,8 +94,11 @@ QUERIES: dict[str, str] = {
     "edge_neg_share":    'max(of_enforce_promoter_bucket_edge_neg_share) or vector(0)',
 
     # 10. Safety & Registry ──────────────────────────────────────────────────
-    "reg_success":       'feature_registry_contract_last_success',
-    "reg_age":          'feature_registry_contract_last_age_seconds',
+    # Prod channel only (channel="prod") — critical path. min() → fail if any instance fails.
+    "reg_success":       'min(feature_registry_contract_last_success{channel="prod"})',
+    "reg_age":          'min(feature_registry_contract_last_age_seconds{channel="prod"})',
+    # Canary + shadow channels — informational mismatch tracking.
+    "reg_canary_success": 'min(feature_registry_contract_last_success{channel=~"canary|shadow"})',
     "liqmap_age":        'max(liqmap_snapshot_age_ms)',
     "circuit_trips":     'sum(of_inputs_v3_circuit_cfg_disabled) or vector(0)',
     "ts_missing":        'of_gate_timescale_policies_missing',
@@ -147,8 +150,12 @@ QUERIES: dict[str, str] = {
     # Bug fix 2026-05-23: до этого запрос включал bbo_ts/tick/book → P99 BBO 50-60ms ложно срабатывал
     # как «КРИТИЧНО: Signal Emit P99 > 50ms». Теперь зеркалит фильтр Prometheus alert SignalEmitP99High.
     "signal_emit_p99":   'max(histogram_quantile(0.99, sum(rate(signal_emit_latency_us_bucket{stream!~"events:bbo_ts|stream:tick.*|stream:book.*"}[5m])) by (le))) / 1000 or vector(0)',
+    # Sample rate guard (samples/sec) — при низком трафике histogram_quantile даёт ложный P99 = top-bucket.
+    # 2026-05-29: bug fix — signal_emit_p99=100ms на тихом рынке (market_inactivity>60%) при redis_clients=690<1500.
+    "signal_emit_rate":  'sum(rate(signal_emit_latency_us_count{stream!~"events:bbo_ts|stream:tick.*|stream:book.*"}[5m])) or vector(0)',
     # Separate metric for high-frequency BBO/tick/book XADD — SLO is 50ms (BboWriteP99High).
     "bbo_emit_p99":      'max(histogram_quantile(0.99, sum(rate(signal_emit_latency_us_bucket{stream=~"events:bbo_ts|stream:tick.*|stream:book.*"}[5m])) by (le))) / 1000 or vector(0)',
+    "bbo_emit_rate":     'sum(rate(signal_emit_latency_us_count{stream=~"events:bbo_ts|stream:tick.*|stream:book.*"}[5m])) or vector(0)',
     # 14. Virtual & Open Positions ───────────────────────────────────────────
     # P-FIX: sum() double-counts across shards that recover same positions.
     # max by (symbol) picks the authoritative shard per symbol, then sum across symbols.
@@ -471,9 +478,14 @@ def run_cycle() -> None:
     # Guard against cold-start false-positives: only alert if reg_success==0
     # AND the metrics record is old enough to be reliable (>= 300s since last update).
     # reg_age < 300 means the exporter just started and hasn't had time to populate.
+    # reg_success/reg_age фильтрованы по channel="prod" → только production-канал критичен.
     _reg_age_ok = m.get('reg_age') is None or m.get('reg_age', 9999) >= 300
     if m['reg_success'] is not None and m['reg_success'] == 0 and _reg_age_ok:
-        alerts.append("🔴 КРИТИЧНО: Feature Registry Contract Mismatch!")
+        alerts.append("🔴 КРИТИЧНО: Feature Registry Contract Mismatch (prod channel)!")
+    # Canary / shadow mismatch — информационный алерт (не критичен для prod)
+    _canary_ok = m.get('reg_canary_success')
+    if _canary_ok is not None and _canary_ok == 0:
+        alerts.append("🟠 ВНИМАНИЕ: Feature Registry Contract Mismatch в canary/shadow каналах (не влияет на prod).")
     if m['ts_missing'] is not None and m['ts_missing'] > 0:
         alerts.append(f"🔴 КРИТИЧНО: Отсутствуют политики TimescaleDB ({m['ts_missing']:.0f})!")
     if m['circuit_trips'] is not None and m['circuit_trips'] > 0:
@@ -561,16 +573,56 @@ def run_cycle() -> None:
     # Signal Emit P99: чистый Redis XADD round-trip для торговых сигналов (BBO/tick исключены).
     # SLO < 8ms (Prometheus alert SignalEmitP99High). При насыщении пула 15-30ms — деградация.
     # КРИТИЧНО > 50ms = пул исчерпан, XADD ждёт слота. ВНИМАНИЕ > 15ms = ранний индикатор.
-    if m['signal_emit_p99'] is not None and m['signal_emit_p99'] > 50:
-        alerts.append(f"🔴 КРИТИЧНО: Signal Emit P99 > 50ms ({m['signal_emit_p99']:.1f}ms). Redis пул исчерпан, XADD блокируется!")
-    elif m['signal_emit_p99'] is not None and m['signal_emit_p99'] > 15:
-        alerts.append(f"🟠 ВНИМАНИЕ: Signal Emit P99 > 15ms ({m['signal_emit_p99']:.1f}ms). Redis-пул под давлением (норма < 8ms).")
+    #
+    # 2026-05-29 cross-check (тот же артефакт, что worker_lag / bbo_emit):
+    # При тихом рынке (market_inactivity>60% от worker_lag) и низком signal_emit_rate
+    # histogram_quantile даёт ложный P99 = top-bucket (100ms) от единичного outlier'а.
+    # Понижаем severity если: event_loop здоров (redis_entry<50ms) И rate < 5 samples/sec
+    # И redis_clients < 1500 (пул реально не исчерпан).
+    se_p99 = m.get('signal_emit_p99')
+    se_rate = m.get('signal_emit_rate')
+    rc = m.get('redis_clients')
+    sparse_signal_emit = (
+        se_rate is not None and se_rate < 5.0
+        and event_loop_healthy
+        and (rc is None or rc < 1500)
+    )
+    if se_p99 is not None and se_p99 > 50:
+        if sparse_signal_emit:
+            extra = f"rate={se_rate:.1f}/s, redis_clients={rc:.0f}" if rc is not None else f"rate={se_rate:.1f}/s"
+            alerts.append(
+                f"⚪ ИНФО: Signal Emit P99 {se_p99:.1f}ms — histogram tail на тихом рынке "
+                f"({extra}, redis_entry={r_entry:.0f}ms). Пул не исчерпан, false-positive."
+            )
+        else:
+            alerts.append(f"🔴 КРИТИЧНО: Signal Emit P99 > 50ms ({se_p99:.1f}ms). Redis пул исчерпан, XADD блокируется!")
+    elif se_p99 is not None and se_p99 > 15:
+        if sparse_signal_emit:
+            pass  # тихий рынок — не шумим
+        else:
+            alerts.append(f"🟠 ВНИМАНИЕ: Signal Emit P99 > 15ms ({se_p99:.1f}ms). Redis-пул под давлением (норма < 8ms).")
     # BBO/tick XADD: отдельный SLO 50ms (BboWriteP99High). High-freq stream, шум допустим.
+    # Same sparse-tail guard как у signal_emit.
     bbo_p99 = m.get('bbo_emit_p99')
+    bbo_rate = m.get('bbo_emit_rate')
+    sparse_bbo = (
+        bbo_rate is not None and bbo_rate < 20.0
+        and event_loop_healthy
+        and (rc is None or rc < 1500)
+    )
     if bbo_p99 is not None and bbo_p99 > 100:
-        alerts.append(f"🔴 КРИТИЧНО: BBO Emit P99 > 100ms ({bbo_p99:.1f}ms). redis-ticks CPU или bbo-ts-writer pool!")
+        if sparse_bbo:
+            alerts.append(
+                f"⚪ ИНФО: BBO Emit P99 {bbo_p99:.1f}ms — histogram tail на тихом рынке "
+                f"(rate={bbo_rate:.1f}/s, redis_entry={r_entry:.0f}ms). False-positive."
+            )
+        else:
+            alerts.append(f"🔴 КРИТИЧНО: BBO Emit P99 > 100ms ({bbo_p99:.1f}ms). redis-ticks CPU или bbo-ts-writer pool!")
     elif bbo_p99 is not None and bbo_p99 > 50:
-        alerts.append(f"🟠 ВНИМАНИЕ: BBO Emit P99 > 50ms ({bbo_p99:.1f}ms). Проверьте redis-ticks CPU.")
+        if sparse_bbo:
+            pass
+        else:
+            alerts.append(f"🟠 ВНИМАНИЕ: BBO Emit P99 > 50ms ({bbo_p99:.1f}ms). Проверьте redis-ticks CPU.")
 
     # 16. OF Engine Bottlenecks
     if m['ofc_avg_ms_total'] is not None and m['ofc_avg_ms_total'] > 40:
@@ -694,7 +746,7 @@ def run_cycle() -> None:
     - Exec Rejects 1h: {fmt(m.get('exec_rejects'), ".0f")} | Binance Weight: {fmt(m.get('api_weight'), ".0f")}
 
     [SYSTEM & RESILIENCE]
-    - Registry: {'OK' if m['reg_success'] == 1 else ('FAIL' if m['reg_success'] == 0 else 'N/A')} | TS Missing: {fmt(m['ts_missing'], ".0f")}
+    - Registry prod: {'OK' if m['reg_success'] == 1 else ('FAIL' if m['reg_success'] == 0 else 'N/A')} | Canary/Shadow: {'OK' if m.get('reg_canary_success') == 1 else ('MISMATCH' if m.get('reg_canary_success') == 0 else 'N/A')} | TS Missing: {fmt(m['ts_missing'], ".0f")}
     - Circuit Trips: {fmt(m['circuit_trips'], ".0f")} | Freezer Block: {fmt(m['freezer_block'], ".0f")}
     - Deriv Ctx Age: {ms(m['deriv_ctx_age'])} | WS Disconnects 1h: {fmt(m.get('ws_disconnects'), ".0f")}
     - OF Gate OK: {fmt(m['of_gate_ok'], ".1f") + '%' if m['of_gate_ok'] is not None else 'N/A'}

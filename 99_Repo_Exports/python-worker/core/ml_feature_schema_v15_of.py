@@ -1,8 +1,12 @@
 from __future__ import annotations
 
-"""v15_of — v14_of (359 keys) + 156 additions from Phase 8.2/8.3/8.4/8.5/
-P1/P2/P3/4.x already emitted by core/external_features_payload_v1.py but
-absent from v14_of.
+"""v15_of — append-only extension of v14_of for Phase 8.2/8.3/8.4/8.5/
+P1/P2/P3/4.x keys already emitted by core/external_features_payload_v1.py.
+
+The authoritative key count is pinned by ``_EXPECTED_KEYS`` below and the
+``assert len(V15_OF_NUMERIC_KEYS) == _EXPECTED_KEYS`` invariant at import
+time. Never hardcode that number in docstrings — they rot whenever the
+schema is intentionally bumped.
 
 Append-only: v14_of ⊆ v15_of. The v14_of canary remains valid; v15_of is a
 new schema that requires its own training + Redis pin
@@ -273,6 +277,33 @@ _GROUP_LIQMAP_ALIAS: list[str] = [
 ]
 
 # ──────────────────────────────────────────────────────────────────────────────
+# Group LIQ_CLUSTER_V2 — liq cluster strength/asymmetry + sweep absorption
+# (Group 1 new features, liqmap_features.py + feature_enricher_v1.py)
+# ──────────────────────────────────────────────────────────────────────────────
+_GROUP_LIQ_CLUSTER_V2: list[str] = [
+    "liq_cluster_strength_above",       # sum short_usd above mid / tot_short ∈ [0,1]
+    "liq_cluster_strength_below",       # sum long_usd below mid / tot_long  ∈ [0,1]
+    "liq_cluster_asymmetry",            # (above-below)/(above+below+ε) ∈ [-1,1]
+    "liq_sweep_to_cluster_dist_bps",    # dist from last sweep to nearest cluster (bps)
+    "liq_absorption_after_sweep_score", # recency × velocity saturation ∈ [0,1]
+]
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Group DC_EXTENDED — extended directional-change features
+# (Group 2 new features, directional_change_producer.py + feature_enricher_v1.py)
+# ──────────────────────────────────────────────────────────────────────────────
+_GROUP_DC_EXTENDED: list[str] = [
+    "dc_event_dir",                 # direction of last DC event: 1=up, -1=down, 0=none
+    "dc_event_age_ms",              # ms since last DC event
+    "dc_overshoot_bps",             # overshoot magnitude past threshold (bps)
+    "dc_reversal_count_15m",        # alternating direction changes in last 15m
+    "dc_trend_duration_ms",         # ms since last direction flip
+    "dc_last_confirmation_bps",     # overshoot at PREVIOUS DC event
+    "dc_noise_ratio",               # reversals / total events in 15m ∈ [0,1]
+    "dc_overshoot_to_atr_ratio",    # dc_overshoot_bps / atr_bps (normalised)
+]
+
+# ──────────────────────────────────────────────────────────────────────────────
 # Group LIQMAP_GATE_DETAIL — liqmap gate + liq_pressure outputs written by
 # strategy.py / of_confirm_engine into indicators when LIQ_GEOM_ENABLED=1.
 # Absent (≈ 0.0) for signals where the gate did not run.
@@ -406,6 +437,8 @@ _ALL_GROUPS = (
     _GROUP_SECTOR_AGG,
     _GROUP_LIQMAP_ALIAS,
     _GROUP_LIQMAP_GATE_DETAIL,
+    _GROUP_LIQ_CLUSTER_V2,
+    _GROUP_DC_EXTENDED,
     _GROUP_LEADER_FLAGS,
     _GROUP_BREADTH_RET,
     _GROUP_SIGNAL_DQ_CONFIRM,
@@ -430,7 +463,7 @@ V15_OF_NUMERIC_KEYS: list[str] = _build_keys()
 # Hard invariant: pinned count. v14_of base + dedup'd new groups.
 # Bump _EXPECTED_KEYS when intentionally adding/removing groups and refresh
 # SCHEMA_HASH accordingly. Catches accidental drift.
-_EXPECTED_KEYS = 531
+_EXPECTED_KEYS = 544
 assert len(V15_OF_NUMERIC_KEYS) == _EXPECTED_KEYS, (
     f"v15_of key count drift: got {len(V15_OF_NUMERIC_KEYS)}, expected {_EXPECTED_KEYS}. "
     f"If this is intentional, bump _EXPECTED_KEYS and update SCHEMA_HASH."
@@ -472,6 +505,8 @@ def v15_of_info() -> dict:
             "macro_cal": len(_GROUP_MACRO_CAL),
             "sector_agg": len(_GROUP_SECTOR_AGG),
             "liqmap_alias": len(_GROUP_LIQMAP_ALIAS),
+            "liq_cluster_v2": len(_GROUP_LIQ_CLUSTER_V2),
+            "dc_extended": len(_GROUP_DC_EXTENDED),
             "leader_flags": len(_GROUP_LEADER_FLAGS),
             "breadth_ret": len(_GROUP_BREADTH_RET),
             "stream_gate_flow": len(_GROUP_STREAM_GATE_FLOW),

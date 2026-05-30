@@ -71,9 +71,9 @@ def test_v15_of_info_groups_consistent():
     from core.ml_feature_schema_v15_of import v15_of_info
     info = v15_of_info()
     assert info["ver"] == "v15_of"
-    assert info["n_numeric_keys"] == 531
+    assert info["n_numeric_keys"] == 544
     assert info["n_v14_of_base"] == 349
-    assert info["n_new_keys"] == 182
+    assert info["n_new_keys"] == 195
 
 
 def test_v15_of_feature_registry_dispatcher():
