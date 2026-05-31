@@ -1,0 +1,19 @@
+# SLO: Name
+
+## User impact
+...
+
+## SLI
+...
+
+## SLO
+...
+
+## Error budget
+...
+
+## Alert
+...
+
+## Dashboard
+...
