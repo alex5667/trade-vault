@@ -389,14 +389,20 @@ class PEdgeThresholdCalibrator:
         snapshots (pre-Phase B) treat missing direction as "*" — see
         `load_state` for the back-compat path.
 
+        P0 fix (2026-05-30): each row now carries `n_observed` — the lifetime
+        observation counter — separately from `n` (current window size). This
+        lets `load_state()` restore the `min_dir_coverage` gate state across
+        restarts; otherwise directional bins would all start at n_observed=0
+        and be silently skipped on the read path until they re-warm in-memory.
+
         Schema:
             {
               "enforce": bool,
               "target_ev_r": float,
               "default_p_min": float,
-              "schema_version": int,         # 2 since Phase B (was 1)
+              "schema_version": int,         # 3 since P0 fix (was 2)
               "bins": [
-                {"symbol","regime","kind","direction","n",
+                {"symbol","regime","kind","direction","n","n_observed",
                  "p_min","shadow_p_min","shadow_ev_at_pin","shadow_n_kept",
                  "last_apply_ms","last_recompute_ms"},
                 ...
@@ -411,6 +417,7 @@ class PEdgeThresholdCalibrator:
                 "kind": knd,
                 "direction": drc,
                 "n": len(b.buf),
+                "n_observed": b.n_observed,
                 "p_min": b.p_min,
                 "shadow_p_min": b.shadow_p_min,
                 "shadow_ev_at_pin": b.shadow_ev_at_pin,
@@ -422,7 +429,7 @@ class PEdgeThresholdCalibrator:
             "enforce": self.enforce,
             "target_ev_r": self.target_ev_r,
             "default_p_min": self.default_p_min,
-            "schema_version": 2,
+            "schema_version": 3,
             "bins": rows,
         }
 
@@ -433,6 +440,13 @@ class PEdgeThresholdCalibrator:
         tripping large sample arrays. Calibration resumes once new samples
         accumulate; `p_min_for()` keeps serving previously calibrated values
         via the fallback hierarchy.
+
+        P0 fix (2026-05-30): `n_observed` is now restored from the snapshot so
+        the `min_dir_coverage` gate retains state across restarts. Legacy
+        snapshots (schema_version<3) fall back to the window size `n`, which
+        is conservative but never zero for warm bins — that prevents a
+        rolling-restart from silently demoting calibrated directional bins
+        back to the wildcard.
 
         Boundary method — tolerant to malformed rows.
         """
@@ -463,6 +477,11 @@ class PEdgeThresholdCalibrator:
                 b.shadow_n_kept = int(row.get("shadow_n_kept", 0) or 0)
                 b.last_apply_ms = int(row.get("last_apply_ms", 0) or 0)
                 b.last_recompute_ms = int(row.get("last_recompute_ms", 0) or 0)
+                # n_observed restore (P0 fix). Falls back to `n` (window size)
+                # for legacy snapshots that didn't carry the lifetime counter.
+                b.n_observed = int(
+                    row.get("n_observed", row.get("n", 0)) or 0
+                )
                 self.bins[k] = b
             except (KeyError, TypeError, ValueError):
                 continue

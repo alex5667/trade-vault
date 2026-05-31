@@ -8,9 +8,9 @@ Names are intentionally stable and low-cardinality.
 
 
 try:
-    from prometheus_client import REGISTRY, Counter, Gauge
+    from prometheus_client import REGISTRY, Counter, Gauge, Histogram
 except Exception:  # pragma: no cover
-    Counter = Gauge = None  # type: ignore
+    Counter = Gauge = Histogram = None  # type: ignore
     REGISTRY = None  # type: ignore
 
 
@@ -547,6 +547,37 @@ EXECUTION_PROTECTION_AUDIT_OPEN_FINDINGS = _metric(
     "execution_protection_audit_open_findings",
     "Current open protection findings per venue/symbol/finding (1 = active, staleness-tracked by Prometheus).",
     ["venue", "symbol", "finding"],
+)
+
+# ---------------------------------------------------------------------------
+# P0-1: Emergency auto-close for naked positions
+# ---------------------------------------------------------------------------
+# Fired when protection fails and EXEC_EMERGENCY_CLOSE_IF_UNPROTECTED=1.
+# reason label: "protection_not_confirmed" | "reconcile_naked"
+EXECUTION_EMERGENCY_CLOSE_TRIGGERED_TOTAL = _metric(
+    Counter,
+    "execution_emergency_close_triggered_total",
+    "Emergency reduce-only market close triggered for a naked position.",
+    ["symbol", "reason"],
+)
+EXECUTION_EMERGENCY_CLOSE_FAILED_TOTAL = _metric(
+    Counter,
+    "execution_emergency_close_failed_total",
+    "Emergency close attempt that failed (flatten_ok=False).",
+    ["symbol", "reason"],
+)
+EXECUTION_PROTECTION_FAIL_TO_CLOSE_MS = _metric(
+    Histogram,
+    "execution_protection_fail_to_close_ms",
+    "Wall-clock ms from protection failure detection to emergency close order placed.",
+    ["symbol"],
+    buckets=[100, 250, 500, 1000, 2000, 3000, 5000, 10000],
+)
+EXECUTION_SYMBOL_COOLDOWN_SET_TOTAL = _metric(
+    Counter,
+    "execution_symbol_cooldown_set_total",
+    "Symbol-level cooldown set in Redis after protection fail or timeout loss.",
+    ["symbol", "reason"],
 )
 
 # ---------------------------------------------------------------------------

@@ -1,0 +1,110 @@
+services:
+  edge-directional-bias-autocal:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    image: scanner-python-worker:latest
+    container_name: scanner-edge-dir-bias-autocal
+    restart: unless-stopped
+    environment:
+      - PYTHONUNBUFFERED=1
+      # 2026-05-30 Plan 2 auto-rollout for EDGE_DIRECTIONAL_BIAS_*.
+      # Step ladder: OBSERVE(0.00) -> CANARY_LOW(0.03) -> CANARY_MID(0.05)
+      # -> CANARY_HIGH(0.06). Per (direction × regime) bucket; numerical
+      # gates (dwell, n, R-no-harm) + LLM advisor (guarded). State at
+      # `autocal:edge_directional_bias:state`. Reader:
+      # services/edge_directional_bias_overrides.py.
+      #
+      # Master switch (default 1 — service runs). ENFORCE=1 (Day-2 flip,
+      # 2026-05-30): auto-promotion is ALLOWED, but the calibrator's own
+      # gates still apply — ≥48h OBSERVE dwell, ≥50 baseline samples per
+      # bucket, baseline_avg_r ≤ -0.30 (leak gate). So first real promotion
+      # cannot fire for at least 48h after first trade arrives in a bucket.
+      # Rollback is always honoured regardless of ENFORCE.
+      - EDB_AC_ENABLE=${EDB_AC_ENABLE:-1}
+      - EDB_AC_ENFORCE=${EDB_AC_ENFORCE:-1}
+      # Cycle + window
+      - EDB_AC_INTERVAL_SEC=${EDB_AC_INTERVAL_SEC:-900}
+      - EDB_AC_WINDOW_H=${EDB_AC_WINDOW_H:-168.0}
+      # Sample & dwell gates
+      - EDB_AC_MIN_APPLIED=${EDB_AC_MIN_APPLIED:-50}
+      - EDB_AC_MIN_BASELINE=${EDB_AC_MIN_BASELINE:-50}
+      - EDB_AC_STEP_DWELL_H=${EDB_AC_STEP_DWELL_H:-48.0}
+      # Leak / no-harm / rollback thresholds (R-multiple)
+      - EDB_AC_R_LEAK_MAX=${EDB_AC_R_LEAK_MAX:--0.3}
+      - EDB_AC_R_NO_HARM_TOL=${EDB_AC_R_NO_HARM_TOL:-0.10}
+      - EDB_AC_R_ROLLBACK_MARGIN=${EDB_AC_R_ROLLBACK_MARGIN:-0.30}
+      - EDB_AC_PASS_RATE_DROP=${EDB_AC_PASS_RATE_DROP:-0.10}
+      # LLM advisor — in-stack `ollama` container on the main host (same
+      # one aiops-agent uses with deepseek-r1:8b already loaded). Shared
+      # scanner-infra network → DNS `ollama:11434` resolves natively, no
+      # extra_hosts needed. Backend pinned to `ollama` so we never probe
+      # cloud endpoints (no API keys in repo). Guard always applies. If
+      # the ollama container is unreachable the advisor falls back to a
+      # neutral envelope (no veto) — promotion path stays open, numerical
+      # gates carry the safety load.
+      # Timeout 30 s: deepseek-r1:8b's reasoning chain on the GPU box is
+      # ~10-20 s for a single advisory; head-room for cold start.
+      - EDB_AC_LLM_ENABLED=${EDB_AC_LLM_ENABLED:-1}
+      - EDB_AC_LLM_TIMEOUT_SEC=${EDB_AC_LLM_TIMEOUT_SEC:-30.0}
+      - EDB_AC_LLM_BACKEND=${EDB_AC_LLM_BACKEND:-ollama}
+      # OLLAMA_URL respected if set (project convention used by aiops-agent).
+      # OLLAMA_BASE_URL also accepted by advisor (project convention used by
+      # news_pipeline / crypto-orderflow); BASE_URL wins if both set.
+      # _normalize_ollama_base() strips any /api/* path so passing the
+      # aiops-style "http://ollama:11434/api/generate" still works.
+      - OLLAMA_URL=${OLLAMA_URL:-http://ollama:11434}
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-}
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-deepseek-r1:8b}
+      # Telegram notifications — XADD to the project's notify:telegram
+      # stream (consumed by notify-telegram-v2). Fires on: startup,
+      # phase transitions (promotion + rollback), every LLM advisory.
+      # No bot token needed here — dispatcher already has it.
+      - EDB_AC_NOTIFY_TELEGRAM=${EDB_AC_NOTIFY_TELEGRAM:-1}
+      - EDB_AC_NOTIFY_STREAM=${EDB_AC_NOTIFY_STREAM:-notify:telegram}
+      # Data + transport
+      - EDB_AC_INCLUDE_VIRTUAL=${EDB_AC_INCLUDE_VIRTUAL:-1}
+      - EDB_AC_STREAM=trades:closed
+      - EDB_AC_REDIS_URL=redis://redis-worker-1:6379/0
+      - EDB_AC_HMAC_SECRET=${EDB_AC_HMAC_SECRET:-${RECS_HMAC_SECRET:-}}
+      - EDB_AC_PROM_PORT=9904
+      - TZ=UTC
+    ports:
+      - "9904:9904"
+    depends_on:
+      redis-worker-1:
+        condition: service_healthy
+    networks:
+      - scanner-core
+      - scanner-infra
+    deploy:
+      resources:
+        limits:
+          memory: 384M
+          cpus: '0.2'
+        reservations:
+          memory: 96M
+    command:
+      - sh
+      - -c
+      - |
+        sleep 15
+        if [ "$${EDB_AC_ENABLE:-1}" = "0" ]; then
+          echo "EDB_AC_ENABLE=0 — idle (set =1 to start)"
+          while true; do sleep 3600; done
+        fi
+        python -m orderflow_services.edge_directional_bias_autocal_v1
+    labels:
+      - com.scanner.service=edge-directional-bias-autocal
+      - com.scanner.description=Auto-stepping EDGE_DIRECTIONAL_BIAS_* per (direction × regime) (Plan 2, 2026-05-30)
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '3'
+
+networks:
+  scanner-core:
+    external: true
+  scanner-infra:
+    external: true

@@ -990,3 +990,102 @@ fatal: Could not read from remote repository.
 Please make sure you have the correct access rights
 and the repository exists.
 2026-05-29 05:45:03 - Синхронизация завершена успешно.
+[main 8d10313e] Auto-sync vault notes 2026-05-30 05:45:01
+ 173 files changed, 21311 insertions(+), 915 deletions(-)
+ create mode 100644 .smart-env/multi/60_Rollouts_v14_of_OE_Canary_md.ajson
+ create mode 100644 .smart-env/multi/80_Research_ADR-0004_ML_v5_of_Feature_Expansion_md.ajson
+ create mode 100644 .smart-env/multi/80_Research_ADR-0005_TCA_EMA_Priors_Pipeline_md.ajson
+ create mode 100644 .smart-env/multi/80_Research_ADR-0006_Cross-Symbol_and_Liq-OI_Feature_Pipeline_md.ajson
+ create mode 100644 .smart-env/multi/80_Research_ADR-0007_Point-in-Time_Historical_Priors_md.ajson
+ create mode 100644 .smart-env/multi/99_Repo_Exports_python-worker_tests_fixtures_outbox_README_md.ajson
+ create mode 100644 99_Automation/logs/update_2026-05-30_03-37-25.log
+ create mode 100644 99_Repo_Exports/docker-compose.tp1-adaptive-shadow-persister.yml
+ create mode 100644 99_Repo_Exports/docker-compose.tp1-phit-publisher.yml
+ create mode 100644 99_Repo_Exports/python-worker/core/adaptive_tp1_policy.py
+ create mode 100644 99_Repo_Exports/python-worker/core/daily_dd_per_tier_calibrator.py
+ create mode 100644 99_Repo_Exports/python-worker/core/dq_softflag_calibrator.py
+ create mode 100644 99_Repo_Exports/python-worker/core/entry_rr_min_calibrator.py
+ create mode 100644 99_Repo_Exports/python-worker/core/entry_slippage_cap_calibrator.py
+ create mode 100644 99_Repo_Exports/python-worker/core/exec_latency_timeout_calibrator.py
+ create mode 100644 99_Repo_Exports/python-worker/core/funding_basis_z_calibrator.py
+ create mode 100644 99_Repo_Exports/python-worker/core/manip_pattern_basis_calibrator.py
+ create mode 100644 99_Repo_Exports/python-worker/core/pre_publish_gate_calibrator.py
+ create mode 100644 99_Repo_Exports/python-worker/core/signal_min_conf_calibrator.py
+ create mode 100644 99_Repo_Exports/python-worker/core/sl_atr_floor_calibrator.py
+ create mode 100644 99_Repo_Exports/python-worker/core/symbols_config_v1.py
+ create mode 100644 99_Repo_Exports/python-worker/core/tb_cost_bps_calibrator.py
+ create mode 100644 99_Repo_Exports/python-worker/core/tp1_adaptive_metrics.py
+ create mode 100644 99_Repo_Exports/python-worker/core/tp1_hit_prob_cdf.py
+ create mode 100644 99_Repo_Exports/python-worker/core/tp_size_fraction_calibrator.py
+ create mode 100644 99_Repo_Exports/python-worker/migrations/20260529_01_tp1_adaptive_shadow.sql
+ create mode 100644 99_Repo_Exports/python-worker/orderflow_services/daily_dd_per_tier_calibrator_v1.py
+ create mode 100644 99_Repo_Exports/python-worker/orderflow_services/dq_softflag_calibrator_v1.py
+ create mode 100644 99_Repo_Exports/python-worker/orderflow_services/entry_rr_min_calibrator_v1.py
+ create mode 100644 99_Repo_Exports/python-worker/orderflow_services/entry_slippage_cap_calibrator_v1.py
+ create mode 100644 99_Repo_Exports/python-worker/orderflow_services/exec_latency_timeout_calibrator_v1.py
+ create mode 100644 99_Repo_Exports/python-worker/orderflow_services/funding_basis_z_calibrator_v1.py
+ create mode 100644 99_Repo_Exports/python-worker/orderflow_services/manip_pattern_basis_calibrator_v1.py
+ create mode 100644 99_Repo_Exports/python-worker/orderflow_services/pre_publish_gate_calibrator_v1.py
+ create mode 100644 99_Repo_Exports/python-worker/orderflow_services/signal_min_conf_calibrator_v1.py
+ create mode 100644 99_Repo_Exports/python-worker/orderflow_services/sl_atr_floor_calibrator_v1.py
+ create mode 100644 99_Repo_Exports/python-worker/orderflow_services/tb_cost_bps_calibrator_v1.py
+ create mode 100644 99_Repo_Exports/python-worker/orderflow_services/tp1_hit_prob_publisher_v1.py
+ create mode 100644 99_Repo_Exports/python-worker/orderflow_services/tp_size_fraction_calibrator_v1.py
+ create mode 100644 99_Repo_Exports/python-worker/services/daily_dd_tier_runtime_overrides.py
+ create mode 100644 99_Repo_Exports/python-worker/services/dq_softflag_runtime_overrides.py
+ create mode 100644 99_Repo_Exports/python-worker/services/entry_rr_min_runtime_overrides.py
+ create mode 100644 99_Repo_Exports/python-worker/services/entry_slippage_cap_runtime_overrides.py
+ create mode 100644 99_Repo_Exports/python-worker/services/exec_latency_timeout_runtime_overrides.py
+ create mode 100644 99_Repo_Exports/python-worker/services/funding_basis_z_runtime_overrides.py
+ create mode 100644 99_Repo_Exports/python-worker/services/manip_pattern_basis_runtime_overrides.py
+ create mode 100644 99_Repo_Exports/python-worker/services/pre_publish_gate_runtime_overrides.py
+ create mode 100644 99_Repo_Exports/python-worker/services/signal_min_conf_runtime_overrides.py
+ create mode 100644 99_Repo_Exports/python-worker/services/sl_atr_floor_runtime_overrides.py
+ create mode 100644 99_Repo_Exports/python-worker/services/tb_cost_bps_runtime_overrides.py
+ create mode 100644 99_Repo_Exports/python-worker/services/tp1_adaptive_shadow_persister.py
+ create mode 100644 99_Repo_Exports/python-worker/services/tp1_hit_prob_reader.py
+ create mode 100644 99_Repo_Exports/python-worker/services/tp_size_fraction_runtime_overrides.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/core/test_dc_extended_features.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/core/test_liq_cluster_v2_features.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/core/test_v5_schema_routing_regression.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_adaptive_tp1_policy.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_atr_floor_gate.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_daily_dd_per_tier_calibrator.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_dq_softflag_calibrator.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_entry_policy_lcb_guard_service.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_entry_rr_min_calibrator.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_entry_slippage_cap_calibrator.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_exec_latency_timeout_calibrator.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_execution_gate_g13_bugfixes.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_execution_gate_g13_integration.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_feature_coverage_gate_v15_smoke.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_full_pipeline_integration.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_funding_basis_z_calibrator.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_g0_tick_validation_full.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_level_enricher_adaptive_tp1.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_manip_gate_audit.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_manip_pattern_basis_calibrator.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_pre_publish_gate_calibrator.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_research_guard_calibrator_service.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_shadow_producers_full_emission.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_signal_min_conf_calibrator.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_sl_atr_floor_calibrator.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_stop_floor_fixes_2026_05_29.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_symbols_config_v1.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_tb_cost_bps_calibrator.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_tp1_adaptive_metrics.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_tp1_adaptive_shadow_persister.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_tp1_hit_prob_cdf.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_tp1_hit_prob_publisher.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_tp1_hit_prob_reader.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_tp_size_fraction_calibrator.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_train_feature_zero_rate_v1.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_v15_of_audit_2026_05_29_integration.py
+ create mode 100644 99_Repo_Exports/python-worker/tools/train_feature_zero_rate_v1.py
+ create mode 100644 99_Repo_Exports/python-worker/tools/validate_v14_of_dataset.py
+git@github.com: Permission denied (publickey).
+fatal: Could not read from remote repository.
+
+Please make sure you have the correct access rights
+and the repository exists.
+2026-05-30 05:45:03 - Синхронизация завершена успешно.

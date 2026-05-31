@@ -4,11 +4,20 @@ Shadow mode (default):  computes Kelly multiplier, writes it to indicators,
                         does NOT change effective_risk_pct.
 Enforce mode:           multiplies effective_risk_pct by the Kelly multiplier.
 
+Activation priority (highest first):
+  1. ENV KELLY_SIZING_ENABLED=1  — manual override, always respected.
+  2. Autopilot flag `kelly_sizing_enabled` in Redis hash
+     calibration:autopilot:state — activated by calibration_autopilot_v1
+     after meta_label_gate has been active >= AUTOPILOT_KELLY_GATE_MIN_HOURS (48h)
+     AND model roc_auc_oos >= AUTOPILOT_KELLY_MIN_AUC (0.58).
+  3. Default: shadow (no sizing applied).
+
 ENV:
   KELLY_SIZING_ENABLED  1 = enforce, 0 = shadow (default 0)
   KELLY_FRACTION        Kelly fraction, default 0.25 (quarter-Kelly)
   KELLY_MIN_SCALE       Floor multiplier, default 0.50
   KELLY_MAX_SCALE       Cap multiplier,   default 1.50
+  KELLY_AUTOPILOT_REDIS_URL  Redis URL to read autopilot state (default REDIS_URL)
 
 P_Edge comes from of_confirm.evidence.ml.p_edge (calibrated win prob).
 RR ratio (b) = tp1_target_r / 1.0  (SL always = 1R by definition).
@@ -34,6 +43,48 @@ _KELLY_MAX_SCALE: float = float(os.getenv("KELLY_MAX_SCALE", "1.50"))
 # Reference full-Kelly at p=0.55, b=1.5 → f*=0.18 → quarter-Kelly=0.045
 # We normalise to fraction 0.25 as baseline so scale=1.0 means "normal".
 _BASELINE_KELLY: float = 0.25  # normalisation anchor
+
+# ── Autopilot state cache ─────────────────────────────────────────────────────
+# Cached so we don't hit Redis on every signal. TTL = 300s (same as model gate).
+
+_autopilot_enforce: bool = os.getenv("KELLY_SIZING_ENABLED", "0").strip() == "1"
+_autopilot_rc: Any = None
+_autopilot_checked_at: float = 0.0
+_AUTOPILOT_TTL_SEC: float = 300.0
+
+
+def _ensure_rc() -> Any:
+    global _autopilot_rc
+    if _autopilot_rc is None:
+        try:
+            import redis as _redis  # type: ignore
+            url = os.getenv("KELLY_AUTOPILOT_REDIS_URL", os.getenv("REDIS_URL", ""))
+            if url:
+                _autopilot_rc = _redis.from_url(url, decode_responses=True)
+        except Exception:
+            pass
+    return _autopilot_rc
+
+
+def _kelly_enforce() -> bool:
+    """Return True if Kelly enforcement is active (ENV or autopilot flag)."""
+    global _autopilot_enforce, _autopilot_checked_at
+    if _autopilot_enforce:
+        return True
+    now = os.times().elapsed if hasattr(os, "times") else 0.0
+    import time as _time
+    now = _time.monotonic()
+    if now - _autopilot_checked_at < _AUTOPILOT_TTL_SEC:
+        return _autopilot_enforce
+    rc = _ensure_rc()
+    if rc is not None:
+        try:
+            from orderflow_services.calibration_autopilot_v1 import read_autopilot_flag
+            _autopilot_enforce = read_autopilot_flag(rc, "kelly_sizing_enabled")
+        except Exception:
+            pass
+    _autopilot_checked_at = now
+    return _autopilot_enforce
 
 
 def compute_kelly_scale(
@@ -85,11 +136,13 @@ def apply_kelly_sizing(
     indicators["kelly_scale_shadow"] = round(scale, 4)
     indicators["kelly_p_edge_input"] = round(p_edge, 4)
 
-    if enforce and math.isfinite(scale) and scale > 0:
+    effective_enforce = enforce or _kelly_enforce()
+    if effective_enforce and math.isfinite(scale) and scale > 0:
         new_risk = effective_risk_pct * scale
         logger.info(
-            "[KELLY] %s %s p_edge=%.3f tp1r=%.2f scale=%.3f risk %.2f→%.2f",
+            "[KELLY] %s %s p_edge=%.3f tp1r=%.2f scale=%.3f risk %.2f→%.2f enforce=%s",
             symbol, kind, p_edge, tp1_target_r, scale, effective_risk_pct, new_risk,
+            "env" if enforce else "autopilot",
         )
         return new_risk
 

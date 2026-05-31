@@ -342,11 +342,16 @@ class BinanceExecutor:
             max_retry=self.max_retry,
             default_leverage=self.default_leverage,
             exec_set_leverage=_bool_env("BINANCE_INIT_SYMBOL_SETTINGS", False),
+            # P0-1: Emergency close for naked positions (SHADOW by default)
+            emergency_close_if_unprotected=_bool_env("EXEC_EMERGENCY_CLOSE_IF_UNPROTECTED", False),
+            block_symbol_on_protection_fail=_bool_env("EXEC_BLOCK_SYMBOL_ON_PROTECTION_FAIL", False),
+            cooldown_after_protection_fail_ms=int(os.getenv("COOLDOWN_AFTER_PROTECTION_FAIL_MS", "900000")),
             state_store=self.state_store,
             event_writer=self.event_writer,
             protection_service=self.protection_svc,
             reconcile_service=self.reconcile_svc,
             active_symbol_guard=self.active_guard,
+            flatten_service=self.flatten_svc,
             r=self.r,
         )
 

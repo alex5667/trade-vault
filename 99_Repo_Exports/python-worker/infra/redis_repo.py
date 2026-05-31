@@ -23,6 +23,56 @@ def _env_bool(name: str, default: bool = False) -> bool:  # type: ignore
         return default
     return v.strip().lower() in ("1", "true", "yes", "y", "on")
 
+
+def _is_missing_bias(v: object, src: object) -> bool:
+    """True when bias fields hold TradeClosed defaults (0.0 / 'none') and
+    signal_payload.indicators should be consulted instead."""
+    try:
+        src_s = str(src or "").strip().lower()
+        v_f = float(v or 0.0)  # type: ignore[arg-type]
+        return src_s in ("", "none", "na", "null") and abs(v_f) <= 1e-12
+    except Exception:
+        return True
+
+
+def _extract_closed_bias_fields(closed: Any) -> tuple[Any, Any, Any]:
+    """Return (bias_value, bias_countertrend, bias_source) for a TradeClosed.
+
+    TradeClosed always has these fields with defaults (0.0 / False / 'none'),
+    so a None-check alone would never fall through to signal_payload.  We must
+    also fall through when the fields carry their default values.
+    """
+    _bv = getattr(closed, "edge_directional_bias_value", None)
+    _bct = getattr(closed, "edge_directional_bias_countertrend", None)
+    _bsrc = getattr(closed, "edge_directional_bias_source", None)
+
+    if _bv is None or _bsrc is None or _is_missing_bias(_bv, _bsrc):
+        _sp_bias = getattr(closed, "signal_payload", None) or {}
+        if isinstance(_sp_bias, str):
+            try:
+                _sp_bias = json.loads(_sp_bias)
+            except Exception:
+                _sp_bias = {}
+        if isinstance(_sp_bias, dict):
+            _ind_bias = _sp_bias.get("indicators") or {}
+            if not isinstance(_ind_bias, dict):
+                _ind_bias = {}
+            if not _ind_bias:
+                _cs_bias = _sp_bias.get("config_snapshot") or {}
+                _ind_bias = (_cs_bias.get("indicators") or {}) if isinstance(_cs_bias, dict) else {}
+            _bv2 = _ind_bias.get("edge_directional_bias_value")
+            if _bv2 is not None:
+                _bv = _bv2
+            _bct2 = _ind_bias.get("edge_directional_bias_countertrend")
+            if _bct2 is not None:
+                _bct = _bct2
+            _bsrc2 = _ind_bias.get("edge_directional_bias_source")
+            if _bsrc2 is not None:
+                _bsrc = _bsrc2
+
+    return _bv, _bct, _bsrc
+
+
 def _normalize_side(v: Any) -> str:
     """
     direction в разных местах может быть:
@@ -522,6 +572,12 @@ def _compact_trade_payload(closed, *, prof: str) -> dict[str, Any]:
         "p0_slippage_bps_est": str(getattr(closed, "p0_slippage_bps_est", 0.0) or getattr(closed, "slippage_bps_est", 0.0) or 0.0),
         "meta_enforce_cov_bucket": str(getattr(closed, "meta_enforce_cov_bucket", "") or ""),
         "meta_enforce_applied": str(int(getattr(closed, "meta_enforce_applied", -1))),
+        # EdgeCostGate directional bias provenance — required by
+        # edge_directional_bias_autocal_v1 to split baseline vs applied buckets.
+        # See P0 fix 2026-05-30 in handlers/crypto_orderflow/utils/edge_cost_gate.py.
+        "edge_directional_bias_value": str(getattr(closed, "edge_directional_bias_value", 0.0) or 0.0),
+        "edge_directional_bias_countertrend": "1" if bool(getattr(closed, "edge_directional_bias_countertrend", False)) else "0",
+        "edge_directional_bias_source": str(getattr(closed, "edge_directional_bias_source", "none") or "none"),
     }
 
 
@@ -1532,6 +1588,34 @@ class RedisTradeRepository:
         # r_multiple alias for compact-path compatibility: compact writes r_mult,
         # but PEdgeThresholdCalibrator reads r_multiple.
         stream_data.setdefault("r_multiple", stream_data.get("r_mult", "0"))
+
+        # ── Flat fields for edge_directional_bias_autocal_v1 ─────────────────
+        # Uses _extract_closed_bias_fields which falls through to
+        # signal_payload.indicators when top-level attrs are defaults (0.0/
+        # "none") — a None-check alone would never trigger the fallback because
+        # TradeClosed always has these fields initialised.
+        try:
+            _bv, _bct, _bsrc = _extract_closed_bias_fields(closed)
+            if _bv is not None:
+                try:
+                    _bv_f = float(_bv)  # type: ignore[arg-type]
+                    if math.isfinite(_bv_f):
+                        stream_data["edge_directional_bias_value"] = f"{_bv_f:.6f}"
+                except (TypeError, ValueError):
+                    pass
+            if _bct is not None:
+                if isinstance(_bct, str):
+                    _bct_truthy = _bct.strip().lower() in ("1", "true", "yes", "on")
+                else:
+                    try:
+                        _bct_truthy = bool(int(_bct))
+                    except (TypeError, ValueError):
+                        _bct_truthy = bool(_bct)
+                stream_data["edge_directional_bias_countertrend"] = "1" if _bct_truthy else "0"
+            if _bsrc is not None:
+                stream_data["edge_directional_bias_source"] = str(_bsrc)[:16]
+        except Exception:
+            pass
 
         logger.debug(
             f"💾 save_closed -> {TRADES_CLOSED_STREAM_NAME}: "

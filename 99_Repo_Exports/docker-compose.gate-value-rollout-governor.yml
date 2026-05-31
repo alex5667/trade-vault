@@ -1,0 +1,102 @@
+services:
+  gate-value-rollout-governor:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    image: scanner-python-worker:latest
+    container_name: scanner-gate-value-rollout-governor
+    restart: unless-stopped
+    environment:
+      - PYTHONUNBUFFERED=1
+      # 2026-05-30 — fully-automatic rollout governor for the gate_value
+      # confidence-gate autocalibrator. Walks the rollout machine through
+      # Stage 3 (accumulating) → Stage 5 (advisory) → Stage 6_CANDIDATE →
+      # Stage 6_ENFORCED, consulting Ollama LLM at every transition (VETO-
+      # only via llm_recommendation_guard_v1) and notifying Telegram. On
+      # final flip it writes `cfg:gva:enforce=1` to Redis — autocal honours
+      # the override without container restart.
+      - GVR_ENABLE=${GVR_ENABLE:-1}
+      - GVR_INTERVAL_SEC=${GVR_INTERVAL_SEC:-900}
+      # Input keys
+      - GVR_REPORT_KEY=${GVR_REPORT_KEY:-report:gate_value:latest}
+      - GVR_AUTOCAL_STATE_KEY=${GVR_AUTOCAL_STATE_KEY:-autocal:gate_value:state}
+      - GVR_ROLLOUT_STATE_KEY=${GVR_ROLLOUT_STATE_KEY:-autocal:gate_value:rollout_state}
+      - GVR_ENFORCE_OVERRIDE_KEY=${GVR_ENFORCE_OVERRIDE_KEY:-cfg:gva:enforce}
+      - GVR_STREAM_GATED_OUT_OUTCOMES=stream:signals:gated_out_outcomes
+      - GVR_STREAM_LABELS_TB=labels:tb
+      - GVR_STREAM_ML_CONFIRM=metrics:ml_confirm
+      # Stage 3 gates — wait for 500+ growth in each cohort over 6h.
+      - GVR_STAGE3_WINDOW_H=${GVR_STAGE3_WINDOW_H:-6.0}
+      - GVR_STAGE3_MIN_GROWTH_GATED_OUT=${GVR_STAGE3_MIN_GROWTH_GATED_OUT:-500}
+      - GVR_STAGE3_MIN_GROWTH_LABELS_TB=${GVR_STAGE3_MIN_GROWTH_LABELS_TB:-500}
+      - GVR_STAGE3_MIN_DWELL_H=${GVR_STAGE3_MIN_DWELL_H:-6.0}
+      # Stage 5 gates — 7 days dwell, stable phase distribution, no churn.
+      - GVR_STAGE5_MIN_DURATION_H=${GVR_STAGE5_MIN_DURATION_H:-168.0}
+      - GVR_STAGE5_MIN_GROUPS=${GVR_STAGE5_MIN_GROUPS:-3}
+      - GVR_STAGE5_MAX_ROLLBACK_TOTAL=${GVR_STAGE5_MAX_ROLLBACK_TOTAL:-3}
+      - GVR_STAGE5_MAX_LLM_VETO_RATE=${GVR_STAGE5_MAX_LLM_VETO_RATE:-0.35}
+      - GVR_STAGE5_MIN_STABLE_FRAC=${GVR_STAGE5_MIN_STABLE_FRAC:-0.60}
+      # Stage 6 final canary — 24h before ENFORCE flip.
+      - GVR_STAGE6_CANARY_H=${GVR_STAGE6_CANARY_H:-24.0}
+      # LLM — shared in-stack ollama (deepseek-r1:8b)
+      - GVR_LLM_ENABLED=${GVR_LLM_ENABLED:-1}
+      - GVR_LLM_TIMEOUT_SEC=${GVR_LLM_TIMEOUT_SEC:-30.0}
+      - GVR_LLM_BACKEND=${GVR_LLM_BACKEND:-ollama}
+      - OLLAMA_URL=${OLLAMA_URL:-http://ollama:11434}
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-}
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-deepseek-r1:8b}
+      # Telegram
+      - GVR_NOTIFY_TELEGRAM=${GVR_NOTIFY_TELEGRAM:-1}
+      - GVR_NOTIFY_STREAM=${GVR_NOTIFY_STREAM:-notify:telegram}
+      - GVR_DAILY_SUMMARY=${GVR_DAILY_SUMMARY:-1}
+      # Transport
+      - REDIS_URL=${REDIS_URL:-redis://redis-worker-1:6379/0}
+      - GVR_HMAC_SECRET=${GVR_HMAC_SECRET:-${RECS_HMAC_SECRET:-}}
+      - GVR_PROM_PORT=9150
+      - TZ=UTC
+    ports:
+      - "9150:9150"
+    depends_on:
+      redis-worker-1:
+        condition: service_healthy
+    networks:
+      - scanner-core
+      - scanner-infra
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.1'
+        reservations:
+          memory: 64M
+    command:
+      - sh
+      - -c
+      - |
+        sleep 20
+        if [ "$${GVR_ENABLE:-1}" = "0" ]; then
+          echo "GVR_ENABLE=0 — idle (set =1 to start)"
+          while true; do sleep 3600; done
+        fi
+        python -m orderflow_services.gate_value_rollout_governor_v1
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - python3 -c 'import urllib.request; urllib.request.urlopen("http://localhost:9143/metrics")' || exit 1
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    labels:
+      - com.scanner.service=gate-value-rollout-governor
+      - com.scanner.description=Auto-rollout governor (Stage 3→5→6 ENFORCE flip) with LLM analysis + Telegram
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '3'
+
+networks:
+  scanner-core:
+    external: true
+  scanner-infra:
+    external: true

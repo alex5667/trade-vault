@@ -72,6 +72,10 @@ services:
     - REDIS_PORT=6379
     - REDIS_DB=0
     - REDIS_URL=${REDIS_URL}
+    # Phase A.2 — MetaLabelGate uses EnsembleWeightsReader.blend() for multi-source P(win)
+    - ENSEMBLE_WEIGHTS_READ_ENABLED=${ENSEMBLE_WEIGHTS_READ_ENABLED:-1}
+    # Phase A.1 — Adaptive TTL barrier override (in-process readers can opt-in)
+    - ADAPTIVE_TTL_READ_ENABLED=${ADAPTIVE_TTL_READ_ENABLED:-1}
     - REDIS_TICKS_URL=redis://redis-ticks:6379/0
     - REDIS_TICKS_HOST=redis-ticks
     - REDIS_TICKS_PORT=6379
@@ -227,6 +231,31 @@ services:
     - DEEP_EXPLORATION_SAMPLE_RATE=${DEEP_EXPLORATION_SAMPLE_RATE:-0.03}
     - DEEP_EXPLORATION_TO_ORDER_QUEUE=0
     - DEEP_EXPLORATION_CAP_PER_SYMBOL_SESSION_HOUR=${DEEP_EXPLORATION_CAP_PER_SYMBOL_SESSION_HOUR:-50}
+    # ── Plan 1: Confidence Meta-Gate (2026-05-30) ─────────────────────
+    # Calibrated replacement for the legacy confidence threshold. Hard safety
+    # gates above and risk engine below are unaffected.
+    # ENABLED=1 + MODE=SHADOW + no artifact loaded = decide_meta_gate runs and
+    # returns FALLBACK_LEGACY for every signal (legacy behaviour preserved),
+    # but emits to stream:decisions:conf_meta_gate so the persister has data
+    # to write and the auto-demote watcher has rows to scan. Once an artifact
+    # ships, SHADOW continues until CANARY ramp begins.
+    # Rollback: CONF_META_GATE_MODE=KILL_SWITCH or CONF_META_GATE_ENABLED=0.
+    - CONF_META_GATE_ENABLED=${CONF_META_GATE_ENABLED:-1}
+    - CONF_META_GATE_MODE=${CONF_META_GATE_MODE:-SHADOW}
+    - CONF_META_GATE_MODEL_PATH=${CONF_META_GATE_MODEL_PATH:-/app/ml_models/conf_meta_gate_v1.json}
+    - CONF_META_GATE_CALIBRATOR_PATH=${CONF_META_GATE_CALIBRATOR_PATH:-/app/ml_models/conf_meta_gate_calibrator_v1.json}
+    - CONF_META_GATE_CANARY_SHARE=${CONF_META_GATE_CANARY_SHARE:-0.00}
+    - CONF_META_GATE_CANARY_SALT=${CONF_META_GATE_CANARY_SALT:-conf_meta_gate_v1_20260530}
+    - CONF_META_GATE_FAIL_MODE=${CONF_META_GATE_FAIL_MODE:-LEGACY}
+    - CONF_META_GATE_MAX_MODEL_AGE_HOURS=${CONF_META_GATE_MAX_MODEL_AGE_HOURS:-72}
+    - CONF_META_GATE_MAX_CALIBRATION_ECE=${CONF_META_GATE_MAX_CALIBRATION_ECE:-0.07}
+    - CONF_META_GATE_MIN_P_WIN=${CONF_META_GATE_MIN_P_WIN:-0.56}
+    - CONF_META_GATE_MIN_EXPECTED_R=${CONF_META_GATE_MIN_EXPECTED_R:-0.02}
+    - CONF_META_GATE_MIN_EXPECTED_EDGE_BPS=${CONF_META_GATE_MIN_EXPECTED_EDGE_BPS:-1.5}
+    - CONF_META_GATE_RISK_MULT_ENABLED=${CONF_META_GATE_RISK_MULT_ENABLED:-0}
+    - CONF_META_GATE_DECISION_STREAM=${CONF_META_GATE_DECISION_STREAM:-stream:decisions:conf_meta_gate}
+    - CONF_META_GATE_METRICS_STREAM=${CONF_META_GATE_METRICS_STREAM:-metrics:conf_meta_gate}
+    - CONF_META_GATE_FEATURES_IN_STREAM=${CONF_META_GATE_FEATURES_IN_STREAM:-0}
     # ── Stop-Risk Contract: SLQ canary ────────────────────────────────
     - SLQ_ENABLE=1
     - SLQ_SHADOW_ONLY=0
@@ -3019,7 +3048,7 @@ services:
     - ACCOUNT_LEVERAGE=${ACCOUNT_LEVERAGE:-10}
     # G6: Live triple-barrier exit gate
     - TB_EXIT_ENABLED=1
-    - TB_EXIT_MODE=shadow
+    - TB_EXIT_MODE=enforce
     - TB_COST_BPS=${TB_COST_BPS:-7.0}
     - TB_HORIZON_H=${TB_HORIZON_H:-4}
     - BINANCE_DEMO_DEFAULT_LEVERAGE=${BINANCE_DEMO_DEFAULT_LEVERAGE:-5}
@@ -3118,7 +3147,7 @@ services:
     - ACCOUNT_LEVERAGE=${ACCOUNT_LEVERAGE:-10}
     # G6: Live triple-barrier exit gate
     - TB_EXIT_ENABLED=1
-    - TB_EXIT_MODE=shadow
+    - TB_EXIT_MODE=enforce
     - TB_COST_BPS=${TB_COST_BPS:-7.0}
     - TB_HORIZON_H=${TB_HORIZON_H:-4}
     - BINANCE_DEMO_DEFAULT_LEVERAGE=${BINANCE_DEMO_DEFAULT_LEVERAGE:-5}
@@ -6531,6 +6560,43 @@ services:
         reservations:
           memory: 32M
     command: python -u orderflow_services/pre_publish_gate_calibrator_v1.py
+
+  # P0-3: Unified risk budget aggregator (read-only, shadow, port 9925)
+  risk-budget-service:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    image: scanner-python-worker:latest
+    container_name: scanner-risk-budget-service
+    restart: on-failure:5
+    environment:
+    - REDIS_URL=${EXEC_PROJECTION_REDIS_URL:-redis://redis-worker-1:6379/0}
+    - RISK_BUDGET_SERVICE_ENABLED=${RISK_BUDGET_SERVICE_ENABLED:-1}
+    - RISK_BUDGET_POLL_INTERVAL_S=${RISK_BUDGET_POLL_INTERVAL_S:-5}
+    - RISK_BUDGET_TRACK_SYMBOLS=${RISK_BUDGET_TRACK_SYMBOLS:-BTCUSDT,ETHUSDT,SOLUSDT}
+    - RISK_BUDGET_GATE_ENABLED=${RISK_BUDGET_GATE_ENABLED:-1}
+    - RISK_BUDGET_GATE_MODE=${RISK_BUDGET_GATE_MODE:-enforce}
+    - COOLDOWN_AFTER_PROTECTION_FAIL_MS=${COOLDOWN_AFTER_PROTECTION_FAIL_MS:-900000}
+    - PROMETHEUS_PORT=9925
+    - PYTHONPATH=.:/app
+    - PYTHONUNBUFFERED=1
+    - TZ=UTC
+    working_dir: /app
+    volumes:
+    - ./python-worker:/app
+    networks:
+    - scanner-core
+    - scanner-infra
+    ports:
+    - "9925:9925"
+    deploy:
+      resources:
+        limits:
+          memory: 64M
+          cpus: '0.05'
+        reservations:
+          memory: 16M
+    command: python -m services.risk_budget_service_v1
 
 networks:
   scanner-core:

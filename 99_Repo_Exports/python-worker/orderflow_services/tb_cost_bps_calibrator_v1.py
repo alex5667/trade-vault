@@ -162,7 +162,15 @@ def main() -> None:
                 streams={in_stream: ">"}, count=batch, block=2000,
             )
         except Exception as e:
-            log.warning("XREADGROUP error: %s", e)
+            if "NOGROUP" in str(e):
+                log.warning("NOGROUP error: %s. Attempting to recreate consumer group...", e)
+                try:
+                    rc.xgroup_create(in_stream, group, id="0", mkstream=True)
+                except Exception as ex:
+                    if "BUSYGROUP" not in str(ex):
+                        log.warning("xgroup_create retry failed: %s", ex)
+            else:
+                log.warning("XREADGROUP error: %s", e)
             time.sleep(1)
             continue
 

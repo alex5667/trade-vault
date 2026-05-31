@@ -13,7 +13,7 @@ services:
       redis-worker-1:
         condition: service_healthy
     expose:
-    - "9924"
+    - "9941"
     environment:
     - REDIS_URL=${REDIS_URL}
     - ANALYTICS_DB_DSN=${ANALYTICS_DB_DSN:-postgresql://trading:${TRADING_PASSWORD}@postgres:5432/scanner_analytics}
@@ -24,7 +24,7 @@ services:
     - TSW_BATCH_SIZE=500
     - TSW_DLQ_STREAM=events:trailing:state:dlq
     - TSW_DLQ_MAXLEN=200000
-    - TSW_METRICS_PORT=9924
+    - TSW_METRICS_PORT=9941
     - TSW_FAIL_SLEEP_SEC=1.0
     - LOG_LEVEL=INFO
     - PYTHONUNBUFFERED=1

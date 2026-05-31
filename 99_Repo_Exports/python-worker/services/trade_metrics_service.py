@@ -296,6 +296,7 @@ class TradeMetricsService:
 
             # --- NEW: Setup Stats (ATR) ---
             "sum_sl_atr": 0.0, "cnt_sl_atr": 0,
+            "sum_sl_bps": 0.0, "sum_sl_margin_pct": 0.0, "cnt_sl_bps": 0,
             "sum_tp_atr": 0.0, "cnt_tp_atr": 0,   # TP1 distance (initial target)
             "sum_tp_final_atr": 0.0, "cnt_tp_final_atr": 0,  # furthest TP reached (TP3>TP2>TP1)
 
@@ -808,6 +809,22 @@ class TradeMetricsService:
                 )
                 if tp_price > 0:
                     tp_atr = abs(tp_price - entry_price) / atr
+
+        # --- BPS/PCT for SL ---
+        _ep_sl = _sf(t.get("entry_price") or t.get("avg_entry_price") or 0.0)
+        _sl_p = _sf(t.get("sl_price") or t.get("stop_loss") or t.get("sl") or _meta.get("sl_price") or 0.0)
+        if _ep_sl > eps and _sl_p > eps:
+            _sl_dist_pct = abs(_ep_sl - _sl_p) / _ep_sl * 100.0
+            _sl_dist_bps = _sl_dist_pct * 100.0
+            
+            _leverage = _sf(t.get("leverage") or t.get("risk_leverage_cap") or t.get("leverage_cap") or 1.0)
+            if _leverage <= 0:
+                _leverage = 1.0
+            _margin_loss_pct = _sl_dist_pct * _leverage
+
+            m["sum_sl_bps"] += _sl_dist_bps
+            m["sum_sl_margin_pct"] += _margin_loss_pct
+            m["cnt_sl_bps"] += 1
 
         if sl_atr > eps:
             m["sum_sl_atr"] += sl_atr
@@ -1380,6 +1397,9 @@ class TradeMetricsService:
 
         # --- Setup Stats (ATR) averages ---
         m["avg_sl_atr"] = safe_div(m["sum_sl_atr"], m["cnt_sl_atr"])
+        m["avg_sl_bps"] = safe_div(m["sum_sl_bps"], m["cnt_sl_bps"])
+        m["avg_sl_margin_pct"] = safe_div(m["sum_sl_margin_pct"], m["cnt_sl_bps"])
+        m["avg_sl_pct"] = m["avg_sl_bps"] / 100.0  # keep pure price pct
         m["avg_tp_atr"] = safe_div(m["sum_tp_atr"], m["cnt_tp_atr"])  # TP1 / initial target
         m["avg_tp_final_atr"] = safe_div(m["sum_tp_final_atr"], m["cnt_tp_final_atr"])  # furthest TP touched
 

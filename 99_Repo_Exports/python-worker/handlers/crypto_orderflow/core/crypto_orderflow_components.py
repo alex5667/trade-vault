@@ -767,10 +767,21 @@ class L2ConfirmBreakout:
 
     def check(self, ctx: Any, *, dir_up: bool) -> ConfirmationResult:
         if self.require_obi20:
-            if not bool(getattr(ctx, "obi_sustained_20", False)):
-                return ConfirmationResult(False, "obi20_not_sustained")
-            if float(getattr(ctx, "obi_avg_20", 0.0) or 0.0) * (1.0 if dir_up else -1.0) <= 0:
-                return ConfirmationResult(False, "obi20_wrong_sign")
+            dir_sign = 1.0 if dir_up else -1.0
+            obi20_ok = (
+                bool(getattr(ctx, "obi_sustained_20", False))
+                and float(getattr(ctx, "obi_avg_20", 0.0) or 0.0) * dir_sign > 0
+            )
+            stable_secs = float(
+                getattr(ctx, "obi_stable_secs", None)
+                or getattr(ctx, "lob_dw_obi_stable_secs", 0.0)
+                or 0.0
+            )
+            stable_ok = stable_secs >= 2.0
+            ofi_ml = float(getattr(ctx, "ofi_ml_norm", 0.0) or 0.0)
+            ofi_ok = ofi_ml * dir_sign >= 0.3
+            if not (obi20_ok or stable_ok or ofi_ok):
+                return ConfirmationResult(False, "obi20_no_alternative")
 
         mp = float(getattr(ctx, "microprice_shift_bps_20", 0.0) or 0.0)
         if dir_up and mp < self.mp_min_bps:

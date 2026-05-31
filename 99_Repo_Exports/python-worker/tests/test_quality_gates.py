@@ -1,12 +1,31 @@
 from types import SimpleNamespace
 
+import pytest
+
 from handlers.crypto_orderflow.utils.quality_gates import (
     DataQualityGate,
     LiquidityGate,
     RegimeGate,
     SignalConsistencyGate,
+    _cached_getenv,
+    _env_bool,
+    _env_float,
+    _env_str,
 )
 from utils.time_utils import get_ny_time_millis
+
+
+@pytest.fixture(autouse=True)
+def _clear_env_caches():
+    _cached_getenv.cache_clear()
+    _env_bool.cache_clear()
+    _env_float.cache_clear()
+    _env_str.cache_clear()
+    yield
+    _cached_getenv.cache_clear()
+    _env_bool.cache_clear()
+    _env_float.cache_clear()
+    _env_str.cache_clear()
 
 
 def _ctx(**kwargs):
@@ -451,4 +470,248 @@ def test_signal_consistency_gate_strict_missing_metrics(monkeypatch):
     dec1 = gate.evaluate(ctx=ctx1, symbol="BTCUSDT", kind="breakout", side="LONG")
     assert dec1.veto is True
     assert "MISSING" in dec1.reason_code
+
+
+# ---------------------------------------------------------------------------
+# OBI20 OR-gate alternative arms
+# ---------------------------------------------------------------------------
+
+def _base_obi20_env(monkeypatch, *, mp: str = "0.0"):
+    env = {
+        "CONSISTENCY_GATE_ENABLED": "1",
+        "CONSISTENCY_APPLY_KINDS": "breakout",
+        "BREAKOUT_REQUIRE_OBI": "0",
+        "BREAKOUT_REQUIRE_OBI20": "1",
+        "CONS_BREAKOUT_MIN_Z": "2.0",
+        "CONS_BREAKOUT_REQUIRE_TOUCH_FRESH": "0",
+        "CONS_BREAKOUT_REQUIRE_TOUCH_TAG": "0",
+        "BREAKOUT_OBI20_ALT_STABLE_SECS_MIN": "2.0",
+        "BREAKOUT_OBI20_ALT_MICROSHIFT_BPS": "0.2",
+        "BREAKOUT_OBI20_ALT_DEPLETION_RHO": "0.10",
+        "BREAKOUT_OBI20_ALT_OFI_ML_MIN": "0.3",
+        "BREAKOUT_MIN_MICROPRICE_SHIFT_BPS": mp,
+    }
+    for k, v in env.items():
+        monkeypatch.setenv(k, v)
+
+
+def test_obi20_or_gate_passes_via_obi20_sign(monkeypatch):
+    _base_obi20_env(monkeypatch)
+    gate = SignalConsistencyGate.from_env()
+    ctx = _ctx(of=_of(z_delta=3.0, obi=0.5, obi_20=0.4, microprice_shift_bps_20=0.0))
+    dec = gate.evaluate(ctx=ctx, symbol="BTCUSDT", kind="breakout", side="LONG")
+    assert dec.veto is False, dec.reason_code
+
+
+def test_obi20_or_gate_passes_via_stable_secs(monkeypatch):
+    _base_obi20_env(monkeypatch)
+    gate = SignalConsistencyGate.from_env()
+    # obi_20 missing (None) but stable_secs >= 2.0 → pass
+    ctx = _ctx(
+        of=_of(z_delta=3.0, obi=0.5, microprice_shift_bps_20=0.0),
+        obi_stable_secs=3.5,
+    )
+    dec = gate.evaluate(ctx=ctx, symbol="BTCUSDT", kind="breakout", side="LONG")
+    assert dec.veto is False, dec.reason_code
+
+
+def test_obi20_or_gate_passes_via_microshift_depletion(monkeypatch):
+    _base_obi20_env(monkeypatch)
+    monkeypatch.setenv("CONS_BREAKOUT_TOUCH_TAG_REQUIRED", "depletion")
+    gate = SignalConsistencyGate.from_env()
+    # obi_20 sign mismatch, stable_secs=0 — saved by microprice_shift + depletion touch
+    ctx = _ctx(
+        of=_of(z_delta=3.0, obi=0.5, obi_20=-0.1, microprice_shift_bps_20=0.25),
+        obi_stable_secs=0.0,
+        touch_ask_tag="depletion",
+        touch_ask_rho=0.20,
+        touch_ask_traded_w=5.0,
+        touch_is_stale=False,
+    )
+    dec = gate.evaluate(ctx=ctx, symbol="BTCUSDT", kind="breakout", side="LONG")
+    assert dec.veto is False, dec.reason_code
+
+
+def test_obi20_or_gate_passes_via_ofi_ml(monkeypatch):
+    _base_obi20_env(monkeypatch)
+    gate = SignalConsistencyGate.from_env()
+    # obi_20 sign mismatch, no stable_secs — saved by ofi_ml_norm
+    ctx = _ctx(
+        of=_of(z_delta=3.0, obi=0.5, obi_20=-0.2, microprice_shift_bps_20=0.0, ofi_ml_norm=0.45),
+        obi_stable_secs=0.0,
+    )
+    dec = gate.evaluate(ctx=ctx, symbol="BTCUSDT", kind="breakout", side="LONG")
+    assert dec.veto is False, dec.reason_code
+
+
+def test_obi20_or_gate_veto_when_all_arms_fail(monkeypatch):
+    _base_obi20_env(monkeypatch)
+    gate = SignalConsistencyGate.from_env()
+    # obi_20 sign mismatch, stable_secs=0, no microshift+depl, ofi_ml_norm=0
+    ctx = _ctx(
+        of=_of(z_delta=3.0, obi=0.5, obi_20=-0.3, microprice_shift_bps_20=0.0, ofi_ml_norm=0.0),
+        obi_stable_secs=0.0,
+        touch_ask_tag="none",
+        touch_ask_rho=0.0,
+        touch_ask_traded_w=0.0,
+        touch_is_stale=False,
+    )
+    dec = gate.evaluate(ctx=ctx, symbol="BTCUSDT", kind="breakout", side="LONG")
+    assert dec.veto is True
+    assert dec.reason_code == "VETO_BREAKOUT_OBI20_NO_ALTERNATIVE"
+
+
+def test_obi20_or_gate_short_direction_ofi_ml(monkeypatch):
+    _base_obi20_env(monkeypatch)
+    gate = SignalConsistencyGate.from_env()
+    # SHORT: ofi_ml_norm must be negative enough; obi_20 sign mismatch
+    ctx = _ctx(
+        of=_of(z_delta=3.0, obi=-0.5, obi_20=0.1, microprice_shift_bps_20=0.0, ofi_ml_norm=-0.4),
+        obi_stable_secs=0.0,
+    )
+    dec = gate.evaluate(ctx=ctx, symbol="BTCUSDT", kind="breakout", side="SHORT")
+    assert dec.veto is False, dec.reason_code
+
+
+def _base_breakout_env(mp):
+    mp.setenv("CONSISTENCY_GATE_ENABLED", "1")
+    mp.setenv("CONSISTENCY_APPLY_KINDS", "breakout")
+    mp.setenv("BREAKOUT_REQUIRE_OBI", "0")
+    mp.setenv("BREAKOUT_REQUIRE_OBI20", "0")
+    mp.setenv("BREAKOUT_MIN_MICROPRICE_SHIFT_BPS", "0.0")
+    mp.setenv("CONS_BREAKOUT_MIN_Z", "2.0")
+    mp.setenv("CONS_BREAKOUT_REQUIRE_TOUCH_FRESH", "1")
+    mp.setenv("CONS_BREAKOUT_REQUIRE_TOUCH_TAG", "1")
+    mp.setenv("CONS_BREAKOUT_TOUCH_TAG_REQUIRED", "depletion")
+    mp.setenv("CONS_BREAKOUT_MIN_TOUCH_RHO", "0.0")
+
+
+def test_breakout_lob_pressure_fallback_passes_when_strong(monkeypatch):
+    _base_breakout_env(monkeypatch)
+    monkeypatch.setenv("CONS_BREAKOUT_LOB_PRESSURE_FALLBACK", "1")
+    monkeypatch.setenv("CONS_BREAKOUT_STRONG_LOB_Z_MIN", "2.5")
+
+    gate = SignalConsistencyGate.from_env()
+    ctx = _ctx(
+        of=_of(z_delta=3.0, obi=0.0, obi_20=0.0, lob_dw_obi_z=3.0),
+        touch_is_stale=False,
+        touch_ask_tag="none",      # not depletion
+        touch_ask_rho=0.0,
+        touch_ask_traded_w=0.0,
+        touch_ask_drop_w=0.0,
+    )
+    dec = gate.evaluate(ctx=ctx, symbol="BTCUSDT", kind="breakout", side="LONG")
+    assert dec.veto is False, f"expected pass via LOB fallback, got {dec.reason_code}"
+    assert dec.reason_code == "OK"
+
+
+def test_breakout_lob_pressure_fallback_vetos_when_disabled(monkeypatch):
+    _base_breakout_env(monkeypatch)
+    monkeypatch.setenv("CONS_BREAKOUT_LOB_PRESSURE_FALLBACK", "0")
+    monkeypatch.setenv("CONS_BREAKOUT_STRONG_LOB_Z_MIN", "2.5")
+
+    gate = SignalConsistencyGate.from_env()
+    ctx = _ctx(
+        of=_of(z_delta=3.0, obi=0.0, obi_20=0.0, lob_dw_obi_z=3.0),
+        touch_is_stale=False,
+        touch_ask_tag="none",      # not depletion, fallback disabled
+        touch_ask_rho=0.0,
+        touch_ask_traded_w=0.0,
+        touch_ask_drop_w=0.0,
+    )
+    dec = gate.evaluate(ctx=ctx, symbol="BTCUSDT", kind="breakout", side="LONG")
+    assert dec.veto is True
+    assert dec.reason_code == "VETO_BREAKOUT_TOUCH_TAG_MISMATCH"
+
+
+def test_breakout_lob_pressure_fallback_vetos_when_lob_too_weak(monkeypatch):
+    _base_breakout_env(monkeypatch)
+    monkeypatch.setenv("CONS_BREAKOUT_LOB_PRESSURE_FALLBACK", "1")
+    monkeypatch.setenv("CONS_BREAKOUT_STRONG_LOB_Z_MIN", "2.5")
+
+    gate = SignalConsistencyGate.from_env()
+    ctx = _ctx(
+        of=_of(z_delta=3.0, obi=0.0, obi_20=0.0, lob_dw_obi_z=1.5),  # below 2.5
+        touch_is_stale=False,
+        touch_ask_tag="none",
+        touch_ask_rho=0.0,
+        touch_ask_traded_w=0.0,
+        touch_ask_drop_w=0.0,
+    )
+    dec = gate.evaluate(ctx=ctx, symbol="BTCUSDT", kind="breakout", side="LONG")
+    assert dec.veto is True
+    assert dec.reason_code == "VETO_BREAKOUT_TOUCH_TAG_MISMATCH"
+
+
+def _base_absorption_env(mp):
+    mp.setenv("CONSISTENCY_GATE_ENABLED", "1")
+    mp.setenv("CONSISTENCY_APPLY_KINDS", "absorption")
+    mp.setenv("CONS_ABSORPTION_MIN_Z", "2.0")
+    mp.setenv("CONS_ABSORPTION_REQUIRE_WEAK_PROGRESS", "1")
+    mp.setenv("CONS_ABSORPTION_REQUIRE_TOUCH_FRESH", "1")
+    mp.setenv("CONS_ABSORPTION_TOUCH_TAG_REQUIRED", "refill")
+    mp.setenv("CONS_ABSORPTION_MIN_TOUCH_RHO", "0.0")
+
+
+def test_absorption_adverse_fallback_passes_when_drop_and_level_ok(monkeypatch):
+    _base_absorption_env(monkeypatch)
+    monkeypatch.setenv("CONS_ABS_ADVERSE_FALLBACK", "1")
+    monkeypatch.setenv("CONS_ABS_ADVERSE_DROP_W_MIN", "0.20")
+    monkeypatch.setenv("CONS_ABS_LEVEL_PROX_BPS_MAX", "25.0")
+
+    gate = SignalConsistencyGate.from_env()
+    ctx = _ctx(
+        of=_of(z_delta=3.0, weak_progress=True),
+        touch_is_stale=False,
+        touch_bid_tag="none",          # not refill
+        touch_bid_rho=0.0,
+        touch_bid_traded_w=0.0,
+        touch_bid_drop_w=0.35,         # adverse absorption confirmed
+        htf_level_dist_bps=18.0,       # close to level
+    )
+    dec = gate.evaluate(ctx=ctx, symbol="ETHUSDT", kind="absorption", side="LONG")
+    assert dec.veto is False, f"expected adverse fallback pass, got {dec.reason_code}"
+    assert dec.reason_code == "OK"
+
+
+def test_absorption_adverse_fallback_vetos_when_level_too_far(monkeypatch):
+    _base_absorption_env(monkeypatch)
+    monkeypatch.setenv("CONS_ABS_ADVERSE_FALLBACK", "1")
+    monkeypatch.setenv("CONS_ABS_ADVERSE_DROP_W_MIN", "0.20")
+    monkeypatch.setenv("CONS_ABS_LEVEL_PROX_BPS_MAX", "25.0")
+
+    gate = SignalConsistencyGate.from_env()
+    ctx = _ctx(
+        of=_of(z_delta=3.0, weak_progress=True),
+        touch_is_stale=False,
+        touch_bid_tag="none",
+        touch_bid_rho=0.0,
+        touch_bid_traded_w=0.0,
+        touch_bid_drop_w=0.35,
+        htf_level_dist_bps=40.0,       # too far from level
+    )
+    dec = gate.evaluate(ctx=ctx, symbol="ETHUSDT", kind="absorption", side="LONG")
+    assert dec.veto is True
+    assert dec.reason_code == "VETO_ABSORPTION_TOUCH_TAG_MISMATCH"
+
+
+def test_absorption_touch_stale_always_vetos_despite_fallback(monkeypatch):
+    _base_absorption_env(monkeypatch)
+    monkeypatch.setenv("CONS_ABS_ADVERSE_FALLBACK", "1")
+    monkeypatch.setenv("CONS_ABS_ADVERSE_DROP_W_MIN", "0.10")
+    monkeypatch.setenv("CONS_ABS_LEVEL_PROX_BPS_MAX", "50.0")
+
+    gate = SignalConsistencyGate.from_env()
+    ctx = _ctx(
+        of=_of(z_delta=3.0, weak_progress=True),
+        touch_is_stale=True,           # stale — hard veto regardless of fallback
+        touch_bid_tag="none",
+        touch_bid_rho=0.0,
+        touch_bid_traded_w=0.0,
+        touch_bid_drop_w=0.50,
+        htf_level_dist_bps=10.0,
+    )
+    dec = gate.evaluate(ctx=ctx, symbol="ETHUSDT", kind="absorption", side="LONG")
+    assert dec.veto is True
+    assert dec.reason_code == "VETO_ABSORPTION_TOUCH_STALE"
 

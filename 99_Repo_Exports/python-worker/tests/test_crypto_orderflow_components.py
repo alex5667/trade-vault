@@ -121,7 +121,7 @@ def test_l2_confirm_breakout_reason_codes():
     )
     r = conf.check(ctx, dir_up=True)
     assert r.ok is False
-    assert r.code == "obi20_not_sustained"
+    assert r.code == "obi20_no_alternative"
 
 
 def test_score_model_contract_raw_to_final_and_confidence_pct():

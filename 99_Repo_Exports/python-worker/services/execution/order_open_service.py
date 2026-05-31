@@ -31,6 +31,7 @@ if TYPE_CHECKING:
     from services.execution.protection_service import ProtectionService
     from services.execution.reconcile_service import ReconcileService
     from services.execution.active_symbol_guard import ActiveSymbolGuard
+    from services.execution.emergency_flatten_service import EmergencyFlattenService
 
 try:
     from prometheus_client import Counter as _Counter
@@ -70,12 +71,17 @@ class OrderOpenService:
         exec_margin_guard_max_fraction: float = 0.90,
         exec_set_leverage: bool = True,
         exec_entry_policy: str = "MARKET",
+        # P0-1: Emergency close for naked positions (SHADOW by default)
+        emergency_close_if_unprotected: bool = False,
+        block_symbol_on_protection_fail: bool = False,
+        cooldown_after_protection_fail_ms: int = 900_000,
         # Injected services
         state_store: "ExecutionStateStore | None" = None,
         event_writer: "ExecutionEventWriter | None" = None,
         protection_service: "ProtectionService | None" = None,
         reconcile_service: "ReconcileService | None" = None,
         active_symbol_guard: "ActiveSymbolGuard | None" = None,
+        flatten_service: "EmergencyFlattenService | None" = None,
         r: Any = None,
     ) -> None:
         self.position_mode = position_mode
@@ -92,6 +98,10 @@ class OrderOpenService:
         self._protection = protection_service
         self._reconcile = reconcile_service
         self._guard = active_symbol_guard
+        self._flatten = flatten_service
+        self.emergency_close_if_unprotected = emergency_close_if_unprotected
+        self.block_symbol_on_protection_fail = block_symbol_on_protection_fail
+        self.cooldown_after_protection_fail_ms = cooldown_after_protection_fail_ms
         self.r = r
 
     def _write_event(self, fields: dict[str, Any]) -> None:
@@ -111,6 +121,121 @@ class OrderOpenService:
     def _save_state(self, sid: str, state: dict[str, Any]) -> None:
         if self._state:
             self._state.save(sid, state)
+
+    # ------------------------------------------------------------------
+    # P0-1: Emergency close for naked positions
+    # ------------------------------------------------------------------
+
+    def _handle_unprotected_position(
+        self,
+        *,
+        sid: str,
+        symbol: str,
+        logical_side: str,
+        client: Any,
+        filters: Any,
+        reason: str,
+    ) -> None:
+        """Called when protection fails. In SHADOW mode emits metrics only.
+        In ENFORCE mode calls force_flatten_exact then sets symbol cooldown.
+        """
+        import contextlib as _ctx
+
+        try:
+            from services.execution_metrics import (
+                EXECUTION_EMERGENCY_CLOSE_TRIGGERED_TOTAL,
+                EXECUTION_EMERGENCY_CLOSE_FAILED_TOTAL,
+                EXECUTION_PROTECTION_FAIL_TO_CLOSE_MS,
+                EXECUTION_SYMBOL_COOLDOWN_SET_TOTAL,
+            )
+        except Exception:
+            EXECUTION_EMERGENCY_CLOSE_TRIGGERED_TOTAL = None  # type: ignore
+            EXECUTION_EMERGENCY_CLOSE_FAILED_TOTAL = None  # type: ignore
+            EXECUTION_PROTECTION_FAIL_TO_CLOSE_MS = None  # type: ignore
+            EXECUTION_SYMBOL_COOLDOWN_SET_TOTAL = None  # type: ignore
+
+        t0 = _ms_now()
+
+        if not self.emergency_close_if_unprotected:
+            # SHADOW: count what would happen, don't act
+            with _ctx.suppress(Exception):
+                if EXECUTION_EMERGENCY_CLOSE_TRIGGERED_TOTAL is not None:
+                    EXECUTION_EMERGENCY_CLOSE_TRIGGERED_TOTAL.labels(
+                        symbol=symbol, reason=f"shadow:{reason}"
+                    ).inc()
+            self._write_event({
+                "sid": sid, "symbol": symbol,
+                "event_type": "EMERGENCY_CLOSE_SHADOW",
+                "severity": "warning",
+                "reason": reason,
+                "msg": "emergency_close_if_unprotected=0 (shadow), position may be naked",
+            })
+            return
+
+        # ENFORCE: trigger real close
+        with _ctx.suppress(Exception):
+            if EXECUTION_EMERGENCY_CLOSE_TRIGGERED_TOTAL is not None:
+                EXECUTION_EMERGENCY_CLOSE_TRIGGERED_TOTAL.labels(
+                    symbol=symbol, reason=reason
+                ).inc()
+
+        flatten_result: dict[str, Any] = {}
+        if self._flatten is not None:
+            with _ctx.suppress(Exception):
+                flatten_result = self._flatten.force_flatten_exact(
+                    sid=sid,
+                    symbol=symbol,
+                    logical_side=logical_side,
+                    client=client,
+                    filters=filters,
+                    reason=f"emergency_close:{reason}",
+                )
+
+        flatten_ok = bool(flatten_result.get("flatten_ok"))
+        elapsed_ms = _ms_now() - t0
+
+        with _ctx.suppress(Exception):
+            if EXECUTION_PROTECTION_FAIL_TO_CLOSE_MS is not None:
+                EXECUTION_PROTECTION_FAIL_TO_CLOSE_MS.labels(symbol=symbol).observe(elapsed_ms)
+
+        if not flatten_ok:
+            with _ctx.suppress(Exception):
+                if EXECUTION_EMERGENCY_CLOSE_FAILED_TOTAL is not None:
+                    EXECUTION_EMERGENCY_CLOSE_FAILED_TOTAL.labels(
+                        symbol=symbol, reason=reason
+                    ).inc()
+
+        # Set symbol cooldown in Redis regardless of flatten outcome
+        self._set_symbol_cooldown(sid=sid, symbol=symbol, reason=reason)
+
+        with _ctx.suppress(Exception):
+            if EXECUTION_SYMBOL_COOLDOWN_SET_TOTAL is not None:
+                EXECUTION_SYMBOL_COOLDOWN_SET_TOTAL.labels(
+                    symbol=symbol, reason=reason
+                ).inc()
+
+    def _set_symbol_cooldown(self, *, sid: str, symbol: str, reason: str) -> None:
+        """Write risk:cooldown:symbol:{SYMBOL} = until_ms into Redis (PX TTL)."""
+        if self.r is None or not self.block_symbol_on_protection_fail:
+            return
+        import contextlib as _ctx
+        try:
+            from core.redis_keys import RedisKeyPrefixes as _RK
+            prefix = _RK.RISK_COOLDOWN_SYMBOL_PREFIX
+        except Exception:
+            prefix = "risk:cooldown:symbol:"
+        key = f"{prefix}{symbol.upper()}"
+        until_ms = _ms_now() + self.cooldown_after_protection_fail_ms
+        with _ctx.suppress(Exception):
+            self.r.set(key, str(until_ms), px=self.cooldown_after_protection_fail_ms)
+        self._write_event({
+            "sid": sid, "symbol": symbol,
+            "event_type": "SYMBOL_COOLDOWN_SET",
+            "severity": "warning",
+            "reason": reason,
+            "cooldown_until_ms": until_ms,
+            "cooldown_ms": self.cooldown_after_protection_fail_ms,
+        })
 
     # ------------------------------------------------------------------
     # Symbol settings
@@ -414,6 +539,14 @@ class OrderOpenService:
                     symbol=symbol,
                     reason="protection_not_confirmed_after_entry",
                 )
+                self._handle_unprotected_position(
+                    sid=sid,
+                    symbol=symbol,
+                    logical_side=logical_side,
+                    client=client,
+                    filters=filters,
+                    reason="protection_not_confirmed",
+                )
                 return self._transition(
                     sid,
                     symbol=symbol,
@@ -422,6 +555,7 @@ class OrderOpenService:
                     details={
                         "reason": "protection_not_confirmed_after_entry",
                         "prot_result": prot_result,
+                        "emergency_close_attempted": self.emergency_close_if_unprotected,
                     },
                 )
 

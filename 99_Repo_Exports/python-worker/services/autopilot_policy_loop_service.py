@@ -86,7 +86,7 @@ class AutopilotPolicyLoopService:
         """
         ApplyRunner should exist and be safe (checks approvals + applied markers).
         """
-        cmd = "cd python-worker && PYTHONPATH='.:..' python -m services.entry_policy_apply_runner_v2 --kind overrides_v1"
+        cmd = "PYTHONPATH='.:..' python -m services.entry_policy_apply_runner_v2 --kind overrides_v1"
         await _run_cmd(cmd)
 
     async def _should_do_daily(self) -> bool:
@@ -109,14 +109,14 @@ class AutopilotPolicyLoopService:
         out_path = f"/tmp/closed_{self.window_days}d.ndjson"
         since_hours = float(self.window_days) * 24.0
         cmd_export = (
-            f"cd python-worker && PYTHONPATH='.:..' "
+            f"PYTHONPATH='.:..' "
             f"python tools/export_trade_closed_ndjson.py --since-hours {since_hours:.2f} --out {out_path}"
         )
         rc1 = await _run_cmd(cmd_export)
 
         # 2) Tuner report (+ proposal)
         cmd_tune = (
-            f"cd python-worker && PYTHONPATH='.:..' "
+            f"PYTHONPATH='.:..' "
             f"python tools/tm_policy_tuner.py --input {out_path} --window-days {self.window_days} "
             f"{'--redis-write' if self.write_proposal else ''}"
         )

@@ -214,6 +214,20 @@ TM_TIMEOUT_POSITION_AGE_MS = Histogram(
     ["symbol"],
     buckets=[60_000, 120_000, 300_000, 900_000, 3_600_000, 14_400_000],
 )
+G6_TB_TICK_TOTAL = Counter(
+    "g6_tb_tick_total",
+    "G6 triple-barrier ticks evaluated",
+    ["symbol", "outcome"],
+)
+G6_TB_TIMEOUT_CLOSE_TOTAL = Counter(
+    "g6_tb_timeout_close_total",
+    "G6 timeout close events (enforce=actual close, shadow=would-close)",
+    ["symbol", "mode"],
+)
+G6_TB_TRACKER_COUNT = Gauge(
+    "g6_tb_tracker_count",
+    "Live G6 barrier trackers (one per open position)",
+)
 # --------------------------------------------------------------------
 
 from datetime import UTC
@@ -956,6 +970,19 @@ class TradeMonitorService:
                 self._pvd_paper_leverage, self._pvd_demo_leverage,
             )
 
+        # G6: Live triple-barrier exit gate (fail-open; default OFF via TB_EXIT_ENABLED=0)
+        try:
+            from services.trade_monitor.triple_barrier_exit_policy import G6TripleBarrierExitGate
+            self._g6_gate: Any = G6TripleBarrierExitGate()
+            logger.info(
+                "✅ G6TripleBarrierExitGate loaded (enabled=%s mode=%s)",
+                os.getenv("TB_EXIT_ENABLED", "0"),
+                os.getenv("TB_EXIT_MODE", "shadow"),
+            )
+        except Exception as _g6_init_err:
+            self._g6_gate = None
+            logger.warning("⚠️ G6TripleBarrierExitGate unavailable: %s", _g6_init_err)
+
         self._recover_open_positions()
 
         # [MOVED to end of __init__] Price cache warmup now happens after DI resolution
@@ -1361,6 +1388,9 @@ class TradeMonitorService:
             if pos.sid:
                 self.pos_by_sid[pos.sid] = pos.id
             self._index_add(pos)
+        if getattr(self, "_g6_gate", None) is not None:
+            with contextlib.suppress(Exception):
+                self._g6_gate.open_position(pos)
 
     def _open_symbols_snapshot(self) -> set[str]:
         """Return current set of open symbols (used by warmup)."""
@@ -1856,6 +1886,9 @@ class TradeMonitorService:
         if pos:
             if getattr(pos, "sid", ""):
                 self.pos_by_sid.pop(pos.sid, None)
+                if getattr(self, "_g6_gate", None) is not None:
+                    with contextlib.suppress(Exception):
+                        self._g6_gate.close_position(pos.sid)
             self._index_remove(pos)
             # P1-9: cleanup FSM entry when position is removed from memory
             self._detach_fsm(pos_id)
@@ -4802,6 +4835,47 @@ class TradeMonitorService:
 
                     elif ev.event_type == "TRAILING_SYNC":
                         io_steps.append(("save_trailing_sync", {"pos": pos, "ts_ms": int(tick.ts_ms)}))
+
+                # ── G6: Live Triple-Barrier Exit Gate ────────────────────────
+                # SHADOW: emits metrics only. ENFORCE: closes on TIMEOUT horizon.
+                # Fail-open: exceptions swallowed, never blocks trade flow.
+                _g6_mid = float(getattr(tick, "mid", 0.0) or getattr(tick, "last", 0.0) or getattr(tick, "price", 0.0) or 0.0)
+                if not pos.closed and not closed and getattr(self, "_g6_gate", None) is not None and _g6_mid > 0:
+                    try:
+                        from core.triple_barrier import BarrierOutcome
+                        g6_decision = self._g6_gate.push_tick(pos, ts_ms=ts_ms, price=_g6_mid)
+                        if g6_decision is not None:
+                            G6_TB_TICK_TOTAL.labels(
+                                symbol=symbol, outcome=g6_decision.outcome
+                            ).inc()
+                            G6_TB_TRACKER_COUNT.set(self._g6_gate.tracker_count)
+                            if g6_decision.should_close and not getattr(pos, "_pnl_finalized", False):
+                                G6_TB_TIMEOUT_CLOSE_TOTAL.labels(symbol=symbol, mode="enforce").inc()
+                                try:
+                                    custom_r = (getattr(pos, "signal_payload", {}) or {}).get("tp_ratio")
+                                    g6_ratios = [float(x) for x in custom_r] if (
+                                        custom_r and isinstance(custom_r, list)
+                                    ) else self.tp_ratios
+                                except Exception:
+                                    g6_ratios = self.tp_ratios
+                                g6_closed = finalize_trade(
+                                    pos, spec,
+                                    exit_price=_g6_mid,
+                                    exit_ts_ms=ts_ms,
+                                    close_reason_raw="G6_TB_TIMEOUT",
+                                    tp_ratios=g6_ratios,
+                                )
+                                if g6_closed is not None:
+                                    closed = g6_closed
+                                    logger.info(
+                                        "G6 TIMEOUT ENFORCE: sid=%s sym=%s r=%.3f",
+                                        str(getattr(pos, "sid", "?"))[:12], symbol,
+                                        float(getattr(g6_closed, "r_multiple", 0.0) or 0.0),
+                                    )
+                            elif g6_decision.outcome == BarrierOutcome.TIMEOUT.value and not g6_decision.should_close:
+                                G6_TB_TIMEOUT_CLOSE_TOTAL.labels(symbol=symbol, mode="shadow").inc()
+                    except Exception as _g6_err:
+                        logger.warning("⚠️ G6 push_tick failed pos=%s: %s", str(getattr(pos, "sid", "?"))[:12], _g6_err)
 
                 if closed:
                     # ── Simulated exit slippage (paper trades) ──

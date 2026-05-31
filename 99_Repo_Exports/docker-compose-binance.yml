@@ -268,3 +268,54 @@ services:
     - python
     - -m
     - services.active_symbol_guard_exporter
+
+  # P0-2: Periodic position reconcile loop (shadow by default, port 9942)
+  binance-position-reconcile-loop:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    image: scanner-python-worker:latest
+    container_name: scanner-binance-position-reconcile-loop
+    restart: on-failure:5
+    environment:
+    - REDIS_URL=${EXEC_PROJECTION_REDIS_URL}
+    - BINANCE_API_KEY=${BINANCE_API_KEY}
+    - BINANCE_API_SECRET=${BINANCE_API_SECRET}
+    - BINANCE_FUTURES_BASE_URL=${BINANCE_FUTURES_BASE_URL:-https://fapi.binance.com}
+    - BINANCE_HTTP_TIMEOUT_S=${BINANCE_HTTP_TIMEOUT_S:-8.0}
+    - RECONCILE_LOOP_ENABLED=${RECONCILE_LOOP_ENABLED:-1}
+    - RECONCILE_LOOP_INTERVAL_MS=${RECONCILE_LOOP_INTERVAL_MS:-2000}
+    - RECONCILE_LOOP_ENFORCE=${RECONCILE_LOOP_ENFORCE:-1}
+    - RECONCILE_LOOP_AUTO_CLOSE_NAKED=${RECONCILE_LOOP_AUTO_CLOSE_NAKED:-1}
+    - RECONCILE_LOOP_NAKED_GRACE_MS=${RECONCILE_LOOP_NAKED_GRACE_MS:-3000}
+    - RECONCILE_LOOP_QTY_MISMATCH_THRESH=${RECONCILE_LOOP_QTY_MISMATCH_THRESH:-0.05}
+    - RECONCILE_LOOP_SYMBOLS=${RECONCILE_LOOP_SYMBOLS:-}
+    - EXEC_STREAM=${EXEC_STREAM:-orders:exec}
+    - BINANCE_POSITION_MODE=${BINANCE_POSITION_MODE:-oneway}
+    - PROMETHEUS_PORT=9942
+    - LOG_LEVEL=INFO
+    - TZ=UTC
+    depends_on:
+      redis-worker-1:
+        condition: service_healthy
+    networks:
+    - scanner-core
+    - scanner-infra
+    dns:
+    - 8.8.8.8
+    - 1.1.1.1
+    ports:
+    - "9942:9942"
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+          cpus: '0.15'
+        reservations:
+          memory: 32M
+    volumes:
+    - ./python-worker:/app
+    command:
+    - python
+    - -m
+    - services.position_reconcile_loop_v1

@@ -807,6 +807,13 @@ class SignalConsistencyGate:
     breakout_require_obi20: bool
     breakout_min_microshift_bps: float
 
+    # OR-gate alternatives when breakout_require_obi20=True
+    # Pass if ANY arm fires: OBI20 sign-match OR stable_secs OR microshift+depletion OR ofi_ml_norm
+    breakout_obi20_alt_stable_secs: float       # lob_dw_obi_stable_secs / obi_stable_secs min
+    breakout_obi20_alt_microshift_bps: float    # microprice_shift arm threshold
+    breakout_obi20_alt_depletion_rho: float     # touch_rho min for microshift+depletion arm
+    breakout_obi20_alt_ofi_ml_min: float        # |ofi_ml_norm| min (direction-aware)
+
     # Touch-based confirmation (your real refill/depletion signals):
     # - use touch_* from services.touch_level_tracker (already attached to ctx)
     # - for breakout we normally want "depletion" on the hit side (ask for LONG, bid for SHORT)
@@ -820,6 +827,13 @@ class SignalConsistencyGate:
     absorption_touch_tag_required: str  # usually 'refill' for absorption
     absorption_min_touch_rho: float
     absorption_min_touch_traded_w: float
+
+    # Tag-mismatch fallbacks (allow bypass of depletion/refill requirement via alternative confirmation)
+    breakout_lob_pressure_fallback: bool   # CONS_BREAKOUT_LOB_PRESSURE_FALLBACK
+    breakout_strong_lob_z_min: float       # CONS_BREAKOUT_STRONG_LOB_Z_MIN
+    absorption_adverse_fallback: bool      # CONS_ABS_ADVERSE_FALLBACK
+    absorption_adverse_drop_w_min: float   # CONS_ABS_ADVERSE_DROP_W_MIN
+    absorption_level_prox_bps_max: float   # CONS_ABS_LEVEL_PROX_BPS_MAX
 
     # absorption rules
     absorption_min_z: float
@@ -851,6 +865,11 @@ class SignalConsistencyGate:
             breakout_require_obi20=_env_bool("BREAKOUT_REQUIRE_OBI20", True),
             breakout_min_microshift_bps=_env_float("BREAKOUT_MIN_MICROPRICE_SHIFT_BPS", 0.0),
 
+            breakout_obi20_alt_stable_secs=_env_float("BREAKOUT_OBI20_ALT_STABLE_SECS_MIN", 2.0),
+            breakout_obi20_alt_microshift_bps=_env_float("BREAKOUT_OBI20_ALT_MICROSHIFT_BPS", 0.2),
+            breakout_obi20_alt_depletion_rho=_env_float("BREAKOUT_OBI20_ALT_DEPLETION_RHO", 0.10),
+            breakout_obi20_alt_ofi_ml_min=_env_float("BREAKOUT_OBI20_ALT_OFI_ML_MIN", 0.3),
+
             # Breakout touch confirmation:
             # - use touch_* from services.touch_level_tracker (already attached to ctx)
             # - for breakout we normally want "depletion" on the hit side (ask for LONG, bid for SHORT)
@@ -870,11 +889,17 @@ class SignalConsistencyGate:
             absorption_min_touch_rho=_env_float("CONS_ABSORPTION_MIN_TOUCH_RHO", 0.10),
             absorption_min_touch_traded_w=_env_float("CONS_ABSORPTION_MIN_TOUCH_TRADED_W", 0.0),
 
+            breakout_lob_pressure_fallback=_env_bool("CONS_BREAKOUT_LOB_PRESSURE_FALLBACK", False),
+            breakout_strong_lob_z_min=_env_float("CONS_BREAKOUT_STRONG_LOB_Z_MIN", 2.5),
+            absorption_adverse_fallback=_env_bool("CONS_ABS_ADVERSE_FALLBACK", False),
+            absorption_adverse_drop_w_min=_env_float("CONS_ABS_ADVERSE_DROP_W_MIN", 0.20),
+            absorption_level_prox_bps_max=_env_float("CONS_ABS_LEVEL_PROX_BPS_MAX", 25.0),
+
             obi_spike_require_sustained=_env_bool("CONS_OBI_SPIKE_REQUIRE_SUSTAINED", True),
             extreme_max_cancel_to_trade=extreme_max_cancel_to_trade,
         )
 
-    def _touch_pick(self, ctx: Any, *, kind_l: str, side: str) -> tuple[bool | None, str, float | None, float | None]:
+    def _touch_pick(self, ctx: Any, *, kind_l: str, side: str) -> tuple[bool | None, str, float | None, float | None, float | None]:
         """
         Map ctx.touch_* fields into a single "hit side" view:
           - breakout/extreme/obi_spike:
@@ -882,7 +907,7 @@ class SignalConsistencyGate:
           - absorption (meanrev):
               LONG often buys support -> bid side; SHORT often sells resistance -> ask side
         Returns:
-          (touch_is_stale, tag, rho, traded_w)
+          (touch_is_stale, tag, rho, traded_w, drop_w)
         """
         s = (side or "").strip().upper()
         tis = getattr(ctx, "touch_is_stale", None)
@@ -898,12 +923,14 @@ class SignalConsistencyGate:
             tag = str(getattr(ctx, "touch_ask_tag", "none") or "none").strip().lower()
             rho = _safe_float(getattr(ctx, "touch_ask_rho", None))
             traded_w = _safe_float(getattr(ctx, "touch_ask_traded_w", None))
-            return tis, tag, rho, traded_w
+            drop_w = _safe_float(getattr(ctx, "touch_ask_drop_w", None))
+            return tis, tag, rho, traded_w, drop_w
         else:
             tag = str(getattr(ctx, "touch_bid_tag", "none") or "none").strip().lower()
             rho = _safe_float(getattr(ctx, "touch_bid_rho", None))
             traded_w = _safe_float(getattr(ctx, "touch_bid_traded_w", None))
-            return tis, tag, rho, traded_w
+            drop_w = _safe_float(getattr(ctx, "touch_bid_drop_w", None))
+            return tis, tag, rho, traded_w, drop_w
 
     def evaluate(self, *, ctx: Any, symbol: str, kind: str, side: str) -> QualityGateDecision:
         if not self.enabled:
@@ -919,9 +946,16 @@ class SignalConsistencyGate:
         obi_20 = _safe_float(_get_metric(ctx, ("obi_20",), allow_of=True))
         microshift = _safe_float(_get_metric(ctx, ("microprice_shift_bps_20",), allow_of=True))
         weak_progress = _get_metric(ctx, ("weak_progress",), allow_of=True)
+        # OBI20 OR-gate alternative arms
+        obi_stable_secs = _safe_float(_get_metric(ctx, ("lob_dw_obi_stable_secs", "obi_stable_secs"), allow_of=True))
+        ofi_ml_norm = _safe_float(_get_metric(ctx, ("ofi_ml_norm",), allow_of=True))
 
         # Touch snapshot (real refill/depletion state in your pipeline)
-        touch_is_stale, touch_tag, touch_rho, touch_traded_w = self._touch_pick(ctx, kind_l=kind_l, side=side)
+        touch_is_stale, touch_tag, touch_rho, touch_traded_w, touch_drop_w = self._touch_pick(ctx, kind_l=kind_l, side=side)
+
+        # Metrics for tag-mismatch fallbacks
+        lob_dw_obi_z = _safe_float(_get_metric(ctx, ("lob_dw_obi_z",), allow_of=True))
+        htf_level_dist_bps = _safe_float(getattr(ctx, "htf_level_dist_bps", None))
 
         # Optional L3 metric for extreme
         cancel_to_trade = _safe_float(_get_metric(ctx, ("cancel_to_trade", "l3_cancel_to_trade", "cancel_to_trade_ratio"), allow_of=True))
@@ -955,13 +989,45 @@ class SignalConsistencyGate:
                         return QualityGateDecision(True, True, "VETO_BREAKOUT_OBI_TOO_WEAK", f"obi={obi:.3f} < {min_obi:.3f}")
 
             if self.breakout_require_obi20:
-                if obi_20 is None:
-                    if self.strict_missing_metrics:
-                        return QualityGateDecision(True, True, "VETO_MISSING_OBI20", "breakout requires obi_20")
-                else:
-                    # For consistency we require obi_20 to have same sign as obi (if both exist)
-                    if obi is not None and (obi_20 * obi) < 0:
-                        return QualityGateDecision(True, True, "VETO_BREAKOUT_OBI_SIGN_MISMATCH", f"obi={obi:.3f} obi_20={obi_20:.3f}")
+                # OR-gate: veto only if ALL arms fail.
+                # arm_obi20: obi_20 sign agrees with obi (original check)
+                arm_obi20 = (
+                    obi_20 is not None
+                    and obi is not None
+                    and (obi_20 * obi) >= 0
+                )
+                # arm_stable: directional OBI pressure sustained ≥ N seconds
+                arm_stable = (
+                    obi_stable_secs is not None
+                    and obi_stable_secs >= self.breakout_obi20_alt_stable_secs
+                )
+                # arm_microshift_depl: microprice shift AND depletion on hit side
+                req_tag = str(self.breakout_touch_tag_required or "depletion").strip().lower()
+                depl_ok = (
+                    touch_tag == req_tag
+                    and touch_rho is not None
+                    and touch_rho >= self.breakout_obi20_alt_depletion_rho
+                )
+                arm_microshift_depl = (
+                    microshift is not None
+                    and microshift >= self.breakout_obi20_alt_microshift_bps
+                    and depl_ok
+                )
+                # arm_ofi_ml: multi-level OFI confirms direction
+                side_sign = 1.0 if (side or "").strip().upper() == "LONG" else -1.0
+                arm_ofi_ml = (
+                    ofi_ml_norm is not None
+                    and ofi_ml_norm * side_sign >= self.breakout_obi20_alt_ofi_ml_min
+                )
+                if not (arm_obi20 or arm_stable or arm_microshift_depl or arm_ofi_ml):
+                    return QualityGateDecision(
+                        True, True, "VETO_BREAKOUT_OBI20_NO_ALTERNATIVE",
+                        (
+                            f"obi20_ok={arm_obi20} stable_secs={obi_stable_secs} "
+                            f"microshift={microshift} depl_tag={touch_tag} depl_rho={touch_rho} "
+                            f"ofi_ml={ofi_ml_norm}"
+                        ),
+                    )
 
             if self.breakout_min_microshift_bps > 0.0:
                 if microshift is None:
@@ -990,10 +1056,16 @@ class SignalConsistencyGate:
                         return QualityGateDecision(True, True, "VETO_MISSING_TOUCH_TAG", "touch_tag missing")
                 else:
                     if touch_tag != req:
-                        return QualityGateDecision(
-                            True, True, "VETO_BREAKOUT_TOUCH_TAG_MISMATCH",
-                            f"touch_tag={touch_tag} required={req}",
+                        lob_ok = (
+                            self.breakout_lob_pressure_fallback
+                            and lob_dw_obi_z is not None
+                            and lob_dw_obi_z >= float(self.breakout_strong_lob_z_min)
                         )
+                        if not lob_ok:
+                            return QualityGateDecision(
+                                True, True, "VETO_BREAKOUT_TOUCH_TAG_MISMATCH",
+                                f"touch_tag={touch_tag} required={req} lob_dw_obi_z={lob_dw_obi_z}",
+                            )
 
             if touch_rho is None:
                 if self.strict_missing_metrics and self.breakout_min_touch_rho > 0:
@@ -1048,10 +1120,18 @@ class SignalConsistencyGate:
 
             req = str(self.absorption_touch_tag_required or "refill").strip().lower()
             if touch_tag != req:
-                return QualityGateDecision(
-                    True, True, "VETO_ABSORPTION_TOUCH_TAG_MISMATCH",
-                    f"touch_tag={touch_tag} required={req}",
+                adverse_ok = (
+                    self.absorption_adverse_fallback
+                    and touch_drop_w is not None
+                    and touch_drop_w >= float(self.absorption_adverse_drop_w_min)
+                    and htf_level_dist_bps is not None
+                    and htf_level_dist_bps <= float(self.absorption_level_prox_bps_max)
                 )
+                if not adverse_ok:
+                    return QualityGateDecision(
+                        True, True, "VETO_ABSORPTION_TOUCH_TAG_MISMATCH",
+                        f"touch_tag={touch_tag} required={req} drop_w={touch_drop_w} level_dist={htf_level_dist_bps}",
+                    )
 
             if touch_rho is None:
                 if self.strict_missing_metrics and self.absorption_min_touch_rho > 0:

@@ -3144,6 +3144,11 @@ class TradeMonitorService:
         is_policy_entry = ((sig.source or "").lower() == "smt_entry_policy")
         sig_conf = float(sig.payload.get("confidence") or sig.payload.get("conf") or 0.0)
 
+        # Normalize scale (some sources send 0-1, others 0-100)
+        # If confidence is > 1.0, assume it's already a percentage (0..100) and convert to ratio (0..1)
+        if sig_conf > 1.0:
+            sig_conf = sig_conf / 100.0
+
         # Use global confidence threshold (single source of truth)
         conf_threshold = self.shadow_conf_threshold
 

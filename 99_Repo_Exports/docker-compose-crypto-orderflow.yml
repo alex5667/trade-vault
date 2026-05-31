@@ -2527,6 +2527,9 @@ services:
     - GATED_OUT_DEFAULT_SL_BPS=10
     - SIGNAL_GATED_OUT_OUTCOMES_MAXLEN=200000
     - GATED_OUT_PENDING_LIMIT=50000
+    - GATED_OUT_TICK_FETCH_CHUNK=10000
+    - GATED_OUT_TICK_FETCH_MAX_CHUNKS=50
+    - GATED_OUT_OUTCOME_DEDUP_TTL_SEC=604800
     - TZ=UTC
     depends_on: *id002
     ports:
@@ -2540,6 +2543,52 @@ services:
       test:
       - CMD-SHELL
       - python3 -c 'import urllib.request; urllib.request.urlopen("http://localhost:9137/metrics")'
+        || exit 1
+      interval: 30s
+      timeout: 5s
+      retries: 3
+  gate-value-reporter:
+    build: *id001
+    command:
+    - python
+    - -m
+    - services.gate_value_reporter.main
+    environment:
+    - REDIS_URL=redis://redis-worker-1:6379/0
+    - PYTHONUNBUFFERED=1
+    - LOG_LEVEL=INFO
+    - GATE_VALUE_REPORTER_ENABLED=1
+    - GATE_VALUE_REPORTER_PORT=9141
+    - GATE_VALUE_LOOKBACK_HOURS=24
+    - GATE_VALUE_INTERVAL_SEC=300
+    - GATE_VALUE_PASSED_LABELS_STREAM=labels:tb
+    - GATE_VALUE_ML_CONFIRM_STREAM=metrics:ml_confirm
+    - GATE_VALUE_GATED_OUT_OUTCOMES_STREAM=stream:signals:gated_out_outcomes
+    - GATE_VALUE_MIN_N_PASSED=500
+    - GATE_VALUE_MIN_N_GATED_OUT=500
+    - GATE_VALUE_MIN_LOOKBACK_HOURS=6
+    - GATE_VALUE_BOOTSTRAP_N=1000
+    - GATE_VALUE_BOOTSTRAP_SEED=42
+    - GATE_VALUE_MIN_AVG_R_LIFT=0.05
+    - GATE_VALUE_MAX_FALSE_NEGATIVE_RATE=0.25
+    - GATE_VALUE_MIN_PASSED_EXPECTANCY_R=0.0
+    - GATE_VALUE_REPORT_REDIS_KEY=report:gate_value:latest
+    - GATE_VALUE_REPORT_HISTORY_STREAM=stream:reports:gate_value
+    - GATE_VALUE_REPORT_HISTORY_MAXLEN=2000
+    - GATE_VALUE_DECISION_ENFORCE=0
+    - TZ=UTC
+    depends_on: *id002
+    ports:
+    - 9141:9141
+    networks: *id003
+    volumes: *id004
+    restart: on-failure:5
+    deploy: *id005
+    container_name: scanner-gate-value-reporter
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - python3 -c 'import urllib.request; urllib.request.urlopen("http://localhost:9141/metrics")'
         || exit 1
       interval: 30s
       timeout: 5s
@@ -2783,6 +2832,10 @@ services:
     - TZ=UTC
     - BINANCE_EXECUTOR_METRICS_PORT=9876
     - LOG_LEVEL=INFO
+    # P0-1: Emergency auto-close for naked positions
+    - EXEC_EMERGENCY_CLOSE_IF_UNPROTECTED=1
+    - EXEC_BLOCK_SYMBOL_ON_PROTECTION_FAIL=1
+    - COOLDOWN_AFTER_PROTECTION_FAIL_MS=${COOLDOWN_AFTER_PROTECTION_FAIL_MS:-900000}
     depends_on:
       execution-bootstrap-health:
         condition: service_started

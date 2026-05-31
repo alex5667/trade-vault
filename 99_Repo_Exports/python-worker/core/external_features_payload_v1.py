@@ -357,6 +357,12 @@ _BOOL_KEYS: tuple[str, ...] = (
     "sweep_eql",
     # ── Strong gate OK (tick_decision_engine + strategy.py: 0=fail, 1=pass)
     "strong_gate_ok",
+    # ── OFI direction gate (of_confirm_engine: ofi_dir_ok set in indicators line ~1312)
+    "ofi_dir_ok",
+    # ── Book evidence gate (data_health.py: book_evidence_allowed in indicators)
+    "book_evidence_allowed",
+    # ── Source consistency (tick_decision_engine: 0=inconsistent, 1=ok)
+    "source_consistency_ok",
 )
 
 # v12_of base keys whose producers exist in code (atr/liqmap/microbar/v12 features/
@@ -575,6 +581,24 @@ _V12_BASE_OPTIONAL_KEYS: tuple[str, ...] = (
     "cp_data_available",
     "cp_data_age_ms",
     "cp_data_stale",
+    # ── fill_prob / execution quality (of_confirm_engine: indicators lines ~1846-1848)
+    # fill_prob_5s is in _NUM_KEYS; p_base and raw proxy need optional bridge
+    "fill_prob_proxy",
+    "fill_prob_p_base",
+    "eta_fill_sec",
+    # ── sweep / reclaim ages (data_processor → signal indicators)
+    "sweep_age_ms",
+    "reclaim_age_ms",
+    # ── liqmap notional threshold (strategy.py: liq_notional_thr)
+    "liq_notional_thr",
+    # ── stream integrity gate (signal_pipeline: from runtime.book_integrity / tick_integrity)
+    "book_seq_gap_rate_ema",
+    "book_seq_max_gap_window",
+    "tick_schema_changed",
+    # ── cancel_rate_z (book_processor/facade → runtime.cancel_rate_z → signal_pipeline bridge)
+    "cancel_rate_z",
+    # ── meta gate enforce flag (meta gate writes 0/1 into indicators when it runs)
+    "meta_enforce_applied",
 )
 
 

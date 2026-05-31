@@ -203,7 +203,7 @@ class SimpleBundleRuntime:
 # ---------------------------------------------------------------------------
 # Metrics
 # ---------------------------------------------------------------------------
-def compute_metrics(y_true: list[int], y_prob: list[float]) -> dict[str, float]:
+def compute_metrics(y_true: list[int], y_prob: list[float]) -> dict[str, Any]:
     if not y_true:
         return {
             "ece": 1.0,
@@ -211,6 +211,8 @@ def compute_metrics(y_true: list[int], y_prob: list[float]) -> dict[str, float]:
             "brier": 1.0,
             "calibration_slope": float("nan"),
             "calibration_intercept": float("nan"),
+            "calibration_valid": False,
+            "calibration_status": "degenerate_empty",
             "sharpness_mean": 0.0,
             "sharpness_entropy": 1.0,
             "prob_mass_near_half": 1.0,
@@ -232,6 +234,8 @@ def compute_metrics(y_true: list[int], y_prob: list[float]) -> dict[str, float]:
         "brier": float(ext.get("brier", float("nan"))),
         "calibration_slope": float(ext.get("calibration_slope", float("nan"))),
         "calibration_intercept": float(ext.get("calibration_intercept", float("nan"))),
+        "calibration_valid": bool(ext.get("calibration_valid", False)),
+        "calibration_status": str(ext.get("calibration_status", "unknown")),
         "sharpness_mean": float(ext.get("sharpness_mean", float("nan"))),
         "sharpness_entropy": float(ext.get("sharpness_entropy", float("nan"))),
         "prob_mass_near_half": float(ext.get("prob_mass_near_half", float("nan"))),
@@ -447,6 +451,14 @@ def main():
     if cand_metrics["precision_top5p"] < thresholds["min_prec"]:
         is_valid = False
         reasons.append(f"prec={cand_metrics['precision_top5p']:.4f} < {thresholds['min_prec']}")
+    # Calibration measurability gate: degenerate calibration (too few rows,
+    # single class, singular matrix) returns slope=1.0/intercept=0.0 which
+    # looks like "perfect" calibration but is actually unmeasurable.
+    # Block promotion before checking slope/intercept values.
+    if not cand_metrics.get("calibration_valid", True):
+        is_valid = False
+        status = cand_metrics.get("calibration_status", "unknown")
+        reasons.append(f"calibration_unmeasurable: {status} (PROMO_DENY_CALIBRATION_UNMEASURABLE)")
     if math.isfinite(float(cand_metrics.get("calibration_slope", float("nan")))) and cand_metrics["calibration_slope"] < thresholds["min_cal_slope"]:
         is_valid = False
         reasons.append(f"calibration_slope={cand_metrics['calibration_slope']:.4f} < {thresholds['min_cal_slope']}")

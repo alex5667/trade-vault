@@ -80,6 +80,10 @@ def _gate(
 class _Ctx:
     """Minimal stub mimicking pipeline ctx attributes used by the bias logic."""
 
+    edge_directional_bias_value: float
+    edge_directional_bias_countertrend: bool
+    edge_directional_bias_source: str
+
     def __init__(
         self,
         *,
@@ -218,3 +222,109 @@ def test_works_without_reader(reader_disabled: None) -> None:
     val = gate._p_min_for_kind("breakout", symbol="BTCUSDT", regime="trend",
                                side="long", ctx=ctx)
     assert val == pytest.approx(0.61)
+
+
+# ---------------------------------------------------------------------------
+# P0: ctx.indicators stamping — critical path for autocal feed
+# ---------------------------------------------------------------------------
+
+
+class _CtxWithIndicators:
+    """Ctx with real indicators dict — simulates live pipeline context."""
+
+    edge_directional_bias_value: float
+    edge_directional_bias_countertrend: bool
+    edge_directional_bias_source: str
+
+    def __init__(
+        self,
+        *,
+        leader_dir: str = "",
+        leader_confirm: int = 0,
+        stale: bool = True,
+        market_regime: str = "",
+    ) -> None:
+        self.smt_leader_dir = leader_dir
+        self.smt_leader_confirm = leader_confirm
+        self.smt_state_stale = stale
+        self.market_regime = market_regime
+        self.indicators: dict = {}
+
+
+def test_directional_bias_stamps_ctx_indicators(reader_055: None) -> None:
+    """_p_min_for_kind must stamp ctx.indicators so signal_payload → trades:closed
+    carries the bias triplet for the autocal service to consume."""
+    gate = _gate(enabled=True, short_ct=0.03)
+
+    ctx = _CtxWithIndicators(
+        leader_dir="UP",
+        leader_confirm=1,
+        stale=False,
+        market_regime="trending_bull",
+    )
+
+    val = gate._p_min_for_kind(
+        "breakout",
+        symbol="BTCUSDT",
+        regime="trending_bull",
+        side="short",
+        ctx=ctx,
+    )
+
+    assert val == pytest.approx(0.58)
+    # ctx attrs — read by downstream gates
+    assert ctx.edge_directional_bias_value == pytest.approx(0.03)
+    assert ctx.edge_directional_bias_countertrend is True
+    assert ctx.edge_directional_bias_source == "env"
+    # indicators dict — same reference embedded in signal_payload.indicators
+    assert ctx.indicators["edge_directional_bias_value"] == pytest.approx(0.03)
+    assert ctx.indicators["edge_directional_bias_countertrend"] is True
+    assert ctx.indicators["edge_directional_bias_source"] == "env"
+
+
+def test_baseline_zero_bias_still_stamps_indicators(reader_055: None) -> None:
+    """When bias=0, baseline marker must still land in ctx.indicators.
+
+    Autocal needs 'bias_applied=0.0' baseline trades to distinguish
+    'machinery ran but no bias' from 'legacy field missing entirely'.
+    """
+    gate = _gate(enabled=True, short_ct=0.0)  # zero countertrend bias
+
+    ctx = _CtxWithIndicators(
+        leader_dir="UP",
+        leader_confirm=1,
+        stale=False,
+    )
+
+    val = gate._p_min_for_kind(
+        "breakout",
+        symbol="BTCUSDT",
+        regime="trending_bull",
+        side="short",
+        ctx=ctx,
+    )
+
+    assert val == pytest.approx(0.55)  # unchanged
+    # Baseline marker present even when bias=0
+    assert ctx.indicators["edge_directional_bias_value"] == pytest.approx(0.0)
+    assert ctx.indicators["edge_directional_bias_countertrend"] is True
+    assert ctx.indicators["edge_directional_bias_source"] == "none"
+
+
+def test_indicators_missing_does_not_raise(reader_055: None) -> None:
+    """ctx without indicators attr must not raise — _stamp_bias_on_ctx is fail-open."""
+    gate = _gate(enabled=True, short_ct=0.03)
+
+    ctx = _Ctx(leader_dir="UP", leader_confirm=1, stale=False)  # no .indicators
+
+    val = gate._p_min_for_kind(
+        "breakout",
+        symbol="BTCUSDT",
+        regime="trending_bull",
+        side="short",
+        ctx=ctx,
+    )
+
+    assert val == pytest.approx(0.58)
+    # Attr still set even without indicators dict
+    assert ctx.edge_directional_bias_value == pytest.approx(0.03)

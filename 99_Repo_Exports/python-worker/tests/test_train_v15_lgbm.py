@@ -163,11 +163,18 @@ class TestGates:
         assert all_ok is False
 
     def test_overfit_gap_fails(self):
+        # Threshold is 0.40; gap=0.45 must fail, gap=0.39 must pass.
         gates, all_ok = evaluate_gates(
-            self._result(fold_metrics=[{"train_auc": 0.95, "test_auc": 0.55, "gap": 0.40}])
+            self._result(fold_metrics=[{"train_auc": 0.95, "test_auc": 0.50, "gap": 0.45}])
         )
         assert any(g["name"] == "train_test_gap_max" and not g["ok"] for g in gates)
         assert all_ok is False
+
+    def test_overfit_gap_passes_within_threshold(self):
+        gates, _ = evaluate_gates(
+            self._result(fold_metrics=[{"train_auc": 0.85, "test_auc": 0.50, "gap": 0.35}])
+        )
+        assert any(g["name"] == "train_test_gap_max" and g["ok"] for g in gates)
 
     def test_auc_below_threshold_fails(self):
         gates, all_ok = evaluate_gates(

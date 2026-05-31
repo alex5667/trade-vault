@@ -12,12 +12,18 @@ include:
   - path: docker-compose.tp-trailing.yml
   - path: docker-compose.tp-sl-trail-autocal.yml
   - path: docker-compose.path-tp-autocal.yml
+  - path: docker-compose.counter-trend-cal.yml
+  - path: docker-compose.edge-directional-bias-autocal.yml
+  - path: docker-compose.gate-value-autocal.yml
+  - path: docker-compose.gate-value-rollout-governor.yml
   - path: docker-compose.tp1-phit-publisher.yml
   - path: docker-compose.tp1-adaptive-shadow-persister.yml
   - path: docker-compose.regime-exec-promotion.yml
   - path: docker-compose.crossvenue-agree-cal.yml
   - path: docker-compose.ml-canary-autopromoter.yml
   - path: docker-compose.signal-snapshot-persister.yml
+  - path: docker-compose.conf-meta-gate-persister.yml
+  - path: docker-compose.conf-meta-gate-auto-demote.yml
   - path: docker-compose.v15-lgbm-train-timer.yml
   - path: docker-compose.feature-producers.yml
   - path: docker-compose-timers.yml
@@ -27,6 +33,8 @@ include:
   - path: docker-compose-binance.yml
   - path: docker-compose-networks-volumes.yml
   - path: python-worker/orderflow_services/deploy/compose/docker-compose.ofc-contextual-runtime-summary-writer-v1.yml
+  - path: python-worker/orderflow_services/docker_compose_fragment_signal_outcome_phase0_4_v1.yml
+  - path: python-worker/orderflow_services/docker_compose_fragment_cmc_provider_v1.yml
   - path: python-worker/orderflow_services/deploy/compose/docker-compose.ofc-contextual-runtime-health-exporter-v1.yml
   - path: python-worker/orderflow_services/deploy/compose/docker-compose.ofc-contextual-runtime-v1.yml
 

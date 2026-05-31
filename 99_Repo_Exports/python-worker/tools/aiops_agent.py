@@ -194,6 +194,19 @@ QUERIES: dict[str, str] = {
     "maker_exec_fallback":  'sum(rate(exec_maker_only_decision_total{maker_mode=~"fallback_market_.*"}[15m])) or vector(0)',
     # Fallback rate = fallback / (enforce + fallback). Alert when > 0.05.
     "maker_fallback_rate":  'sum(rate(exec_maker_only_decision_total{maker_mode=~"fallback_market_.*"}[15m])) / clamp_min(sum(rate(exec_maker_only_decision_total{maker_mode=~"enforce|fallback_market_.*"}[15m])), 0.001) or vector(0)',
+
+    # 20. Plan 2 Rollout Autopilot (2026-05-30) ─────────────────────────────
+    # 5 metrics exposed by scanner-plan2-rollout-autopilot:9923.
+    # Stage gauge: 0 baseline, 1=persister, 2=page_hinkley, 3=any auto_demote_kind.
+    "plan2_stage":               'max(plan2_autopilot_stage) or vector(0)',
+    # Hold/pass rate per stage — surfaces "why is rollout stuck?".
+    "plan2_holds_1h":            'sum(increase(plan2_autopilot_check_total{result!="pass"}[1h])) or vector(0)',
+    # Auto-tuned expectancy threshold (ratchet-only); 0.0 = unset / default.
+    "plan2_expectancy_thr":      'max(plan2_autopilot_expectancy_threshold) or vector(0)',
+    # Persister write activity in last 24h — proxy for Stage 1 health.
+    "plan2_persister_rows_24h":  'max(plan2_autopilot_persister_rows_24h) or vector(0)',
+    # Critical warn count by kind — Stage 3 gating signal (max across kinds).
+    "plan2_warn_max_kind":       'max(plan2_autopilot_warn_rate_per_kind) or vector(0)',
 }
 
 

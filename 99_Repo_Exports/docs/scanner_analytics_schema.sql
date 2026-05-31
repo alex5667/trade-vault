@@ -228,7 +228,19 @@ CREATE TABLE IF NOT EXISTS trades_closed (
     -- Values: trend_micro_up | trend_micro_down | range_micro |
     --         shock_micro | squeeze_micro | mixed_micro | NULL
     entry_regime_micro            TEXT,
-    entry_regime_micro_age_ms     INTEGER
+    entry_regime_micro_age_ms     INTEGER,
+
+    -- ── EdgeCostGate directional p_min bias (migration 20260530_07) ───────
+    -- Provenance for the (direction × regime) bias actually applied at
+    -- signal time. Read by edge_directional_bias_autocal_v1 to split
+    -- baseline (value=0) from applied (value>0) trades — without these
+    -- the phase ladder is stuck at OBSERVE forever.
+    --   _value: bias added to p_min after the calibrator (0.0 = baseline).
+    --   _countertrend: 1 if signal side ≠ SMT-leader direction at decision time.
+    --   _source: 'none' (baseline) | 'env' (static ENV default) | 'autocal'.
+    edge_directional_bias_value         DOUBLE PRECISION NOT NULL DEFAULT 0.0,
+    edge_directional_bias_countertrend  BOOLEAN          NOT NULL DEFAULT FALSE,
+    edge_directional_bias_source        TEXT             NOT NULL DEFAULT 'none'
 );
 
 -- Trigger ts populator (preserves entry_ts/exit_ts on UPSERT, see migrations)

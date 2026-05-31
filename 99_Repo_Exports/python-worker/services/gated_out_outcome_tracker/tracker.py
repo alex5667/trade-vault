@@ -27,6 +27,32 @@ from typing import Any
 from prometheus_client import Counter, Gauge
 from redis.asyncio import Redis
 
+# Atomic Lua: EXISTS dedup_key → XADD stream → SET dedup_key=stream_id
+# Guarantees: if XADD fails, marker is never written; no race between
+# dedup check and write.
+_EMIT_OUTCOME_LUA = """
+local key_dedup   = KEYS[1]
+local key_stream  = KEYS[2]
+local ttl         = tonumber(ARGV[1])
+local payload_json = ARGV[2]
+local maxlen      = tonumber(ARGV[3])
+
+if redis.call("EXISTS", key_dedup) == 1 then
+  return {0, "duplicate", redis.call("GET", key_dedup) or ""}
+end
+
+local stream_id = redis.call(
+  "XADD", key_stream,
+  "MAXLEN", "~", maxlen,
+  "*",
+  "payload", payload_json
+)
+
+redis.call("SET", key_dedup, stream_id, "EX", ttl)
+
+return {1, "written", stream_id}
+"""
+
 from core.redis_keys import RedisStreams as RS
 
 log = logging.getLogger("gated_out_outcome_tracker")
@@ -41,6 +67,18 @@ EVAL_INTERVAL_SEC = int(os.getenv("GATED_OUT_TRACKER_EVAL_INTERVAL_SEC", "30"))
 TICK_STREAM_TPL = os.getenv("TICK_STREAM_TPL", RS.TICK_TPL)
 OUTPUT_MAXLEN = int(os.getenv("SIGNAL_GATED_OUT_OUTCOMES_MAXLEN", "200000"))
 PENDING_LIMIT = int(os.getenv("GATED_OUT_PENDING_LIMIT", "50000"))
+
+# Pagination cap для _fetch_ticks: single XRANGE возвращает не больше
+# TICK_FETCH_CHUNK тиков, цикл крутится до TICK_FETCH_MAX_CHUNKS итераций
+# (защита от runaway при битых данных). На 30 мин BTC активного рынка
+# 10k×N перекрывает реальный объём с большим запасом.
+TICK_FETCH_CHUNK = int(os.getenv("GATED_OUT_TICK_FETCH_CHUNK", "10000"))
+TICK_FETCH_MAX_CHUNKS = int(os.getenv("GATED_OUT_TICK_FETCH_MAX_CHUNKS", "50"))
+
+# Idempotency: ключ-маркер «outcome уже эмиттнут» на 7д. Защищает от
+# повторной публикации при XADD-успех + XACK-фейл.
+OUTCOME_DEDUP_KEY_TPL = "gated_out_outcome_done:{sid}"
+OUTCOME_DEDUP_TTL_SEC = int(os.getenv("GATED_OUT_OUTCOME_DEDUP_TTL_SEC", str(7 * 86400)))
 
 # Outcome interpretation thresholds.
 # y=1 iff signed return >= TP threshold (bps) OR tp_hit==1 before sl_hit.
@@ -73,6 +111,28 @@ g_gross_positive = Counter(
 g_policy_missing = Counter(
     "gated_out_outcome_policy_missing_total",
     "Outcomes emitted without sample_policy in input payload",
+)
+g_outcome_dedup_skipped = Counter(
+    "gated_out_outcome_dedup_skipped_total",
+    "Outcome XADD skipped because the dedup marker already existed",
+)
+g_tick_fetch_truncated = Counter(
+    "gated_out_outcome_tick_fetch_truncated_total",
+    "Tick fetch hit TICK_FETCH_MAX_CHUNKS — path may be incomplete",
+)
+g_tick_fetch_chunks = Gauge(
+    "gated_out_outcome_tick_fetch_chunks_last",
+    "Chunks fetched in the most recent paginated XRANGE call",
+)
+g_outcome_emit_total = Counter(
+    "gated_out_outcome_emit_total",
+    "Outcome emit attempts by result",
+    ["result"],
+)
+g_no_ticks_outcome_total = Counter(
+    "gated_out_outcome_no_ticks_total",
+    "NO_TICKS outcomes emitted",
+    ["symbol"],
 )
 
 
@@ -208,37 +268,75 @@ async def _ensure_group(r: Redis) -> None:
             log.warning("xgroup_create note: %s", e)
 
 
+def _parse_tick_entry(entry_id: Any, fields: dict[str, Any]) -> tuple[int, float] | None:
+    """Parse one XRANGE entry into (ts_ms, price); returns None if unusable."""
+    try:
+        ts = int(str(entry_id).split("-", 1)[0])
+        price_raw = fields.get("price") or fields.get("p") or fields.get("last") or fields.get("mid")
+        if price_raw is None:
+            pay = fields.get("payload")
+            if pay:
+                try:
+                    d = json.loads(pay)
+                    price_raw = d.get("price") or d.get("p") or d.get("last")
+                except Exception:
+                    price_raw = None
+        if price_raw is None:
+            return None
+        px = _f(price_raw)
+        if px <= 0:
+            return None
+        return ts, px
+    except Exception:
+        return None
+
+
 async def _fetch_ticks(r_ticks: Redis, symbol: str, ts_lo: int, ts_hi: int) -> list[tuple[int, float]]:
-    """Returns sorted [(ts_ms, price)] in [ts_lo, ts_hi] from stream:tick_{symbol}."""
+    """Returns sorted [(ts_ms, price)] in [ts_lo, ts_hi] from stream:tick_{symbol}.
+
+    XRANGE chunk size limited by TICK_FETCH_CHUNK; paginates до TICK_FETCH_MAX_CHUNKS
+    итераций. Каждый следующий cursor — `{ms}-{seq+1}` от последнего id предыдущего
+    chunk-а (exclusive lower bound), что гарантирует отсутствие дублей и прогресс,
+    даже когда у нескольких entry один ms.
+    """
     stream = TICK_STREAM_TPL.format(symbol=symbol)
     out: list[tuple[int, float]] = []
-    try:
-        # XRANGE: incomplete id для max → Redis подставляет max-seq автоматически ("ts-+" невалидно)
-        chunks = await r_ticks.xrange(stream, min=f"{ts_lo}-0", max=str(ts_hi), count=10000)
-    except Exception as e:
-        log.warning("xrange %s [%d..%d] failed: %s", stream, ts_lo, ts_hi, e)
-        return out
-    for entry_id, fields in chunks:
+    cursor = f"{ts_lo}-0"
+    max_id = str(ts_hi)
+    chunks_seen = 0
+    for _ in range(max(1, TICK_FETCH_MAX_CHUNKS)):
         try:
-            ts = int(str(entry_id).split("-", 1)[0])
-            # Tick payloads vary: prefer 'price', fall back to 'p' / 'last' / 'mid'.
-            price_raw = fields.get("price") or fields.get("p") or fields.get("last") or fields.get("mid")
-            if price_raw is None:
-                # Some tick streams encode JSON in 'payload'
-                pay = fields.get("payload")
-                if pay:
-                    try:
-                        d = json.loads(pay)
-                        price_raw = d.get("price") or d.get("p") or d.get("last")
-                    except Exception:
-                        price_raw = None
-            if price_raw is None:
-                continue
-            px = _f(price_raw)
-            if px > 0:
-                out.append((ts, px))
-        except Exception:
-            continue
+            chunk = await r_ticks.xrange(stream, min=cursor, max=max_id, count=TICK_FETCH_CHUNK)
+        except Exception as e:
+            log.warning("xrange %s [%s..%s] failed: %s", stream, cursor, max_id, e)
+            break
+        if not chunk:
+            break
+        chunks_seen += 1
+        for entry_id, fields in chunk:
+            parsed = _parse_tick_entry(entry_id, fields)
+            if parsed is not None:
+                out.append(parsed)
+        # Hit the chunk cap → there might be more; advance cursor past the last id.
+        if len(chunk) < TICK_FETCH_CHUNK:
+            break
+        last_id = str(chunk[-1][0])
+        try:
+            last_ms_s, last_seq_s = last_id.split("-", 1)
+            cursor = f"{last_ms_s}-{int(last_seq_s) + 1}"
+        except ValueError:
+            # Малопонятный id — выходим, чтобы не зациклиться.
+            break
+        if int(last_ms_s) > ts_hi:
+            break
+    else:
+        # Цикл вышел по range, не по break → перебрали лимит chunks.
+        g_tick_fetch_truncated.inc()
+        log.warning(
+            "tick fetch truncated for %s [%d..%d]: hit %d chunks of %d",
+            stream, ts_lo, ts_hi, TICK_FETCH_MAX_CHUNKS, TICK_FETCH_CHUNK,
+        )
+    g_tick_fetch_chunks.set(chunks_seen)
     out.sort(key=lambda t: t[0])
     return out
 
@@ -327,13 +425,13 @@ def _evaluate_path(p: PendingSignal, path: list[tuple[int, float]]) -> dict[str,
         "direction": p.direction,
         "entry": p.entry,
         "ts_ms": p.ts_ms,
-        "ts_close_ms": int(hit_ts),
+        "ts_close_ms": hit_ts,
         "horizon_ms": HORIZON_MS,
-        "close_price": float(hit_px),
-        "high": float(high),
-        "low": float(low),
-        "ret_bps": float(ret_bps),
-        "r_mult": float(r_mult),
+        "close_price": hit_px,
+        "high": high,
+        "low": low,
+        "ret_bps": ret_bps,
+        "r_mult": r_mult,
         "y": int(y),
         "y_edge": int(y),  # alias for labels:tb consumers
         # Cost-aware label — use this for champion-model training
@@ -362,17 +460,95 @@ def _evaluate_path(p: PendingSignal, path: list[tuple[int, float]]) -> dict[str,
     }
 
 
-async def _emit_outcome(r: Redis, payload: dict[str, Any]) -> None:
+async def _emit_outcome(r: Redis, payload: dict[str, Any]) -> bool:
+    """Atomically XADD outcome and mark sid as emitted via Lua script.
+
+    Guarantees:
+    - duplicate sid never produces a second stream row;
+    - if XADD fails, dedup marker is not written;
+    - XADD and SET are committed atomically inside Redis.
+
+    Returns True if outcome was written this call, False if duplicate/error.
+    """
+    sid = str(payload.get("sid") or "").strip()
+    if not sid:
+        g_outcome_emit_total.labels(result="missing_sid").inc()
+        log.warning("outcome emit skipped: missing sid in payload")
+        return False
+
+    dedup_key = OUTCOME_DEDUP_KEY_TPL.format(sid=sid)
+    payload_json = json.dumps(payload, ensure_ascii=False, default=str)
+
     try:
-        await r.xadd(
+        res = await r.execute_command(
+            "EVAL",
+            _EMIT_OUTCOME_LUA,
+            2,
+            dedup_key,
             OUTPUT_STREAM,
-            {"payload": json.dumps(payload, ensure_ascii=False, default=str)},
-            maxlen=OUTPUT_MAXLEN,
-            approximate=True,
+            str(OUTCOME_DEDUP_TTL_SEC),
+            payload_json,
+            str(OUTPUT_MAXLEN),
         )
-        g_last_outcome_ts_ms.set(time.time() * 1000)
+
+        written = int(res[0]) if isinstance(res, (list, tuple)) and res else 0
+        status = str(res[1]) if isinstance(res, (list, tuple)) and len(res) > 1 else "unknown"
+
+        if written == 1:
+            g_last_outcome_ts_ms.set(time.time() * 1000)
+            g_outcome_emit_total.labels(result="written").inc()
+            return True
+
+        if status == "duplicate":
+            g_outcome_dedup_skipped.inc()
+            g_outcome_emit_total.labels(result="duplicate").inc()
+            return False
+
+        g_outcome_emit_total.labels(result="error").inc()
+        log.warning("outcome emit unexpected lua result sid=%s: %r", sid, res)
+        return False
+
     except Exception as e:
-        log.warning("xadd outcome failed: %s", e)
+        g_outcome_emit_total.labels(result="error").inc()
+        log.warning("atomic outcome emit failed sid=%s: %s", sid, e)
+        return False
+
+
+def _build_no_ticks_payload(p: PendingSignal) -> dict[str, Any]:
+    """Synthetic outcome для случая, когда tick-path пустой.
+
+    Записываем minimal payload с `valid=0` и `skip_reason=no_ticks`, чтобы
+    downstream-анализаторы видели «эту попытку оценить outcome нельзя» и
+    могли отдельно мерить долю NO_TICKS — иначе survivorship bias на тихих
+    периодах был бы невидим.
+    """
+    return {
+        "v": 2,
+        "sid": p.sid,
+        "symbol": p.symbol,
+        "direction": p.direction,
+        "entry": p.entry,
+        "ts_ms": p.ts_ms,
+        "ts_close_ms": p.expire_ms,
+        "horizon_ms": HORIZON_MS,
+        "outcome": "NO_TICKS",
+        "valid": 0,
+        "skip_reason": "no_ticks",
+        "tp_hit": 0,
+        "sl_hit": 0,
+        "tp_bps": p.tp_bps,
+        "sl_bps": p.sl_bps,
+        "confidence": p.confidence,
+        "min_conf": p.min_conf,
+        "primary": 1,
+        "gated_out": 1,
+        "sample_policy": p.sample_policy,
+        "selection_policy_version": p.selection_policy_version,
+        "selection_prob": p.selection_prob,
+        "selection_weight": p.selection_weight,
+        "virtual_min_conf": p.virtual_min_conf,
+        "meets_virtual_threshold": p.meets_virtual_threshold,
+    }
 
 
 async def _replay_pel(r: Redis, pending: dict[str, PendingSignal]) -> None:
@@ -444,7 +620,11 @@ async def _eval_loop(r: Redis, r_ticks: Redis, pending: dict[str, PendingSignal]
                 path = await _fetch_ticks(r_ticks, sig.symbol, sig.ts_ms, sig.expire_ms)
                 payload = _evaluate_path(sig, path)
                 if payload is None:
+                    # Записываем NO_TICKS outcome чтобы тихие периоды были
+                    # видны в анализе (иначе survivorship bias).
                     g_skipped_total.labels(reason="no_ticks").inc()
+                    g_no_ticks_outcome_total.labels(symbol=sig.symbol).inc()
+                    await _emit_outcome(r, _build_no_ticks_payload(sig))
                 else:
                     await _emit_outcome(r, payload)
                     sym = sig.symbol

@@ -124,6 +124,52 @@ def _entry_regime_micro_db_value(closed: Any) -> str | None:
     return None
 
 
+def _ind_bias_lookup(signal_payload: dict[str, Any] | None, key: str) -> Any:
+    """Read an EdgeCostGate bias field from signal_payload.indicators (or its
+    config_snapshot mirror). Returns None when missing.
+    """
+    if not isinstance(signal_payload, dict):
+        return None
+    ind = signal_payload.get("indicators")
+    if not isinstance(ind, dict):
+        cs = signal_payload.get("config_snapshot") or {}
+        ind = (cs.get("indicators") or {}) if isinstance(cs, dict) else {}
+    return ind.get(key) if isinstance(ind, dict) else None
+
+
+def _edge_directional_bias_value_db(closed: Any, signal_payload: dict[str, Any] | None) -> float:
+    """Top-level closed attr → signal_payload.indicators. 0.0 = baseline."""
+    v = getattr(closed, "edge_directional_bias_value", None)
+    if v in (None, "", 0, 0.0):
+        v = _ind_bias_lookup(signal_payload, "edge_directional_bias_value")
+    try:
+        f = float(v) if v is not None else 0.0
+        return f if (f == f and f not in (float("inf"), float("-inf"))) else 0.0
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _edge_directional_bias_countertrend_db(closed: Any, signal_payload: dict[str, Any] | None) -> bool:
+    v = getattr(closed, "edge_directional_bias_countertrend", None)
+    if v is None:
+        v = _ind_bias_lookup(signal_payload, "edge_directional_bias_countertrend")
+    if isinstance(v, str):
+        return v.strip().lower() in ("1", "true", "yes", "on")
+    try:
+        return bool(int(v)) if v is not None else False
+    except (TypeError, ValueError):
+        return bool(v)
+
+
+def _edge_directional_bias_source_db(closed: Any, signal_payload: dict[str, Any] | None) -> str:
+    """Returns one of: 'none' (baseline) | 'env' (static ENV bias) | 'autocal'."""
+    v = getattr(closed, "edge_directional_bias_source", None)
+    if not v:
+        v = _ind_bias_lookup(signal_payload, "edge_directional_bias_source")
+    s = str(v or "none").strip().lower()[:16]
+    return s if s in ("none", "env", "autocal") else "none"
+
+
 def _policy_mode_raw_from_payload(sp: dict[str, Any]) -> tuple[Any, Any]:
     """Extract policy mode + raw risk_surface_shadow blob from a signal payload.
 
@@ -583,7 +629,8 @@ def save_trade_closed(closed: TradeClosed) -> None:  # type: ignore
             is_orphan_cleanup, exclude_from_ml_labels,
             timeout_age_ms, timeout_max_hold_ms, timeout_request_ts_ms, timeout_close_latency_ms,
             exit_order_ref, closed_trade_id,
-            entry_regime, entry_regime_micro, ab_arm
+            entry_regime, entry_regime_micro, ab_arm,
+            edge_directional_bias_value, edge_directional_bias_countertrend, edge_directional_bias_source
         ) VALUES (
             %s, %s, %s, %s, %s, %s, %s,
             %s, %s, %s, %s, %s, %s,
@@ -624,6 +671,7 @@ def save_trade_closed(closed: TradeClosed) -> None:  # type: ignore
             %s, %s,
             %s, %s, %s, %s,
             %s, %s,
+            %s, %s, %s,
             %s, %s, %s
         )
         ON CONFLICT (order_id) DO UPDATE SET
@@ -907,7 +955,13 @@ def save_trade_closed(closed: TradeClosed) -> None:  # type: ignore
         _stable_closed_trade_id(closed) if getattr(closed, "is_final_close", True) else None,
         _entry_regime_db_value(closed),
         _entry_regime_micro_db_value(closed),
-        str(getattr(closed, "ab_arm", None) or _meta_sp.get("ab_arm") or "A").upper()
+        str(getattr(closed, "ab_arm", None) or _meta_sp.get("ab_arm") or "A").upper(),
+        # EdgeCostGate directional p_min bias provenance (P0 fix 2026-05-30).
+        # Falls back to indicators (signal_payload) when domain.handlers' transfer
+        # didn't run (legacy closed objects, manual writes).
+        _edge_directional_bias_value_db(closed, signal_payload),
+        _edge_directional_bias_countertrend_db(closed, signal_payload),
+        _edge_directional_bias_source_db(closed, signal_payload),
     )
 
     # ---- P0 extraction (robust fallbacks) ----

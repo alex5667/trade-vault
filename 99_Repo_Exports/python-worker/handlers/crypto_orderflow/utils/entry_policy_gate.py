@@ -154,6 +154,31 @@ try:
         "entry_btc_pump_block_short_btc_ret_5m",
         "Last observed BTC 5m fractional return at SHORT pump-block eval time",
     )
+    # 2026-05-30 counter-trend regime block — закрывает leak: SHORT в trending_bull
+    # (-13.41R/24h, 48% всех SHORT) и симметричный LONG в trending_bear (-10.47R).
+    _counter_trend_block_total = Counter(
+        "entry_counter_trend_block_total",
+        "Counter-trend regime block decisions (SHORT in bull / LONG in bear)",
+        ["symbol", "direction", "regime", "kind", "mode", "decision"],
+    )
+    # P2.1: EV (avg_r) of evaluated (direction × regime) bucket from calibrator.
+    _ct_ev_score_g = Gauge(
+        "entry_ct_ev_score",
+        "CT gate calibrator avg_r for evaluated bucket (P2.1 Bayesian EV)",
+        ["symbol", "direction", "regime"],
+    )
+    # P2.4: Frequency cap — too many CT blocks/hour from same symbol/direction.
+    _ct_freq_cap_total = Counter(
+        "entry_ct_freq_cap_total",
+        "CT frequency cap hits (P2.4 deep-fade strategy detector)",
+        ["symbol", "direction", "mode", "decision"],
+    )
+    # P0-3: Symbol-level protection-fail cooldown veto (set by OrderOpenService on protection fail)
+    _protection_cooldown_veto_total = Counter(
+        "entry_protection_cooldown_veto_total",
+        "Entries blocked because symbol is in protection-fail cooldown (risk:cooldown:symbol:*)",
+        ["symbol", "mode"],
+    )
 except Exception:
     Counter = Gauge = None  # type: ignore[assignment,misc]
     _ac_cal_soft_bps = _ac_cal_hard_bps = _ac_cal_n = _ac_cal_loss_floor = _ac_veto_total = None  # type: ignore[assignment]
@@ -165,6 +190,10 @@ except Exception:
     _kind_kill_list_total = None  # type: ignore[assignment]
     _btc_pump_block_short_total = None  # type: ignore[assignment]
     _btc_pump_block_short_ret_g = None  # type: ignore[assignment]
+    _counter_trend_block_total = None  # type: ignore[assignment]
+    _ct_ev_score_g = None  # type: ignore[assignment]
+    _ct_freq_cap_total = None  # type: ignore[assignment]
+    _protection_cooldown_veto_total = None  # type: ignore[assignment]
 
 
 @dataclass(frozen=True)
@@ -439,6 +468,95 @@ class EntryPolicyGate:
             s.strip().upper() for s in _pump_exempt_raw.split(",") if s.strip()
         )
 
+        # ── 2026-05-30 Counter-trend regime hard veto ────────────────────────
+        # Закрывает leak audit_counter_trend_gate_root_cause_2026_05_30:
+        #   SHORT × trending_bull = -13.41R/24h (48% всех SHORT)
+        #   LONG  × trending_bear = -10.47R/24h (симметричный)
+        # Прежний `OF_SOFT_PASS_SHORT_BLOCK_REGIMES` (of_confirm_engine) —
+        # soft-blocker, не режет strong-quality сигналы; новый hard veto
+        # отрабатывает на entry-policy уровне с per-(direction × regime) счётчиком.
+        #
+        # ENV knobs:
+        #   COUNTER_TREND_HARD_VETO_ENABLED      master switch              (default 0)
+        #   COUNTER_TREND_HARD_VETO_MODE         shadow|enforce             (default shadow)
+        #   COUNTER_TREND_HARD_VETO_SHORT_REGIMES csv regimes blocking SHORT (default trending_bull,expansion)
+        #   COUNTER_TREND_HARD_VETO_LONG_REGIMES  csv regimes blocking LONG  (default trending_bear)
+        #   COUNTER_TREND_HARD_VETO_BYPASS_KINDS  csv kinds бипасс            (default liq_cascade_reverse,reversal_v1)
+        #   COUNTER_TREND_HARD_VETO_DWELL_MS     min regime dwell-time      (default 300000 = 5 min)
+        self.counter_trend_hard_veto_enabled = _env_bool("COUNTER_TREND_HARD_VETO_ENABLED", False)
+        self.counter_trend_hard_veto_mode = (
+            os.getenv("COUNTER_TREND_HARD_VETO_MODE", "shadow") or "shadow"
+        ).strip().lower()
+        _short_regs = (
+            os.getenv("COUNTER_TREND_HARD_VETO_SHORT_REGIMES", "trending_bull,expansion") or ""
+        ).strip()
+        self.counter_trend_short_block_regimes: frozenset[str] = frozenset(
+            r.strip().lower() for r in _short_regs.split(",") if r.strip()
+        )
+        _long_regs = (
+            os.getenv("COUNTER_TREND_HARD_VETO_LONG_REGIMES", "trending_bear") or ""
+        ).strip()
+        self.counter_trend_long_block_regimes: frozenset[str] = frozenset(
+            r.strip().lower() for r in _long_regs.split(",") if r.strip()
+        )
+        _bypass_raw = (
+            os.getenv("COUNTER_TREND_HARD_VETO_BYPASS_KINDS", "liq_cascade_reverse,reversal_v1") or ""
+        ).strip()
+        self.counter_trend_bypass_kinds: frozenset[str] = frozenset(
+            k.strip().lower() for k in _bypass_raw.split(",") if k.strip()
+        )
+        self.counter_trend_dwell_ms = int(
+            _safe_float(os.getenv("COUNTER_TREND_HARD_VETO_DWELL_MS", "300000"), 300_000.0)
+        )
+        # Canary by kind allowlist: если задан непустой список, enforce
+        # применяется ТОЛЬКО к этим kinds (остальные остаются в shadow),
+        # независимо от глобального COUNTER_TREND_HARD_VETO_MODE.
+        # Пустой список → используется глобальный mode (backward-compatible).
+        _enforce_kinds_raw = (
+            os.getenv("COUNTER_TREND_HARD_VETO_ENFORCE_KINDS", "") or ""
+        ).strip()
+        self.counter_trend_enforce_kinds: frozenset[str] = frozenset(
+            k.strip().lower() for k in _enforce_kinds_raw.split(",") if k.strip()
+        )
+        # ── P2 Counter-trend upgrades (2026-05-30) ────────────────────────────
+        # P2.2: Multi-timeframe (MTF) confirmation via fast micro-regime (5-bar window).
+        #   CT_MTF_ENABLED=0  → micro label is annotation-only (fail-open).
+        #   CT_MTF_ENABLED=1  → slow=block AND micro=conflict → skip block (reversal).
+        #                       slow=block AND micro=confirm → bypass dwell guard.
+        self.ct_mtf_enabled = _env_bool("CT_MTF_ENABLED", False)
+        # P2.3: Per-symbol extra block regimes (UNION with global ENV list).
+        #   Format: "SYM1:reg1+reg2,SYM2:reg1"  (+ separates regimes within symbol)
+        #   Example: COUNTER_TREND_PER_SYMBOL_SHORT_REGIMES=1000PEPEUSDT:trending_bull+range
+        self.ct_per_symbol_short_extra: dict[str, frozenset] = {}
+        self.ct_per_symbol_long_extra: dict[str, frozenset] = {}
+        for _ps_attr, _ps_env in (
+            ("ct_per_symbol_short_extra", "COUNTER_TREND_PER_SYMBOL_SHORT_REGIMES"),
+            ("ct_per_symbol_long_extra", "COUNTER_TREND_PER_SYMBOL_LONG_REGIMES"),
+        ):
+            _ps_raw = (os.getenv(_ps_env, "") or "").strip()
+            _ps_out: dict[str, frozenset] = {}
+            for _ps_entry in _ps_raw.split(","):
+                _ps_entry = _ps_entry.strip()
+                if ":" not in _ps_entry:
+                    continue
+                _ps_sym, _ps_regs = _ps_entry.split(":", 1)
+                _ps_sym = _ps_sym.strip().upper()
+                _ps_rs = frozenset(r.strip().lower() for r in _ps_regs.split("+") if r.strip())
+                if _ps_sym and _ps_rs:
+                    _ps_out[_ps_sym] = _ps_rs
+            setattr(self, _ps_attr, _ps_out)
+        # P2.4: Counter-trend frequency cap (deep-fade detector).
+        #   CT_FREQ_CAP_ENABLED=0    → disabled (no Redis I/O at gate eval time).
+        #   CT_FREQ_CAP_PER_HOUR=5   → max CT blocks per symbol/direction per hour.
+        #   CT_FREQ_CAP_MODE=shadow  → annotate only; 'enforce' → hard veto.
+        self.ct_freq_cap_enabled = _env_bool("CT_FREQ_CAP_ENABLED", False)
+        self.ct_freq_cap_per_hour = max(1, int(_safe_float(
+            os.getenv("CT_FREQ_CAP_PER_HOUR", "5"), 5.0
+        )))
+        self.ct_freq_cap_mode = (
+            os.getenv("CT_FREQ_CAP_MODE", "shadow") or "shadow"
+        ).strip().lower()
+
     # ── adverse-cross calibrator persistence ──────────────────────────────────
 
     def snapshot_to_redis(self, redis: Any, now_ms: int) -> None:
@@ -655,6 +773,197 @@ class EntryPolicyGate:
         )
         return True, btc_ret, notes[:256]
 
+    def _resolve_regime(self, *, ctx: Any) -> str:
+        """Resolve current regime → lowercase string, '' if unresolved.
+
+        Source order matches signal_pipeline.py:
+          1. ctx.indicators["regime"]
+          2. ctx.regime (top-level)
+          3. ctx.last_regime / runtime.last_regime
+        Treats values 'na'/'unknown'/'' as unresolved → returns ''.
+        """
+        cand: Any = None
+        ind = getattr(ctx, "indicators", None)
+        if isinstance(ind, dict):
+            cand = ind.get("regime")
+        if cand is None or (isinstance(cand, str) and not cand.strip()):
+            cand = getattr(ctx, "regime", None)
+        if cand is None or (isinstance(cand, str) and not cand.strip()):
+            cand = getattr(ctx, "last_regime", None)
+        if not isinstance(cand, str):
+            return ""
+        s = cand.strip().lower()
+        if s in {"", "na", "unknown", "none"}:
+            return ""
+        # Canonicalise frequent aliases (regime-worker produces underscored lowercase)
+        alias = {
+            "uptrend": "trending_bull",
+            "trending_up": "trending_bull",
+            "trending": "trending_bull",
+            "downtrend": "trending_bear",
+            "trending_down": "trending_bear",
+            "mixed": "range",
+        }
+        return alias.get(s, s)
+
+    # P2.2: micro-regime label → CT canonical vocabulary.
+    _MICRO_CT_ALIAS: dict[str, str] = {
+        "trend_micro_up": "trending_bull",
+        "trend_micro_down": "trending_bear",
+        "range_micro": "range",
+        "squeeze_micro": "squeeze",
+        "shock_micro": "expansion",   # shock = vol expansion analog
+        "mixed_micro": "range",
+    }
+
+    def _resolve_regime_micro(self, *, ctx: Any) -> str:
+        """P2.2: resolve fast micro-regime (5-bar) to CT canonical label.
+
+        Source: ctx.indicators["regime_micro_1m"] → ctx.last_regime_micro.
+        Returns '' when unavailable.
+        """
+        ind = getattr(ctx, "indicators", None)
+        rm = ""
+        if isinstance(ind, dict):
+            rm = str(ind.get("regime_micro_1m", "") or "").strip().lower()
+        if not rm or rm in ("na", "none", ""):
+            rm = str(getattr(ctx, "last_regime_micro", "") or "").strip().lower()
+        if not rm or rm in ("na", "none", ""):
+            return ""
+        return self._MICRO_CT_ALIAS.get(rm, rm)
+
+    def _eval_ct_freq_cap(
+        self, *, ctx: Any, symbol: str, side_norm: str,
+    ) -> tuple[bool, int, str]:
+        """P2.4: frequency cap — veto when > CT_FREQ_CAP_PER_HOUR CT blocks/hour.
+
+        Uses Redis INCR on an hourly bucket key. Fail-open (returns False on any error).
+        Returns (hit, count, notes).
+        """
+        if not self.ct_freq_cap_enabled:
+            return False, 0, ""
+        try:
+            redis_client = getattr(ctx, "_redis", None) or getattr(self, "_redis", None)
+            if redis_client is None:
+                return False, 0, ""
+            import time as _t
+            hour_bucket = int(_t.time() // 3600)
+            sym_u = (symbol or "").strip().upper()
+            key = f"ct:freq:{hour_bucket}:{sym_u}:{side_norm}"
+            count = int(redis_client.incr(key))
+            if count == 1:
+                redis_client.expire(key, 7200)  # 2h TTL covers hour boundary
+            if count > self.ct_freq_cap_per_hour:
+                notes = (
+                    f"ct_freq_cap sym={sym_u} dir={side_norm} "
+                    f"count={count}/h cap={self.ct_freq_cap_per_hour}"
+                )
+                return True, count, notes[:128]
+            return False, count, ""
+        except Exception:
+            return False, 0, ""
+
+    def _eval_counter_trend_block(
+        self, *, ctx: Any, symbol: str, kind: str, side_norm: str,
+    ) -> tuple[bool, str, str, float, bool]:
+        """2026-05-30 counter-trend regime hard veto (+P2 upgrades).
+
+        Returns (hit, regime, notes, ev_score, mtf_confirmed). hit=True when:
+          - master switch ON
+          - side_norm == 'SHORT' AND regime in block_set (ENV | per-symbol union | autocal)
+          - side_norm == 'LONG'  AND regime in block_set (symmetric)
+          - kind NOT in bypass list
+          - regime dwell-time >= counter_trend_dwell_ms (P2.2: bypassed when MTF confirms)
+          - P2.2: CT_MTF_ENABLED=1 AND micro-regime contradicts slow → skip block
+        Fail-open on any exception or empty regime.
+        """
+        _NONE = (False, "", "", 0.0, False)
+        if not self.counter_trend_hard_veto_enabled or side_norm not in ("LONG", "SHORT"):
+            return _NONE
+        kind_l = (kind or "").strip().lower()
+        if kind_l in self.counter_trend_bypass_kinds:
+            return _NONE
+        regime = self._resolve_regime(ctx=ctx)
+        if not regime:
+            return _NONE
+        sym_u = (symbol or "").strip().upper()
+        # P2.3: per-symbol extra regimes (UNION with global ENV set).
+        if side_norm == "SHORT":
+            block_set: frozenset = self.counter_trend_short_block_regimes
+            _sym_extra = self.ct_per_symbol_short_extra.get(sym_u, frozenset())
+        else:
+            block_set = self.counter_trend_long_block_regimes
+            _sym_extra = self.ct_per_symbol_long_extra.get(sym_u, frozenset())
+        if _sym_extra:
+            block_set = block_set | _sym_extra
+        # Autocal override (reader fail-open → returns default block_set).
+        try:
+            from services.counter_trend_runtime_overrides import (
+                get_block_regimes as _ct_get_block,
+            )
+            block_set = _ct_get_block(
+                direction=side_norm,
+                default_set=block_set,
+                require_enforce=True,
+            )
+        except Exception:
+            pass
+        # P2.2: Multi-timeframe micro-regime (fast 5-bar window).
+        # Computed independently of block_set — used both for block enhancement
+        # (slow+micro agree) and for micro-only annotation (slow not in block_set).
+        micro_regime = self._resolve_regime_micro(ctx=ctx) if self.ct_mtf_enabled else ""
+        mtf_confirmed = False
+        mtf_conflict = False
+        if micro_regime:
+            if (side_norm == "SHORT" and micro_regime == "trending_bull") or \
+               (side_norm == "LONG" and micro_regime == "trending_bear"):
+                mtf_confirmed = True
+            elif (side_norm == "SHORT" and micro_regime == "trending_bear") or \
+                 (side_norm == "LONG" and micro_regime == "trending_bull"):
+                mtf_conflict = True
+        # P2.1: EV score from calibrator (avg_r for this direction × regime bucket).
+        ev_score = 0.0
+        try:
+            from services.counter_trend_runtime_overrides import (
+                get_bucket_ev as _ct_get_ev,
+            )
+            ev_score = _ct_get_ev(direction=side_norm, regime=regime, default=0.0)
+        except Exception:
+            pass
+        if regime not in block_set:
+            # Micro-only confirmation (slow regime not blocking): annotate only.
+            if mtf_confirmed:
+                try:
+                    ctx.ct_micro_only_align = 1
+                    ctx.ct_micro_regime = micro_regime
+                except Exception:
+                    pass
+            return _NONE
+        # P2.2: MTF conflict when CT_MTF_ENABLED → slow says block but micro reversing.
+        if self.ct_mtf_enabled and mtf_conflict:
+            try:
+                ctx.ct_mtf_conflict = 1
+                ctx.ct_micro_regime = micro_regime
+            except Exception:
+                pass
+            return _NONE
+        # Dwell guard (hysteresis). Exception: MTF-confirmed → both scales agree,
+        # skip dwell to block immediately (trend confirmed at micro level too).
+        dwell_ms = getattr(ctx, "regime_dwell_ms", None)
+        if dwell_ms is not None and not (mtf_confirmed and self.ct_mtf_enabled):
+            try:
+                if float(dwell_ms) < float(self.counter_trend_dwell_ms):
+                    return _NONE
+            except Exception:
+                pass
+        notes = (
+            f"counter_trend sym={sym_u} dir={side_norm} regime={regime} kind={kind_l} "
+            f"dwell_ms={dwell_ms if dwell_ms is not None else 'na'} "
+            f"ev={ev_score:.2f}R "
+            f"mtf={'confirmed' if mtf_confirmed else 'conflict' if mtf_conflict else 'na'}"
+        )
+        return True, regime, notes[:300], ev_score, mtf_confirmed
+
     def _eval_htf_long_bias(
         self, *, ctx: Any, side_norm: str,
     ) -> tuple[bool, str]:
@@ -756,6 +1065,46 @@ class EntryPolicyGate:
             except Exception:
                 pass
             return GateDecision(True, True, "VETO_DAILY_DD_KILLSWITCH", dd_reason or "daily_dd_breach")
+
+        # P0-3: Symbol-level protection-fail cooldown (risk:cooldown:symbol:*)
+        # Written by OrderOpenService on protection fail. Shadow by default.
+        try:
+            _rb_enabled = os.getenv("RISK_BUDGET_GATE_ENABLED", "1").strip() not in {"0", "false"}
+            if _rb_enabled:
+                _rb_mode = (os.getenv("RISK_BUDGET_GATE_MODE") or "shadow").strip().lower()
+                _rb_r = getattr(ctx, "r", None) or getattr(getattr(ctx, "redis", None), "r", None)
+                if _rb_r is not None:
+                    _cooldown_key = f"risk:cooldown:symbol:{symbol.upper()}"
+                    _until_ms_raw = _rb_r.get(_cooldown_key)
+                    if _until_ms_raw is not None:
+                        import time as _t
+                        _now_ms = int(_t.time() * 1000)
+                        try:
+                            _until_ms = int(_until_ms_raw)
+                        except (TypeError, ValueError):
+                            _until_ms = 0
+                        if _until_ms > _now_ms:
+                            _remaining_s = round((_until_ms - _now_ms) / 1000, 1)
+                            _cooldown_reason = (
+                                f"RISK_DENY_SYMBOL_PROTECTION_COOLDOWN:"
+                                f"{symbol.upper()}:remaining={_remaining_s}s"
+                            )
+                            try:
+                                if _protection_cooldown_veto_total is not None:
+                                    _protection_cooldown_veto_total.labels(
+                                        symbol=symbol.upper(), mode=_rb_mode
+                                    ).inc()
+                            except Exception:
+                                pass
+                            if _rb_mode == "enforce":
+                                return GateDecision(
+                                    True, True,
+                                    "RISK_DENY_SYMBOL_PROTECTION_COOLDOWN",
+                                    _cooldown_reason,
+                                )
+                            # shadow: count metric but allow
+        except Exception:
+            pass  # fail-open
 
         # ── 2026-05-26 P0.7: KIND_KILL_LIST circuit breaker ──────────────────
         # CSV токенов kind[:SIDE[:SYMBOL]] (case-insensitive). Match-семантика:
@@ -1307,6 +1656,31 @@ class EntryPolicyGate:
         if btc_pump_hit:
             soft_flags.append(f"btc_pump_block_short:{btc_pump_notes}")
 
+        # 2026-05-30 counter-trend regime hard veto (audit_counter_trend_gate
+        # _root_cause_2026_05_30): SHORT в trending_bull = -13.41R/24h.
+        ct_hit, ct_regime, ct_notes, ct_ev_score, ct_mtf_confirmed = self._eval_counter_trend_block(
+            ctx=ctx, symbol=symbol, kind=kind, side_norm=side_norm,
+        )
+        if ct_hit:
+            try:
+                ctx.counter_trend_block_alarm = 1
+                ctx.counter_trend_block_regime = ct_regime
+                ctx.counter_trend_block_notes = ct_notes
+                ctx.counter_trend_block_mode = getattr(ctx, "_ct_mode_resolved", self.counter_trend_hard_veto_mode)
+                ctx.ct_ev_score = ct_ev_score
+                ctx.ct_mtf_confirmed = ct_mtf_confirmed
+            except Exception:
+                pass
+            # P2.1: record EV gauge for monitoring.
+            try:
+                if _ct_ev_score_g is not None and ct_ev_score != 0.0:
+                    _ct_ev_score_g.labels(
+                        symbol=symbol, direction=side_norm, regime=ct_regime,
+                    ).set(ct_ev_score)
+            except Exception:
+                pass
+            soft_flags.append(f"counter_trend_block:{ct_notes}")
+
         # Plan 1.2: evaluate + observe early so state is captured in the throttled
         # Redis snapshot that runs below (before the veto decision path).
         htf_hit, htf_notes = self._eval_htf_long_bias(ctx=ctx, side_norm=side_norm)
@@ -1546,6 +1920,107 @@ class EntryPolicyGate:
                         ).inc()
                 except Exception:
                     pass
+
+        # 2026-05-30 counter-trend regime veto (runs BEFORE profile-based gating).
+        # SHORT в bull-режимах / LONG в bear-режимах — hard veto при enforce, shadow
+        # только инкрементит counter и сохраняет ctx-аннотации.
+        # Mode читается динамически из Redis (cfg:counter_trend:mode) каждые 15 с,
+        # чтобы autopromote мог переключить shadow→enforce без перестарта контейнеров.
+        if ct_hit:
+            try:
+                from services.counter_trend_runtime_overrides import get_mode as _ct_get_mode
+                from handlers.crypto_orderflow.config.handler_config import _get_sync_redis
+                _sync_r = _get_sync_redis()
+                ct_mode = _ct_get_mode(
+                    redis_client=_sync_r,
+                    env_fallback=self.counter_trend_hard_veto_mode,
+                ) if _sync_r is not None else self.counter_trend_hard_veto_mode
+            except Exception:
+                ct_mode = self.counter_trend_hard_veto_mode
+            # Canary by kind: непустой allowlist → enforce только для этих kinds.
+            # Остальные kinds — shadow (даже если глобальный mode=enforce).
+            if self.counter_trend_enforce_kinds:
+                _kind_l = (kind or "").lower()
+                if _kind_l in self.counter_trend_enforce_kinds:
+                    ct_mode = "enforce"
+                else:
+                    ct_mode = "shadow"
+                try:
+                    ctx._ct_canary_active = 1
+                except Exception:
+                    pass
+            try:
+                ctx._ct_mode_resolved = ct_mode
+            except Exception:
+                pass
+            # Write shadow event to Redis stream (best-effort) for autopromote service.
+            try:
+                import time as _time_mod
+                from handlers.crypto_orderflow.config.handler_config import _get_sync_redis
+                _redis_stream = _get_sync_redis()
+                if _redis_stream is not None:
+                    _redis_stream.xadd(
+                        "stream:counter_trend:shadow_events",
+                        {
+                            "ts_ms": str(int(_time_mod.time() * 1000)),
+                            "direction": side_norm,
+                            "regime": ct_regime,
+                            "symbol": (symbol or ""),
+                            "kind": (kind or ""),
+                            "mode": ct_mode,
+                        },
+                        maxlen=20_000,
+                        approximate=True,
+                    )
+            except Exception:
+                pass
+            if ct_mode == "enforce":
+                try:
+                    if _counter_trend_block_total is not None:
+                        _counter_trend_block_total.labels(
+                            symbol=symbol,
+                            direction=side_norm,
+                            regime=ct_regime,
+                            kind=(kind or ""),
+                            mode=ct_mode,
+                            decision="VETO",
+                        ).inc()
+                except Exception:
+                    pass
+                return GateDecision(True, True, "VETO_COUNTER_TREND_BLOCK", ct_notes)
+            else:
+                try:
+                    if _counter_trend_block_total is not None:
+                        _counter_trend_block_total.labels(
+                            symbol=symbol,
+                            direction=side_norm,
+                            regime=ct_regime,
+                            kind=(kind or ""),
+                            mode=ct_mode,
+                            decision="SHADOW",
+                        ).inc()
+                except Exception:
+                    pass
+
+        # P2.4: frequency cap — independent of ct_mode, own enforce/shadow switch.
+        # Catches deep-fade strategies that systematically counter-trend same sym/direction.
+        if ct_hit:
+            _fc_hit, _fc_count, _fc_notes = self._eval_ct_freq_cap(
+                ctx=ctx, symbol=symbol, side_norm=side_norm,
+            )
+            if _fc_hit:
+                try:
+                    if _ct_freq_cap_total is not None:
+                        _ct_freq_cap_total.labels(
+                            symbol=symbol,
+                            direction=side_norm,
+                            mode=self.ct_freq_cap_mode,
+                            decision="VETO" if self.ct_freq_cap_mode == "enforce" else "SHADOW",
+                        ).inc()
+                except Exception:
+                    pass
+                if self.ct_freq_cap_mode == "enforce":
+                    return GateDecision(True, True, "VETO_CT_FREQ_CAP", _fc_notes)
 
         # Plan 1.2: HTF LONG bias veto (evaluate + observe already ran above the
         # snapshot block; htf_hit / htf_promoted are already computed).

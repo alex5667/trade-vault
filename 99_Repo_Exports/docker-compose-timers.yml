@@ -5996,7 +5996,7 @@ services:
     environment:
       REDIS_URL: ${REDIS_URL:-redis://redis-worker-1:6379/0}
       ANALYTICS_DB_DSN: ${ANALYTICS_DB_DSN:-}
-      ML_EMERGENCY_SUMMARIZE_HANDOFF_REWIRE_PORT: ${ML_EMERGENCY_SUMMARIZE_HANDOFF_REWIRE_PORT:-9920}
+      ML_EMERGENCY_SUMMARIZE_HANDOFF_REWIRE_PORT: ${ML_EMERGENCY_SUMMARIZE_HANDOFF_REWIRE_PORT:-9927}
       ML_EMERGENCY_SUMMARIZE_HANDOFF_SOURCE_STREAM: ${ML_EMERGENCY_SUMMARIZE_HANDOFF_SOURCE_STREAM:-stream:ml:emergency_summarize_handoff_source}
       ML_VERTEX_LOCAL_HANDOFF_INPUT_STREAM: ${ML_VERTEX_LOCAL_HANDOFF_INPUT_STREAM:-stream:ml:vertex_local_handoff_requests}
       ML_EMERGENCY_SUMMARIZE_HANDOFF_REWIRE_ENABLED: ${ML_EMERGENCY_SUMMARIZE_HANDOFF_REWIRE_ENABLED:-1}
@@ -6009,7 +6009,7 @@ services:
       ML_EMERGENCY_SUMMARIZE_HANDOFF_REWIRE_ALLOW_INFO: ${ML_EMERGENCY_SUMMARIZE_HANDOFF_REWIRE_ALLOW_INFO:-0}
       TZ: UTC
     ports:
-    - ${ML_EMERGENCY_SUMMARIZE_HANDOFF_REWIRE_PORT:-9920}:9920
+    - ${ML_EMERGENCY_SUMMARIZE_HANDOFF_REWIRE_PORT:-9927}:9927
     depends_on:
     - redis-worker-1
     deploy:
@@ -6145,7 +6145,7 @@ services:
     environment:
       REDIS_URL: ${REDIS_URL:-redis://redis-worker-1:6379/0}
       ANALYTICS_DB_DSN: ${ANALYTICS_DB_DSN:-}
-      ML_ROUTE_INCIDENT_RCA_MIRROR_VERIFICATION_PORT: ${ML_ROUTE_INCIDENT_RCA_MIRROR_VERIFICATION_PORT:-9924}
+      ML_ROUTE_INCIDENT_RCA_MIRROR_VERIFICATION_PORT: ${ML_ROUTE_INCIDENT_RCA_MIRROR_VERIFICATION_PORT:-9944}
       ML_ROUTE_INCIDENT_RCA_MIRROR_VERIFICATION_RUN_EVERY_SEC: ${ML_ROUTE_INCIDENT_RCA_MIRROR_VERIFICATION_RUN_EVERY_SEC:-300}
       ML_ROUTE_INCIDENT_RCA_MIRROR_VERIFICATION_WINDOW_MIN: ${ML_ROUTE_INCIDENT_RCA_MIRROR_VERIFICATION_WINDOW_MIN:-240}
       ML_ROUTE_INCIDENT_RCA_MIRROR_VERIFICATION_LOOKBACK_COUNT: ${ML_ROUTE_INCIDENT_RCA_MIRROR_VERIFICATION_LOOKBACK_COUNT:-500}
@@ -6160,7 +6160,7 @@ services:
       ML_ROUTE_INCIDENT_RCA_MIRROR_VERIFICATION_ROLLBACK_COOLDOWN_SEC: ${ML_ROUTE_INCIDENT_RCA_MIRROR_VERIFICATION_ROLLBACK_COOLDOWN_SEC:-21600}
       TZ: UTC
     ports:
-    - ${ML_ROUTE_INCIDENT_RCA_MIRROR_VERIFICATION_PORT:-9924}:9924
+    - ${ML_ROUTE_INCIDENT_RCA_MIRROR_VERIFICATION_PORT:-9944}:9944
     depends_on:
     - redis-worker-1
     deploy:
@@ -7645,6 +7645,86 @@ services:
     networks:
     - scanner-timers
     - scanner-infra
+
+  scanner-ct-gate-autopromote:
+    container_name: scanner-ct-gate-autopromote
+    image: scanner-python-worker-cpu:latest
+    restart: unless-stopped
+    env_file:
+    - config/crypto-of-common.env
+    environment:
+    - CT_AUTOPROMOTE_ENABLED=1
+    - CT_AUTOPROMOTE_MIN_SHADOW_SHORT=200
+    - CT_AUTOPROMOTE_MIN_SHADOW_LONG=100
+    - CT_AUTOPROMOTE_LOOKBACK_H=24
+    - CT_AUTOPROMOTE_INTERVAL_S=600
+    - CT_AUTOPROMOTE_DRYRUN=0
+    - CT_AUTOPROMOTE_METRICS_PORT=9897
+    - PYTHONPATH=.:/app
+    - PYTHONUNBUFFERED=1
+    - TZ=UTC
+    working_dir: /app
+    volumes:
+    - ./python-worker:/app
+    command: python3 -m orderflow_services.counter_trend_gate_autopromote_v1
+    ports:
+    - "9897:9897"
+    depends_on:
+      redis-worker-1:
+        condition: service_healthy
+    networks:
+    - scanner-timers
+    - scanner-infra
+
+  # ─── preflight-reader-flip-service ─────────────────────────────────────
+  # Periodic go/no-go check on adaptive_ttl:state and ensemble:weights:*
+  # snapshots. Exposes Prometheus metrics for alerting:
+  #   preflight_reader_check_passed{reader="adaptive_ttl"} == 1 for 24h
+  #     → operator may flip ADAPTIVE_TTL_READ_ENABLED=1 safely.
+  preflight-reader-flip-service:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    container_name: scanner-preflight-reader-flip
+    restart: always
+    deploy:
+      resources:
+        limits:
+          cpus: '0.10'
+          memory: 96M
+        reservations:
+          memory: 16M
+    environment:
+    - REDIS_URL=${REDIS_URL:-redis://redis-worker-1:6379/0}
+    - PREFLIGHT_INTERVAL_SEC=${PREFLIGHT_INTERVAL_SEC:-900}
+    - PREFLIGHT_PORT=${PREFLIGHT_PORT:-9960}
+    - PREFLIGHT_READERS=${PREFLIGHT_READERS:-adaptive_ttl,ensemble}
+    - PREFLIGHT_MAX_AGE_MIN=${PREFLIGHT_MAX_AGE_MIN:-120}
+    - PREFLIGHT_MIN_RECS=${PREFLIGHT_MIN_RECS:-1}
+    - PREFLIGHT_MIN_SYMBOLS=${PREFLIGHT_MIN_SYMBOLS:-1}
+    - PREFLIGHT_MIN_SOURCES=${PREFLIGHT_MIN_SOURCES:-2}
+    - PREFLIGHT_WEIGHT_SUM_TOL=${PREFLIGHT_WEIGHT_SUM_TOL:-0.01}
+    # publishers are reachable by container name on scanner-network
+    - METRICS_HOST=${PREFLIGHT_METRICS_HOST:-scanner-adaptive-ttl-publisher}
+    - PYTHONPATH=.:/app
+    - PYTHONUNBUFFERED=1
+    - TZ=UTC
+    working_dir: /app
+    volumes:
+    - ./python-worker:/app
+    ports:
+    - ${PREFLIGHT_PORT:-9960}:9960
+    command:
+    - sh
+    - -c
+    - sleep 18 && python3 -u -m services.preflight_reader_flip_service
+    depends_on:
+      redis-worker-1:
+        condition: service_healthy
+    networks:
+    - scanner-timers
+    - scanner-infra
+    - scanner-network
 
 volumes:
   conf-cal-status: null

@@ -116,19 +116,33 @@ def calibration_regression(
     ridge: float = 1e-6,
     max_iter: int = 50,
     tol: float = 1e-8,
-) -> dict[str, float]:
+) -> dict[str, float | bool | str]:
     """Fit logistic regression y ~ intercept + slope * logit(p) via IRLS/ridge.
 
     slope ≈ 1 and intercept ≈ 0 indicates perfect calibration.
     slope < 1 → overconfident; slope > 1 → underconfident.
-    Returns default (1.0, 0.0) for degenerate inputs (too few rows, extreme class imbalance).
+
+    For degenerate inputs (too few rows, extreme class imbalance, singular matrix)
+    returns calibration_valid=False with a descriptive calibration_status.
+    Callers MUST check calibration_valid before interpreting slope/intercept —
+    the fallback values (1.0, 0.0) look like "perfect" calibration but are meaningless.
     """
     yy, pp = _as_arrays(y, p)
     if len(yy) < 3:
-        return {"calibration_slope": 1.0, "calibration_intercept": 0.0}
+        return {
+            "calibration_slope": 1.0,
+            "calibration_intercept": 0.0,
+            "calibration_status": "degenerate_too_few_rows",
+            "calibration_valid": False,
+        }
     y_mean = float(np.mean(yy))
     if y_mean <= _EPS or y_mean >= 1.0 - _EPS:
-        return {"calibration_slope": 1.0, "calibration_intercept": 0.0}
+        return {
+            "calibration_slope": 1.0,
+            "calibration_intercept": 0.0,
+            "calibration_status": "degenerate_single_class",
+            "calibration_valid": False,
+        }
     x = np.log(pp / (1.0 - pp))
     X = np.column_stack([np.ones_like(x), x])
     beta = np.zeros(2, dtype=np.float64)
@@ -145,14 +159,29 @@ def calibration_regression(
         try:
             beta_new = np.linalg.solve(lhs, rhs)
         except np.linalg.LinAlgError:
-            return {"calibration_slope": 1.0, "calibration_intercept": 0.0}
+            return {
+                "calibration_slope": 1.0,
+                "calibration_intercept": 0.0,
+                "calibration_status": "degenerate_singular_matrix",
+                "calibration_valid": False,
+            }
         if not np.all(np.isfinite(beta_new)):
-            return {"calibration_slope": 1.0, "calibration_intercept": 0.0}
+            return {
+                "calibration_slope": 1.0,
+                "calibration_intercept": 0.0,
+                "calibration_status": "degenerate_non_finite",
+                "calibration_valid": False,
+            }
         if float(np.max(np.abs(beta_new - beta))) <= float(tol):
             beta = beta_new
             break
         beta = beta_new
-    return {"calibration_intercept": float(beta[0]), "calibration_slope": float(beta[1])}
+    return {
+        "calibration_intercept": float(beta[0]),
+        "calibration_slope": float(beta[1]),
+        "calibration_status": "ok",
+        "calibration_valid": True,
+    }
 
 
 @dataclass(frozen=True)
@@ -161,12 +190,13 @@ class CalibrationExtendedConfig:
     near_half_width: float = 0.05
 
 
-def report(y: Any, p: Any, *, bins: int = 20, near_half_width: float = 0.05) -> dict[str, float]:
+def report(y: Any, p: Any, *, bins: int = 20, near_half_width: float = 0.05) -> dict:
     """Full extended calibration report.
 
     Returns dict with keys:
         n, ece, mce, brier,
         calibration_slope, calibration_intercept,
+        calibration_valid, calibration_status,
         sharpness_mean, sharpness_entropy, prob_mass_near_half
     """
     yy, pp = _as_arrays(y, p)
@@ -178,6 +208,8 @@ def report(y: Any, p: Any, *, bins: int = 20, near_half_width: float = 0.05) -> 
             "brier": float("nan"),
             "calibration_slope": float("nan"),
             "calibration_intercept": float("nan"),
+            "calibration_valid": False,
+            "calibration_status": "degenerate_empty",
             "sharpness_mean": float("nan"),
             "sharpness_entropy": float("nan"),
             "prob_mass_near_half": float("nan"),
@@ -190,6 +222,8 @@ def report(y: Any, p: Any, *, bins: int = 20, near_half_width: float = 0.05) -> 
         "brier": brier(yy, pp),
         "calibration_slope": float(reg.get("calibration_slope", float("nan"))),
         "calibration_intercept": float(reg.get("calibration_intercept", float("nan"))),
+        "calibration_valid": bool(reg.get("calibration_valid", False)),
+        "calibration_status": str(reg.get("calibration_status", "unknown")),
         "sharpness_mean": sharpness_mean(pp),
         "sharpness_entropy": sharpness_entropy(pp),
         "prob_mass_near_half": prob_mass_near_half(pp, half_width=near_half_width),

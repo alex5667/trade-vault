@@ -774,7 +774,7 @@ class SignalOrchestrator:
             # Must run BEFORE EdgeCostGate so ctx.feature_drift_tighten_k / entry_policy_tighten_k
             # are set and EdgeCostGate can apply k_eff *= tighten_k.
             _t_ep = time.monotonic()
-            ep_decision = self.gates.check_entry_policy(ctx, kind_key)
+            ep_decision = self.gates.check_entry_policy(ctx, kind_key, side=getattr(cand, "side", 0))
             audit.record_stage("entry_policy", _t_ep)
             _ep_dec = getattr(ep_decision, "decision", "DENY" if getattr(ep_decision, "veto", False) else "ALLOW")
             if ep_decision and _ep_dec in ("DENY", "SHADOW_DENY"):

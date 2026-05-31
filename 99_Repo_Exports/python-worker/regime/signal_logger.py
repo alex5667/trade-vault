@@ -110,10 +110,10 @@ class SignalLogger:
             atr_1m = _first_not_none('atr_1m', 'atr_14', 'atr')
             # atr_5m: data key 'atr_5m' only
             atr_5m = _get_f('atr_5m')
-            session = data.get('session')
-            regime = data.get('regime')
-            # delta_spike_z: direct key or fallback to delta_z
-            delta_spike_z = _first_not_none('delta_spike_z', 'delta_z')
+            session = data.get('session') or data.get('extra', {}).get('session')
+            regime = data.get('regime') or data.get('extra', {}).get('regime')
+            # delta_spike_z: direct key or fallback to delta_z / z_delta
+            delta_spike_z = _first_not_none('delta_spike_z', 'delta_z', 'z_delta')
             # obi: SignalSnapshot.to_dict() produces 'obi_avg_20'; fallback to 'obi' or 'obi_avg'
             obi = _first_not_none('obi', 'obi_avg_20', 'obi_avg')
             # weak_progress: SignalSnapshot.to_dict() produces 'weak_progress_ratio'

@@ -1,0 +1,110 @@
+services:
+  gate-value-autocal:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    image: scanner-python-worker:latest
+    container_name: scanner-gate-value-autocal
+    restart: unless-stopped
+    environment:
+      - PYTHONUNBUFFERED=1
+      # 2026-05-30 — autocalibrator for the confidence gate driven by
+      # gate_value_reporter's per-group decision. Reads `report:gate_value:latest`,
+      # maps reporter actions (KEEP_GATE / RELAX_GATE / DISABLE_GATE) to a
+      # phase ladder, runs numerical gates, consults a local Ollama LLM advisor
+      # (VETO-only via llm_recommendation_guard_v1), and optionally writes a
+      # per-group SHADOW config under `cfg:gate_value_autocal:applied:*`.
+      #
+      # Default state: ENABLE=1, ENFORCE=0 → advisory only, no live writes
+      # to live gate ENV. Flip ENFORCE=1 after 1-2 stable weeks of reports.
+      - GVA_ENABLE=${GVA_ENABLE:-1}
+      - GVA_ENFORCE=${GVA_ENFORCE:-0}
+      # Cycle (default 15min — slower than reporter's 5min so we always see
+      # a fresh report; faster than EDB autocal's 48h dwell since gate_value
+      # bootstrap-CI converges quickly).
+      - GVA_INTERVAL_SEC=${GVA_INTERVAL_SEC:-900}
+      # Input/output keys
+      - GVA_REPORT_KEY=${GVA_REPORT_KEY:-report:gate_value:latest}
+      - GVA_STATE_KEY=${GVA_STATE_KEY:-autocal:gate_value:state}
+      - GVA_APPLIED_KEY_PREFIX=${GVA_APPLIED_KEY_PREFIX:-cfg:gate_value_autocal:applied}
+      # Redis override for ENFORCE — rollout governor writes `1` to this key
+      # when its state machine reaches STAGE_6_ENFORCED. Autocal honours the
+      # flip without container restart. ENV ENFORCE=1 stays authoritative.
+      - GVA_ENFORCE_OVERRIDE_KEY=${GVA_ENFORCE_OVERRIDE_KEY:-cfg:gva:enforce}
+      # Sample + dwell gates (must match or exceed reporter thresholds)
+      - GVA_MIN_N_PASSED=${GVA_MIN_N_PASSED:-500}
+      - GVA_MIN_N_GATED_OUT=${GVA_MIN_N_GATED_OUT:-500}
+      - GVA_MIN_DWELL_H=${GVA_MIN_DWELL_H:-12.0}
+      # Lift thresholds — must agree with reporter's
+      - GVA_MIN_AVG_R_LIFT=${GVA_MIN_AVG_R_LIFT:-0.05}
+      - GVA_MAX_FALSE_NEGATIVE_RATE=${GVA_MAX_FALSE_NEGATIVE_RATE:-0.25}
+      # Step sizes — conservative; this is a Δ applied on top of min_conf,
+      # not a replacement. Reader (TBD, Stage 6+) clamps to floor/ceiling.
+      - GVA_RELAX_STEP=${GVA_RELAX_STEP:-0.02}
+      - GVA_TIGHTEN_STEP=${GVA_TIGHTEN_STEP:-0.02}
+      - GVA_MIN_CONF_FLOOR=${GVA_MIN_CONF_FLOOR:-0.30}
+      - GVA_MIN_CONF_CEILING=${GVA_MIN_CONF_CEILING:-0.85}
+      # LLM advisor — same in-stack ollama container as EDB autocal /
+      # aiops-agent (deepseek-r1:8b preloaded). Backend pinned to ollama
+      # so we never probe cloud endpoints. Guard ALWAYS applies.
+      - GVA_LLM_ENABLED=${GVA_LLM_ENABLED:-1}
+      - GVA_LLM_TIMEOUT_SEC=${GVA_LLM_TIMEOUT_SEC:-30.0}
+      - GVA_LLM_BACKEND=${GVA_LLM_BACKEND:-ollama}
+      - OLLAMA_URL=${OLLAMA_URL:-http://ollama:11434}
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-}
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-deepseek-r1:8b}
+      # Telegram — XADD to notify:telegram (notify-telegram-v2 consumes).
+      # Events: startup, phase_transition, llm_advisory, disable_candidate.
+      - GVA_NOTIFY_TELEGRAM=${GVA_NOTIFY_TELEGRAM:-1}
+      - GVA_NOTIFY_STREAM=${GVA_NOTIFY_STREAM:-notify:telegram}
+      # Transport
+      - REDIS_URL=${REDIS_URL:-redis://redis-worker-1:6379/0}
+      - GVA_HMAC_SECRET=${GVA_HMAC_SECRET:-${RECS_HMAC_SECRET:-}}
+      - GVA_PROM_PORT=9151
+      - TZ=UTC
+    ports:
+      - "9151:9151"
+    depends_on:
+      redis-worker-1:
+        condition: service_healthy
+    networks:
+      - scanner-core
+      - scanner-infra
+    deploy:
+      resources:
+        limits:
+          memory: 384M
+          cpus: '0.2'
+        reservations:
+          memory: 96M
+    command:
+      - sh
+      - -c
+      - |
+        sleep 15
+        if [ "$${GVA_ENABLE:-1}" = "0" ]; then
+          echo "GVA_ENABLE=0 — idle (set =1 to start)"
+          while true; do sleep 3600; done
+        fi
+        python -m orderflow_services.gate_value_autocalibrator_v1
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - python3 -c 'import urllib.request; urllib.request.urlopen("http://localhost:9151/metrics")' || exit 1
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    labels:
+      - com.scanner.service=gate-value-autocal
+      - com.scanner.description=Auto-calibrator for confidence gate driven by gate_value_reporter + LLM advisor + Telegram
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '3'
+
+networks:
+  scanner-core:
+    external: true
+  scanner-infra:
+    external: true

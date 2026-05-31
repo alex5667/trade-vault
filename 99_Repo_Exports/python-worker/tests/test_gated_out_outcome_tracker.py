@@ -1,4 +1,4 @@
-"""Unit tests for gated_out_outcome_tracker._evaluate_path.
+"""Unit tests for gated_out_outcome_tracker.
 
 Covers:
   Test 1 — v2 ML metadata propagated to outcome payload.
@@ -7,15 +7,25 @@ Covers:
     TP+8 bps,  fees=10 → negative (8-10=-2 < 0)
     TIMEOUT+20 bps    → negative by policy (path uncertainty)
     TP with spread → positive only when net > 0 after fees+spread/2+slippage
+  Test 3 — _fetch_ticks pagination (single XRANGE 10k cap doesn't truncate path).
+  Test 4 — _emit_outcome atomic Lua dispatch: written/duplicate/error/missing_sid.
+  Test 5 — NO_TICKS synthetic outcome payload shape.
 """
 from __future__ import annotations
 
+import json
+from unittest.mock import AsyncMock
+
 import pytest
 
+from services.gated_out_outcome_tracker import tracker as tr
 from services.gated_out_outcome_tracker.tracker import (
     COST_FEES_BPS_RT,
     PendingSignal,
+    _build_no_ticks_payload,
+    _emit_outcome,
     _evaluate_path,
+    _fetch_ticks,
 )
 
 
@@ -195,3 +205,184 @@ class TestCostAwareLabel:
         assert result["cost_bps"] == pytest.approx(17.0)
         assert result["edge_after_cost_bps"] == pytest.approx(25.0 - 17.0)
         assert result["y_edge_cost_aware"] == 1
+
+
+# ---------------------------------------------------------------------------
+# Test 3: _fetch_ticks pagination
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+class TestFetchTicksPagination:
+    """XRANGE chunk cap is 10000 by default → must paginate when >chunk ticks exist.
+
+    Verifies:
+      a) all ticks past the first chunk are fetched
+      b) duplicate-cursor regression (same ms, multiple seqs) doesn't hang
+      c) MAX_CHUNKS guard increments truncated counter and exits cleanly
+    """
+
+    async def _make_redis(self):
+        try:
+            import fakeredis.aioredis
+        except ImportError:
+            pytest.skip("fakeredis not installed")
+        return fakeredis.aioredis.FakeRedis(decode_responses=True)
+
+    async def _seed_ticks(self, r, symbol: str, ticks: list[tuple[int, float]]) -> None:
+        stream = tr.TICK_STREAM_TPL.format(symbol=symbol)
+        for ts, px in ticks:
+            await r.xadd(stream, {"price": str(px)}, id=f"{ts}-*")
+
+    async def test_paginates_past_chunk_cap(self, monkeypatch):
+        monkeypatch.setattr(tr, "TICK_FETCH_CHUNK", 10)
+        monkeypatch.setattr(tr, "TICK_FETCH_MAX_CHUNKS", 10)
+        r = await self._make_redis()
+        # 35 ticks at distinct ts in [1000, 1340], price ramps up.
+        symbol = "BTCUSDT"
+        ticks = [(1000 + i * 10, 100.0 + i * 0.1) for i in range(35)]
+        await self._seed_ticks(r, symbol, ticks)
+        out = await _fetch_ticks(r, symbol, 1000, 1500)
+        assert len(out) == 35
+        assert out[0][1] == pytest.approx(100.0)
+        assert out[-1][1] == pytest.approx(100.0 + 34 * 0.1)
+
+    async def test_advances_cursor_past_duplicate_ms(self, monkeypatch):
+        """Несколько entry с одинаковым ms (`1000-0`, `1000-1`, ...) — cursor
+        должен прыгнуть на `1000-2`, иначе зацикливание."""
+        monkeypatch.setattr(tr, "TICK_FETCH_CHUNK", 2)
+        monkeypatch.setattr(tr, "TICK_FETCH_MAX_CHUNKS", 10)
+        r = await self._make_redis()
+        symbol = "BTCUSDT"
+        stream = tr.TICK_STREAM_TPL.format(symbol=symbol)
+        # Все 4 entry на ts=1000 с разным seq.
+        for i in range(4):
+            await r.xadd(stream, {"price": f"{100.0 + i}"}, id=f"1000-{i}")
+        await r.xadd(stream, {"price": "200.0"}, id="2000-0")
+        out = await _fetch_ticks(r, symbol, 1000, 3000)
+        assert len(out) == 5
+        prices = [px for _, px in out]
+        assert 200.0 in prices
+
+    async def test_truncation_metric_when_max_chunks_hit(self, monkeypatch):
+        """Если поток длиннее chunk×max_chunks — взводим truncated counter."""
+        monkeypatch.setattr(tr, "TICK_FETCH_CHUNK", 5)
+        monkeypatch.setattr(tr, "TICK_FETCH_MAX_CHUNKS", 2)  # cap=10 ticks
+        r = await self._make_redis()
+        symbol = "BTCUSDT"
+        # 25 ticks → должен срезаться на 10.
+        ticks = [(1000 + i * 10, 100.0 + i) for i in range(25)]
+        await self._seed_ticks(r, symbol, ticks)
+        before = tr.g_tick_fetch_truncated._value.get()
+        out = await _fetch_ticks(r, symbol, 1000, 9000)
+        after = tr.g_tick_fetch_truncated._value.get()
+        # Усечено, но без crash.
+        assert len(out) == 10
+        assert after - before == 1
+
+
+# ---------------------------------------------------------------------------
+# Test 4: _emit_outcome — atomic Lua dispatch
+# ---------------------------------------------------------------------------
+
+def _make_mock_redis(lua_response: list) -> AsyncMock:
+    """Stub Redis object whose execute_command returns a fixed Lua-style response."""
+    r = AsyncMock()
+    r.execute_command = AsyncMock(return_value=lua_response)
+    return r
+
+
+@pytest.mark.asyncio
+class TestEmitOutcomeAtomicLua:
+    """_emit_outcome dispatches to Lua EVAL and maps result codes correctly.
+
+    Unit tests mock execute_command (r.eval fallback) because lupa is not
+    installed in this environment. Integration test with real Redis is in
+    tests/integration/test_gated_out_atomic_emit.py.
+    """
+
+    async def test_written_returns_true_and_bumps_metric(self):
+        r = _make_mock_redis([1, "written", "1716000000000-0"])
+        before = tr.g_outcome_emit_total.labels(result="written")._value.get()
+        ok = await _emit_outcome(r, {"v": 2, "sid": "sid_w", "symbol": "BTCUSDT"})
+        assert ok is True
+        assert tr.g_outcome_emit_total.labels(result="written")._value.get() - before == 1
+
+    async def test_duplicate_returns_false_and_bumps_dedup_metric(self):
+        r = _make_mock_redis([0, "duplicate", "1716000000000-0"])
+        before_dup = tr.g_outcome_dedup_skipped._value.get()
+        before_lbl = tr.g_outcome_emit_total.labels(result="duplicate")._value.get()
+        ok = await _emit_outcome(r, {"v": 2, "sid": "sid_d", "symbol": "BTCUSDT"})
+        assert ok is False
+        assert tr.g_outcome_dedup_skipped._value.get() - before_dup == 1
+        assert tr.g_outcome_emit_total.labels(result="duplicate")._value.get() - before_lbl == 1
+
+    async def test_unexpected_lua_result_returns_false_and_bumps_error(self):
+        r = _make_mock_redis([0, "unknown_status", ""])
+        before = tr.g_outcome_emit_total.labels(result="error")._value.get()
+        ok = await _emit_outcome(r, {"v": 2, "sid": "sid_e", "symbol": "BTCUSDT"})
+        assert ok is False
+        assert tr.g_outcome_emit_total.labels(result="error")._value.get() - before == 1
+
+    async def test_execute_command_exception_returns_false_and_bumps_error(self):
+        r = AsyncMock()
+        r.execute_command = AsyncMock(side_effect=ConnectionError("redis down"))
+        before = tr.g_outcome_emit_total.labels(result="error")._value.get()
+        ok = await _emit_outcome(r, {"v": 2, "sid": "sid_ex", "symbol": "BTCUSDT"})
+        assert ok is False
+        assert tr.g_outcome_emit_total.labels(result="error")._value.get() - before == 1
+
+    async def test_missing_sid_returns_false_and_bumps_missing_sid_metric(self):
+        r = _make_mock_redis([1, "written", "123-0"])
+        before = tr.g_outcome_emit_total.labels(result="missing_sid")._value.get()
+        ok = await _emit_outcome(r, {"v": 2, "sid": "", "symbol": "BTCUSDT"})
+        assert ok is False
+        # execute_command must NOT have been called — Lua script never runs for missing sid.
+        r.execute_command.assert_not_called()
+        assert tr.g_outcome_emit_total.labels(result="missing_sid")._value.get() - before == 1
+
+    async def test_distinct_sids_each_call_lua(self):
+        r = _make_mock_redis([1, "written", "123-0"])
+        ok1 = await _emit_outcome(r, {"v": 2, "sid": "sid_a", "symbol": "BTCUSDT"})
+        ok2 = await _emit_outcome(r, {"v": 2, "sid": "sid_b", "symbol": "ETHUSDT"})
+        assert ok1 is True
+        assert ok2 is True
+        assert r.execute_command.call_count == 2
+
+    async def test_lua_called_with_correct_keys(self):
+        """execute_command must pass KEYS[1]=dedup_key, KEYS[2]=OUTPUT_STREAM."""
+        r = _make_mock_redis([1, "written", "123-0"])
+        sid = "sid_keys_check"
+        await _emit_outcome(r, {"v": 2, "sid": sid, "symbol": "BTCUSDT"})
+        call_args = r.execute_command.call_args
+        # positional: ("EVAL", script, numkeys, KEYS[1], KEYS[2], ARGV[1], ARGV[2], ARGV[3])
+        args = call_args.args
+        assert args[0] == "EVAL"
+        assert args[2] == 2                                           # numkeys
+        assert args[3] == tr.OUTCOME_DEDUP_KEY_TPL.format(sid=sid)   # KEYS[1]
+        assert args[4] == tr.OUTPUT_STREAM                            # KEYS[2]
+
+
+# ---------------------------------------------------------------------------
+# Test 5: NO_TICKS outcome payload
+# ---------------------------------------------------------------------------
+
+class TestNoTicksOutcome:
+    def test_no_ticks_payload_shape(self) -> None:
+        p = _make_pending()
+        out = _build_no_ticks_payload(p)
+        assert out["outcome"] == "NO_TICKS"
+        assert out["valid"] == 0
+        assert out["skip_reason"] == "no_ticks"
+        assert out["sid"] == p.sid
+        assert out["symbol"] == p.symbol
+        assert out["v"] == 2
+        assert out["sample_policy"] == p.sample_policy
+        assert out["gated_out"] == 1
+        # gross/edge labels должны отсутствовать — это не оценка, а пропуск.
+        assert "y" not in out
+        assert "y_edge_cost_aware" not in out
+
+    def test_no_ticks_serializable_to_json(self) -> None:
+        p = _make_pending()
+        out = _build_no_ticks_payload(p)
+        json.dumps(out)  # не должен бросать

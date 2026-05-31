@@ -756,7 +756,7 @@ def stage_publish(*, redis_url: str, lr_info: dict | None, gbdt_info: dict | Non
                 "created_ms": int(time.time() * 1000),
                 "model_path": lr_info["path"],
                 "mode": "SHADOW",   # auto-promote keeps SHADOW; human flips to ENFORCE
-                "enforce_share": 0.0,
+                "enforce_share": 0.10,  # 10% canary — matches ML_CONFIRM_ENFORCE_SHARE env
                 "p_min": 0.5,
                 "feature_schema_ver": _FEATURE_SCHEMA_VER,
                 "fail_policy": "OPEN",
@@ -765,6 +765,17 @@ def stage_publish(*, redis_url: str, lr_info: dict | None, gbdt_info: dict | Non
                 # span the full [0,1] range. The isotonic sibling calibrator (autopilot)
                 # will refit within minutes on the new champion's outputs.
                 "calibrate_p_edge": True,
+                # util_floors: effective p_min for _decide_meta_lr; 0.27 matches the
+                # isotonic calibrator's output range while the calibrator accumulates data
+                # from the balanced model. Raise once calibration stabilises (≥ 7d data).
+                "util_floors": {
+                    "global": {"floor": 0.27},
+                    "by_bucket": {
+                        "trend": {"floor": 0.28},
+                        "range": {"floor": 0.27},
+                        "other": {"floor": 0.25},
+                    },
+                },
             }
             r.set(champion_key, json.dumps(cfg, separators=(",", ":")))
             result["promoted"].append({"key": champion_key, "kind": "meta_lr"})

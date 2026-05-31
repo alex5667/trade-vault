@@ -65,6 +65,82 @@ class PivotsPresentValidator(Validator):
             q.veto_with("no_pivots")
 
 
+def _validate_breakout_in_range(ctx: Any, z: float, z_abs: float, q: "QualityState") -> None:
+    """
+    breakout в range/squeeze: allow_if_squeeze_expansion_confirmed.
+
+    REGIME_SQUEEZE_BREAKOUT_ENABLED=0  → legacy z*1.2 guard (default/shadow).
+    REGIME_SQUEEZE_BREAKOUT_ENABLED=1  → multi-condition squeeze-expansion gate:
+      1. z_abs >= _breakout_thr + Z_BOOST   (сигнально сильнее обычного порога)
+      2. OBI stable (obi_sustained OR lob_dw_obi_stable)
+      3. microprice_shift подтверждает направление
+      4. spread_bps <= MAX_SPREAD_BPS
+      5. нет stale book / DQ-флага
+      6. (опционально) touch_tag ∈ {depletion, strong_ofi, absorption, depletion_ofi}
+    """
+    thr = float(getattr(ctx, "_breakout_thr", 0.0) or 0.0)
+    enabled = os.getenv("REGIME_SQUEEZE_BREAKOUT_ENABLED", "0").strip() == "1"
+
+    if not enabled:
+        if thr > 0 and z_abs < thr * 1.2:
+            q.veto_with("breakout_in_range_requires_stronger_z")
+        return
+
+    # ── 1. z-threshold: base_thr + absolute boost ─────────────────────
+    z_boost = float(os.getenv("REGIME_SQUEEZE_BREAKOUT_Z_BOOST", "0.5"))
+    z_min = (thr + z_boost) if thr > 0 else z_boost
+    if z_abs < z_min:
+        q.veto_with("squeeze_breakout_z_weak")
+        return
+
+    # ── 2. OBI stable ─────────────────────────────────────────────────
+    obi_stable = bool(getattr(ctx, "obi_sustained", False)) or bool(
+        getattr(ctx, "lob_dw_obi_stable", False)
+    )
+    q.add_flag("squeeze_obi_stable", obi_stable)
+    if not obi_stable:
+        q.veto_with("squeeze_breakout_obi_not_stable")
+        return
+
+    # ── 3. microprice_shift подтверждает направление ───────────────────
+    direction = 1.0 if z > 0 else -1.0
+    mps = float(getattr(ctx, "microprice_shift", 0.0) or 0.0)
+    q.add_flag("squeeze_microprice_shift", mps)
+    if mps * direction <= 0:
+        q.veto_with("squeeze_breakout_microprice_no_confirm")
+        return
+
+    # ── 4. spread <= нормальная полоса символа ────────────────────────
+    max_spread = float(os.getenv("REGIME_SQUEEZE_BREAKOUT_MAX_SPREAD_BPS", "10.0"))
+    sp = float(getattr(ctx, "spread_bps", 0.0) or 0.0)
+    q.add_flag("squeeze_spread_bps", sp)
+    if sp > max_spread:
+        q.veto_with("squeeze_breakout_spread_wide")
+        return
+
+    # ── 5. нет stale book / DQ-флага ──────────────────────────────────
+    if bool(getattr(ctx, "book_is_stale", False)):
+        q.veto_with("squeeze_breakout_stale_book")
+        return
+    if bool(getattr(ctx, "dq_flag_stale", False)) or bool(
+        getattr(ctx, "data_quality_flag", False)
+    ):
+        q.veto_with("squeeze_breakout_dq_flag")
+        return
+
+    # ── 6. (опционально) touch_tag = depletion / strong OFI ───────────
+    if os.getenv("REGIME_SQUEEZE_BREAKOUT_REQUIRE_TOUCH_DEPLETION", "0").strip() == "1":
+        tag_attr = "touch_ask_tag" if z > 0 else "touch_bid_tag"
+        tag = str(getattr(ctx, tag_attr, "none") or "none").lower()
+        _GOOD_TAGS = {"depletion", "strong_ofi", "absorption", "depletion_ofi"}
+        q.add_flag("squeeze_touch_tag", tag)
+        if tag not in _GOOD_TAGS:
+            q.veto_with("squeeze_breakout_touch_not_depletion")
+            return
+
+    q.add_flag("squeeze_expansion_breakout", True)
+
+
 class ModeValidator(Validator):
     """
     Режим — это качество/контекст рынка, а не событие.
@@ -77,12 +153,12 @@ class ModeValidator(Validator):
         from common.market_mode import is_range_regime
         _is_range = is_range_regime(mode)
 
-        z_abs = abs(float(getattr(ctx, "z_delta", 0.0) or 0.0))
-        # breakout: в range требуем сильнее (минимальная защита)
+        z = float(getattr(ctx, "z_delta", 0.0) or 0.0)
+        z_abs = abs(z)
+
+        # breakout: в range/squeeze — squeeze expansion gate (или legacy z*1.2)
         if cand.kind == "breakout" and _is_range:
-            thr = float(getattr(ctx, "_breakout_thr", 0.0) or 0.0)
-            if thr > 0 and z_abs < (thr * 1.2):
-                q.veto_with("breakout_in_range_requires_stronger_z")
+            _validate_breakout_in_range(ctx, z, z_abs, q)
 
         # absorption: в momentum часто плохо (veto как качество)
         if cand.kind == "absorption" and mode == "momentum":

@@ -188,13 +188,17 @@ def test_snapshot_includes_direction_field() -> None:
         p_edge=0.65, r_multiple=1.0, result="WIN", ts_ms=1_000,
     )
     snap = c.snapshot()
-    assert snap["schema_version"] == 2
+    # schema_version=3 since P0 fix (2026-05-30): adds `n_observed` to each bin.
+    assert snap["schema_version"] == 3
     long_row = [r for r in snap["bins"] if r["direction"] == "long"]
     star_row = [r for r in snap["bins"] if r["direction"] == "*"]
     assert len(long_row) >= 1
     assert len(star_row) >= 1
     # Both rows carry the new field explicitly.
     assert all("direction" in r for r in snap["bins"])
+    # Every row carries n_observed (P0 fix) — needed by load_state to restore
+    # the min_dir_coverage gate across restarts.
+    assert all("n_observed" in r for r in snap["bins"])
 
 
 def test_load_state_back_compat_legacy_snapshot_without_direction() -> None:
@@ -245,3 +249,146 @@ def test_snapshot_roundtrip_preserves_direction() -> None:
     assert ("BTC", "trend", "breakout", "long") in c2.bins
     assert ("BTC", "trend", "breakout", "short") in c2.bins
     assert ("BTC", "trend", "breakout", "*") in c2.bins
+
+
+# ---------------------------------------------------------------------------
+# P0 fix (2026-05-30): snapshot/load_state restores n_observed coverage.
+# Without this, directional bins loaded from snapshot would all start at
+# n_observed=0 and be silently skipped by `_dir_bin_has_coverage` until they
+# re-warm in-memory — defeating the purpose of pinning the calibrator state.
+# ---------------------------------------------------------------------------
+
+
+def test_snapshot_carries_n_observed() -> None:
+    """snapshot() rows include the lifetime observation counter `n_observed`."""
+    c = PEdgeThresholdCalibrator(enforce=True)
+    for i in range(10):
+        c.observe(
+            symbol="BTCUSDT", regime="trend", kind="breakout", direction="long",
+            p_edge=0.6, r_multiple=1.0, result="WIN", ts_ms=1_000 + i,
+        )
+    snap = c.snapshot()
+    long_row = next(r for r in snap["bins"] if r["direction"] == "long")
+    # n_observed reflects every observe call on this bin (10), not just
+    # current buffer size — which is also 10 here but would diverge after
+    # window pruning.
+    assert long_row["n_observed"] == 10
+
+
+def test_load_state_restores_direction_coverage() -> None:
+    """A direction-specific bin loaded with p_min>0 and n_observed≥min_dir_coverage
+    must be honoured on the read path — without the P0 fix it would be
+    silently skipped because n_observed defaulted to 0."""
+    c = PEdgeThresholdCalibrator(enforce=True, min_dir_coverage=150)
+    snapshot = {
+        "enforce": True,
+        "default_p_min": DEFAULT_P_MIN,
+        "schema_version": 3,
+        "bins": [
+            {
+                "symbol": "BTCUSDT", "regime": "trend", "kind": "breakout",
+                "direction": "long",
+                "n": 200, "n_observed": 200,
+                "p_min": 0.66, "shadow_p_min": 0.66,
+            },
+        ],
+    }
+    c.load_state(snapshot)
+    assert c.p_min_for(
+        symbol="BTCUSDT", regime="trend", kind="breakout", direction="long",
+    ) == pytest.approx(0.66)
+
+
+def test_load_state_legacy_snapshot_falls_back_to_n_window() -> None:
+    """Legacy snapshots (schema_version<3) carried only `n` (window size).
+    Loader uses `n` as a back-compat proxy for n_observed so warm directional
+    bins from old snapshots aren't silently demoted after the upgrade."""
+    c = PEdgeThresholdCalibrator(enforce=True, min_dir_coverage=150)
+    legacy_snapshot = {
+        "enforce": True,
+        "default_p_min": DEFAULT_P_MIN,
+        "schema_version": 2,
+        "bins": [
+            {
+                "symbol": "BTCUSDT", "regime": "trend", "kind": "breakout",
+                "direction": "long",
+                "n": 200,  # no n_observed — should fall back to this
+                "p_min": 0.66, "shadow_p_min": 0.66,
+            },
+        ],
+    }
+    c.load_state(legacy_snapshot)
+    b = c.bins[("BTCUSDT", "trend", "breakout", "long")]
+    # n falls back to n_observed when the new field is missing.
+    assert b.n_observed == 200
+    # And the directional bin clears the coverage gate, so the read path
+    # uses its threshold instead of dropping to the wildcard.
+    assert c.p_min_for(
+        symbol="BTCUSDT", regime="trend", kind="breakout", direction="long",
+    ) == pytest.approx(0.66)
+
+
+def test_load_state_directional_bin_skipped_when_coverage_below_threshold() -> None:
+    """Directional bin with n_observed < min_dir_coverage is skipped on the
+    read path; the wildcard aggregate at the next level is used instead."""
+    c = PEdgeThresholdCalibrator(enforce=True, min_dir_coverage=150)
+    snapshot = {
+        "enforce": True,
+        "default_p_min": DEFAULT_P_MIN,
+        "schema_version": 3,
+        "bins": [
+            {
+                "symbol": "BTCUSDT", "regime": "trend", "kind": "breakout",
+                "direction": "long",
+                "n": 10, "n_observed": 10,
+                "p_min": 0.70,
+            },
+            {
+                "symbol": "BTCUSDT", "regime": "trend", "kind": "breakout",
+                "direction": "*",
+                "n": 500, "n_observed": 500,
+                "p_min": 0.58,
+            },
+        ],
+    }
+    c.load_state(snapshot)
+    assert c.p_min_for(
+        symbol="BTCUSDT", regime="trend", kind="breakout", direction="long",
+    ) == pytest.approx(0.58)
+
+
+def test_snapshot_roundtrip_preserves_n_observed_over_window_pruning() -> None:
+    """n_observed must NOT decay when the rolling buffer prunes stale samples
+    (it's a lifetime counter, not a window-size counter). Snapshot+load must
+    preserve this distinction so the min_dir_coverage gate stays sticky after
+    long quiet periods."""
+    c1 = PEdgeThresholdCalibrator(
+        enforce=True, min_dir_coverage=10,
+        window_ms=1_000,  # 1s window for fast pruning
+        min_total_trades=5,
+    )
+    # 20 obs over 100ms — all fit in 1s window initially.
+    for i in range(20):
+        c1.observe(
+            symbol="BTC", regime="trend", kind="breakout", direction="long",
+            p_edge=0.6, r_multiple=1.0, result="WIN", ts_ms=i * 5,
+        )
+    b = c1.bins[("BTC", "trend", "breakout", "long")]
+    n_obs_before = b.n_observed
+    assert n_obs_before == 20
+
+    # Trigger pruning by observing far in the future — drops all earlier
+    # samples from the buffer but n_observed (lifetime) keeps climbing.
+    c1.observe(
+        symbol="BTC", regime="trend", kind="breakout", direction="long",
+        p_edge=0.6, r_multiple=1.0, result="WIN", ts_ms=10_000_000,
+    )
+    assert b.n_observed == n_obs_before + 1
+    assert len(b.buf) < n_obs_before  # buffer pruned
+
+    snap = c1.snapshot()
+    c2 = PEdgeThresholdCalibrator(min_dir_coverage=10)
+    c2.load_state(snap)
+    b2 = c2.bins[("BTC", "trend", "breakout", "long")]
+    # Lifetime counter survives the roundtrip — gate stays satisfied.
+    assert b2.n_observed == n_obs_before + 1

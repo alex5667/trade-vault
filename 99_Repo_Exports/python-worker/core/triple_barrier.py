@@ -53,6 +53,53 @@ def pick_entry_price(path: list[tuple[int, float]]) -> float:
     return float(path[0][1]) if path else 0.0
 
 
+def pick_entry_price_v2(
+    *,
+    entry_px_expected: object,
+    path: list[tuple[int, float]],
+    reason_flags: list[str] | None = None,
+) -> tuple[float, str]:
+    """Explicit entry-price contract — prefers caller-supplied expected fill.
+
+    Returns (entry_px, fallback_reason). fallback_reason is the empty string
+    when the explicit entry_px_expected is used; otherwise one of:
+
+      * "entry_px_fallback_first_tick"  — entry_px_expected absent/non-positive,
+                                          fell back to first tick price.
+      * "entry_px_fallback_no_path"     — neither explicit nor any tick available;
+                                          returns 0.0 and the caller MUST treat
+                                          the sample as bad_entry_px.
+
+    When reason_flags list is provided, the chosen flag is appended (additive,
+    so multiple labelers can accumulate flags in the same list).
+    """
+    explicit = 0.0
+    if entry_px_expected is not None:
+        try:
+            explicit = float(entry_px_expected)  # type: ignore[arg-type]
+        except (TypeError, ValueError):
+            explicit = 0.0
+
+    if explicit > 1e-9:
+        return explicit, ""
+
+    if path:
+        try:
+            px = float(path[0][1])  # type: ignore[arg-type]
+        except (TypeError, ValueError):
+            px = 0.0
+        if px > 1e-9:
+            flag = "entry_px_fallback_first_tick"
+            if reason_flags is not None:
+                reason_flags.append(flag)
+            return px, flag
+
+    flag = "entry_px_fallback_no_path"
+    if reason_flags is not None:
+        reason_flags.append(flag)
+    return 0.0, flag
+
+
 def label_path(
     *,
     ts0_ms: int,

@@ -1,0 +1,81 @@
+services:
+  conf-meta-gate-auto-demote:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    image: scanner-python-worker:latest
+    container_name: scanner-conf-meta-gate-auto-demote
+    restart: unless-stopped
+    environment:
+      - PYTHONUNBUFFERED=1
+      - REDIS_URL=${REDIS_URL:-redis://redis-worker-1:6379/0}
+      - CONF_META_GATE_AUTO_DEMOTE_REDIS_URL=${CONF_META_GATE_AUTO_DEMOTE_REDIS_URL:-${REDIS_URL:-redis://redis-worker-1:6379/0}}
+      - TRADES_DB_DSN=${TRADES_DB_DSN:-postgresql://trading:${TRADING_PASSWORD}@scanner-postgres:5432/trade}
+      - CONF_META_GATE_AUTO_DEMOTE_DB_DSN=${CONF_META_GATE_AUTO_DEMOTE_DB_DSN:-${TRADES_DB_DSN:-postgresql://trading:${TRADING_PASSWORD}@scanner-postgres:5432/trade}}
+      # Plan 1 Phase 7: ENABLED=1 means the watcher will HSET
+      # cfg:conf_meta_gate.mode=SHADOW when fallback / disagreement /
+      # canary-expectancy criteria breach for the sustained number of
+      # scans. Forcing SHADOW when the runtime mode is already SHADOW is
+      # a no-op, so this is safe to enable from day one — the override
+      # only kicks in once an artifact ships and CANARY/ENFORCE is set.
+      # Window<MIN_N (200 rows by default) skips the scan with no action,
+      # so cold start does not trigger anything.
+      # Rollback: =0 reverts to gauges-only.
+      - CONF_META_GATE_AUTO_DEMOTE_ENABLED=${CONF_META_GATE_AUTO_DEMOTE_ENABLED:-1}
+      - CONF_META_GATE_AUTO_DEMOTE_INTERVAL_SEC=${CONF_META_GATE_AUTO_DEMOTE_INTERVAL_SEC:-600}
+      - CONF_META_GATE_AUTO_DEMOTE_WINDOW_MIN=${CONF_META_GATE_AUTO_DEMOTE_WINDOW_MIN:-240}
+      - CONF_META_GATE_AUTO_DEMOTE_MIN_N=${CONF_META_GATE_AUTO_DEMOTE_MIN_N:-200}
+      - CONF_META_GATE_AUTO_DEMOTE_FALLBACK_MAX=${CONF_META_GATE_AUTO_DEMOTE_FALLBACK_MAX:-0.05}
+      - CONF_META_GATE_AUTO_DEMOTE_DISAGREE_MAX=${CONF_META_GATE_AUTO_DEMOTE_DISAGREE_MAX:-0.40}
+      - CONF_META_GATE_AUTO_DEMOTE_EXP_TOP_PCT=${CONF_META_GATE_AUTO_DEMOTE_EXP_TOP_PCT:-0.05}
+      - CONF_META_GATE_AUTO_DEMOTE_EXP_MIN_N=${CONF_META_GATE_AUTO_DEMOTE_EXP_MIN_N:-50}
+      - CONF_META_GATE_AUTO_DEMOTE_EXP_THRESHOLD=${CONF_META_GATE_AUTO_DEMOTE_EXP_THRESHOLD:-0.0}
+      - CONF_META_GATE_AUTO_DEMOTE_EXP_SUSTAIN=${CONF_META_GATE_AUTO_DEMOTE_EXP_SUSTAIN:-3}
+      - CONF_META_GATE_AUTO_DEMOTE_PORT=9928
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - TZ=UTC
+    ports:
+      - "9928:9928"
+    depends_on:
+      redis-worker-1:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    networks:
+      - scanner-core
+      - scanner-infra
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.2'
+        reservations:
+          memory: 64M
+    command:
+      - sh
+      - -c
+      - |
+        sleep 30
+        python -m orderflow_services.conf_meta_gate_auto_demote_v1
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - "wget -qO- http://localhost:9928/metrics 2>/dev/null | grep -q conf_meta_gate_auto_demote_window_count || exit 1"
+      interval: 120s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
+    labels:
+      - com.scanner.service=conf-meta-gate-auto-demote
+      - com.scanner.description=Plan 1 Phase 7 — watches conf_meta_gate fallback/disagreement/canary expectancy; forces cfg:conf_meta_gate=SHADOW on sustained breach
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '3'
+
+networks:
+  scanner-core:
+    external: true
+  scanner-infra:
+    external: true

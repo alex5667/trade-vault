@@ -121,7 +121,7 @@ _FLOAT_FIELDS = {
     "ev_baseline_r", "ev_adaptive_r", "ev_delta_r", "cost_r",
     "spread_bps", "slippage_bps", "fee_bps",
 }
-_STR_FIELDS = {"sid", "symbol", "kind", "side", "regime", "reason_code", "mode"}
+_STR_FIELDS = {"sid", "symbol", "kind", "side", "regime", "reason_code", "mode", "model_ver", "session"}
 
 
 def _safe_float(v: Any) -> float | None:
@@ -203,7 +203,10 @@ INSERT INTO tp1_adaptive_shadow
      p_hit_baseline, p_hit_adaptive,
      ev_baseline_r, ev_adaptive_r, ev_delta_r, cost_r,
      spread_bps, slippage_bps, fee_bps, samples,
-     reason_code, mode)
+     reason_code, mode,
+     model_ver, session,
+     realized_close_reason, realized_hit_adaptive, realized_hit_baseline,
+     realized_mae_r, realized_mfe_r, realized_pnl_r)
 VALUES %s
 ON CONFLICT (ts, sid) DO NOTHING
 """
@@ -226,6 +229,9 @@ def _flush_batch(pg_conn, batch: list[dict]) -> tuple[int, int]:
             r.get("spread_bps"), r.get("slippage_bps"), r.get("fee_bps"),
             r.get("samples"),
             r["reason_code"], r["mode"],
+            r.get("model_ver"), r.get("session"),
+            None, None, None,
+            None, None, None,
         ))
     t0 = time.perf_counter()
     with pg_conn.cursor() as cur:

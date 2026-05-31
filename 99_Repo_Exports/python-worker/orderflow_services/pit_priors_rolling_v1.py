@@ -249,10 +249,22 @@ def read_trades_postgres(since_ms: int, now_ms: int) -> list[dict[str, str]]:
         return []
 
     sql = """
-        SELECT symbol, scenario, session, exit_ts_ms, r_multiple, result,
-               mfe_bps, mae_bps, mfe_pnl, mae_pnl, one_r_money,
-               slippage_bps_est, realized_slippage_bps, tp1_hit,
-               close_reason, sid
+        SELECT symbol,
+               NULL::text   AS scenario,
+               NULL::text   AS session,
+               exit_ts_ms,
+               r_multiple,
+               NULL::text   AS result,
+               mfe_pnl      AS mfe_bps,
+               mae_pnl      AS mae_bps,
+               mfe_pnl,
+               mae_pnl,
+               one_r_money,
+               NULL::double precision AS slippage_bps_est,
+               NULL::double precision AS realized_slippage_bps,
+               tp1_hit,
+               close_reason,
+               sid
         FROM trades_closed
         WHERE exit_ts_ms >= %s AND exit_ts_ms < %s
           AND symbol IS NOT NULL

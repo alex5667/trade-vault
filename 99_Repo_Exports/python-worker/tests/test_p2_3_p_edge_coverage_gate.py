@@ -255,16 +255,22 @@ def test_coverage_gate_does_not_block_observe():
     assert c.bins[dir_key].n_observed == 60
 
 
-# ─── 10. After restart, directional bin n_observed resets to 0 (safe fallback) ──
+# ─── 10. After restart, directional bin n_observed survives the snapshot ──
+#
+# Original behaviour (pre P0 fix 2026-05-30): n_observed wasn't persisted in
+# the snapshot, so every restart reset it to 0 and silently demoted directional
+# bins to the wildcard fallback until they re-warmed in-memory. That was
+# described as "safe" but in practice meant the entire min_dir_coverage gate
+# couldn't survive a rolling restart — defeating the purpose of pinning the
+# calibrator state.
+#
+# Post P0 fix: snapshot() now writes `n_observed` and load_state() restores
+# it. Old snapshots (schema_version<3, missing the field) fall back to `n`
+# (window size) which is a conservative non-zero proxy for warm bins.
 
-def test_restart_resets_n_observed_to_zero():
-    """n_observed is not persisted in snapshot — after load_state it resets to 0.
-
-    This is the CORRECT safe behavior: after a restart the gate forces fallback
-    to the wildcard bin until enough new observations re-accumulate. The committed
-    p_min is restored (from snapshot) but the gate treats the directional bin as
-    cold until n_observed crosses min_dir_coverage again.
-    """
+def test_restart_preserves_n_observed_after_p0_fix():
+    """P0 fix: n_observed survives snapshot → load_state and the directional
+    bin keeps clearing the min_dir_coverage gate after restart."""
     c = _make_calibrator(min_dir_coverage=50)
     _fill_bin(c, symbol="BTCUSDT", regime="trend", kind="iceberg",
               direction="long", n=80)  # above gate=50
@@ -272,19 +278,21 @@ def test_restart_resets_n_observed_to_zero():
     dir_key = ("BTCUSDT", "trend", "iceberg", "long")
     assert c.bins[dir_key].n_observed >= 50
     assert c.bins[dir_key].p_min > 0.0
+    pre_n_obs = c.bins[dir_key].n_observed
 
-    # Snapshot and reload (simulating restart)
     snap = c.snapshot()
     c2 = _make_calibrator(min_dir_coverage=50)
     c2.load_state(snap)
 
-    # After restart: p_min is restored but n_observed resets to 0 (not persisted)
-    if dir_key in c2.bins:
-        assert c2.bins[dir_key].p_min > 0.0, "p_min should survive restart"
-        assert c2.bins[dir_key].n_observed == 0, (
-            "n_observed resets to 0 after restart — directional bin is re-gated "
-            "until new observations accumulate. This is safe (fallback to wildcard)."
-        )
+    assert dir_key in c2.bins, "directional bin must be restored after load_state"
+    b2 = c2.bins[dir_key]
+    assert b2.p_min > 0.0, "p_min survives restart"
+    assert b2.n_observed == pre_n_obs, (
+        "n_observed survives snapshot → load_state (P0 fix 2026-05-30); "
+        "the directional bin keeps clearing min_dir_coverage so the next "
+        "p_min_for() call honours it instead of silently dropping to the "
+        "wildcard."
+    )
 
 
 # ─── 11. Regression: Phase-B fallback uses directional bin when above gate ────

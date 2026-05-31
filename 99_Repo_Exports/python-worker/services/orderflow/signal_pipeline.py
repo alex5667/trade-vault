@@ -178,6 +178,19 @@ try:
         "Virtual signals dropped pre-publish due to hard veto / failed validation",
         ["symbol", "reason", "mode"],
     )
+    # 2026-05-30 gate_value_autocal applied-delta wiring.
+    # Counts and value of min_conf overrides taken from
+    # `cfg:gate_value_autocal:applied:{kind}|{symbol}|{horizon_ms}`.
+    _APPLIED_DELTA_OVERRIDE_TOTAL = Counter(
+        "applied_delta_override_total",
+        "min_conf overrides from gate_value_autocal applied_delta",
+        ["kind", "symbol", "phase", "delta_direction"],
+    )
+    _APPLIED_DELTA_OVERRIDE_VALUE = Gauge(
+        "applied_delta_override_value",
+        "Last applied min_conf delta (signed, fraction)",
+        ["kind", "symbol", "phase"],
+    )
 except ImportError:
     _FEATURE_TO_DECISION_MS = None
     _DECISION_TO_OUTBOX_MS = None
@@ -197,6 +210,8 @@ except ImportError:
     _TP_PROFILE_LEVEL_DELTA_BPS = None
     _REGIME_RESOLVED_TOTAL = None
     _VIRTUAL_HARD_DROP_TOTAL = None
+    _APPLIED_DELTA_OVERRIDE_TOTAL = None
+    _APPLIED_DELTA_OVERRIDE_VALUE = None
 
 # Gates whose vetoes must never route to virtual order queue.
 # Checked via rejection_gate parameter (dec.gate passed by _handle_pipeline_veto).
@@ -496,6 +511,20 @@ class SignalPipeline:
                 self._signal_conf_reader = _get_sc_reader()
         except Exception:
             self._signal_conf_reader = None
+
+        # gate_value_autocal applied-delta reader (Stage 6 ENFORCED writes).
+        # Reads `cfg:gate_value_autocal:applied:{kind}|{symbol}|{horizon_ms}`
+        # and applies `min_conf_delta` after all other min_conf calculations.
+        # Disabled by default (AUTOCAL_APPLIED_DELTA_READ_ENABLED=0); rollout
+        # governor's STAGE_6_ENFORCED state controls the upstream WRITE side
+        # via cfg:gva:enforce — this reader controls the READ side.
+        self._applied_delta_reader: Any = None
+        try:
+            if os.getenv("AUTOCAL_APPLIED_DELTA_READ_ENABLED", "0").lower() in {"1", "true", "yes", "on"}:
+                from services.signal_min_conf_applied_delta_reader import get_reader as _get_ad_reader
+                self._applied_delta_reader = _get_ad_reader()
+        except Exception:
+            self._applied_delta_reader = None
 
         # W4: funding_z / basis_bps autocal reader (AUTOCAL_FUNDING_Z_READ_ENABLED=0 default)
         self._funding_z_reader: Any = None
@@ -854,6 +883,12 @@ class SignalPipeline:
                             _inds.setdefault("trade_msg_rate_hz", _tmr)
                         if _tmz != 0.0:
                             _inds.setdefault("trade_msg_rate_z", _tmz)
+                        # cancel_rate_z: book_processor sets runtime.cancel_rate_z from
+                        # MessageRateTracker but never bridges to indicators; bridge here
+                        # so veto/tick signals both carry the L3 cancel-rate z-score.
+                        _crz = float(getattr(runtime, "cancel_rate_z", 0.0) or 0.0)
+                        if _crz != 0.0:
+                            _inds.setdefault("cancel_rate_z", _crz)
                         # Only bridge non-zero values: enricher (_enrich_vol_features) produces
                         # vol_fast_bps/vol_slow_bps from microstruct:ctx; setdefault with 0.0
                         # would block the enricher's real value via setdefault at merge time.
@@ -1143,11 +1178,50 @@ class SignalPipeline:
                     except Exception:
                         pass
 
+            # Plan 3 / Step 2: TCA lifecycle DECISION stage — fired BEFORE the
+            # XADD so it carries the decision-time epoch_ms even if publish fails.
+            # Master switch ORDER_EXEC_EVENTS_ENABLED=0 → no-op (SHADOW default).
+            try:
+                from core.order_execution_events import Stage as _OEEStage
+                from core.order_execution_events import async_emit as _oee_async_emit
+                _sid_dec = str(enriched_signal.get("signal_id") or enriched_signal.get("sid") or "")
+                _dir_dec = str(enriched_signal.get("direction") or enriched_signal.get("side") or "LONG").upper()
+                _side_dec = 1 if _dir_dec != "SHORT" else -1
+                if _sid_dec:
+                    await _oee_async_emit(
+                        getattr(publisher, "r", None),
+                        sid=_sid_dec, stage=_OEEStage.DECISION,
+                        symbol=symbol, side=_side_dec, status="ok",
+                        ts_ms=int(enriched_signal.get("ts_ms") or 0) or None,
+                        payload={"path": path, "kind": enriched_signal.get("kind") or ""},
+                    )
+            except Exception:
+                pass  # fail-open, never block publish
+
             await publisher.xadd_json(
                 sink=StreamSink(name=self.of_inputs_stream, field="payload", maxlen=self.of_inputs_stream_maxlen),
                 payload=enriched_signal,
                 symbol=symbol,
             )
+
+            # Plan 3 / Step 2: SIGNAL_PUBLISHED stage — fired only after successful
+            # XADD so latency_ms (vs DECISION) reflects real serialization cost.
+            try:
+                from core.order_execution_events import Stage as _OEEStage
+                from core.order_execution_events import async_emit as _oee_async_emit
+                _sid_pub = str(enriched_signal.get("signal_id") or enriched_signal.get("sid") or "")
+                _dir_pub = str(enriched_signal.get("direction") or enriched_signal.get("side") or "LONG").upper()
+                _side_pub = 1 if _dir_pub != "SHORT" else -1
+                if _sid_pub:
+                    await _oee_async_emit(
+                        getattr(publisher, "r", None),
+                        sid=_sid_pub, stage=_OEEStage.SIGNAL_PUBLISHED,
+                        symbol=symbol, side=_side_pub, status="ok",
+                        payload={"stream": self.of_inputs_stream},
+                    )
+            except Exception:
+                pass
+
         except Exception as exc:
             self._record_of_inputs_publish_error(
                 symbol=symbol,
@@ -1522,6 +1596,216 @@ class SignalPipeline:
         except Exception:
             # Fail-open: exploration sampling must never break the pipeline.
             pass
+
+    def _confidence_meta_gate_decide(
+        self,
+        *,
+        legacy_dec: "GateDecisionV1",
+        signal: dict[str, Any],
+        indicators: dict[str, Any],
+        symbol: str,
+        kind: str,
+        direction: str,
+        sig_ts: int,
+        confidence: float,
+        min_conf: float,
+    ) -> "GateDecisionV1":
+        """Plan 1: calibrated meta-gate that can replace the legacy confidence
+        DENY/ALLOW. SHADOW by default — returns `legacy_dec` unchanged unless
+        mode=CANARY/ENFORCE selects this sample. Hard safety gates upstream
+        and the risk engine downstream are unaffected.
+
+        Fail-open: any exception is swallowed and `legacy_dec` is returned.
+        """
+        try:
+            from services.confidence_meta_gate import (
+                ConfidenceMetaGateInput,
+                MetaGateMode,
+                decide_meta_gate,
+                emit_decision,
+                get_runtime,
+            )
+            from services.confidence_meta_gate.metrics import set_model_health_gauges
+        except Exception:
+            return legacy_dec
+
+        try:
+            rt = get_runtime()
+            cfg = rt.cfg
+            if not cfg.enabled or cfg.mode is MetaGateMode.OFF:
+                return legacy_dec
+
+            artifact = rt.ensure_loaded()
+            if artifact is not None:
+                age_hours = rt._slot.age_hours() if hasattr(rt, "_slot") else None
+                set_model_health_gauges(
+                    artifact.model_ver, age_hours,
+                    artifact.calibrator.ece,
+                )
+
+            legacy_kind = "DENY" if getattr(legacy_dec, "decision", "") == "DENY" else "ALLOW"
+            sid = str(signal.get("signal_id") or signal.get("sid") or "")
+            now_ms = int(time.time() * 1000)
+            session = session_utc(sig_ts)
+            regime = str(indicators.get("regime") or "na")
+            schema_hash = str(indicators.get("feature_schema_version") or "")
+            feature_cols_hash = (
+                artifact.feature_cols_hash if artifact is not None else ""
+            )
+
+            spread_bps = float(indicators.get("spread_bps", 0.0) or 0.0)
+            slippage_bps = float(indicators.get("expected_slippage_bps", 0.0) or 0.0)
+            expected_edge_bps = float(
+                signal.get("expected_edge_bps", indicators.get("expected_edge_bps", 0.0)) or 0.0
+            )
+
+            features: dict[str, float] = {}
+            if artifact is not None:
+                # Populate only the columns the model declared, with safe fallbacks.
+                _sources = (signal, indicators)
+                for col in artifact.feature_cols:
+                    val: Any = None
+                    for src in _sources:
+                        if col in src:
+                            val = src.get(col)
+                            break
+                    if val is None:
+                        continue
+                    try:
+                        v = float(val)
+                    except (TypeError, ValueError):
+                        continue
+                    if v != v:  # NaN guard
+                        continue
+                    features[col] = v
+                # Inject canonical SL-bps key the gate expects.
+                if "sl_bps" not in features:
+                    sl_bps_hint = float(
+                        indicators.get("sl_atr_th_bps", 0.0)
+                        or indicators.get("gate_risk_bps", 0.0)
+                        or 0.0
+                    )
+                    if sl_bps_hint > 0:
+                        features["sl_bps"] = sl_bps_hint
+
+            inp = ConfidenceMetaGateInput(
+                sid=sid,
+                symbol=symbol,
+                kind=kind,
+                side=direction,
+                ts_ms=sig_ts,
+                now_ms=now_ms,
+                legacy_confidence=confidence,
+                legacy_min_confidence=min_conf,
+                legacy_decision=legacy_kind,
+                p_edge_raw=float(indicators.get("p_edge_raw", 0.0) or 0.0),
+                p_edge_cal=(
+                    float(indicators["p_edge_cal"])
+                    if indicators.get("p_edge_cal") is not None else None
+                ),
+                rule_score=float(indicators.get("rule_score", 0.0) or 0.0),
+                have=int(indicators.get("strong_gate_legs", 0) or 0),
+                need=int(indicators.get("strong_gate_need", 0) or 0),
+                spread_bps=spread_bps,
+                expected_slippage_bps=slippage_bps,
+                fee_bps=self.FEES_BPS_RT,
+                expected_edge_bps=expected_edge_bps,
+                exec_risk_norm=float(indicators.get("exec_risk_norm", 0.0) or 0.0),
+                dq_score=float(indicators.get("dq_score", 1.0) or 1.0),
+                dq_flag_count=int(indicators.get("dq_flag_count", 0) or 0),
+                regime=regime,
+                session=session,
+                schema_hash=schema_hash,
+                feature_cols_hash=feature_cols_hash,
+                features=features,
+            )
+
+            # Resolve effective mode: cfg.mode unless the auto-demote watcher
+            # has written `cfg:conf_meta_gate.mode=SHADOW` to Redis (TTL-cached
+            # inside the runtime so this is at most one HGET / 30 s).
+            redis_for_override = (
+                self.publisher.r
+                if (self.publisher and getattr(self.publisher, "r", None)) else None
+            )
+            effective_mode = rt.effective_mode(redis_for_override)
+            out = decide_meta_gate(
+                inp, cfg, artifact, now_ms=now_ms, mode_override=effective_mode,
+            )
+
+            # Compute the active decision: SHADOW/non-selected CANARY ⇒ legacy.
+            if out.active and out.decision in ("ALLOW", "ALLOW_TIGHTENED"):
+                active_decision = "ALLOW"
+            elif out.active and out.decision == "DENY_SOFT":
+                active_decision = "DENY"
+            else:
+                active_decision = legacy_kind
+
+            redis_client = (
+                self.publisher.r
+                if (self.publisher and getattr(self.publisher, "r", None)) else None
+            )
+            emit_decision(
+                inp, out, cfg,
+                active_decision=active_decision,
+                redis_client=redis_client,
+            )
+
+            # Only patch the legacy decision when meta-gate is authoritative.
+            if not out.active:
+                return legacy_dec
+
+            # Synthesize a GateDecisionV1 carrying the meta-gate verdict so the
+            # rest of the pipeline (_apply_decision / _handle_pipeline_veto) keeps
+            # working with a single decision type.
+            from core.gates.decision import GateDecisionV1 as _GD
+            ts_dec_ms = int(time.time() * 1000)
+            if active_decision == "ALLOW":
+                return _GD(
+                    stage="confidence",
+                    gate="ConfidenceMetaGate",
+                    decision="ALLOW",
+                    reason_code=out.reason_codes[-1] if out.reason_codes else "META_ALLOW",
+                    severity="INFO",
+                    profile="meta",
+                    fail_policy="CLOSED",
+                    ts_event_ms=sig_ts,
+                    ts_decision_ms=ts_dec_ms,
+                    latency_us=int(out.latency_ms * 1000),
+                    inputs_hash="",
+                    notes={
+                        "p_win_cal": out.p_win_calibrated,
+                        "expected_r": out.expected_r,
+                        "model_ver": out.model_ver,
+                        "canary_bucket": out.canary_bucket,
+                        "legacy_decision": legacy_kind,
+                        "meta_decision": out.decision,
+                    },
+                )
+            return _GD(
+                stage="confidence",
+                gate="ConfidenceMetaGate",
+                decision="DENY",
+                reason_code=out.reason_codes[0] if out.reason_codes else "META_DENY",
+                severity="WARN",
+                profile="meta",
+                fail_policy="CLOSED",
+                ts_event_ms=sig_ts,
+                ts_decision_ms=ts_dec_ms,
+                latency_us=int(out.latency_ms * 1000),
+                inputs_hash="",
+                notes={
+                    "p_win_cal": out.p_win_calibrated,
+                    "expected_r": out.expected_r,
+                    "model_ver": out.model_ver,
+                    "canary_bucket": out.canary_bucket,
+                    "legacy_decision": legacy_kind,
+                    "meta_decision": out.decision,
+                    "reasons": list(out.reason_codes),
+                },
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.debug("⚠️ conf_meta_gate evaluate fail-open: %s", e)
+            return legacy_dec
 
     def _handle_pipeline_veto(
         self,
@@ -4057,7 +4341,62 @@ class SignalPipeline:
                 min_conf_pct *= 100.0
             min_conf = min_conf_pct / 100.0
 
+            # gate_value_autocal applied-delta override (Stage 6 ENFORCED).
+            # Layered AFTER all other min_conf sources so it has the final
+            # word. Fail-open: any error keeps base min_conf untouched.
+            # Floor/ceiling from the payload clamp the result to a safe band.
+            if self._applied_delta_reader is not None:
+                try:
+                    _delta_obj = self._applied_delta_reader.get_delta(
+                        kind=str(kind or ""),
+                        symbol=str(symbol or ""),
+                        horizon_ms=int(indicators.get("horizon_ms") or 0),
+                    )
+                except Exception:
+                    _delta_obj = None
+                if _delta_obj is not None:
+                    _new_conf = min_conf + float(_delta_obj.min_conf_delta)
+                    _new_conf = max(
+                        float(_delta_obj.min_conf_floor),
+                        min(float(_delta_obj.min_conf_ceiling), _new_conf),
+                    )
+                    if _APPLIED_DELTA_OVERRIDE_TOTAL is not None:
+                        with contextlib.suppress(Exception):
+                            _dir = (
+                                "relax" if _delta_obj.min_conf_delta < 0
+                                else "tighten" if _delta_obj.min_conf_delta > 0
+                                else "none"
+                            )
+                            _APPLIED_DELTA_OVERRIDE_TOTAL.labels(
+                                kind=str(kind or "unknown"),
+                                symbol=str(symbol or "unknown"),
+                                phase=_delta_obj.phase or "unknown",
+                                delta_direction=_dir,
+                            ).inc()
+                    if _APPLIED_DELTA_OVERRIDE_VALUE is not None:
+                        with contextlib.suppress(Exception):
+                            _APPLIED_DELTA_OVERRIDE_VALUE.labels(
+                                kind=str(kind or "unknown"),
+                                symbol=str(symbol or "unknown"),
+                                phase=_delta_obj.phase or "unknown",
+                            ).set(float(_delta_obj.min_conf_delta))
+                    min_conf = _new_conf
+
             _conf_dec = self.orchestrator.check_confidence(ctx, confidence=confidence, min_conf=min_conf)
+            # Plan 1: calibrated meta-gate (SHADOW by default). Replaces the legacy
+            # confidence decision only when mode=CANARY (selected) or ENFORCE; in
+            # SHADOW it logs everything and returns _conf_dec untouched.
+            _conf_dec = self._confidence_meta_gate_decide(
+                legacy_dec=_conf_dec,
+                signal=signal,
+                indicators=indicators,
+                symbol=symbol,
+                kind=kind,
+                direction=direction,
+                sig_ts=sig_ts,
+                confidence=confidence,
+                min_conf=min_conf,
+            )
             if getattr(_conf_dec, "decision", "") == "DENY":
                 _entry = float(_levels.get("entry", 0.0) or 0.0)  # type: ignore[arg-type]
                 _sl = float(_levels.get("sl", 0.0) or 0.0)  # type: ignore[arg-type]

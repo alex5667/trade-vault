@@ -153,7 +153,15 @@ def main() -> None:
                 streams={in_stream: ">"}, count=batch, block=2000,
             )
         except Exception as e:
-            log.warning("XREADGROUP error: %s", e)
+            if "NOGROUP" in str(e):
+                log.warning("NOGROUP error: %s. Attempting to recreate consumer group...", e)
+                try:
+                    rc.xgroup_create(in_stream, group, id="0", mkstream=True)
+                except Exception as ex:
+                    if "BUSYGROUP" not in str(ex):
+                        log.warning("xgroup_create retry failed: %s", ex)
+            else:
+                log.warning("XREADGROUP error: %s", e)
             time.sleep(1)
             continue
 
@@ -162,8 +170,22 @@ def main() -> None:
             for _stream, messages in resp:
                 for msg_id, fields in messages:
                     try:
-                        # Extract delta_z — try multiple field names
+                        # signals:of:inputs publishes a JSON blob in "payload" field.
+                        # Flat field fallback for legacy/test producers.
+                        raw_payload = fields.get("payload")
+                        payload: dict = {}
+                        indicators: dict = {}
+                        if raw_payload:
+                            try:
+                                payload = json.loads(raw_payload)
+                                indicators = payload.get("indicators") or {}
+                            except Exception:
+                                pass
+
+                        # Extract delta_z — indicators first, then payload root, then flat
                         delta_z_raw = (
+                            indicators.get("delta_z") or
+                            payload.get("delta_z") or
                             fields.get("delta_z") or
                             fields.get("z_delta") or
                             fields.get("of_delta_z")
@@ -178,8 +200,13 @@ def main() -> None:
                             ack_ids.append(msg_id)
                             continue
 
-                        # Extract OBI — try multiple field names
+                        # Extract OBI — indicators first, then flat
                         obi_raw = (
+                            indicators.get("lob_obi_5") or
+                            indicators.get("obi_score") or
+                            indicators.get("obi") or
+                            payload.get("obi_score") or
+                            payload.get("obi") or
                             fields.get("obi_score") or
                             fields.get("obi") or
                             fields.get("lob_obi_5") or
@@ -187,21 +214,30 @@ def main() -> None:
                         )
                         obi = _safe_float(obi_raw, float("nan")) if obi_raw else float("nan")
                         if obi != obi:
-                            # OBI missing: still observe delta_z with obi=0 (gate uses delta_z primarily)
+                            # OBI missing: still observe delta_z with obi=0
                             obi = 0.0
 
                         symbol = (
+                            payload.get("symbol") or
                             fields.get("symbol") or
                             fields.get("sym") or "*"
                         ).strip().upper()
 
                         regime = (
+                            indicators.get("market_regime") or
+                            indicators.get("regime") or
+                            payload.get("market_regime") or
+                            payload.get("regime") or
                             fields.get("market_regime") or
                             fields.get("regime") or
                             fields.get("entry_regime") or "*"
                         )
 
-                        ts_ms = int(fields.get("ts_ms", int(time.time() * 1000)))
+                        ts_ms = int(
+                            payload.get("ts_ms") or
+                            fields.get("ts_ms") or
+                            int(time.time() * 1000)
+                        )
 
                         cal.observe(
                             symbol=symbol,

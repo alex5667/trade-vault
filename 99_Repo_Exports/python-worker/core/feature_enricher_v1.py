@@ -108,6 +108,8 @@ _PRODUCER_LABEL: dict[str, str] = {
     "abs_lvl:state:":    "abs_lvl_state",
     "og:consensus:":     "og_consensus",
     "tca:ema:":          "tca_priors",
+    "ctx:hawkes:":       "hawkes_vpin",
+    "liqmap:snapshot:":  "liqmap_snapshot",
 }
 
 _prom_stub_miss_total = None      # Counter enricher_producer_stub_miss_total
@@ -344,6 +346,10 @@ def _snapshot_keys_for_symbol(symbol: str) -> list[str]:
         f"ctx:session_vol:{symbol}",
         # P2 Group H: directional change
         f"ctx:dc:{symbol}",
+        # liqmap snapshots — JSON strings on worker-1 redis, safe to MGET
+        f"liqmap:snapshot:{symbol}:5m",
+        f"liqmap:snapshot:{symbol}:1h",
+        f"liqmap:snapshot:{symbol}:4h",
         # NOTE: cvd:state, abs_lvl:state, og:consensus, ctx:breadth:* are HASH keys
         # (HGETALL, not GET). Do NOT add them here — MGET returns WRONGTYPE for HASH
         # keys and would store nil → wasted slot. They're read via _load_hash_snapshot.
@@ -546,8 +552,17 @@ def _enrich_external_ctx(redis_client: Any) -> dict[str, float]:
         if age > 0:
             out["cmc_data_age_ms"] = age
         out["cmc_data_stale"] = stale
-        if cmc and cmc.get("total_volume_24h_usd") is not None:
-            out["cmc_total_volume_usd"] = _safe_float(cmc.get("total_volume_24h_usd")) / 1e9
+        if cmc:
+            if cmc.get("total_volume_24h_usd") is not None:
+                out["cmc_total_volume_usd"] = _safe_float(cmc.get("total_volume_24h_usd")) / 1e9
+            # field name written by cmc_provider_v1: active_cryptocurrencies
+            _active = (
+                cmc.get("active_cryptocurrencies")
+                or cmc.get("active_cryptos")
+                or cmc.get("active_currencies")
+            )
+            if _active is not None:
+                out["cmc_active_cryptos"] = _safe_float(_active)
 
         _DL_MAX_LAG = 3_600_000
         dl = _load_hash_snapshot(redis_main, "runtime:provider:defillama:eth_dex", _DL_MAX_LAG)
@@ -2128,6 +2143,104 @@ def _enrich_tca_priors(symbol: str, redis_client: Any) -> dict[str, float]:
     return out
 
 
+def _enrich_hawkes_vpin(symbol: str, redis_client: Any) -> dict[str, float]:
+    """Hawkes-process intensities + VPIN toxicity from `ctx:hawkes:{symbol}` HASH.
+
+    Producer: orderflow_services/of_hawkes_vpin_v1.py — writes HSET every ~10s.
+    TTL on the key is 30s. Feature set mirrors the output dict in of_hawkes_vpin_v1.py.
+    """
+    if not symbol or redis_client is None:
+        return {}
+    data = _load_hash_snapshot(redis_client, f"ctx:hawkes:{symbol}", 60_000)
+    if not data:
+        return {}
+    out: dict[str, float] = {}
+    for k in (
+        "hawkes_dt_s",
+        "hawkes_taker_buy_lam", "hawkes_taker_sell_lam",
+        "hawkes_cancel_bid_lam", "hawkes_cancel_ask_lam",
+        "hawkes_limit_add_lam",
+        "hawkes_taker_lam", "hawkes_cancel_lam", "hawkes_churn_lam",
+        "hawkes_limit_add_bid_lam", "hawkes_limit_add_ask_lam",
+        "hawkes_limit_add_imbalance",
+        "added_bid_rate_ema", "added_ask_rate_ema", "added_total_rate_ema",
+        "vpin_tox_ema", "vpin_tox_z",
+        "vpin_tox_1m", "vpin_tox_5m", "vpin_tox_slope",
+        "hawkes_buy_sell_lam_ratio", "hawkes_cancel_imbalance",
+        "hawkes_S_taker_buy", "hawkes_S_taker_sell",
+        "hawkes_S_cancel_bid", "hawkes_S_cancel_ask",
+        "hawkes_S_limit_add",
+    ):
+        v = data.get(k)
+        if v is not None:
+            out[k] = _safe_float(v)
+    return out
+
+
+def _enrich_liqmap_snapshot(
+    symbol: str,
+    redis_client: Any,
+    indicators: dict[str, Any] | None = None,
+) -> dict[str, float]:
+    """Liqmap window features from `liqmap:snapshot:{symbol}:{window}` JSON strings.
+
+    Parses the raw `levels` array via core.liqmap_features_v1 to produce the
+    canonical `liqmap_{w}_near_short_usd`, `liqmap_{w}_near_long_usd`,
+    `liqmap_{w}_dist_up_bps`, `liqmap_{w}_dist_dn_bps` keys that
+    of_confirm_engine Phase 4.7 reads.
+
+    Requires current price — read from indicators["entry"] (preferred) or
+    indicators["price"]. Falls back to flat-field pass-through when price unavailable.
+
+    Keys are pre-primed via _prime_snapshot_cache (MGET), so no individual r.get here.
+    """
+    if not symbol or redis_client is None:
+        return {}
+    _inds = indicators or {}
+    price = _safe_float(
+        _inds.get("entry") or _inds.get("price") or _inds.get("mid_price")
+    )
+    _window_lag = {"5m": 900_000, "1h": 5_400_000, "4h": 5_400_000}
+    now_ms = _now_ms()
+    out: dict[str, float] = {}
+
+    for window in ("5m", "1h", "4h"):
+        key = f"liqmap:snapshot:{symbol}:{window}"
+        raw_snap = _load_json_snapshot(redis_client, key, _window_lag[window])
+        if not raw_snap:
+            continue
+
+        # Parse + compute via liqmap_features_v1 when price is available.
+        # This produces near_short_usd, near_long_usd, dist_up_bps, dist_dn_bps.
+        if price > 0.0:
+            try:
+                from core.liqmap_features_v1 import (
+                    compute_liqmap_features,
+                    parse_liqmap_snapshot_v1,
+                )
+                raw_json = json.dumps(raw_snap) if isinstance(raw_snap, dict) else str(raw_snap)
+                snap_obj = parse_liqmap_snapshot_v1(raw_json, expected_symbol=symbol, expected_window=window)
+                feats = compute_liqmap_features(
+                    snap_obj,
+                    price=price,
+                    windows=(window,),
+                    near_band_bps=20.0,
+                    peak_min_share=0.05,
+                    now_ms=now_ms,
+                )
+                out.update(feats)
+            except Exception:
+                pass
+
+        # Extras that liqmap_features_v1 doesn't produce
+        for extra_k in ("calib_n", "notional_thr", "geom_monitor_hit"):
+            v = raw_snap.get(extra_k)
+            if v is not None:
+                out.setdefault(f"liq_{extra_k}", _safe_float(v))
+        break  # first non-empty window is canonical
+    return out
+
+
 # ── Top-level enricher ────────────────────────────────────────────────────────
 
 
@@ -2188,6 +2301,8 @@ def enrich_indicators(
         (_enrich_abs_lvl_ctx, (symbol, redis_client)),
         (_enrich_og_consensus, (symbol, redis_client)),
         (_enrich_tca_priors, (symbol, redis_client)),
+        (_enrich_hawkes_vpin, (symbol, redis_client)),
+        (_enrich_liqmap_snapshot, (symbol, redis_client, indicators)),
         (_enrich_atr_aliases, (indicators,)),
         (_enrich_misc_aliases, (indicators,)),
     ):

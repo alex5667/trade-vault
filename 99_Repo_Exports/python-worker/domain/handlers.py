@@ -73,6 +73,84 @@ def _parse_boolish(v: Any, default: bool) -> bool:
     except Exception:
         return bool(default)
 
+
+def _parse_boolish_optional(v: Any) -> bool | None:
+    """Parse bool-like value. None means missing/unparseable."""
+    try:
+        if v is None:
+            return None
+        if isinstance(v, bool):
+            return bool(v)
+        if isinstance(v, (int, float)):
+            return int(v) != 0
+        if isinstance(v, str):
+            s = v.strip().lower()
+            if s in {"1", "true", "yes", "on"}:
+                return True
+            if s in {"0", "false", "no", "off"}:
+                return False
+        return bool(v)
+    except Exception:
+        return None
+
+
+def _extract_edge_directional_bias_from_payload(
+    payload: Any,
+) -> tuple[float | None, bool | None, str | None]:
+    """Extract EdgeCostGate directional-bias provenance from signal_payload.
+
+    Source priority:
+      1) signal_payload.indicators.edge_directional_bias_*
+      2) signal_payload.config_snapshot.indicators.edge_directional_bias_*
+
+    Returns (value, countertrend, source). None means field missing.
+    """
+    try:
+        if isinstance(payload, str):
+            try:
+                import json as _json
+                payload = _json.loads(payload)
+            except Exception:
+                payload = {}
+
+        if not isinstance(payload, dict):
+            return None, None, None
+
+        indicators = payload.get("indicators") or {}
+        if not isinstance(indicators, dict):
+            indicators = {}
+
+        if not indicators:
+            cfg = payload.get("config_snapshot") or {}
+            if isinstance(cfg, dict):
+                indicators = cfg.get("indicators") or {}
+                if not isinstance(indicators, dict):
+                    indicators = {}
+
+        raw_value = indicators.get("edge_directional_bias_value")
+        raw_countertrend = indicators.get("edge_directional_bias_countertrend")
+        raw_source = indicators.get("edge_directional_bias_source")
+
+        value: float | None = None
+        if raw_value is not None:
+            try:
+                value_f = float(raw_value)
+                if math.isfinite(value_f):
+                    value = value_f
+            except Exception:
+                value = None
+
+        countertrend = _parse_boolish_optional(raw_countertrend)
+
+        source: str | None = None
+        if raw_source is not None:
+            source = str(raw_source or "none").strip()[:16] or "none"
+
+        return value, countertrend, source
+
+    except Exception:
+        return None, None, None
+
 from domain.calculators import (
     calc_missed_profit,
     calc_trailing_sl,
@@ -285,6 +363,38 @@ def _enrich_closed_from_pos(closed: TradeClosed, pos: PositionState, exit_px: fl
     closed.atr_sel_tf = str(profile.get("atr_tf") or getattr(pos, "atr_tf_ms", "") or "")
     closed.atr_sel_src = str(profile.get("src") or getattr(pos, "atr_source", "") or "")
     closed.atr_sel_age_ms = int(profile.get("atr_age_ms") or getattr(pos, "atr_age_ms", 0) or 0)
+
+    # edge_directional_bias: if closed still holds defaults (0.0/"none"),
+    # pull from signal_payload.indicators so redis_repo has the real values.
+    # stamp_closed_meta handles the pos-attr path; this covers the case where
+    # the gate stamped indicators but pos attrs were never set (e.g. position
+    # loaded from Redis hash after restart).
+    try:
+        _cur_bv = float(getattr(closed, "edge_directional_bias_value", 0.0) or 0.0)
+        _cur_bsrc = str(getattr(closed, "edge_directional_bias_source", "none") or "none").strip().lower()
+        if _cur_bsrc in ("", "none", "na", "null") and abs(_cur_bv) <= 1e-12:
+            _sp = pos.signal_payload if isinstance(pos.signal_payload, dict) else {}
+            _ind = _sp.get("indicators") or {}
+            if not isinstance(_ind, dict):
+                _ind = {}
+            if not _ind:
+                _cs = _sp.get("config_snapshot") or {}
+                _ind = (_cs.get("indicators") or {}) if isinstance(_cs, dict) else {}
+            _ind_src = str(_ind.get("edge_directional_bias_source") or "none").strip().lower()
+            if isinstance(_ind, dict) and _ind_src not in ("", "none", "na", "null"):
+                try:
+                    _bv2 = float(_ind.get("edge_directional_bias_value") or 0.0)
+                    closed.edge_directional_bias_value = _bv2 if math.isfinite(_bv2) else 0.0
+                    _raw_ct = _ind.get("edge_directional_bias_countertrend")
+                    if isinstance(_raw_ct, str):
+                        closed.edge_directional_bias_countertrend = _raw_ct.strip().lower() in ("1", "true", "yes", "on")
+                    elif _raw_ct is not None:
+                        closed.edge_directional_bias_countertrend = bool(_raw_ct)
+                    closed.edge_directional_bias_source = str(_ind.get("edge_directional_bias_source") or "none")[:16]
+                except Exception:
+                    pass
+    except Exception:
+        pass
 
     return closed
 
@@ -2361,6 +2471,37 @@ def finalize_trade(
             v = getattr(pos, name, None)
             if v is not None: setattr(closed, name, v)
         except Exception: pass
+
+    # EdgeCostGate directional p_min bias provenance (P0 fix 2026-05-30).
+    # TradeClosed has defaults (0.0/"none"). We treat those as missing and
+    # prefer signal_payload.indicators which is stamped by _stamp_bias_on_ctx.
+    # Without this transfer the autocal sees bias_applied=0 for every closed
+    # trade and the phase ladder never advances past OBSERVE.
+    try:
+        _bv, _bct, _bsrc = _extract_edge_directional_bias_from_payload(
+            getattr(pos, "signal_payload", {}) or {}
+        )
+        # Prefer payload if pos top-level attr is also default/missing.
+        _pos_bv = getattr(pos, "edge_directional_bias_value", None)
+        _pos_bsrc = getattr(pos, "edge_directional_bias_source", None)
+        if _pos_bv not in (None, 0, 0.0) or _pos_bsrc not in (None, "", "none"):
+            # pos was stamped directly (rare path) — prefer it over payload.
+            if _pos_bv is not None:
+                _bv = float(_pos_bv)
+            _pos_bct = getattr(pos, "edge_directional_bias_countertrend", None)
+            if _pos_bct is not None:
+                _bct = bool(_pos_bct)
+            if _pos_bsrc is not None:
+                _bsrc = str(_pos_bsrc)[:16]
+
+        if _bv is not None:
+            closed.edge_directional_bias_value = _bv
+        if _bct is not None:
+            closed.edge_directional_bias_countertrend = _bct
+        if _bsrc is not None:
+            closed.edge_directional_bias_source = _bsrc
+    except Exception:
+        pass
 
     # Retroactive TP touches
     try:

@@ -1,0 +1,71 @@
+services:
+  counter-trend-cal:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    image: scanner-python-worker:latest
+    container_name: scanner-counter-trend-cal
+    restart: unless-stopped
+    environment:
+      - PYTHONUNBUFFERED=1
+      # 2026-05-30 counter-trend regime calibrator (audit_counter_trend_gate
+      # _root_cause_2026_05_30): SHORT × trending_bull = -13.41R/24h.
+      # Service: rolling 7d expectancy per (direction × regime); publishes
+      # `autocal:counter_trend:state` with enforce flag per bucket. Reader
+      # — `services/counter_trend_runtime_overrides.py` — подменяет ENV
+      # defaults для EntryPolicyGate (см. COUNTER_TREND_HARD_VETO_*).
+      - CT_CAL_ENABLE=${CT_CAL_ENABLE:-1}
+      # Auto-promote allow flag. DEFAULT 0 — buckets stay enforce=0
+      # (shadow). Flip to 1 после burn-in 7d (counter-trend leak подтверждён).
+      - CT_CAL_ENFORCE=${CT_CAL_ENFORCE:-0}
+      # Analysis window + thresholds.
+      - CT_CAL_INTERVAL_SEC=${CT_CAL_INTERVAL_SEC:-900}
+      - CT_CAL_WINDOW_H=${CT_CAL_WINDOW_H:-168.0}
+      - CT_CAL_MIN_SAMPLES=${CT_CAL_MIN_SAMPLES:-30}
+      - CT_CAL_BLOCK_AVG_R_MAX=${CT_CAL_BLOCK_AVG_R_MAX:--0.5}
+      - CT_CAL_DWELL_H=${CT_CAL_DWELL_H:-24.0}
+      - CT_CAL_INCLUDE_VIRTUAL=${CT_CAL_INCLUDE_VIRTUAL:-1}
+      - CT_CAL_STREAM=trades:closed
+      - CT_CAL_REDIS_URL=redis://redis-worker-1:6379/0
+      - CT_CAL_HMAC_SECRET=${CT_CAL_HMAC_SECRET:-${RECS_HMAC_SECRET:-}}
+      - CT_CAL_PROM_PORT=9903
+      - TZ=UTC
+    ports:
+      - "9903:9903"
+    depends_on:
+      redis-worker-1:
+        condition: service_healthy
+    networks:
+      - scanner-core
+      - scanner-infra
+    deploy:
+      resources:
+        limits:
+          memory: 384M
+          cpus: '0.2'
+        reservations:
+          memory: 96M
+    command:
+      - sh
+      - -c
+      - |
+        sleep 15
+        if [ "$${CT_CAL_ENABLE:-1}" = "0" ]; then
+          echo "CT_CAL_ENABLE=0 — idle (set =1 to start)"
+          while true; do sleep 3600; done
+        fi
+        python -m orderflow_services.counter_trend_regime_calibrator_v1
+    labels:
+      - com.scanner.service=counter-trend-cal
+      - com.scanner.description=Counter-trend regime block-list calibrator (audit 2026-05-30)
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '3'
+
+networks:
+  scanner-core:
+    external: true
+  scanner-infra:
+    external: true

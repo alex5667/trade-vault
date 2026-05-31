@@ -661,6 +661,16 @@ def microprice_ret_250ms(
     return None
 
 
+_BAR_FAST_WINDOW = 5  # bars for fast vol window (vol_expansion_score)
+
+
+def _gk_vol_subset(bars: list[OHLCBar], n: int) -> float:
+    """Garman-Klass vol over the last `n` bars. Returns 0.0 if insufficient data."""
+    subset = bars[-n:] if len(bars) >= n else bars
+    result = ohlc_vol_estimators(subset)
+    return result.get("garman_klass_vol") or 0.0
+
+
 def compute_all(
     *,
     prices: list[float],
@@ -674,8 +684,18 @@ def compute_all(
 ) -> dict[str, float]:
     """Compute all v2 features at once. Missing inputs → feature absent."""
     out: dict[str, float] = {}
-    vol_feats = ohlc_vol_estimators(bars or [])
+    _bars = bars or []
+    vol_feats = ohlc_vol_estimators(_bars)
     out.update(vol_feats)
+    # vol_ratio_fast_slow: GK(last 5 bars) / GK(all bars) → expansion/compression score
+    if len(_bars) >= _BAR_FAST_WINDOW + 1:
+        _vol_fast = _gk_vol_subset(_bars, _BAR_FAST_WINDOW)
+        _vol_slow = out.get("garman_klass_vol") or 0.0
+        if _vol_fast > 0.0 and _vol_slow > 0.0:
+            _vrf = _vol_fast / _vol_slow
+            out["vol_ratio_fast_slow"] = round(_vrf, 6)
+            out["vol_expansion_score"] = max(0.0, round(_vrf - 1.0, 6))
+            out["vol_compression_score"] = max(0.0, round(1.0 - _vrf, 6))
     out["amihud_illiquidity"] = amihud_illiquidity(bars or [])
     out["pin_estimate"] = pin_estimate_from_flow(buy_vols or [], sell_vols or [])
     if prices and signed_vols:

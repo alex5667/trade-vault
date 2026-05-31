@@ -379,6 +379,30 @@ class TradeCloseWriter:
         with contextlib.suppress(Exception):
             stamp_closed_trade_horizon_from_position(pos, closed)
 
+        # --- EdgeCostGate directional bias provenance (P0 fix 2026-05-30) ---
+        # Read from signal_payload.indicators (stamped by EdgeCostGate._apply_directional_bias)
+        # and copy onto TradeClosed top-level fields so they are XADD'd flat to
+        # trades:closed for `edge_directional_bias_autocal_v1` to consume.
+        try:
+            sp = getattr(pos, "signal_payload", {}) or {}
+            if isinstance(sp, dict):
+                ind = sp.get("indicators") or {}
+                if isinstance(ind, dict):
+                    bv = ind.get("edge_directional_bias_value")
+                    if bv is not None:
+                        try:
+                            closed.edge_directional_bias_value = float(bv)
+                        except (TypeError, ValueError):
+                            pass
+                    bc = ind.get("edge_directional_bias_countertrend")
+                    if bc is not None:
+                        closed.edge_directional_bias_countertrend = bool(bc)
+                    bs = ind.get("edge_directional_bias_source")
+                    if bs is not None:
+                        closed.edge_directional_bias_source = str(bs)
+        except Exception:
+            pass
+
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------

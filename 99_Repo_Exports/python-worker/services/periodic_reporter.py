@@ -2167,7 +2167,7 @@ class PeriodicReporter:
                 f"ExitEff(win): <b>{exit_eff:.2f}</b> | Giveback(win): <b>{giveback_avg:.2f}</b> | Missed(SL_AFTER_TP): <b>{missed_avg:.2f}</b>",
                 "",
                 "<b>📐 Setup Stats (ATR)</b>",
-                f"Avg SL: <b>{float(m.get('avg_sl_atr', 0.0)):.2f} ATR</b> | Avg TP1: <b>{float(m.get('avg_tp_atr', 0.0)):.2f} ATR</b>"
+                f"Avg SL: <b>{float(m.get('avg_sl_atr', 0.0)):.2f} ATR</b> ({float(m.get('avg_sl_bps', 0.0)):.1f} bps / {float(m.get('avg_sl_margin_pct', 0.0)):.2f}% от ГО) | Avg TP1: <b>{float(m.get('avg_tp_atr', 0.0)):.2f} ATR</b>"
                 + (
                     # RR displayed as TP1/SL (conventional: higher = better). Warn if SL > TP1.
                     (f" | RR(TP1/SL): <b>{float(m.get('avg_tp_atr', 0.0)) / max(float(m.get('avg_sl_atr', 0.0)), 1e-9):.2f}</b> ⚠️ (SL&gt;TP1)"

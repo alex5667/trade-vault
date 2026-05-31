@@ -371,6 +371,14 @@ class TradeClosed:
     meta_enforce_salt: str = ""
     meta_veto: int = 0
 
+    # EdgeCostGate directional p_min bias provenance (P0 fix 2026-05-30).
+    # Set by EdgeCostGate._apply_directional_bias when bias > 0 so the
+    # edge_directional_bias_autocal_v1 service can split baseline (bias=0)
+    # from applied (bias>0) buckets on the realized R distribution.
+    edge_directional_bias_value: float = 0.0
+    edge_directional_bias_countertrend: bool = False
+    edge_directional_bias_source: str = "none"  # "none" | "env" | "autocal"
+
     # telemetry/health
     _health_snapshot: dict[str, Any] | None = None
 

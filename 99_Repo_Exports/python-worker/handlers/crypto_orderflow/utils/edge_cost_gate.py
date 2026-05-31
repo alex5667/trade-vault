@@ -933,6 +933,43 @@ def _load_exec_health_rollups(
     return is_p95, perm_max, real_min, perm_delta
 
 
+def _stamp_bias_on_ctx(
+    ctx: Any, *, value: float, countertrend: bool, source: str,
+) -> None:
+    """Attach directional-bias provenance onto the signal ctx (fail-open).
+
+    Writes to two places so the value survives any downstream propagation
+    path:
+
+      1. setattr on ctx (used by gates that read ctx directly);
+      2. ctx.indicators dict — this dict is the same reference embedded
+         in payload["indicators"] / signal_payload.indicators, so the
+         value lands in `trades:closed.signal_payload.indicators` and the
+         `edge_directional_bias_autocal_v1` service can read
+         `edge_directional_bias_value` off the closed-trade record.
+
+    Without (2) the autocal sees `bias_applied=0.0` for every trade and
+    the (direction×regime) phase ladder can never advance past OBSERVE.
+    Boundary helper — must never raise.
+    """
+    if ctx is None:
+        return
+    try:
+        setattr(ctx, "edge_directional_bias_value", value)
+        setattr(ctx, "edge_directional_bias_countertrend", countertrend)
+        setattr(ctx, "edge_directional_bias_source", source)
+    except Exception:
+        pass
+    try:
+        ind = getattr(ctx, "indicators", None)
+        if isinstance(ind, dict):
+            ind["edge_directional_bias_value"] = value
+            ind["edge_directional_bias_countertrend"] = countertrend
+            ind["edge_directional_bias_source"] = source
+    except Exception:
+        pass
+
+
 @dataclass(frozen=True)
 class EdgeCostGateDecision:
     """
@@ -993,6 +1030,15 @@ class EdgeCostGateDecision:
     exec_perm_impact_delta_sec: int = 0
     exec_health_mode: str = ""
     exec_health_tighten_add_bps: float = 0.0
+
+    # --- Directional p_min bias provenance (P0 fix 2026-05-30) ---
+    # Captures what _apply_directional_bias() actually added on top of the
+    # calibrator base. Needed by edge_directional_bias_autocal_v1 to
+    # distinguish baseline (bias=0) from applied (bias>0) trades on the
+    # downstream `trades:closed` read path.
+    edge_directional_bias_value: float = 0.0
+    edge_directional_bias_countertrend: bool = False
+    edge_directional_bias_source: str = "none"  # "none" | "env" | "autocal"
 
     # --- Compatibility Properties ----
     @property
@@ -1415,7 +1461,39 @@ class EdgeCostGate:
                     else self.directional_bias_short
                 )
 
+            # Autocal override: when the EDB autocalibrator has advanced the
+            # (direction × regime) bucket past OBSERVE, its bias_value replaces
+            # the static ENV default. Only consulted for counter-trend cells —
+            # autocal does not manage trend-aligned bias. Fail-open: reader
+            # returns None on any error and we keep the ENV value.
+            # See orderflow_services/edge_directional_bias_autocal_v1.py and
+            # services/edge_directional_bias_overrides.py.
+            bias_source = "env"
+            if countertrend:
+                try:
+                    from services.edge_directional_bias_overrides import (
+                        get_bias_override,
+                    )
+                    _regime_for_ac = (
+                        str(getattr(ctx, "market_regime", "") or "")
+                        or str(getattr(ctx, "regime", "") or "")
+                    )
+                    override = get_bias_override(
+                        direction=sd, regime=_regime_for_ac, countertrend=True,
+                    )
+                    if override is not None:
+                        bias = override
+                        bias_source = "autocal"
+                except Exception:
+                    pass
+
             if bias <= 0.0:
+                # Stamp baseline marker so trades:closed → autocal can still
+                # distinguish "bias machinery active but zero" (baseline) from
+                # "bias machinery never ran" (legacy/missing field).
+                _stamp_bias_on_ctx(
+                    ctx, value=0.0, countertrend=countertrend, source="none",
+                )
                 return base
 
             # TAU_CEIL is the calibrator's hard upper bound; honour it here so
@@ -1426,6 +1504,18 @@ class EdgeCostGate:
             except Exception:
                 tau_ceil = 0.80
             new_p_min = min(tau_ceil, max(base, base + bias))
+
+            # Stamp the actually-applied bias onto ctx so downstream
+            # signal_payload → trades:closed carries the provenance triplet
+            # (value, countertrend, source). Source distinguishes ENV defaults
+            # from autocal-managed buckets; countertrend captures whether the
+            # SMT-leader was opposite-sided at the time of decision.
+            _stamp_bias_on_ctx(
+                ctx,
+                value=new_p_min - base,
+                countertrend=countertrend,
+                source=bias_source,
+            )
 
             # Observability: bucket bias to keep label cardinality bounded.
             if edge_directional_bias_applied_total is not None:
