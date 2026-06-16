@@ -41305,3 +41305,40 @@ Please make sure you have the correct access rights
 and the repository exists.
 2026-06-16 05:45:04 - Ошибка при отправке в GitHub (git push).
 2026-06-16 05:45:04 - Выполняется rclone sync в Google Drive...
+2026/06/16 05:56:55 NOTICE: .smart-env/multi/99_Repo_Exports_logs_app-2026-03-12_23-22-37_txt.ajson: Duplicate object found in destination - ignoring
+2026/06/16 05:56:55 NOTICE: .smart-env/multi/99_Repo_Exports_logs_app-2026-03-13_07-25-10_txt.ajson: Duplicate object found in destination - ignoring
+2026/06/16 05:56:55 NOTICE: .smart-env/multi/99_Repo_Exports_logs_app-2026-03-13_07-30-27_txt.ajson: Duplicate object found in destination - ignoring
+2026/06/16 05:56:55 NOTICE: .smart-env/multi/99_Repo_Exports_logs_app-2026-03-13_07-30-56_txt.ajson: Duplicate object found in destination - ignoring
+2026/06/16 05:56:55 NOTICE: .smart-env/multi/99_Repo_Exports_logs_app-2026-03-13_07-49-55_txt.ajson: Duplicate object found in destination - ignoring
+2026/06/16 05:56:55 NOTICE: .smart-env/multi/trade-project_99_Repo_Exports_logs_app-2026-03-08_21-14-57_txt.ajson: Duplicate object found in destination - ignoring
+2026/06/16 05:56:55 NOTICE: .smart-env/multi/trade-project_99_Repo_Exports_logs_app-2026-03-08_21-55-41_txt.ajson: Duplicate object found in destination - ignoring
+2026/06/16 05:56:55 NOTICE: .smart-env/multi/trade-project_99_Repo_Exports_logs_app-2026-03-08_21-56-07_txt.ajson: Duplicate object found in destination - ignoring
+2026/06/16 05:56:55 NOTICE: .smart-env/multi/trade-project_99_Repo_Exports_logs_app-2026-03-08_21-56-28_txt.ajson: Duplicate object found in destination - ignoring
+2026/06/16 05:56:55 NOTICE: .smart-env/multi/trade-project_99_Repo_Exports_logs_app-2026-03-08_21-56-50_txt.ajson: Duplicate object found in destination - ignoring
+2026/06/16 05:56:55 NOTICE: .smart-env/multi/trade-project_99_Repo_Exports_logs_app-2026-03-08_21-57-14_txt.ajson: Duplicate object found in destination - ignoring
+2026/06/16 05:56:55 NOTICE: .smart-env/multi/trade-project_99_Repo_Exports_logs_app-2026-03-18_03-30-47_txt.ajson: Duplicate object found in destination - ignoring
+2026/06/16 05:56:55 NOTICE: .smart-env/multi/trade-project_99_Repo_Exports_logs_app-2026-03-18_03-47-32_txt.ajson: Duplicate object found in destination - ignoring
+2026/06/16 05:56:55 NOTICE: .smart-env/multi/trade-project_99_Repo_Exports_logs_app-2026-03-18_03-54-59_txt.ajson: Duplicate object found in destination - ignoring
+2026/06/16 05:56:55 NOTICE: .smart-env/multi/trade-project_99_Repo_Exports_logs_app-2026-03-18_04-04-22_txt.ajson: Duplicate object found in destination - ignoring
+2026/06/16 05:56:55 NOTICE: .smart-env/multi/trade-project_99_Repo_Exports_logs_app-2026-03-18_04-11-56_txt.ajson: Duplicate object found in destination - ignoring
+2026/06/16 05:56:55 NOTICE: .smart-env/multi/trade-project_99_Repo_Exports_logs_app-2026-03-18_04-42-53_txt.ajson: Duplicate object found in destination - ignoring
+2026/06/16 05:56:55 NOTICE: .smart-env/multi/trade-project_99_Repo_Exports_logs_app-2026-03-18_04-43-55_txt.ajson: Duplicate object found in destination - ignoring
+2026/06/16 05:56:55 NOTICE: .smart-env/multi/trade-project_99_Repo_Exports_logs_app-2026-03-18_04-44-51_txt.ajson: Duplicate object found in destination - ignoring
+2026/06/16 05:56:55 NOTICE: .smart-env/multi/trade-project_99_Repo_Exports_logs_app-2026-03-18_04-46-51_txt.ajson: Duplicate object found in destination - ignoring
+2026/06/16 05:56:55 NOTICE: .smart-env/multi/trade-project_99_Repo_Exports_logs_app-2026-03-18_04-47-53_txt.ajson: Duplicate object found in destination - ignoring
+2026/06/16 05:56:55 NOTICE: .smart-env/multi/trade-project_99_Repo_Exports_logs_app-2026-03-18_04-48-55_txt.ajson: Duplicate object found in destination - ignoring
+2026/06/16 05:56:55 NOTICE: .smart-env/multi/trade-project_99_Repo_Exports_logs_app-2026-03-18_04-49-56_txt.ajson: Duplicate object found in destination - ignoring
+2026/06/16 05:56:55 NOTICE: .smart-env/multi/trade-project_99_Repo_Exports_logs_app-2026-03-18_04-50-52_txt.ajson: Duplicate object found in destination - ignoring
+2026/06/16 05:56:55 NOTICE: .smart-env/multi/trade-project_99_Repo_Exports_logs_app-2026-03-18_04-51-52_txt.ajson: Duplicate object found in destination - ignoring
+2026/06/16 05:56:55 NOTICE: .smart-env/multi/trade-project_99_Repo_Exports_logs_app-2026-03-18_04-52-52_txt.ajson: Duplicate object found in destination - ignoring
+2026/06/16 05:56:55 NOTICE: .smart-env/multi/trade-project_99_Repo_Exports_logs_app-2026-03-18_04-53-53_txt.ajson: Duplicate object found in destination - ignoring
+2026/06/16 05:56:55 NOTICE: .smart-env/multi/trade-project_99_Repo_Exports_logs_app-2026-03-18_04-54-50_txt.ajson: Duplicate object found in destination - ignoring
+2026/06/16 05:56:55 NOTICE: .smart-env/multi/trade-project_99_Repo_Exports_logs_app-2026-03-18_04-55-48_txt.ajson: Duplicate object found in destination - ignoring
+2026/06/16 05:56:55 NOTICE: .smart-env/multi/trade-project_99_Repo_Exports_logs_app-2026-03-18_04-56-50_txt.ajson: Duplicate object found in destination - ignoring
+2026/06/16 05:56:55 NOTICE: .smart-env/multi/trade-project_99_Repo_Exports_logs_app-2026-03-18_04-57-50_txt.ajson: Duplicate object found in destination - ignoring
+2026/06/16 05:56:55 NOTICE: .smart-env/multi/trade-project_99_Repo_Exports_logs_app-2026-03-18_04-58-50_txt.ajson: Duplicate object found in destination - ignoring
+2026/06/16 05:56:55 NOTICE: .smart-env/multi/trade-project_99_Repo_Exports_logs_app-2026-03-18_06-28-52_txt.ajson: Duplicate object found in destination - ignoring
+2026/06/16 05:56:55 NOTICE: .smart-env/multi/trade-project_99_Repo_Exports_logs_app-2026-03-18_06-36-57_txt.ajson: Duplicate object found in destination - ignoring
+2026/06/16 05:56:55 NOTICE: .smart-env/multi/trade-project_99_Repo_Exports_logs_app-2026-03-18_06-37-06_txt.ajson: Duplicate object found in destination - ignoring
+Terminated
+2026-06-16 06:05:54 - Ошибка при выполнении rclone sync.
