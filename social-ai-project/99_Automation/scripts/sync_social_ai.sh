@@ -25,7 +25,7 @@ if [ ! -d "$REPO_DIR" ]; then
 fi
 
 # --- 1. Экспорт markdown из репозитория в vault (зеркало, с удалением исчезнувших) ---
-rsync -a --delete --prune-empty-dirs \
+rsync -a --delete --delete-excluded --prune-empty-dirs \
     --exclude='.git/***' \
     --exclude='node_modules/***' \
     --exclude='.claude/***' \
