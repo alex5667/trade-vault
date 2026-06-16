@@ -40996,3 +40996,300 @@ Details:
 , rateLimitExceeded
 2026-06-14 06:29:55 - Ошибка при выполнении rclone sync.
 2026-06-15 05:45:01 - Запуск скрипта синхронизации...
+Auto packing the repository in background for optimum performance.
+See "git help gc" for manual housekeeping.
+[main 592be532d] Auto-sync vault notes 2026-06-15 05:45:22
+ 35160 files changed, 90737 insertions(+), 182481 deletions(-)
+ create mode 100644 99_Automation/logs/update_2026-06-15_03-37-06.log
+2026-06-15 05:45:27 - Выполняется git push...
+git@github.com: Permission denied (publickey).
+fatal: Could not read from remote repository.
+
+Please make sure you have the correct access rights
+and the repository exists.
+2026-06-15 05:45:28 - Ошибка при отправке в GitHub (git push).
+2026-06-15 05:45:28 - Выполняется rclone sync в Google Drive...
+2026/06/15 05:52:53 NOTICE: .smart-env/multi/99_Repo_Exports_logs_app-2026-03-12_23-22-37_txt.ajson: Duplicate object found in destination - ignoring
+2026/06/15 05:52:53 NOTICE: .smart-env/multi/99_Repo_Exports_logs_app-2026-03-13_07-25-10_txt.ajson: Duplicate object found in destination - ignoring
+2026/06/15 05:52:53 NOTICE: .smart-env/multi/99_Repo_Exports_logs_app-2026-03-13_07-30-27_txt.ajson: Duplicate object found in destination - ignoring
+2026/06/15 05:52:53 NOTICE: .smart-env/multi/99_Repo_Exports_logs_app-2026-03-13_07-30-56_txt.ajson: Duplicate object found in destination - ignoring
+2026/06/15 05:52:53 NOTICE: .smart-env/multi/99_Repo_Exports_logs_app-2026-03-13_07-49-55_txt.ajson: Duplicate object found in destination - ignoring
+2026/06/15 05:52:53 NOTICE: .smart-env/multi/trade-project_99_Repo_Exports_logs_app-2026-03-08_21-14-57_txt.ajson: Duplicate object found in destination - ignoring
+2026/06/15 05:52:53 NOTICE: .smart-env/multi/trade-project_99_Repo_Exports_logs_app-2026-03-08_21-55-41_txt.ajson: Duplicate object found in destination - ignoring
+2026/06/15 05:52:53 NOTICE: .smart-env/multi/trade-project_99_Repo_Exports_logs_app-2026-03-08_21-56-07_txt.ajson: Duplicate object found in destination - ignoring
+2026/06/15 05:52:53 NOTICE: .smart-env/multi/trade-project_99_Repo_Exports_logs_app-2026-03-08_21-56-28_txt.ajson: Duplicate object found in destination - ignoring
+2026/06/15 05:52:53 NOTICE: .smart-env/multi/trade-project_99_Repo_Exports_logs_app-2026-03-08_21-56-50_txt.ajson: Duplicate object found in destination - ignoring
+2026/06/15 05:52:53 NOTICE: .smart-env/multi/trade-project_99_Repo_Exports_logs_app-2026-03-08_21-57-14_txt.ajson: Duplicate object found in destination - ignoring
+2026/06/15 05:52:53 NOTICE: .smart-env/multi/trade-project_99_Repo_Exports_logs_app-2026-03-18_03-30-47_txt.ajson: Duplicate object found in destination - ignoring
+2026/06/15 05:52:53 NOTICE: .smart-env/multi/trade-project_99_Repo_Exports_logs_app-2026-03-18_03-47-32_txt.ajson: Duplicate object found in destination - ignoring
+2026/06/15 05:52:53 NOTICE: .smart-env/multi/trade-project_99_Repo_Exports_logs_app-2026-03-18_03-54-59_txt.ajson: Duplicate object found in destination - ignoring
+2026/06/15 05:52:53 NOTICE: .smart-env/multi/trade-project_99_Repo_Exports_logs_app-2026-03-18_04-04-22_txt.ajson: Duplicate object found in destination - ignoring
+2026/06/15 05:52:53 NOTICE: .smart-env/multi/trade-project_99_Repo_Exports_logs_app-2026-03-18_04-11-56_txt.ajson: Duplicate object found in destination - ignoring
+2026/06/15 05:52:53 NOTICE: .smart-env/multi/trade-project_99_Repo_Exports_logs_app-2026-03-18_04-42-53_txt.ajson: Duplicate object found in destination - ignoring
+2026/06/15 05:52:53 NOTICE: .smart-env/multi/trade-project_99_Repo_Exports_logs_app-2026-03-18_04-43-55_txt.ajson: Duplicate object found in destination - ignoring
+2026/06/15 05:52:53 NOTICE: .smart-env/multi/trade-project_99_Repo_Exports_logs_app-2026-03-18_04-44-51_txt.ajson: Duplicate object found in destination - ignoring
+2026/06/15 05:52:53 NOTICE: .smart-env/multi/trade-project_99_Repo_Exports_logs_app-2026-03-18_04-46-51_txt.ajson: Duplicate object found in destination - ignoring
+2026/06/15 05:52:53 NOTICE: .smart-env/multi/trade-project_99_Repo_Exports_logs_app-2026-03-18_04-47-53_txt.ajson: Duplicate object found in destination - ignoring
+2026/06/15 05:52:53 NOTICE: .smart-env/multi/trade-project_99_Repo_Exports_logs_app-2026-03-18_04-48-55_txt.ajson: Duplicate object found in destination - ignoring
+2026/06/15 05:52:53 NOTICE: .smart-env/multi/trade-project_99_Repo_Exports_logs_app-2026-03-18_04-49-56_txt.ajson: Duplicate object found in destination - ignoring
+2026/06/15 05:52:53 NOTICE: .smart-env/multi/trade-project_99_Repo_Exports_logs_app-2026-03-18_04-50-52_txt.ajson: Duplicate object found in destination - ignoring
+2026/06/15 05:52:53 NOTICE: .smart-env/multi/trade-project_99_Repo_Exports_logs_app-2026-03-18_04-51-52_txt.ajson: Duplicate object found in destination - ignoring
+2026/06/15 05:52:53 NOTICE: .smart-env/multi/trade-project_99_Repo_Exports_logs_app-2026-03-18_04-52-52_txt.ajson: Duplicate object found in destination - ignoring
+2026/06/15 05:52:53 NOTICE: .smart-env/multi/trade-project_99_Repo_Exports_logs_app-2026-03-18_04-53-53_txt.ajson: Duplicate object found in destination - ignoring
+2026/06/15 05:52:53 NOTICE: .smart-env/multi/trade-project_99_Repo_Exports_logs_app-2026-03-18_04-54-50_txt.ajson: Duplicate object found in destination - ignoring
+2026/06/15 05:52:53 NOTICE: .smart-env/multi/trade-project_99_Repo_Exports_logs_app-2026-03-18_04-55-48_txt.ajson: Duplicate object found in destination - ignoring
+2026/06/15 05:52:53 NOTICE: .smart-env/multi/trade-project_99_Repo_Exports_logs_app-2026-03-18_04-56-50_txt.ajson: Duplicate object found in destination - ignoring
+2026/06/15 05:52:53 NOTICE: .smart-env/multi/trade-project_99_Repo_Exports_logs_app-2026-03-18_04-57-50_txt.ajson: Duplicate object found in destination - ignoring
+2026/06/15 05:52:53 NOTICE: .smart-env/multi/trade-project_99_Repo_Exports_logs_app-2026-03-18_04-58-50_txt.ajson: Duplicate object found in destination - ignoring
+2026/06/15 05:52:53 NOTICE: .smart-env/multi/trade-project_99_Repo_Exports_logs_app-2026-03-18_06-28-52_txt.ajson: Duplicate object found in destination - ignoring
+2026/06/15 05:52:53 NOTICE: .smart-env/multi/trade-project_99_Repo_Exports_logs_app-2026-03-18_06-36-57_txt.ajson: Duplicate object found in destination - ignoring
+2026/06/15 05:52:53 NOTICE: .smart-env/multi/trade-project_99_Repo_Exports_logs_app-2026-03-18_06-37-06_txt.ajson: Duplicate object found in destination - ignoring
+2026/06/15 17:08:24 ERROR : .smart-env/multi/trade-project_99_Repo_Exports_logs_log-2026-04-09_22-09-48_txt.ajson: Failed to copy: Patch "https://www.googleapis.com/upload/drive/v3/files/11tvMj7wQfa7T08X1tRk0oRaUFpIfyKW6?alt=json&fields=id%2Cname%2Csize%2Cmd5Checksum%2Ctrashed%2CexplicitlyTrashed%2CmodifiedTime%2CcreatedTime%2CmimeType%2Cparents%2CwebViewLink%2CshortcutDetails%2CexportLinks%2CresourceKey&keepRevisionForever=false&prettyPrint=false&supportsAllDrives=true&uploadType=multipart": dial tcp: lookup www.googleapis.com on 1.1.1.1:53: read udp 192.168.1.109:45713->1.1.1.1:53: i/o timeout
+2026/06/15 17:08:57 ERROR : .smart-env/multi/trade-project_99_Repo_Exports_logs_log-2026-04-09_22-11-12_txt.ajson: Failed to copy: Patch "https://www.googleapis.com/upload/drive/v3/files/1p7kXhajldY5oMKevAfT6YVL637qxARx6?alt=json&fields=id%2Cname%2Csize%2Cmd5Checksum%2Ctrashed%2CexplicitlyTrashed%2CmodifiedTime%2CcreatedTime%2CmimeType%2Cparents%2CwebViewLink%2CshortcutDetails%2CexportLinks%2CresourceKey&keepRevisionForever=false&prettyPrint=false&supportsAllDrives=true&uploadType=multipart": dial tcp: lookup www.googleapis.com on 1.1.1.1:53: read udp 192.168.1.109:42000->1.1.1.1:53: i/o timeout
+2026/06/16 00:21:55 ERROR : Google drive root '': not deleting files as there were IO errors
+2026/06/16 00:21:55 ERROR : Google drive root '': not deleting directories as there were IO errors
+2026/06/16 00:21:55 ERROR : Attempt 1/3 failed with 2 errors and: Patch "https://www.googleapis.com/upload/drive/v3/files/1p7kXhajldY5oMKevAfT6YVL637qxARx6?alt=json&fields=id%2Cname%2Csize%2Cmd5Checksum%2Ctrashed%2CexplicitlyTrashed%2CmodifiedTime%2CcreatedTime%2CmimeType%2Cparents%2CwebViewLink%2CshortcutDetails%2CexportLinks%2CresourceKey&keepRevisionForever=false&prettyPrint=false&supportsAllDrives=true&uploadType=multipart": dial tcp: lookup www.googleapis.com on 1.1.1.1:53: read udp 192.168.1.109:42000->1.1.1.1:53: i/o timeout
+2026/06/16 00:33:23 ERROR : trade-project/99_Repo_Exports/reference/platform_metrics_artifacts/observability: error reading destination directory: couldn't list directory: googleapi: Error 403: Quota exceeded for quota metric 'Queries' and limit 'Queries per minute' of service 'drive.googleapis.com' for consumer 'project_number:202264815644'.
+Details:
+[
+  {
+    "@type": "type.googleapis.com/google.rpc.ErrorInfo",
+    "domain": "googleapis.com",
+    "metadata": {
+      "consumer": "projects/202264815644",
+      "quota_limit": "defaultPerMinutePerProject",
+      "quota_limit_value": "840000",
+      "quota_location": "global",
+      "quota_metric": "drive.googleapis.com/default",
+      "quota_unit": "1/min/{project}",
+      "service": "drive.googleapis.com"
+    },
+    "reason": "RATE_LIMIT_EXCEEDED"
+  },
+  {
+    "@type": "type.googleapis.com/google.rpc.Help",
+    "links": [
+      {
+        "description": "Request a higher quota limit.",
+        "url": "https://cloud.google.com/docs/quotas/help/request_increase"
+      }
+    ]
+  }
+]
+, rateLimitExceeded
+2026/06/16 00:36:01 NOTICE: .smart-env/multi/99_Repo_Exports_logs_app-2026-03-12_23-22-37_txt.ajson: Duplicate object found in destination - ignoring
+2026/06/16 00:36:01 NOTICE: .smart-env/multi/99_Repo_Exports_logs_app-2026-03-13_07-25-10_txt.ajson: Duplicate object found in destination - ignoring
+2026/06/16 00:36:01 NOTICE: .smart-env/multi/99_Repo_Exports_logs_app-2026-03-13_07-30-27_txt.ajson: Duplicate object found in destination - ignoring
+2026/06/16 00:36:01 NOTICE: .smart-env/multi/99_Repo_Exports_logs_app-2026-03-13_07-30-56_txt.ajson: Duplicate object found in destination - ignoring
+2026/06/16 00:36:01 NOTICE: .smart-env/multi/99_Repo_Exports_logs_app-2026-03-13_07-49-55_txt.ajson: Duplicate object found in destination - ignoring
+2026/06/16 00:36:01 NOTICE: .smart-env/multi/trade-project_99_Repo_Exports_logs_app-2026-03-08_21-14-57_txt.ajson: Duplicate object found in destination - ignoring
+2026/06/16 00:36:01 NOTICE: .smart-env/multi/trade-project_99_Repo_Exports_logs_app-2026-03-08_21-55-41_txt.ajson: Duplicate object found in destination - ignoring
+2026/06/16 00:36:01 NOTICE: .smart-env/multi/trade-project_99_Repo_Exports_logs_app-2026-03-08_21-56-07_txt.ajson: Duplicate object found in destination - ignoring
+2026/06/16 00:36:01 NOTICE: .smart-env/multi/trade-project_99_Repo_Exports_logs_app-2026-03-08_21-56-28_txt.ajson: Duplicate object found in destination - ignoring
+2026/06/16 00:36:01 NOTICE: .smart-env/multi/trade-project_99_Repo_Exports_logs_app-2026-03-08_21-56-50_txt.ajson: Duplicate object found in destination - ignoring
+2026/06/16 00:36:01 NOTICE: .smart-env/multi/trade-project_99_Repo_Exports_logs_app-2026-03-08_21-57-14_txt.ajson: Duplicate object found in destination - ignoring
+2026/06/16 00:36:01 NOTICE: .smart-env/multi/trade-project_99_Repo_Exports_logs_app-2026-03-18_03-30-47_txt.ajson: Duplicate object found in destination - ignoring
+2026/06/16 00:36:01 NOTICE: .smart-env/multi/trade-project_99_Repo_Exports_logs_app-2026-03-18_03-47-32_txt.ajson: Duplicate object found in destination - ignoring
+2026/06/16 00:36:01 NOTICE: .smart-env/multi/trade-project_99_Repo_Exports_logs_app-2026-03-18_03-54-59_txt.ajson: Duplicate object found in destination - ignoring
+2026/06/16 00:36:01 NOTICE: .smart-env/multi/trade-project_99_Repo_Exports_logs_app-2026-03-18_04-04-22_txt.ajson: Duplicate object found in destination - ignoring
+2026/06/16 00:36:01 NOTICE: .smart-env/multi/trade-project_99_Repo_Exports_logs_app-2026-03-18_04-11-56_txt.ajson: Duplicate object found in destination - ignoring
+2026/06/16 00:36:01 NOTICE: .smart-env/multi/trade-project_99_Repo_Exports_logs_app-2026-03-18_04-42-53_txt.ajson: Duplicate object found in destination - ignoring
+2026/06/16 00:36:01 NOTICE: .smart-env/multi/trade-project_99_Repo_Exports_logs_app-2026-03-18_04-43-55_txt.ajson: Duplicate object found in destination - ignoring
+2026/06/16 00:36:01 NOTICE: .smart-env/multi/trade-project_99_Repo_Exports_logs_app-2026-03-18_04-44-51_txt.ajson: Duplicate object found in destination - ignoring
+2026/06/16 00:36:01 NOTICE: .smart-env/multi/trade-project_99_Repo_Exports_logs_app-2026-03-18_04-46-51_txt.ajson: Duplicate object found in destination - ignoring
+2026/06/16 00:36:01 NOTICE: .smart-env/multi/trade-project_99_Repo_Exports_logs_app-2026-03-18_04-47-53_txt.ajson: Duplicate object found in destination - ignoring
+2026/06/16 00:36:01 NOTICE: .smart-env/multi/trade-project_99_Repo_Exports_logs_app-2026-03-18_04-48-55_txt.ajson: Duplicate object found in destination - ignoring
+2026/06/16 00:36:01 NOTICE: .smart-env/multi/trade-project_99_Repo_Exports_logs_app-2026-03-18_04-49-56_txt.ajson: Duplicate object found in destination - ignoring
+2026/06/16 00:36:01 NOTICE: .smart-env/multi/trade-project_99_Repo_Exports_logs_app-2026-03-18_04-50-52_txt.ajson: Duplicate object found in destination - ignoring
+2026/06/16 00:36:01 NOTICE: .smart-env/multi/trade-project_99_Repo_Exports_logs_app-2026-03-18_04-51-52_txt.ajson: Duplicate object found in destination - ignoring
+2026/06/16 00:36:01 NOTICE: .smart-env/multi/trade-project_99_Repo_Exports_logs_app-2026-03-18_04-52-52_txt.ajson: Duplicate object found in destination - ignoring
+2026/06/16 00:36:01 NOTICE: .smart-env/multi/trade-project_99_Repo_Exports_logs_app-2026-03-18_04-53-53_txt.ajson: Duplicate object found in destination - ignoring
+2026/06/16 00:36:01 NOTICE: .smart-env/multi/trade-project_99_Repo_Exports_logs_app-2026-03-18_04-54-50_txt.ajson: Duplicate object found in destination - ignoring
+2026/06/16 00:36:01 NOTICE: .smart-env/multi/trade-project_99_Repo_Exports_logs_app-2026-03-18_04-55-48_txt.ajson: Duplicate object found in destination - ignoring
+2026/06/16 00:36:01 NOTICE: .smart-env/multi/trade-project_99_Repo_Exports_logs_app-2026-03-18_04-56-50_txt.ajson: Duplicate object found in destination - ignoring
+2026/06/16 00:36:01 NOTICE: .smart-env/multi/trade-project_99_Repo_Exports_logs_app-2026-03-18_04-57-50_txt.ajson: Duplicate object found in destination - ignoring
+2026/06/16 00:36:01 NOTICE: .smart-env/multi/trade-project_99_Repo_Exports_logs_app-2026-03-18_04-58-50_txt.ajson: Duplicate object found in destination - ignoring
+2026/06/16 00:36:01 NOTICE: .smart-env/multi/trade-project_99_Repo_Exports_logs_app-2026-03-18_06-28-52_txt.ajson: Duplicate object found in destination - ignoring
+2026/06/16 00:36:01 NOTICE: .smart-env/multi/trade-project_99_Repo_Exports_logs_app-2026-03-18_06-36-57_txt.ajson: Duplicate object found in destination - ignoring
+2026/06/16 00:36:01 NOTICE: .smart-env/multi/trade-project_99_Repo_Exports_logs_app-2026-03-18_06-37-06_txt.ajson: Duplicate object found in destination - ignoring
+2026/06/16 00:42:53 ERROR : Google drive root '': not deleting files as there were IO errors
+2026/06/16 00:42:53 ERROR : Google drive root '': not deleting directories as there were IO errors
+2026/06/16 00:42:53 ERROR : Attempt 2/3 failed with 1 errors and: couldn't list directory: googleapi: Error 403: Quota exceeded for quota metric 'Queries' and limit 'Queries per minute' of service 'drive.googleapis.com' for consumer 'project_number:202264815644'.
+Details:
+[
+  {
+    "@type": "type.googleapis.com/google.rpc.ErrorInfo",
+    "domain": "googleapis.com",
+    "metadata": {
+      "consumer": "projects/202264815644",
+      "quota_limit": "defaultPerMinutePerProject",
+      "quota_limit_value": "840000",
+      "quota_location": "global",
+      "quota_metric": "drive.googleapis.com/default",
+      "quota_unit": "1/min/{project}",
+      "service": "drive.googleapis.com"
+    },
+    "reason": "RATE_LIMIT_EXCEEDED"
+  },
+  {
+    "@type": "type.googleapis.com/google.rpc.Help",
+    "links": [
+      {
+        "description": "Request a higher quota limit.",
+        "url": "https://cloud.google.com/docs/quotas/help/request_increase"
+      }
+    ]
+  }
+]
+, rateLimitExceeded
+2026/06/16 00:48:27 ERROR : trade-project/99_Repo_Exports/bot-nest/node_modules/class-validator/esm2015/decorator/object: error reading destination directory: couldn't list directory: googleapi: Error 403: Quota exceeded for quota metric 'Queries' and limit 'Queries per minute' of service 'drive.googleapis.com' for consumer 'project_number:202264815644'.
+Details:
+[
+  {
+    "@type": "type.googleapis.com/google.rpc.ErrorInfo",
+    "domain": "googleapis.com",
+    "metadata": {
+      "consumer": "projects/202264815644",
+      "quota_limit": "defaultPerMinutePerProject",
+      "quota_limit_value": "840000",
+      "quota_location": "global",
+      "quota_metric": "drive.googleapis.com/default",
+      "quota_unit": "1/min/{project}",
+      "service": "drive.googleapis.com"
+    },
+    "reason": "RATE_LIMIT_EXCEEDED"
+  },
+  {
+    "@type": "type.googleapis.com/google.rpc.Help",
+    "links": [
+      {
+        "description": "Request a higher quota limit.",
+        "url": "https://cloud.google.com/docs/quotas/help/request_increase"
+      }
+    ]
+  }
+]
+, rateLimitExceeded
+2026/06/16 00:53:01 NOTICE: .smart-env/multi/99_Repo_Exports_logs_app-2026-03-12_23-22-37_txt.ajson: Duplicate object found in destination - ignoring
+2026/06/16 00:53:01 NOTICE: .smart-env/multi/99_Repo_Exports_logs_app-2026-03-13_07-25-10_txt.ajson: Duplicate object found in destination - ignoring
+2026/06/16 00:53:01 NOTICE: .smart-env/multi/99_Repo_Exports_logs_app-2026-03-13_07-30-27_txt.ajson: Duplicate object found in destination - ignoring
+2026/06/16 00:53:01 NOTICE: .smart-env/multi/99_Repo_Exports_logs_app-2026-03-13_07-30-56_txt.ajson: Duplicate object found in destination - ignoring
+2026/06/16 00:53:01 NOTICE: .smart-env/multi/99_Repo_Exports_logs_app-2026-03-13_07-49-55_txt.ajson: Duplicate object found in destination - ignoring
+2026/06/16 00:53:01 NOTICE: .smart-env/multi/trade-project_99_Repo_Exports_logs_app-2026-03-08_21-14-57_txt.ajson: Duplicate object found in destination - ignoring
+2026/06/16 00:53:01 NOTICE: .smart-env/multi/trade-project_99_Repo_Exports_logs_app-2026-03-08_21-55-41_txt.ajson: Duplicate object found in destination - ignoring
+2026/06/16 00:53:01 NOTICE: .smart-env/multi/trade-project_99_Repo_Exports_logs_app-2026-03-08_21-56-07_txt.ajson: Duplicate object found in destination - ignoring
+2026/06/16 00:53:01 NOTICE: .smart-env/multi/trade-project_99_Repo_Exports_logs_app-2026-03-08_21-56-28_txt.ajson: Duplicate object found in destination - ignoring
+2026/06/16 00:53:01 NOTICE: .smart-env/multi/trade-project_99_Repo_Exports_logs_app-2026-03-08_21-56-50_txt.ajson: Duplicate object found in destination - ignoring
+2026/06/16 00:53:01 NOTICE: .smart-env/multi/trade-project_99_Repo_Exports_logs_app-2026-03-08_21-57-14_txt.ajson: Duplicate object found in destination - ignoring
+2026/06/16 00:53:01 NOTICE: .smart-env/multi/trade-project_99_Repo_Exports_logs_app-2026-03-18_03-30-47_txt.ajson: Duplicate object found in destination - ignoring
+2026/06/16 00:53:01 NOTICE: .smart-env/multi/trade-project_99_Repo_Exports_logs_app-2026-03-18_03-47-32_txt.ajson: Duplicate object found in destination - ignoring
+2026/06/16 00:53:01 NOTICE: .smart-env/multi/trade-project_99_Repo_Exports_logs_app-2026-03-18_03-54-59_txt.ajson: Duplicate object found in destination - ignoring
+2026/06/16 00:53:01 NOTICE: .smart-env/multi/trade-project_99_Repo_Exports_logs_app-2026-03-18_04-04-22_txt.ajson: Duplicate object found in destination - ignoring
+2026/06/16 00:53:01 NOTICE: .smart-env/multi/trade-project_99_Repo_Exports_logs_app-2026-03-18_04-11-56_txt.ajson: Duplicate object found in destination - ignoring
+2026/06/16 00:53:01 NOTICE: .smart-env/multi/trade-project_99_Repo_Exports_logs_app-2026-03-18_04-42-53_txt.ajson: Duplicate object found in destination - ignoring
+2026/06/16 00:53:01 NOTICE: .smart-env/multi/trade-project_99_Repo_Exports_logs_app-2026-03-18_04-43-55_txt.ajson: Duplicate object found in destination - ignoring
+2026/06/16 00:53:01 NOTICE: .smart-env/multi/trade-project_99_Repo_Exports_logs_app-2026-03-18_04-44-51_txt.ajson: Duplicate object found in destination - ignoring
+2026/06/16 00:53:01 NOTICE: .smart-env/multi/trade-project_99_Repo_Exports_logs_app-2026-03-18_04-46-51_txt.ajson: Duplicate object found in destination - ignoring
+2026/06/16 00:53:01 NOTICE: .smart-env/multi/trade-project_99_Repo_Exports_logs_app-2026-03-18_04-47-53_txt.ajson: Duplicate object found in destination - ignoring
+2026/06/16 00:53:01 NOTICE: .smart-env/multi/trade-project_99_Repo_Exports_logs_app-2026-03-18_04-48-55_txt.ajson: Duplicate object found in destination - ignoring
+2026/06/16 00:53:01 NOTICE: .smart-env/multi/trade-project_99_Repo_Exports_logs_app-2026-03-18_04-49-56_txt.ajson: Duplicate object found in destination - ignoring
+2026/06/16 00:53:01 NOTICE: .smart-env/multi/trade-project_99_Repo_Exports_logs_app-2026-03-18_04-50-52_txt.ajson: Duplicate object found in destination - ignoring
+2026/06/16 00:53:01 NOTICE: .smart-env/multi/trade-project_99_Repo_Exports_logs_app-2026-03-18_04-51-52_txt.ajson: Duplicate object found in destination - ignoring
+2026/06/16 00:53:01 NOTICE: .smart-env/multi/trade-project_99_Repo_Exports_logs_app-2026-03-18_04-52-52_txt.ajson: Duplicate object found in destination - ignoring
+2026/06/16 00:53:01 NOTICE: .smart-env/multi/trade-project_99_Repo_Exports_logs_app-2026-03-18_04-53-53_txt.ajson: Duplicate object found in destination - ignoring
+2026/06/16 00:53:01 NOTICE: .smart-env/multi/trade-project_99_Repo_Exports_logs_app-2026-03-18_04-54-50_txt.ajson: Duplicate object found in destination - ignoring
+2026/06/16 00:53:01 NOTICE: .smart-env/multi/trade-project_99_Repo_Exports_logs_app-2026-03-18_04-55-48_txt.ajson: Duplicate object found in destination - ignoring
+2026/06/16 00:53:01 NOTICE: .smart-env/multi/trade-project_99_Repo_Exports_logs_app-2026-03-18_04-56-50_txt.ajson: Duplicate object found in destination - ignoring
+2026/06/16 00:53:01 NOTICE: .smart-env/multi/trade-project_99_Repo_Exports_logs_app-2026-03-18_04-57-50_txt.ajson: Duplicate object found in destination - ignoring
+2026/06/16 00:53:01 NOTICE: .smart-env/multi/trade-project_99_Repo_Exports_logs_app-2026-03-18_04-58-50_txt.ajson: Duplicate object found in destination - ignoring
+2026/06/16 00:53:01 NOTICE: .smart-env/multi/trade-project_99_Repo_Exports_logs_app-2026-03-18_06-28-52_txt.ajson: Duplicate object found in destination - ignoring
+2026/06/16 00:53:01 NOTICE: .smart-env/multi/trade-project_99_Repo_Exports_logs_app-2026-03-18_06-36-57_txt.ajson: Duplicate object found in destination - ignoring
+2026/06/16 00:53:01 NOTICE: .smart-env/multi/trade-project_99_Repo_Exports_logs_app-2026-03-18_06-37-06_txt.ajson: Duplicate object found in destination - ignoring
+2026/06/16 00:56:21 ERROR : trade-project/99_Repo_Exports/python-worker/reference/services/telegram: error reading destination directory: couldn't list directory: googleapi: Error 403: Quota exceeded for quota metric 'Queries' and limit 'Queries per minute' of service 'drive.googleapis.com' for consumer 'project_number:202264815644'.
+Details:
+[
+  {
+    "@type": "type.googleapis.com/google.rpc.ErrorInfo",
+    "domain": "googleapis.com",
+    "metadata": {
+      "consumer": "projects/202264815644",
+      "quota_limit": "defaultPerMinutePerProject",
+      "quota_limit_value": "840000",
+      "quota_location": "global",
+      "quota_metric": "drive.googleapis.com/default",
+      "quota_unit": "1/min/{project}",
+      "service": "drive.googleapis.com"
+    },
+    "reason": "RATE_LIMIT_EXCEEDED"
+  },
+  {
+    "@type": "type.googleapis.com/google.rpc.Help",
+    "links": [
+      {
+        "description": "Request a higher quota limit.",
+        "url": "https://cloud.google.com/docs/quotas/help/request_increase"
+      }
+    ]
+  }
+]
+, rateLimitExceeded
+2026/06/16 01:00:40 ERROR : Google drive root '': not deleting files as there were IO errors
+2026/06/16 01:00:40 ERROR : Google drive root '': not deleting directories as there were IO errors
+2026/06/16 01:00:40 ERROR : Attempt 3/3 failed with 3 errors and: march failed with 2 error(s): first error: couldn't list directory: googleapi: Error 403: Quota exceeded for quota metric 'Queries' and limit 'Queries per minute' of service 'drive.googleapis.com' for consumer 'project_number:202264815644'.
+Details:
+[
+  {
+    "@type": "type.googleapis.com/google.rpc.ErrorInfo",
+    "domain": "googleapis.com",
+    "metadata": {
+      "consumer": "projects/202264815644",
+      "quota_limit": "defaultPerMinutePerProject",
+      "quota_limit_value": "840000",
+      "quota_location": "global",
+      "quota_metric": "drive.googleapis.com/default",
+      "quota_unit": "1/min/{project}",
+      "service": "drive.googleapis.com"
+    },
+    "reason": "RATE_LIMIT_EXCEEDED"
+  },
+  {
+    "@type": "type.googleapis.com/google.rpc.Help",
+    "links": [
+      {
+        "description": "Request a higher quota limit.",
+        "url": "https://cloud.google.com/docs/quotas/help/request_increase"
+      }
+    ]
+  }
+]
+, rateLimitExceeded
+2026/06/16 01:00:40 Failed to sync with 3 errors: last error was: march failed with 2 error(s): first error: couldn't list directory: googleapi: Error 403: Quota exceeded for quota metric 'Queries' and limit 'Queries per minute' of service 'drive.googleapis.com' for consumer 'project_number:202264815644'.
+Details:
+[
+  {
+    "@type": "type.googleapis.com/google.rpc.ErrorInfo",
+    "domain": "googleapis.com",
+    "metadata": {
+      "consumer": "projects/202264815644",
+      "quota_limit": "defaultPerMinutePerProject",
+      "quota_limit_value": "840000",
+      "quota_location": "global",
+      "quota_metric": "drive.googleapis.com/default",
+      "quota_unit": "1/min/{project}",
+      "service": "drive.googleapis.com"
+    },
+    "reason": "RATE_LIMIT_EXCEEDED"
+  },
+  {
+    "@type": "type.googleapis.com/google.rpc.Help",
+    "links": [
+      {
+        "description": "Request a higher quota limit.",
+        "url": "https://cloud.google.com/docs/quotas/help/request_increase"
+      }
+    ]
+  }
+]
+, rateLimitExceeded
+2026-06-16 01:00:40 - Ошибка при выполнении rclone sync.
+2026-06-16 05:45:01 - Запуск скрипта синхронизации...
