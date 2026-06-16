@@ -1,0 +1,6 @@
+=== START 2026-06-16T05:53:38+03:00 ===
+cannot delete non-empty directory: packages/policy/python
+05:53:38 - Экспорт markdown из репозитория завершён (1173 файлов).
+05:53:38 - Индекс-заметка обновлена: /home/alex/Apps/Obsidian/trade-vault/social-ai-project/00_Index/social-ai-index.md
+05:53:38 - Запуск auto_sync.sh (git push + rclone)...
+2026-06-16 05:53:38 - Запуск скрипта синхронизации...

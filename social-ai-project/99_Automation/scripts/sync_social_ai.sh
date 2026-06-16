@@ -26,13 +26,14 @@ fi
 
 # --- 1. Экспорт markdown из репозитория в vault (зеркало, с удалением исчезнувших) ---
 rsync -a --delete --prune-empty-dirs \
-    --include='*/' \
-    --include='*.md' \
     --exclude='.git/***' \
     --exclude='node_modules/***' \
     --exclude='.claude/***' \
     --exclude='.codex/***' \
     --exclude='.agent/***' \
+    --exclude='.pytest_cache/***' \
+    --include='*/' \
+    --include='*.md' \
     --exclude='*' \
     "$REPO_DIR/" "$EXPORT_DIR/"
 echo "$(date +'%T') - Экспорт markdown из репозитория завершён ($(find "$EXPORT_DIR" -name '*.md' | wc -l) файлов)."
